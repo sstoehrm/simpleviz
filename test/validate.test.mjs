@@ -139,3 +139,61 @@ test("duplicate box name: later one ignored", () => {
   assert.equal(g.boxes.length, 1);
   assert.equal(g.warnings.length, 1);
 });
+
+test("null or undefined edge entries are skipped with warning", () => {
+  const raw = base();
+  raw.edges = [null, undefined, {nodes: ["a", "b"]}];
+  const g = validate(raw);
+  assert.equal(g.edges.length, 1);
+  assert.equal(g.warnings.length, 2);
+});
+
+test("box components must be an array; number treated as invalid", () => {
+  const raw = base();
+  raw.boxes = [{name: "x", components: 42}];
+  const g = validate(raw);
+  assert.deepEqual(g.boxesByName.get("x").components, []);
+  assert.match(g.warnings[0], /:components/);
+});
+
+test("box components must be an array; string iterates as characters", () => {
+  const raw = base();
+  raw.boxes = [{name: "x", components: "abc"}];
+  const g = validate(raw);
+  assert.deepEqual(g.boxesByName.get("x").components, []);
+  assert.match(g.warnings[0], /:components/);
+});
+
+test("edges must be an array; object treated as invalid", () => {
+  const raw = {
+    nodes: {a: {}, b: {}},
+    edges: {0: {nodes: ["a", "b"]}},
+    boxes: [],
+  };
+  const g = validate(raw);
+  assert.deepEqual(g.edges, []);
+  assert.equal(g.warnings.length, 1);
+});
+
+test("boxes must be an array; object treated as invalid", () => {
+  const raw = {
+    nodes: {a: {}},
+    edges: [],
+    boxes: {0: {name: "x", components: ["a"]}},
+  };
+  const g = validate(raw);
+  assert.deepEqual(g.boxes, []);
+  assert.deepEqual(g.boxesByName.size, 0);
+  assert.equal(g.warnings.length, 1);
+});
+
+test("raw.nodes must be an object; array or null treated as invalid", () => {
+  const raw = {
+    nodes: [["a", {}]],
+    edges: [],
+    boxes: [],
+  };
+  const g = validate(raw);
+  assert.equal(g.nodes.size, 0);
+  assert.equal(g.warnings.length, 1);
+});

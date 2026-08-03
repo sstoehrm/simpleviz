@@ -8,19 +8,30 @@ export function validate(raw) {
   const warnings = [];
 
   const nodes = new Map();
-  for (const [key, val] of Object.entries(raw.nodes || {})) {
-    const attrs = val && typeof val === "object" ? val : {};
-    nodes.set(key, {
-      id: key,
-      name: attrs.name || key,
-      type: attrs.type || "",
-      attrs,
-    });
+  const rawNodes = raw.nodes;
+  if (rawNodes && typeof rawNodes === "object" && !Array.isArray(rawNodes)) {
+    for (const [key, val] of Object.entries(rawNodes)) {
+      const attrs = val && typeof val === "object" ? val : {};
+      nodes.set(key, {
+        id: key,
+        name: attrs.name || key,
+        type: attrs.type || "",
+        attrs,
+      });
+    }
+  } else if (rawNodes !== undefined && rawNodes !== null) {
+    warnings.push("raw data :nodes must be an object, skipped");
   }
 
   const edges = [];
-  (raw.edges || []).forEach((e, i) => {
-    const ends = e.nodes;
+  const rawEdges = raw.edges;
+  if (Array.isArray(rawEdges)) {
+    rawEdges.forEach((e, i) => {
+      if (!e || typeof e !== "object") {
+        warnings.push(`edge ${i}: invalid edge entry, skipped`);
+        return;
+      }
+      const ends = e.nodes;
     if (!Array.isArray(ends) || ends.length !== 2) {
       warnings.push(`edge ${i}: :nodes must be a vector of exactly 2 node names`);
       return;
@@ -46,29 +57,45 @@ export function validate(raw) {
       type: e.type || "",
       attrs: e,
     });
-  });
+    });
+  } else if (rawEdges !== undefined && rawEdges !== null) {
+    warnings.push("raw data :edges must be an array, skipped");
+  }
 
   const boxes = [];
   const boxesByName = new Map();
-  (raw.boxes || []).forEach((b, i) => {
-    if (!b || !b.name) {
-      warnings.push(`box ${i}: missing :name, skipped`);
-      return;
-    }
-    if (boxesByName.has(b.name)) {
-      warnings.push(`box "${b.name}": duplicate name, later definition skipped`);
-      return;
-    }
-    const box = {
-      id: `b:${b.name}`,
-      name: b.name,
-      type: b.type || "",
-      components: [...(b.components || [])],
-      attrs: b,
-    };
-    boxes.push(box);
-    boxesByName.set(b.name, box);
-  });
+  const rawBoxes = raw.boxes;
+  if (Array.isArray(rawBoxes)) {
+    rawBoxes.forEach((b, i) => {
+      if (!b || !b.name) {
+        warnings.push(`box ${i}: missing :name, skipped`);
+        return;
+      }
+      if (boxesByName.has(b.name)) {
+        warnings.push(`box "${b.name}": duplicate name, later definition skipped`);
+        return;
+      }
+      let components = [];
+      if (b.components) {
+        if (Array.isArray(b.components)) {
+          components = [...b.components];
+        } else {
+          warnings.push(`box "${b.name}": :components must be a collection, skipped`);
+        }
+      }
+      const box = {
+        id: `b:${b.name}`,
+        name: b.name,
+        type: b.type || "",
+        components,
+        attrs: b,
+      };
+      boxes.push(box);
+      boxesByName.set(b.name, box);
+    });
+  } else if (rawBoxes !== undefined && rawBoxes !== null) {
+    warnings.push("raw data :boxes must be an array, skipped");
+  }
 
   // Resolve memberships. ELK needs a strict hierarchy, so each component
   // may belong to at most one box — first box in file order wins.

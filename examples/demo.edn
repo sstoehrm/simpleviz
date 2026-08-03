@@ -1,0 +1,18 @@
+{:nodes {"web"    {:name "Web UI"   :type "frontend" :framework "htmx" :role [:active]}
+         "api"    {:name "API"      :type "service"  :lang "clojure" :replicas 3}
+         "auth"   {:name "Auth"     :type "service"}
+         "db"     {:name "Postgres" :type "database" :version "16"}
+         "cache"  {:name "Redis"    :type "cache"}
+         "worker" {:name "Worker"   :type "service"}
+         "queue"  {:name "Queue"    :type "queue"}
+         "mail"   {:name "Mailer"   :type "external" :provider "ses"}}
+ :edges [{:nodes ["web" "api"]      :direction :->  :name "REST"    :type "http" :auth "bearer"}
+         {:nodes ["api" "db"]       :direction :->  :name "queries" :type "sql"}
+         {:nodes ["api" "cache"]    :direction :<-> :name "session" :type "resp"}
+         {:nodes ["queue" "api"]    :direction :<-  :name "publish" :type "amqp"}
+         {:nodes ["worker" "queue"] :direction :->  :name "consume" :type "amqp"}
+         {:nodes ["worker" "mail"]  :direction :->  :name "send"    :type "smtp"}
+         {:nodes ["api" "auth"]     :direction :-   :name "trust"}]
+ :boxes [{:name "backend" :type "zone" :components #{"api" "auth" "storage" "worker" "queue"}
+          :owner "platform-team"}
+         {:name "storage" :type "zone" :components #{"db" "cache"}}]}

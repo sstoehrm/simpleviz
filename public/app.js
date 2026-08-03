@@ -32,7 +32,12 @@ function showDetails(sel) {
   if (sel.subtitle) {
     const sub = document.createElement("div");
     sub.className = "details-type";
-    sub.textContent = `(${sel.subtitle})`;
+    sub.textContent = `(${sel.subtitle}) — ${sel.kind}`;
+    details.append(sub);
+  } else {
+    const sub = document.createElement("div");
+    sub.className = "details-type";
+    sub.textContent = sel.kind;
     details.append(sub);
   }
   const dl = document.createElement("dl");
@@ -66,14 +71,23 @@ async function reload() {
 
 let lastMtime = null;
 async function tick() {
+  let mtime;
   try {
-    const {mtime} = await (await fetch("/api/version")).json();
-    if (mtime !== lastMtime) {
-      lastMtime = mtime;
-      await reload();
-    }
+    const response = await fetch("/api/version");
+    ({mtime} = await response.json());
   } catch {
     // server briefly unreachable — retry on next tick
+    return;
+  }
+  if (mtime !== lastMtime) {
+    lastMtime = mtime;
+    try {
+      await reload();
+    } catch (err) {
+      showBanner("error", [`Render error: ${err.message}`]);
+      console.error("Reload failed:", err);
+      lastMtime = null; // retry on next tick
+    }
   }
 }
 

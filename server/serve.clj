@@ -42,7 +42,10 @@
                                      "application/octet-stream")
                  "Cache-Control" "no-store"}
        :body file}
-      {:status 404 :body "not found"})))
+      {:status 404
+       :headers {"Content-Type" "text/plain; charset=utf-8"
+                 "Cache-Control" "no-store"}
+       :body "not found"})))
 
 (defn handler [{:keys [uri]}]
   (case uri

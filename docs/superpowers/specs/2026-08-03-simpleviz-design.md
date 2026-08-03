@@ -129,9 +129,9 @@ test/server_test.clj   ; bb test for EDN→JSON conversion
 - `bb test` covers server EDN→JSON conversion incl. keyword/set handling and
   parse-error response.
 - Manual verification via `examples/demo.edn` exercising every feature:
-  nested boxes, all four directions, hidden attributes, and a color-collision
-  pair of types. The demo renders cleanly; broken-input behavior is covered by
-  the automated tests.
+  nested boxes, all four directions, hidden attributes, untyped elements.
+  The demo renders cleanly; broken-input and color-collision behavior are
+  covered by the automated tests.
 
 ## Out of scope (YAGNI)
 

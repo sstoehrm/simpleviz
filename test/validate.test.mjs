@@ -187,6 +187,23 @@ test("boxes must be an array; object treated as invalid", () => {
   assert.equal(g.warnings.length, 1);
 });
 
+test("numeric :name and :type are coerced to strings and don't throw", () => {
+  const raw = {
+    nodes: {a: {name: 42, type: 3}},
+    edges: [{nodes: ["a", "a"], name: 7, type: 9}],
+    boxes: [{name: "x", type: 5, components: ["a"]}],
+  };
+  const g = validate(raw);
+  assert.equal(g.nodes.get("a").name, "42");
+  assert.equal(typeof g.nodes.get("a").name, "string");
+  assert.equal(g.nodes.get("a").type, "3");
+  assert.equal(typeof g.nodes.get("a").type, "string");
+  assert.equal(g.edges[0].name, "7");
+  assert.equal(g.edges[0].type, "9");
+  assert.equal(g.boxesByName.get("x").type, "5");
+  assert.deepEqual(g.warnings, []);
+});
+
 test("raw.nodes must be an object; array or null treated as invalid", () => {
   const raw = {
     nodes: [["a", {}]],

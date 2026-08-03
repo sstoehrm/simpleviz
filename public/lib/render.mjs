@@ -57,6 +57,9 @@ export function setupPanZoom(svgEl) {
     if (drag && drag.moved) suppressClick = true;
     drag = null;
   });
+  svgEl.addEventListener("pointercancel", () => {
+    drag = null;
+  });
 }
 
 function midpoint(pts) {
@@ -155,12 +158,27 @@ export function render(svgEl, layout, graph, colors, onSelect) {
     layers.boxes.append(g);
   }
 
+  // With elk.hierarchyHandling=INCLUDE_CHILDREN, each edge carries a
+  // `container` property (an elk box id, or "root"/undefined) and its
+  // section coordinates are relative to that container's absolute
+  // origin, not the root. boxOrigins records each box's absolute {x,y}
+  // (as computed during the walk below) so drawEdge can offset points
+  // back into root/viewport space.
+  const boxOrigins = new Map();
+
   function drawEdge(elkEdge) {
     const e = edgesById.get(elkEdge.id);
-    const sec = (elkEdge.sections || [])[0];
-    if (!e || !sec) return;
-    const pts = [sec.startPoint, ...(sec.bendPoints || []), sec.endPoint];
-    const d = pts.map((p, i) => `${i ? "L" : "M"} ${p.x} ${p.y}`).join(" ");
+    const sections = elkEdge.sections || [];
+    if (!e || !sections.length) return;
+    const offset = boxOrigins.get(elkEdge.container) || {x: 0, y: 0};
+    const offsetPt = (p) => ({x: p.x + offset.x, y: p.y + offset.y});
+    const allPts = [];
+    const d = sections.map((sec) => {
+      const pts = [sec.startPoint, ...(sec.bendPoints || []), sec.endPoint]
+        .map(offsetPt);
+      allPts.push(...pts);
+      return pts.map((p, i) => `${i ? "L" : "M"} ${p.x} ${p.y}`).join(" ");
+    }).join(" ");
     const g = el("g", {class: "edge"});
     const path = el("path", {class: "edge-line", d, fill: "none"});
     if (e.arrows.target) path.setAttribute("marker-end", "url(#arrow)");
@@ -169,7 +187,7 @@ export function render(svgEl, layout, graph, colors, onSelect) {
     g.append(el("path", {class: "edge-hit", d, fill: "none"}));
     const text = [e.name, e.type ? `(${e.type})` : ""].filter(Boolean).join(" ");
     if (text) {
-      const mid = midpoint(pts);
+      const mid = midpoint(allPts);
       g.append(el("text", {
         class: "edge-label", x: mid.x, y: mid.y - 5, "text-anchor": "middle",
       }, text));
@@ -185,6 +203,7 @@ export function render(svgEl, layout, graph, colors, onSelect) {
       const x = ox + child.x;
       const y = oy + child.y;
       if (child.id.startsWith("b:")) {
+        boxOrigins.set(child.id, {x, y});
         drawBox(child, x, y);
         walk(child, x, y);
       } else {

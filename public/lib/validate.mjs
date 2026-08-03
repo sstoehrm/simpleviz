@@ -14,8 +14,8 @@ export function validate(raw) {
       const attrs = val && typeof val === "object" ? val : {};
       nodes.set(key, {
         id: key,
-        name: attrs.name || key,
-        type: attrs.type || "",
+        name: String(attrs.name ?? key),
+        type: String(attrs.type ?? ""),
         attrs,
       });
     }
@@ -53,8 +53,8 @@ export function validate(raw) {
       source,
       target,
       arrows: {source: dir === "<->", target: dir !== "-"},
-      name: e.name || "",
-      type: e.type || "",
+      name: String(e.name ?? ""),
+      type: String(e.type ?? ""),
       attrs: e,
     });
     });
@@ -85,8 +85,8 @@ export function validate(raw) {
       }
       const box = {
         id: `b:${b.name}`,
-        name: b.name,
-        type: b.type || "",
+        name: String(b.name),
+        type: String(b.type ?? ""),
         components,
         attrs: b,
       };

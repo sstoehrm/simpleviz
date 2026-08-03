@@ -49,7 +49,11 @@
 
 (defn handler [{:keys [uri]}]
   (case uri
-    "/api/graph"   (json-response (edn->json (slurp @edn-file)))
+    "/api/graph"   (json-response
+                    (try
+                      (edn->json (slurp @edn-file))
+                      (catch Exception e
+                        (json/generate-string {:error (ex-message e)}))))
     "/api/version" (json-response (json/generate-string
                                    {:mtime (.lastModified (io/file @edn-file))}))
     (static-response uri)))

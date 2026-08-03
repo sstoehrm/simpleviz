@@ -8,6 +8,6 @@
             :task (let [{:keys [fail error]} (t/run-tests 'server-test)]
                     (when (pos? (+ fail error)) (System/exit 1)))}
   test:js  {:doc "Run JS unit tests"
-            :task (shell "node --test 'test/*.test.mjs'")}
+            :task (shell "node --test")}
   test     {:doc "Run all tests"
             :depends [test:clj test:js]}}}

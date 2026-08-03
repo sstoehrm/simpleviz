@@ -22,10 +22,25 @@ function showBanner(kind, lines) {
     : null;
 }
 
+function closeDetails() {
+  svg.querySelectorAll(".selected").forEach(n => n.classList.remove("selected"));
+  showDetails(null);
+}
+
 function showDetails(sel) {
   if (!sel) { details.hidden = true; return; }
   details.hidden = false;
   details.textContent = "";
+  const close = document.createElement("button");
+  close.className = "details-close";
+  close.type = "button";
+  close.setAttribute("aria-label", "Close details");
+  close.textContent = "×";
+  close.addEventListener("click", (e) => {
+    e.stopPropagation();
+    closeDetails();
+  });
+  details.append(close);
   const h = document.createElement("h2");
   h.textContent = sel.title;
   details.append(h);

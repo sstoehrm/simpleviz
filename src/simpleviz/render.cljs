@@ -42,23 +42,25 @@
   [wrap]
   (.addEventListener wrap "wheel"
     (fn [e]
-      (.preventDefault e)
-      (let [factor (if (< (.-deltaY e) 0) 1.1 (/ 1 1.1))
-            rect (.getBoundingClientRect wrap)
-            mx (- (.-clientX e) (.-left rect))
-            my (- (.-clientY e) (.-top rect))]
-        (assoc! view
-                :x (- mx (* (- mx (:x view)) factor))
-                :y (- my (* (- my (:y view)) factor))
-                :k (* (:k view) factor))
-        (apply-view!)))
+      (when-not (.closest (.-target e) "#details, #banner")
+        (.preventDefault e)
+        (let [factor (if (< (.-deltaY e) 0) 1.1 (/ 1 1.1))
+              rect (.getBoundingClientRect wrap)
+              mx (- (.-clientX e) (.-left rect))
+              my (- (.-clientY e) (.-top rect))]
+          (assoc! view
+                  :x (- mx (* (- mx (:x view)) factor))
+                  :y (- my (* (- my (:y view)) factor))
+                  :k (* (:k view) factor))
+          (apply-view!))))
     {:passive false})
   (let [drag (atom nil)]
     (.addEventListener wrap "pointerdown"
       (fn [e]
-        (reset! drag {:x (.-clientX e) :y (.-clientY e)
-                      :vx (:x view) :vy (:y view) :moved false})
-        (.setPointerCapture wrap (.-pointerId e))))
+        (when-not (.closest (.-target e) "#details, #banner")
+          (reset! drag {:x (.-clientX e) :y (.-clientY e)
+                        :vx (:x view) :vy (:y view) :moved false})
+          (.setPointerCapture wrap (.-pointerId e)))))
     (.addEventListener wrap "pointermove"
       (fn [e]
         (when-let [d @drag]

@@ -140,6 +140,13 @@
       (assert/equal (.-length links) 1)
       (assert/ok (>= (.-length (:warnings g)) 1)))))
 
+(test "box with empty :name is skipped with warning"
+  (fn []
+    (let [g (validate (assoc (base) :boxes [{:name "" :components ["a"]}]))]
+      (assert/equal (.-length (:boxes g)) 0)
+      (assert/equal (.-length (:warnings g)) 1)
+      (assert/match (nth (:warnings g) 0) (js/RegExp. "missing :name")))))
+
 (test "duplicate box name: later one ignored"
   (fn []
     (let [g (validate (assoc (base) :boxes [{:name "x" :components ["a"]}

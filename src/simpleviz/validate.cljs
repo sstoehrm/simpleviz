@@ -68,7 +68,7 @@
         boxes-by-name (atom {})
         _ (doseq [[i b] (map-indexed vector raw-boxes)]
             (cond
-              (or (not (plain-map? b)) (nil? (:name b)))
+              (or (not (plain-map? b)) (zero? (.-length (->str (:name b) ""))))
               (warn! (str "box " i ": missing :name, skipped"))
 
               (some? (get @boxes-by-name (->str (:name b) "")))

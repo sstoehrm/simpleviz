@@ -17,7 +17,7 @@
 
 (defn- details-view [sel]
   [:aside {:id "details"}
-   [:button {:id "details-close"
+   [:button {:id "details-close" :type "button" :aria-label "Close details"
              :on-click (fn [e] (.stopPropagation e) (on-select nil))}
     "×"]
    [:h2 (:title sel)]

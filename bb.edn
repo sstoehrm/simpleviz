@@ -19,8 +19,11 @@
                     (when (pos? (+ fail error)) (System/exit 1)))}
   test:js  {:doc "Run JS unit tests (compiled squint output)"
             :requires ([babashka.fs :as fs])
-            :task (apply shell "node" "--test"
-                         (map str (fs/glob "public/js/simpleviz" "*_test.mjs")))}
+            :task (let [files (map str (fs/glob "public/js/simpleviz" "*_test.mjs"))]
+                    (if (empty? files)
+                      (do (println "no compiled tests found — run bb build")
+                          (System/exit 1))
+                      (apply shell "node" "--test" files)))}
   test     {:doc "Run all tests"
             :depends [build test:clj test:js]}
   dev      {:doc "Compile, watch and serve (default examples/demo.edn)"

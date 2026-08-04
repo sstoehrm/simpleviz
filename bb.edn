@@ -17,7 +17,14 @@
             :requires ([clojure.test :as t] [server-test])
             :task (let [{:keys [fail error]} (t/run-tests 'server-test)]
                     (when (pos? (+ fail error)) (System/exit 1)))}
-  test:js  {:doc "Run JS unit tests"
-            :task (shell "node --test")}
+  test:js  {:doc "Run JS unit tests (compiled squint output)"
+            :requires ([babashka.fs :as fs])
+            :task (apply shell "node" "--test"
+                         (map str (fs/glob "public/js/simpleviz" "*_test.mjs")))}
   test     {:doc "Run all tests"
-            :depends [test:clj test:js]}}}
+            :depends [build test:clj test:js]}
+  dev      {:doc "Compile, watch and serve (default examples/demo.edn)"
+            :requires ([babashka.process :as p] [serve])
+            :task (do (run 'build)
+                      (p/process ["npx" "squint" "watch"] {:inherit true})
+                      (serve/-main (or (first *command-line-args*) "examples/demo.edn")))}}}

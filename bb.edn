@@ -1,0 +1,13 @@
+{:paths ["server" "test"]
+ :tasks
+ {serve    {:doc "Serve an EDN graph file: bb serve examples/demo.edn"
+            :requires ([serve])
+            :task (apply serve/-main *command-line-args*)}
+  test:clj {:doc "Run Clojure server tests"
+            :requires ([clojure.test :as t] [server-test])
+            :task (let [{:keys [fail error]} (t/run-tests 'server-test)]
+                    (when (pos? (+ fail error)) (System/exit 1)))}
+  test:js  {:doc "Run JS unit tests"
+            :task (shell "node --test")}
+  test     {:doc "Run all tests"
+            :depends [test:clj test:js]}}}

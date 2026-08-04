@@ -1,0 +1,42 @@
+* { box-sizing: border-box; }
+body { margin: 0; font-family: system-ui, sans-serif; overflow: hidden; }
+
+#canvas { position: fixed; inset: 0; width: 100vw; height: 100vh;
+          background: #fafafa; cursor: grab; }
+#canvas:active { cursor: grabbing; }
+
+#banner { position: fixed; top: 0; left: 0; right: 0; z-index: 10;
+          padding: 8px 14px; font-size: 13px; white-space: pre-line; }
+#banner.error   { background: #fde8e8; color: #9b1c1c; border-bottom: 1px solid #f8b4b4; }
+#banner.warning { background: #fdf6b2; color: #723b13; border-bottom: 1px solid #fce96a;
+                  cursor: pointer; }
+#banner.warning.collapsed { max-height: 2.3em; overflow: hidden; }
+
+#details { position: fixed; top: 0; right: 0; bottom: 0; width: 320px;
+           overflow: auto; background: #fff; border-left: 1px solid #ddd;
+           padding: 16px; z-index: 5; box-shadow: -2px 0 8px rgba(0,0,0,.06); }
+#details .details-close {
+  position: absolute; top: 8px; right: 10px; width: 24px; height: 24px;
+  border: none; background: none; color: #888; font-size: 18px;
+  line-height: 1; cursor: pointer; padding: 0; border-radius: 4px;
+}
+#details .details-close:hover { background: #f0f0f0; color: #222; }
+#details h2 { margin: 0 0 2px; font-size: 16px; padding-right: 24px; }
+#details .details-type { color: #666; font-size: 12px; margin-bottom: 12px; }
+#details dt { font-weight: 600; font-size: 12px; margin-top: 10px; color: #444; }
+#details dd { margin: 2px 0 0; font-size: 13px; white-space: pre-wrap;
+              font-family: ui-monospace, "Cascadia Mono", monospace; }
+
+/* SVG — fonts here must match NODE_FONT / SUB_FONT in transform.mjs */
+.node-bg   { fill: #fff; stroke: #ddd; }
+.node-name { font: bold 14px system-ui, sans-serif; }
+.node-sub  { font: 11px system-ui, sans-serif; fill: #888; }
+.box-name  { font: bold 13px system-ui, sans-serif; }
+.box-sub   { font-weight: normal; font-size: 11px; fill: #888; }
+.edge-line { stroke: #555; stroke-width: 1.5; }
+.edge-hit  { stroke: transparent; stroke-width: 12; pointer-events: stroke; }
+.edge-label { font: 11px system-ui, sans-serif; fill: #444;
+              paint-order: stroke; stroke: #fafafa; stroke-width: 3; }
+.selectable { cursor: pointer; }
+.selected .node-bg, .selected .box-bg { stroke: #2563eb; stroke-width: 2; }
+g.edge.selected .edge-line { stroke: #2563eb; stroke-width: 2.5; }

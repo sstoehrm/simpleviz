@@ -136,14 +136,18 @@
           (recur (inc i) (+ acc (nth segs i))))))))
 
 (defn- edge-view [elk-edge e origin on-select selected-id]
-  (let [pts (vec (mapcat (fn [sec]
-                           (mapv (fn [p] {:x (+ (:x p) (:x origin))
-                                          :y (+ (:y p) (:y origin))})
-                                 (section-points sec)))
-                         (or (:sections elk-edge) [])))
-        d (.join (vec (map-indexed
-                       (fn [i p] (str (if (zero? i) "M " "L ") (:x p) " " (:y p)))
-                       pts))
+  (let [sections (or (:sections elk-edge) [])
+        offset-pts (fn [sec]
+                     (mapv (fn [p] {:x (+ (:x p) (:x origin))
+                                    :y (+ (:y p) (:y origin))})
+                           (section-points sec)))
+        pts (vec (mapcat offset-pts sections))
+        d (.join (mapv (fn [sec]
+                         (.join (vec (map-indexed
+                                      (fn [i p] (str (if (zero? i) "M " "L ") (:x p) " " (:y p)))
+                                      (offset-pts sec)))
+                                " "))
+                       sections)
                  " ")
         label (.join (filterv (fn [s] (pos? (.-length s)))
                               [(:name e) (if (pos? (.-length (:type e)))

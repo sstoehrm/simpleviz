@@ -57,3 +57,14 @@
                    ;; the renderer must offset by the container's absolute origin — this
                    ;; documents the contract it relies on
                    (assert/equal (:container (nth (:edges layout) 0)) "b:grp")))))))
+
+(test "ELK returns label coordinates for labeled edges"
+  (fn []
+    (let [g (graph {:nodes {"a" (node "a" "") "b" (node "b" "")}
+                    :edges [(assoc (edge 0 "a" "b" {:source false :target true})
+                                   :name "calls" :type "http")]})]
+      (-> (.layout (ELK.) (to-elk g measure))
+          (.then (fn [layout]
+                   (let [lbl (first (:labels (first (:edges layout))))]
+                     (assert/ok lbl "label present in layout output")
+                     (assert/ok (and (some? (:x lbl)) (some? (:y lbl)))))))))))

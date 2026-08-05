@@ -1,7 +1,7 @@
 # simpleviz
 
 Minimal EDN-driven graph visualization. Describe nodes, directed edges, and
-nested grouping boxes in an EDN file; view it as an auto-layouted SVG diagram
+nested grouping boxes in an EDN file; view it as an auto-layouted canvas diagram
 that live-reloads while you edit the file.
 
 ## Requirements
@@ -50,6 +50,9 @@ compiled to plain ES modules (no bundler).
     bb test              # compile + Clojure server tests + JS unit tests
     bb serve graph.edn   # serve only (needs a prior bb build)
 
-Layout: vendored [ELK.js](https://github.com/kieler/elkjs) (layered,
-left-to-right, compound boxes). Sources in `src/simpleviz/`, tests in
-`test/simpleviz/` (run by `node --test` against the compiled output).
+Rendering: HTML5 canvas (HiDPI) fed by a pure scene list; layout by vendored
+[ELK.js](https://github.com/kieler/elkjs) (layered, left-to-right, compound
+boxes, ELK-placed edge labels).
+
+Sources in `src/simpleviz/`, tests in `test/simpleviz/` (run by `node --test`
+against the compiled output).

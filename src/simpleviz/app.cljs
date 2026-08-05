@@ -2,7 +2,9 @@
   (:require ["reagami" :refer [render]]
             [simpleviz.colors :as colors]
             [simpleviz.transform :refer [to-elk]]
-            [simpleviz.render :as r]))
+            [simpleviz.scene :as scene]
+            [simpleviz.hit :as hit]
+            [simpleviz.canvas :as canvas]))
 
 (def elk (js/ELK.))
 (def app-el (js/document.getElementById "app"))
@@ -44,20 +46,48 @@
 
     :else nil))
 
+(defn- item->payload [item]
+  (let [nm (str (if (nil? (:name item)) "" (:name item)))
+        fallback (if (= (:kind item) "edge")
+                   (str (:source item) " → " (:target item))
+                   (:id item))]
+    {:kind (:kind item)
+     :elk-id (:id item)
+     :title (if (pos? (.-length nm)) nm fallback)
+     :subtitle (str (if (nil? (:type item)) "" (:type item)))
+     :attrs (:attrs item)}))
+
+(defn- canvas-view []
+  [:canvas
+   {:id "canvas" :key "the-canvas"
+    :on-click
+    (fn [e]
+      (if @canvas/suppress-click
+        (reset! canvas/suppress-click false)
+        (let [rect (.getBoundingClientRect (.-currentTarget e))
+              p (hit/client->graph canvas/view
+                                   (- (.-clientX e) (.-left rect))
+                                   (- (.-clientY e) (.-top rect)))
+              tol (/ 8 (:k canvas/view))
+              s (:scene @state)
+              item (when (some? s) (hit/hit-test s p tol))]
+          (on-select (when (some? item) (item->payload item))))))}])
+
 (defn- app-view [st]
   [:div {:id "root"}
    (banner-view st)
-   (when (some? (:layout st))
-     (r/graph-view {:layout (:layout st)
-                    :graph (:graph st)
-                    :colors (:colors st)
-                    :selected-id (:elk-id (:selected st))
-                    :on-select on-select}))
+   (canvas-view)
    (when (some? (:selected st))
      (details-view (:selected st)))])
 
+(defn- paint-now! []
+  (when-let [canvas-el (js/document.getElementById "canvas")]
+    (when-let [s (:scene @state)]
+      (canvas/paint! canvas-el s (:elk-id (:selected @state))))))
+
 (defn- rerender! []
-  (render app-el (app-view @state)))
+  (render app-el (app-view @state))
+  (canvas/request-paint!))
 
 (defn ^:async reload! []
   (try
@@ -74,11 +104,12 @@
                                            colors/BOX-TABLE)
                     :neutral-node colors/NEUTRAL-NODE
                     :neutral-box colors/NEUTRAL-BOX}
-              layout (js-await (.layout elk (to-elk g r/measure)))]
-          (r/fit-view-once! layout)
+              layout (js-await (.layout elk (to-elk g canvas/measure)))
+              sc (scene/build-scene {:layout layout :graph g :colors cmap})]
+          (canvas/fit-view-once! sc)
           (swap! state assoc
                  :error nil :graph g :warnings (:warnings g)
-                 :colors cmap :layout layout))))
+                 :colors cmap :layout layout :scene sc))))
     (catch :default e
       (js/console.error "Reload failed:" e)
       (reset! last-mtime nil)
@@ -95,8 +126,9 @@
       (js-await (reload!)))))
 
 ;; init
+(canvas/set-repaint! paint-now!)
 (add-watch state :render (fn [_ _ _ _] (rerender!)))
-(r/setup-pan-zoom! (js/document.getElementById "canvas-wrap"))
+(canvas/setup-pan-zoom! (js/document.getElementById "canvas-wrap"))
 (rerender!)
 (tick)
 (js/setInterval tick 1000)

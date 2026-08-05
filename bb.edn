@@ -1,4 +1,5 @@
 {:paths ["server" "test"]
+ :deps {metosin/malli {:mvn/version "0.19.1"}}
  :tasks
  {build    {:doc "Install npm deps and compile squint sources"
             :requires ([babashka.fs :as fs])
@@ -14,8 +15,8 @@
             :requires ([serve])
             :task (apply serve/-main *command-line-args*)}
   test:clj {:doc "Run Clojure server tests"
-            :requires ([clojure.test :as t] [server-test])
-            :task (let [{:keys [fail error]} (t/run-tests 'server-test)]
+            :requires ([clojure.test :as t] [server-test] [graph-test])
+            :task (let [{:keys [fail error]} (t/run-tests 'graph-test 'server-test)]
                     (when (pos? (+ fail error)) (System/exit 1)))}
   test:js  {:doc "Run JS unit tests (compiled squint output)"
             :requires ([babashka.fs :as fs])

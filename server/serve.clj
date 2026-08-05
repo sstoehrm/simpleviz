@@ -4,17 +4,17 @@
             [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str]
+            [graph]
             [org.httpkit.server :as srv]))
 
 (def edn-file (atom nil))
 
-(defn edn->json
-  "Parse an EDN string into a JSON string. Keywords become their names
-  (:-> becomes \"->\"), sets become arrays. Parse failures return
-  {\"error\": message} instead of throwing."
+(defn graph-json
+  "Parse an EDN string, normalize it, return the graph as a JSON string.
+  Parse failures return {\"error\": message} instead of throwing."
   [s]
   (try
-    (json/generate-string (edn/read-string s))
+    (json/generate-string (graph/normalize (edn/read-string s)))
     (catch Exception e
       (json/generate-string {:error (ex-message e)}))))
 
@@ -50,10 +50,9 @@
 (defn handler [{:keys [uri]}]
   (case uri
     "/api/graph"   (json-response
-                    (try
-                      (edn->json (slurp @edn-file))
-                      (catch Exception e
-                        (json/generate-string {:error (ex-message e)}))))
+                    (try (graph-json (slurp @edn-file))
+                         (catch Exception e
+                           (json/generate-string {:error (ex-message e)}))))
     "/api/version" (json-response (json/generate-string
                                    {:mtime (.lastModified (io/file @edn-file))}))
     (static-response uri)))

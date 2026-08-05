@@ -5,6 +5,46 @@
 ;; accumulators so large graphs stay linear (squint's persistent
 ;; assoc/conj copy per call).
 
+(defn- mark-dead
+  "Transitive closure of the hidden boxes: {:boxes Set :nodes Set} of names."
+  [graph hidden]
+  (let [boxes-by-name (:boxes-by-name graph)
+        dead-boxes (js/Set.)
+        dead-nodes (js/Set.)
+        mark (fn mark [bname]
+               (when (and (some? (get boxes-by-name bname))
+                          (not (.has dead-boxes bname)))
+                 (.add dead-boxes bname)
+                 (doseq [c (:components (get boxes-by-name bname))]
+                   (if (.startsWith c "n:")
+                     (.add dead-nodes (.slice c 2))
+                     (mark (.slice c 2))))))]
+    (doseq [b hidden] (mark b))
+    {:boxes dead-boxes :nodes dead-nodes}))
+
+(defn prune-scene
+  "Instantly filter an existing scene's items: drop everything belonging
+  to the hidden boxes. Positions are untouched — gaps remain until a
+  fresh layout replaces this scene."
+  [sc graph hidden-names]
+  (let [hidden (js/Array.from hidden-names)]
+    (if (zero? (.-length hidden))
+      sc
+      (let [{dead-boxes :boxes dead-nodes :nodes} (mark-dead graph hidden)
+            dead-edges (js/Set.)
+            items (.filter (:items sc)
+                    (fn [it]
+                      (case (:kind it)
+                        "box" (not (.has dead-boxes (.slice (:id it) 2)))
+                        "node" (not (.has dead-nodes (.slice (:id it) 2)))
+                        "edge" (if (or (.has dead-nodes (:source it))
+                                       (.has dead-nodes (:target it)))
+                                 (do (.add dead-edges (:id it)) false)
+                                 true)
+                        "edge-label" (not (.has dead-edges (:edge-id it)))
+                        true)))]
+        (assoc sc :items items)))))
+
 (defn prune-hidden
   "graph with the boxes named in `hidden-names` (seq or set) removed,
   including their nested boxes, contained nodes, and touching edges."
@@ -12,18 +52,7 @@
   (let [hidden (js/Array.from hidden-names)]
     (if (zero? (.-length hidden))
       graph
-      (let [boxes-by-name (:boxes-by-name graph)
-            dead-boxes (js/Set.)
-            dead-nodes (js/Set.)
-            mark (fn mark [bname]
-                   (when (and (some? (get boxes-by-name bname))
-                              (not (.has dead-boxes bname)))
-                     (.add dead-boxes bname)
-                     (doseq [c (:components (get boxes-by-name bname))]
-                       (if (.startsWith c "n:")
-                         (.add dead-nodes (.slice c 2))
-                         (mark (.slice c 2))))))]
-        (doseq [b hidden] (mark b))
+      (let [{dead-boxes :boxes dead-nodes :nodes} (mark-dead graph hidden)]
         (let [live-comp? (fn [c]
                            (if (.startsWith c "n:")
                              (not (.has dead-nodes (.slice c 2)))

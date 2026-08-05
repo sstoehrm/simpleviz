@@ -2,7 +2,7 @@
   (:require ["reagami" :refer [render]]
             [simpleviz.colors :as colors]
             [simpleviz.transform :refer [to-elk]]
-            [simpleviz.prune :refer [prune-hidden]]
+            [simpleviz.prune :refer [prune-hidden prune-scene]]
             [simpleviz.scene :as scene]
             [simpleviz.hit :as hit]
             [simpleviz.canvas :as canvas]))
@@ -12,7 +12,7 @@
 
 (def state (atom {:error nil :warnings [] :graph nil :layout nil
                   :colors nil :selected nil :collapsed false
-                  :hidden #{}}))
+                  :hidden #{} :layouting false}))
 (def last-mtime (atom nil))
 
 (defn- on-select [payload]
@@ -20,14 +20,37 @@
 
 (declare relayout!)
 
+;; layouts per hidden-set, so unhiding (or re-hiding a seen combination)
+;; is instant instead of a multi-second ELK run; cleared on file reload
+(def ^:private layout-cache (js/Map.))
+
+(defn- cache-key [hidden]
+  (.join (.sort (js/Array.from hidden)) "|"))
+
 (defn- hide-box! [box-name]
-  (swap! state (fn [st] (assoc st :hidden (conj (:hidden st) box-name)
-                               :selected nil)))
+  (swap! state (fn [st]
+                 (let [hidden (conj (:hidden st) box-name)]
+                   (assoc st
+                          :hidden hidden
+                          :selected nil
+                          ;; instant feedback: drop the box from the current
+                          ;; scene right away (gaps close on the re-layout)
+                          :scene (if (some? (:scene st))
+                                   (prune-scene (:scene st) (:graph st) hidden)
+                                   (:scene st))))))
   (relayout!))
 
 (defn- unhide-box! [box-name]
   (swap! state (fn [st] (assoc st :hidden (disj (:hidden st) box-name))))
   (relayout!))
+
+(defn- yield-paint!
+  "Resolves after the browser painted the current DOM/canvas state —
+  lets the pruned scene and indicator show before ELK blocks the thread."
+  []
+  (js/Promise. (fn [res]
+                 (js/requestAnimationFrame
+                  (fn [_] (js/setTimeout res 0))))))
 
 (defn- hidden-view [hidden]
   (when (pos? (.-size hidden))
@@ -113,6 +136,8 @@
   [:div {:id "root"}
    (banner-view st)
    (hidden-view (:hidden st))
+   (when (:layouting st)
+     [:div {:id "layouting"} "re-layouting…"])
    (canvas-view)
    (when (some? (:selected st))
      (details-view (:selected st)))])
@@ -128,25 +153,41 @@
 
 (defn ^:async relayout!
   "Layout + scene from the stored graph, minus hidden boxes. Colors come
-  from the FULL graph so hiding never shifts type colors."
+  from the FULL graph so hiding never shifts type colors. Results are
+  cached per hidden-set; a stale async result (hidden changed meanwhile)
+  is cached but not applied."
   []
   (try
     (let [g0 (:graph @state)
-          g (prune-hidden g0 (:hidden @state))
-          cmap {:node (colors/color-map (mapv (fn [n] (:type n))
-                                              (js/Object.values (:nodes g0)))
-                                        colors/NODE-TABLE)
-                :box (colors/color-map (mapv (fn [b] (:type b)) (:boxes g0))
-                                       colors/BOX-TABLE)
-                :neutral-node colors/NEUTRAL-NODE
-                :neutral-box colors/NEUTRAL-BOX}
-          layout (js-await (.layout elk (to-elk g canvas/measure)))
-          sc (scene/build-scene {:layout layout :graph g :colors cmap})]
-      (canvas/fit-view-once! sc)
-      (swap! state assoc :colors cmap :layout layout :scene sc))
+          hidden (:hidden @state)
+          ck (cache-key hidden)]
+      (if-let [hit (.get layout-cache ck)]
+        (swap! state assoc :colors (:colors hit) :layout (:layout hit)
+               :scene (:scene hit) :layouting false)
+        (do
+          (swap! state assoc :layouting true)
+          (js-await (yield-paint!))
+          (let [g (prune-hidden g0 hidden)
+                cmap {:node (colors/color-map (mapv (fn [n] (:type n))
+                                                    (js/Object.values (:nodes g0)))
+                                              colors/NODE-TABLE)
+                      :box (colors/color-map (mapv (fn [b] (:type b)) (:boxes g0))
+                                             colors/BOX-TABLE)
+                      :neutral-node colors/NEUTRAL-NODE
+                      :neutral-box colors/NEUTRAL-BOX}
+                layout (js-await (.layout elk (to-elk g canvas/measure)))
+                sc (scene/build-scene {:layout layout :graph g :colors cmap})]
+            (canvas/fit-view-once! sc)
+            (when (> (.-size layout-cache) 16) (.clear layout-cache))
+            (.set layout-cache ck {:colors cmap :layout layout :scene sc})
+            (if (= ck (cache-key (:hidden @state)))
+              (swap! state assoc :colors cmap :layout layout :scene sc
+                     :layouting false)
+              (swap! state assoc :layouting false))))))
     (catch :default e
       (js/console.error "Relayout failed:" e)
-      (swap! state assoc :error (str "Render error: " (or (.-message e) (str e)))))))
+      (swap! state assoc :layouting false
+             :error (str "Render error: " (or (.-message e) (str e)))))))
 
 (defn ^:async reload! []
   (try
@@ -156,6 +197,7 @@
         (swap! state assoc :error (str "Graph error: " (:error raw)))
         (let [g (assoc raw :boxes-by-name
                        (reduce (fn [acc b] (assoc acc (:name b) b)) {} (:boxes raw)))]
+          (.clear layout-cache)
           (swap! state assoc :error nil :graph g :warnings (:warnings g))
           (js-await (relayout!)))))
     (catch :default e

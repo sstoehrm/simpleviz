@@ -20,3 +20,17 @@
   (let [out (json/parse-string (serve/graph-json "{:unclosed"))]
     (is (contains? out "error"))
     (is (string? (get out "error")))))
+
+(deftest parse-args-uses-default-port
+  (is (= {:file "g.edn" :port 7373} (serve/parse-args ["g.edn"]))))
+
+(deftest parse-args-accepts-port-flag-and-alias
+  (is (= {:file "g.edn" :port 9000} (serve/parse-args ["g.edn" "--port" "9000"])))
+  (is (= {:file "g.edn" :port 9000} (serve/parse-args ["g.edn" "-p" "9000"])))
+  (is (= {:file "g.edn" :port 9000} (serve/parse-args ["--port" "9000" "g.edn"]))))
+
+(deftest parse-args-rejects-bad-input
+  (is (contains? (serve/parse-args []) :error))
+  (is (contains? (serve/parse-args ["g.edn" "--port" "abc"]) :error))
+  (is (contains? (serve/parse-args ["g.edn" "--port" "0"]) :error))
+  (is (contains? (serve/parse-args ["g.edn" "--port" "70000"]) :error)))

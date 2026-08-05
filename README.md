@@ -12,9 +12,10 @@ that live-reloads while you edit the file.
 
 ## Usage
 
-    bb serve examples/demo.edn
+    bb serve examples/demo.edn              # default port 7373
+    bb serve examples/demo.edn --port 9000  # or -p 9000
 
-Open http://localhost:8080. Edit the file — the page updates automatically.
+Open http://localhost:7373. Edit the file — the page updates automatically.
 Click nodes, edges, or boxes for their full attributes. Drag to pan, wheel to zoom.
 
 ## Data format

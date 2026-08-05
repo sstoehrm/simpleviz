@@ -2,14 +2,37 @@
   "Static file server + EDN->JSON API. Parses and normalizes the graph
   (shape checks, semantics) server-side via graph/normalize; the browser
   just renders the resulting JSON."
-  (:require [cheshire.core :as json]
+  (:require [babashka.cli :as cli]
+            [cheshire.core :as json]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str]
             [graph]
             [org.httpkit.server :as srv]))
 
+(def default-port 7373)
+
 (def edn-file (atom nil))
+
+(def ^:private usage
+  (str "usage: bb serve <graph.edn> [--port N]  (default port " default-port ")"))
+
+(def cli-spec {:alias {:p :port} :coerce {:port :long}})
+
+(defn parse-args
+  "CLI args -> {:file f :port n} or {:error msg}. The graph file is
+  positional; --port / -p overrides the default."
+  [args]
+  (try
+    (let [{:keys [args opts]} (cli/parse-args args cli-spec)
+          file (first args)
+          port (get opts :port default-port)]
+      (cond
+        (nil? file) {:error usage}
+        (not (and (int? port) (<= 1 port 65535))) {:error (str "invalid port: " port)}
+        :else {:file file :port port}))
+    (catch Exception e
+      {:error (str "invalid arguments: " (ex-message e) "\n" usage)})))
 
 (defn graph-json
   "Parse an EDN string, normalize it, return the graph as a JSON string.
@@ -60,11 +83,14 @@
     (static-response uri)))
 
 (defn -main [& args]
-  (let [file (first args)]
-    (when (or (nil? file) (not (.isFile (io/file file))))
-      (println "usage: bb serve <graph.edn>")
+  (let [{:keys [file port error]} (parse-args args)]
+    (when error
+      (println error)
+      (System/exit 1))
+    (when-not (.isFile (io/file file))
+      (println (str "file not found: " file))
       (System/exit 1))
     (reset! edn-file file)
-    (srv/run-server handler {:port 8080})
-    (println (str "simpleviz: serving " file " at http://localhost:8080"))
+    (srv/run-server handler {:port port})
+    (println (str "simpleviz: serving " file " at http://localhost:" port))
     @(promise)))

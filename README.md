@@ -34,7 +34,8 @@ Colors are stable: a type keeps its color across restarts and unrelated edits
 (FNV-1a hash into a fixed 255-color table, golden-angle hues, linear probing
 on collision).
 
-Invalid references, duplicate box memberships, or containment cycles never
+Validation runs server-side (via [malli](https://github.com/metosin/malli)):
+invalid references, duplicate box memberships, or containment cycles never
 break rendering — the element is skipped and a warning banner explains it.
 A parse error shows an error banner and keeps the last good render.
 

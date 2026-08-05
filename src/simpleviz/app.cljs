@@ -1,7 +1,6 @@
 (ns simpleviz.app
   (:require ["reagami" :refer [render]]
             [simpleviz.colors :as colors]
-            [simpleviz.validate :refer [validate]]
             [simpleviz.transform :refer [to-elk]]
             [simpleviz.render :as r]))
 
@@ -66,7 +65,8 @@
           raw (js-await (.json resp))]
       (if (some? (:error raw))
         (swap! state assoc :error (str "EDN parse error: " (:error raw)))
-        (let [g (validate raw)
+        (let [g (assoc raw :boxes-by-name
+                       (reduce (fn [acc b] (assoc acc (:name b) b)) {} (:boxes raw)))
               cmap {:node (colors/color-map (mapv (fn [n] (:type n))
                                                   (js/Object.values (:nodes g)))
                                             colors/NODE-TABLE)

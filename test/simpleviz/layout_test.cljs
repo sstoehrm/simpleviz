@@ -2,22 +2,36 @@
   (:require ["node:test" :refer [test]]
             ["node:assert/strict$default" :as assert]
             ["node:module" :refer [createRequire]]
-            [simpleviz.validate :refer [validate]]
             [simpleviz.transform :refer [to-elk]]))
 
 (def require' (createRequire (js* "import.meta.url")))
 (def ELK (require' "../../vendor/elk.bundled.js"))
 
+(defn node [id type] {:id id :name id :type type :attrs {}})
+
+(defn graph [g]
+  {:nodes (or (:nodes g) {})
+   :edges (or (:edges g) [])
+   :boxes (or (:boxes g) [])
+   :boxes-by-name (reduce (fn [acc b] (assoc acc (:name b) b)) {} (or (:boxes g) []))
+   :parent-of (or (:parent-of g) {})
+   :warnings []})
+
+(defn edge [i a b arrows]
+  {:id (str "e" i) :source a :target b :arrows arrows :name "" :type "" :attrs {}})
+
 (defn measure [text _font] (* (.-length text) 7))
 
 (test "ELK lays out a nested boxed graph end to end"
   (fn []
-    (let [g (validate {:nodes {"a" {:type "svc"} "b" {:type "db"} "c" {}}
-                       :edges [{:nodes ["a" "b"] :direction "->"}
-                               {:nodes ["c" "a"] :direction "<-"}
-                               {:nodes ["b" "c"] :direction "<->"}
-                               {:nodes ["a" "c"] :direction "-"}]
-                       :boxes [{:name "grp" :components ["a" "b"]}]})]
+    (let [g (graph {:nodes {"a" (node "a" "svc") "b" (node "b" "db") "c" (node "c" "")}
+                    :edges [(edge 0 "a" "b" {:source false :target true})
+                            (edge 1 "a" "c" {:source false :target true})
+                            (edge 2 "b" "c" {:source true :target true})
+                            (edge 3 "a" "c" {:source false :target false})]
+                    :boxes [{:id "b:grp" :name "grp" :type ""
+                             :components ["n:a" "n:b"] :attrs {}}]
+                    :parent-of {"n:a" "grp" "n:b" "grp"}})]
       (-> (.layout (ELK.) (to-elk g measure))
           (.then (fn [layout]
                    (assert/ok (and (pos? (:width layout)) (pos? (:height layout))))
@@ -33,11 +47,11 @@
 
 (test "edges wholly inside a box get container-relative section coordinates"
   (fn []
-    (let [g (validate {:nodes {"a" {} "b" {}}
-                       :edges [{:nodes ["a" "b"] :direction "->"}]
-                       :boxes [{:name "grp" :components ["a" "b"]}]})]
+    (let [g (graph {:nodes {"a" (node "a" "") "b" (node "b" "")}
+                    :edges [(edge 0 "a" "b" {:source false :target true})]
+                    :boxes [{:id "b:grp" :name "grp" :type ""
+                             :components ["n:a" "n:b"] :attrs {}}]
+                    :parent-of {"n:a" "grp" "n:b" "grp"}})]
       (-> (.layout (ELK.) (to-elk g measure))
           (.then (fn [layout]
-                   ;; the renderer must offset by the container's absolute
-                   ;; origin — this documents the contract it relies on
                    (assert/equal (:container (nth (:edges layout) 0)) "b:grp")))))))

@@ -16,6 +16,17 @@
 (defn- on-select [payload]
   (swap! state assoc :selected payload))
 
+;; attrs already represented visually (endpoints/arrow on the canvas,
+;; membership by containment) stay out of the inspector
+(def ^:private hidden-attrs
+  {"edge" #{"nodes" "direction"}
+   "box" #{"components"}})
+
+(defn- visible-attrs [sel]
+  (let [hidden (get hidden-attrs (:kind sel))]
+    (filterv (fn [[k _]] (not (and (some? hidden) (.has hidden k))))
+             (js/Object.entries (:attrs sel)))))
+
 (defn- details-view [sel]
   [:aside {:id "details"}
    [:button {:id "details-close" :type "button" :aria-label "Close details"
@@ -31,7 +42,7 @@
                    [[:dt {:key (str "t" k)} k]
                     [:dd {:key (str "d" k)}
                      (if (string? v) v (js/JSON.stringify v nil 2))]])
-                 (js/Object.entries (:attrs sel))))])
+                 (visible-attrs sel)))])
 
 (defn- banner-view [{:keys [error warnings collapsed]}]
   (cond

@@ -26,17 +26,3 @@ body { margin: 0; font-family: system-ui, sans-serif; overflow: hidden; }
 #details dt { font-weight: 600; font-size: 12px; margin-top: 10px; color: #444; }
 #details dd { margin: 2px 0 0; font-size: 13px; white-space: pre-wrap;
               font-family: ui-monospace, "Cascadia Mono", monospace; }
-
-/* SVG — fonts here must match NODE_FONT / SUB_FONT in transform.mjs */
-.node-bg   { fill: #fff; stroke: #ddd; }
-.node-name { font: bold 14px system-ui, sans-serif; }
-.node-sub  { font: 11px system-ui, sans-serif; fill: #888; }
-.box-name  { font: bold 13px system-ui, sans-serif; }
-.box-sub   { font-weight: normal; font-size: 11px; fill: #888; }
-.edge-line { stroke: #555; stroke-width: 1.5; }
-.edge-hit  { stroke: transparent; stroke-width: 12; pointer-events: stroke; }
-.edge-label { font: 11px system-ui, sans-serif; fill: #444;
-              paint-order: stroke; stroke: #fafafa; stroke-width: 3; }
-.selectable { cursor: pointer; }
-.selected .node-bg, .selected .box-bg { stroke: #2563eb; stroke-width: 2; }
-g.edge.selected .edge-line { stroke: #2563eb; stroke-width: 2.5; }

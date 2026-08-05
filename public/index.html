@@ -5,12 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>simpleviz</title>
 <link rel="stylesheet" href="/style.css">
+<script type="importmap">
+{"imports": {"reagami": "/js/vendor/reagami/reagami.mjs",
+             "squint-cljs/": "/js/vendor/squint-cljs/"}}
+</script>
 </head>
 <body>
-<svg id="canvas"></svg>
-<div id="banner" hidden></div>
-<aside id="details" hidden></aside>
+<div id="canvas-wrap"><div id="app"></div></div>
 <script src="/vendor/elk.bundled.js"></script>
-<script type="module" src="/app.js"></script>
+<script type="module" src="/js/simpleviz/app.mjs"></script>
 </body>
 </html>

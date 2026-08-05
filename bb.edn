@@ -1,13 +1,34 @@
 {:paths ["server" "test"]
+ :deps {metosin/malli {:mvn/version "0.19.1"}}
  :tasks
- {serve    {:doc "Serve an EDN graph file: bb serve examples/demo.edn"
+ {build    {:doc "Install npm deps and compile squint sources"
+            :requires ([babashka.fs :as fs])
+            :task (do (when-not (fs/exists? "node_modules")
+                        (shell "npm install"))
+                      (shell "npx squint compile")
+                      (fs/create-dirs "public/js/vendor")
+                      (fs/copy-tree "node_modules/reagami" "public/js/vendor/reagami"
+                                    {:replace-existing true})
+                      (fs/copy-tree "node_modules/squint-cljs" "public/js/vendor/squint-cljs"
+                                    {:replace-existing true}))}
+  serve    {:doc "Serve an EDN graph file: bb serve examples/demo.edn"
             :requires ([serve])
             :task (apply serve/-main *command-line-args*)}
   test:clj {:doc "Run Clojure server tests"
-            :requires ([clojure.test :as t] [server-test])
-            :task (let [{:keys [fail error]} (t/run-tests 'server-test)]
+            :requires ([clojure.test :as t] [server-test] [graph-test])
+            :task (let [{:keys [fail error]} (t/run-tests 'graph-test 'server-test)]
                     (when (pos? (+ fail error)) (System/exit 1)))}
-  test:js  {:doc "Run JS unit tests"
-            :task (shell "node --test")}
+  test:js  {:doc "Run JS unit tests (compiled squint output)"
+            :requires ([babashka.fs :as fs])
+            :task (let [files (map str (fs/glob "public/js/simpleviz" "*_test.mjs"))]
+                    (if (empty? files)
+                      (do (println "no compiled tests found — run bb build")
+                          (System/exit 1))
+                      (apply shell "node" "--test" files)))}
   test     {:doc "Run all tests"
-            :depends [test:clj test:js]}}}
+            :depends [build test:clj test:js]}
+  dev      {:doc "Compile, watch and serve (default examples/demo.edn)"
+            :requires ([babashka.process :as p] [serve])
+            :task (do (run 'build)
+                      (p/process ["npx" "squint" "watch"] {:inherit true})
+                      (serve/-main (or (first *command-line-args*) "examples/demo.edn")))}}}

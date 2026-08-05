@@ -1,0 +1,9 @@
+{
+  "name": "simpleviz",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "reagami": "^0.2.38",
+    "squint-cljs": "^0.14.206"
+  }
+}

@@ -1,12 +1,13 @@
 # simpleviz
 
 Minimal EDN-driven graph visualization. Describe nodes, directed edges, and
-nested grouping boxes in an EDN file; view it as an auto-layouted SVG diagram
+nested grouping boxes in an EDN file; view it as an auto-layouted canvas diagram
 that live-reloads while you edit the file.
 
 ## Requirements
 
-- [babashka](https://babashka.org/)
+- [babashka](https://babashka.org/) (serving + tests)
+- node + npm (frontend development — compiling the Squint sources)
 - A browser
 
 ## Usage
@@ -33,14 +34,25 @@ Colors are stable: a type keeps its color across restarts and unrelated edits
 (FNV-1a hash into a fixed 255-color table, golden-angle hues, linear probing
 on collision).
 
-Invalid references, duplicate box memberships, or containment cycles never
+Validation runs server-side (via [malli](https://github.com/metosin/malli)):
+invalid references, duplicate box memberships, or containment cycles never
 break rendering — the element is skipped and a warning banner explains it.
 A parse error shows an error banner and keeps the last good render.
 
 ## Development
 
-    bb test        # Clojure server tests + JS unit tests
-    node --test test/   # JS only
+The frontend is written in [Squint](https://github.com/squint-cljs/squint)
+ClojureScript rendered with [reagami](https://github.com/borkdude/reagami),
+compiled to plain ES modules (no bundler).
 
-Layout: vendored [ELK.js](https://github.com/kieler/elkjs) (layered,
-left-to-right, compound boxes). No build step; frontend is plain ES modules.
+    bb dev [graph.edn]   # compile, watch sources, serve (default: examples/demo.edn)
+    bb build             # one-shot compile to public/js/ (git-ignored)
+    bb test              # compile + Clojure server tests + JS unit tests
+    bb serve graph.edn   # serve only (needs a prior bb build)
+
+Rendering: HTML5 canvas (HiDPI) fed by a pure scene list; layout by vendored
+[ELK.js](https://github.com/kieler/elkjs) (layered, left-to-right, compound
+boxes, ELK-placed edge labels).
+
+Sources in `src/simpleviz/`, tests in `test/simpleviz/` (run by `node --test`
+against the compiled output).

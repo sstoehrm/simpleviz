@@ -67,4 +67,4 @@
           (.then (fn [layout]
                    (let [lbl (first (:labels (first (:edges layout))))]
                      (assert/ok lbl "label present in layout output")
-                     (assert/ok (and (some? (:x lbl)) (some? (:y lbl))))())))))))
+                     (assert/ok (and (some? (:x lbl)) (some? (:y lbl)))))))))))

@@ -64,6 +64,8 @@
                              :sections sections
                              :points (vec (apply concat sections))
                              :arrows (:arrows e)
+                             :source (:source e)
+                             :target (:target e)
                              :name (:name e) :type (:type e) :attrs (:attrs e)})))
                       (or (:edges layout) []))))
           label-items

@@ -60,7 +60,9 @@
       (assert/deepEqual (nth (:sections e) 1)
                         [{:x 17 :y 28} {:x 19 :y 30}])
       (assert/equal (.-length (:points e)) 5)
-      (assert/deepEqual (:arrows e) {:source false :target true}))))
+      (assert/deepEqual (:arrows e) {:source false :target true})
+      (assert/equal (:source e) "a")
+      (assert/equal (:target e) "b"))))
 
 (test "edge labels are container-offset"
   (fn []

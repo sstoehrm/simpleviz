@@ -43,3 +43,9 @@
     (let [s (scene [outer-box inner-box])]
       (assert/equal (:id (hit-test s {:x 100 :y 160} 6)) "b:inner")
       (assert/equal (:id (hit-test s {:x 200 :y 60} 6)) "b:outer"))))
+
+(test "innermost box wins when hit zones overlap"
+  (fn []
+    (let [top {:kind "box" :id "b:top" :x 60 :y 52 :w 120 :h 60 :title-h 28}
+          s (scene [outer-box top])]
+      (assert/equal (:id (hit-test s {:x 100 :y 60} 6)) "b:top"))))

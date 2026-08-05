@@ -48,10 +48,8 @@
 
 (defn- item->payload [item]
   (let [nm (str (if (nil? (:name item)) "" (:name item)))
-        fallback (if (and (= (:kind item) "edge")
-                          (js/Array.isArray (:nodes (:attrs item))))
-                   (str (nth (:nodes (:attrs item)) 0) " → "
-                        (nth (:nodes (:attrs item)) 1))
+        fallback (if (= (:kind item) "edge")
+                   (str (:source item) " → " (:target item))
                    (:id item))]
     {:kind (:kind item)
      :elk-id (:id item)

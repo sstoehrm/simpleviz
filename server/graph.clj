@@ -36,6 +36,56 @@
           (pred v) (if (set? v) (vec v) v)
           :else (do (warn! msg) coerce-empty))))
 
+(defn- boxes-map->seq
+  "Map-form boxes {:id {..}} -> box maps with the key as :name. Sorted by
+  name so contested memberships resolve deterministically (EDN maps above
+  8 entries do not preserve file order)."
+  [m warn!]
+  (->> (sort-by (fn [[k _]] (ident->str k)) (seq m))
+       (keep (fn [[k v]]
+               (let [nm (ident->str k)]
+                 (cond
+                   (nil? v) {:name nm}
+                   (map? v) (do (when (some? (:name v))
+                                  (warn! (str "box \"" nm "\": :name in value ignored (the key is the name)")))
+                                (assoc v :name nm))
+                   :else (do (warn! (str "box \"" nm "\": value must be a map, skipped")) nil)))))
+       vec))
+
+(defn- edges-map->seq
+  "Map-form edges {[:a :b] {..}} -> edge maps with the key as :nodes.
+  Sorted by the coerced endpoint pair so edge ids stay stable regardless
+  of EDN map iteration order."
+  [m warn!]
+  (->> (sort-by (fn [[k _]] (if (vector? k) (pr-str (mapv ident->str k)) (pr-str k)))
+                (seq m))
+       (keep (fn [[k v]]
+               (cond
+                 (not (and (vector? k) (= 2 (count k))))
+                 (do (warn! (str "edge key " (pr-str k) ": must be a 2-element vector, skipped")) nil)
+
+                 (and (some? v) (not (map? v)))
+                 (do (warn! (str "edge " (pr-str k) ": value must be a map, skipped")) nil)
+
+                 :else
+                 (let [v (or v {})]
+                   (when (some? (:nodes v))
+                     (warn! (str "edge " (pr-str k) ": :nodes in value ignored (the key defines the endpoints)")))
+                   (assoc v :nodes (mapv ident->str k))))))
+       vec))
+
+(defn- warn-reversed-pairs!
+  "One warning per unordered pair that appears in both orientations —
+  usually the same connection written twice."
+  [edges-in warn!]
+  (let [pairs (keep (fn [e] (when (and (map? e) (vector? (:nodes e)) (= 2 (count (:nodes e))))
+                              (mapv ident->str (:nodes e))))
+                    edges-in)
+        present (set pairs)]
+    (doseq [[a b] (distinct pairs)]
+      (when (and (not= a b) (contains? present [b a]) (pos? (compare a b)))
+        (warn! (str "edges [" b " " a "] and [" a " " b "] describe the same connection"))))))
+
 (defn- build-nodes [nodes-in warn!]
   (reduce-kv
    (fn [acc k v]
@@ -183,8 +233,17 @@
               raw
               (do (when (some? raw) (warn! "root must be a map, ignoring content")) {}))
         nodes-in (top-level raw warn! :nodes map? {} ":nodes must be a map, ignoring it")
-        edges-in (top-level raw warn! :edges #(or (sequential? %) (set? %)) [] ":edges must be a vector, ignoring it")
-        boxes-in (top-level raw warn! :boxes #(or (sequential? %) (set? %)) [] ":boxes must be a vector, ignoring it")
+        edges-in (let [e (:edges raw)]
+                   (if (map? e)
+                     (edges-map->seq e warn!)
+                     (top-level raw warn! :edges #(or (sequential? %) (set? %)) []
+                                ":edges must be a map or vector, ignoring it")))
+        boxes-in (let [b (:boxes raw)]
+                   (if (map? b)
+                     (boxes-map->seq b warn!)
+                     (top-level raw warn! :boxes #(or (sequential? %) (set? %)) []
+                                ":boxes must be a map or vector, ignoring it")))
+        _ (warn-reversed-pairs! edges-in warn!)
         nodes (build-nodes nodes-in warn!)
         edges (build-edges edges-in nodes warn!)
         boxes0 (build-boxes boxes-in warn!)

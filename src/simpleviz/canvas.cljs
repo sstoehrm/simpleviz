@@ -16,7 +16,6 @@
 ;; Mutated in place (assoc!), outside the state atom so pan/zoom repaints
 ;; without re-rendering the DOM.
 (def view {:x 0 :y 0 :k 1 :initialized false})
-(def suppress-click (atom false))
 
 (def ^:private repaint-cb (atom nil))
 (def ^:private dirty (atom false))
@@ -169,21 +168,26 @@
     (.addEventListener wrap "pointerdown"
       (fn [e]
         (when-not (.closest (.-target e) "#details, #banner")
+          ;; NO setPointerCapture here: capturing on pointerdown retargets
+          ;; the subsequent click to the wrap, so the canvas onclick
+          ;; (selection) would never fire for plain clicks.
           (reset! drag {:x (.-clientX e) :y (.-clientY e)
-                        :vx (:x view) :vy (:y view) :moved false})
-          (.setPointerCapture wrap (.-pointerId e)))))
+                        :vx (:x view) :vy (:y view) :moved false
+                        :pointer-id (.-pointerId e)}))))
     (.addEventListener wrap "pointermove"
       (fn [e]
         (when-let [d @drag]
           (let [dx (- (.-clientX e) (:x d))
                 dy (- (.-clientY e) (:y d))]
-            (when (> (+ (js/Math.abs dx) (js/Math.abs dy)) 3)
-              (swap! drag assoc :moved true))
+            (when (and (not (:moved d))
+                       (> (+ (js/Math.abs dx) (js/Math.abs dy)) 3))
+              ;; capture only once a real drag starts; the drag-ending
+              ;; click then targets the wrap, not the canvas, so it can't
+              ;; accidentally select
+              (swap! drag assoc :moved true)
+              (.setPointerCapture wrap (:pointer-id d)))
             (assoc! view :x (+ (:vx d) dx) :y (+ (:vy d) dy))
             (request-paint!)))))
-    (.addEventListener wrap "pointerup"
-      (fn [_]
-        (when (and @drag (:moved @drag)) (reset! suppress-click true))
-        (reset! drag nil)))
+    (.addEventListener wrap "pointerup" (fn [_] (reset! drag nil)))
     (.addEventListener wrap "pointercancel" (fn [_] (reset! drag nil))))
   (.addEventListener js/window "resize" (fn [_] (request-paint!))))

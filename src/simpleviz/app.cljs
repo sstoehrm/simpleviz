@@ -62,16 +62,16 @@
    {:id "canvas" :key "the-canvas"
     :on-click
     (fn [e]
-      (if @canvas/suppress-click
-        (reset! canvas/suppress-click false)
-        (let [rect (.getBoundingClientRect (.-currentTarget e))
-              p (hit/client->graph canvas/view
-                                   (- (.-clientX e) (.-left rect))
-                                   (- (.-clientY e) (.-top rect)))
-              tol (/ 8 (:k canvas/view))
-              s (:scene @state)
-              item (when (some? s) (hit/hit-test s p tol))]
-          (on-select (when (some? item) (item->payload item))))))}])
+      ;; drag-ending clicks never arrive here: pointer capture (acquired
+      ;; only mid-drag) retargets them to the wrap
+      (let [rect (.getBoundingClientRect (.-currentTarget e))
+            p (hit/client->graph canvas/view
+                                 (- (.-clientX e) (.-left rect))
+                                 (- (.-clientY e) (.-top rect)))
+            tol (/ 8 (:k canvas/view))
+            s (:scene @state)
+            item (when (some? s) (hit/hit-test s p tol))]
+        (on-select (when (some? item) (item->payload item)))))}])
 
 (defn- app-view [st]
   [:div {:id "root"}

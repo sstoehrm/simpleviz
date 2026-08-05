@@ -58,4 +58,25 @@
     (let [elk (to-elk (graph {}) measure)]
       (assert/equal (get (:layoutOptions elk) "elk.algorithm") "layered")
       (assert/equal (get (:layoutOptions elk) "elk.direction") "RIGHT")
-      (assert/equal (get (:layoutOptions elk) "elk.hierarchyHandling") "INCLUDE_CHILDREN"))))
+      (assert/equal (get (:layoutOptions elk) "elk.hierarchyHandling") "INCLUDE_CHILDREN")
+      (assert/equal (get (:layoutOptions elk) "elk.layered.spacing.nodeNodeBetweenLayers") "80")
+      (assert/equal (get (:layoutOptions elk) "elk.spacing.nodeNode") "45")
+      (assert/equal (get (:layoutOptions elk) "elk.spacing.edgeNode") "30")
+      (assert/equal (get (:layoutOptions elk) "elk.spacing.edgeEdge") "20")
+      (assert/equal (get (:layoutOptions elk) "elk.edgeLabels.inline") "true"))))
+
+(test "named edges get measured ELK labels; unnamed edges get none"
+  (fn []
+    (let [g (graph {:nodes {"a" (node "a") "b" (node "b")}
+                    :edges [{:id "e0" :source "a" :target "b"
+                             :arrows {:source false :target true}
+                             :name "calls" :type "http" :attrs {}}
+                            {:id "e1" :source "b" :target "a"
+                             :arrows {:source false :target true}
+                             :name "" :type "" :attrs {}}]})
+          elk (to-elk g measure)
+          lbl (first (:labels (first (:edges elk))))]
+      (assert/equal (:text lbl) "calls (http)")
+      (assert/ok (>= (:width lbl) (measure "calls (http)" nil)))
+      (assert/equal (:height lbl) 14)
+      (assert/equal (:labels (second (:edges elk))) js/undefined))))

@@ -35,12 +35,26 @@
      :layoutOptions {"elk.algorithm" "layered"
                      "elk.direction" "RIGHT"
                      "elk.hierarchyHandling" "INCLUDE_CHILDREN"
-                     "elk.layered.spacing.nodeNodeBetweenLayers" "50"
-                     "elk.spacing.nodeNode" "30"
-                     "elk.spacing.edgeNode" "20"
+                     "elk.layered.spacing.nodeNodeBetweenLayers" "80"
+                     "elk.spacing.nodeNode" "45"
+                     "elk.spacing.edgeNode" "30"
+                     "elk.spacing.edgeEdge" "20"
+                     "elk.edgeLabels.inline" "true"
                      "elk.padding" "[top=20,left=20,bottom=20,right=20]"}
      :children (into root-nodes root-boxes)
-     :edges (mapv (fn [e] {:id (:id e)
-                           :sources [(str "n:" (:source e))]
-                           :targets [(str "n:" (:target e))]})
+     :edges (mapv (fn [e]
+                    (let [parts (filterv (fn [s] (pos? (.-length s)))
+                                         [(:name e)
+                                          (if (pos? (.-length (:type e)))
+                                            (str "(" (:type e) ")")
+                                            "")])
+                          label (.join parts " ")
+                          base {:id (:id e)
+                                :sources [(str "n:" (:source e))]
+                                :targets [(str "n:" (:target e))]}]
+                      (if (pos? (.-length label))
+                        (assoc base :labels [{:text label
+                                              :width (+ (js/Math.ceil (measure label SUB-FONT)) 4)
+                                              :height 14}])
+                        base)))
                   edges)}))

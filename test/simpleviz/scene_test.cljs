@@ -1,7 +1,7 @@
 (ns simpleviz.scene-test
   (:require ["node:test" :refer [test]]
             ["node:assert/strict$default" :as assert]
-            [simpleviz.scene :refer [build-scene]]))
+            [simpleviz.scene :as scene :refer [build-scene]]))
 
 (def colors
   {:node {"svc" "hsl(120 65% 38%)"}
@@ -85,3 +85,48 @@
                                                             :endPoint {:x 1 :y 1}}]}])
           s (build-scene {:layout l2 :graph graph :colors colors})]
       (assert/deepEqual (filterv (fn [it] (= (:kind it) "edge")) (:items s)) []))))
+
+(test "items carry padded bounding boxes"
+  (fn []
+    (let [[a] (filterv (fn [it] (= (:id it) "n:a")) (items-of "node"))
+          [box] (items-of "box")
+          [e] (items-of "edge")]
+      ;; node n:a at 24,60 60x30, pad 10
+      (assert/deepEqual (:bbox a) {:x0 14 :y0 50 :x1 94 :y1 100})
+      (assert/deepEqual (:bbox box) {:x0 0 :y0 10 :x1 220 :y1 180})
+      ;; edge points span 11..19 x 22..30, pad 10
+      (assert/deepEqual (:bbox e) {:x0 1 :y0 12 :x1 29 :y1 40}))))
+
+(test "visible? intersects bbox with a view rect"
+  (fn []
+    (let [it {:bbox {:x0 10 :y0 10 :x1 50 :y1 50}}]
+      (assert/ok (scene/visible? it {:x0 0 :y0 0 :x1 20 :y1 20}))
+      (assert/ok (scene/visible? it {:x0 49 :y0 49 :x1 100 :y1 100}))
+      (assert/ok (not (scene/visible? it {:x0 51 :y0 0 :x1 100 :y1 100})))
+      (assert/ok (not (scene/visible? it {:x0 0 :y0 51 :x1 100 :y1 100}))))))
+
+(test "build-scene stays linear at 10k nodes + 10k edges (perf regression guard)"
+  (fn []
+    (let [n 10000
+          idxs (js/Array.from (js/Array. n) (fn [_ i] i))
+          nodes (js/Object.fromEntries
+                 (.map idxs (fn [i] [(str "n" i)
+                                     {:id (str "n" i) :name (str "n" i) :type "" :attrs {}}])))
+          children (.map idxs
+                         (fn [i] {:id (str "n:n" i) :x (* i 10) :y 0 :width 8 :height 8}))
+          gedges (.map idxs
+                       (fn [i] {:id (str "e" i) :source (str "n" i) :target (str "n" i)
+                                :arrows {:source false :target true}
+                                :name "" :type "" :attrs {}}))
+          ledges (.map idxs
+                       (fn [i] {:id (str "e" i)
+                                :sections [{:startPoint {:x (* i 10) :y 4}
+                                            :endPoint {:x (+ 8 (* i 10)) :y 4}}]}))
+          layout {:width (* n 10) :height 100 :children children :edges ledges}
+          g {:nodes nodes :edges gedges :boxes [] :boxes-by-name {} :parent-of {} :warnings []}
+          t0 (js/performance.now)
+          sc (build-scene {:layout layout :graph g :colors {:neutral-node "x" :neutral-box {}}})
+          elapsed (- (js/performance.now) t0)]
+      (assert/equal (.-length (:items sc)) (* 2 n))
+      (assert/ok (< elapsed 2000)
+                 (str "build-scene took " (js/Math.round elapsed) "ms for 20k items")))))

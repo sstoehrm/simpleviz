@@ -1,5 +1,6 @@
 (ns simpleviz.canvas
-  (:require [simpleviz.transform :refer [NODE-FONT SUB-FONT]]))
+  (:require [simpleviz.scene :as scene]
+            [simpleviz.transform :refer [NODE-FONT SUB-FONT]]))
 
 ;; HiDPI canvas painter + view state + pan/zoom. DOM-only namespace —
 ;; never imported by node tests.
@@ -12,6 +13,8 @@
   (.-width (.measureText measure-ctx text)))
 
 (def ACCENT "#2563eb")
+
+(def ^:private TEXT-MIN-PX 4.5)
 
 ;; Mutated in place (assoc!), outside the state atom so pan/zoom repaints
 ;; without re-rendering the DOM.
@@ -47,13 +50,14 @@
   (.beginPath ctx)
   (.roundRect ctx x y w h r))
 
-(defn- draw-box [ctx item sel?]
+(defn- draw-box [ctx item sel? text?]
   (rounded-rect ctx (:x item) (:y item) (:w item) (:h item) 10)
   (set! (.-fillStyle ctx) (:fill item))
   (.fill ctx)
   (set! (.-strokeStyle ctx) (if sel? ACCENT (:border item)))
   (set! (.-lineWidth ctx) (if sel? 2 1))
   (.stroke ctx)
+  (when text?
   (set! (.-textAlign ctx) "left")
   (set! (.-font ctx) "bold 13px system-ui, sans-serif")
   (set! (.-fillStyle ctx) (:border item))
@@ -63,15 +67,16 @@
       (set! (.-font ctx) SUB-FONT)
       (set! (.-fillStyle ctx) "#888")
       (.fillText ctx (str "(" (:type item) ")")
-                 (+ (:x item) 12 nw 5) (+ (:y item) 20)))))
+                 (+ (:x item) 12 nw 5) (+ (:y item) 20))))))
 
-(defn- draw-node [ctx item sel?]
+(defn- draw-node [ctx item sel? text?]
   (rounded-rect ctx (:x item) (:y item) (:w item) (:h item) 6)
   (set! (.-fillStyle ctx) "#fff")
   (.fill ctx)
   (set! (.-strokeStyle ctx) (if sel? ACCENT "#ddd"))
   (set! (.-lineWidth ctx) (if sel? 2 1))
   (.stroke ctx)
+  (when text?
   (set! (.-textAlign ctx) "center")
   (set! (.-font ctx) NODE-FONT)
   (set! (.-fillStyle ctx) (:color item))
@@ -80,7 +85,7 @@
     (set! (.-font ctx) SUB-FONT)
     (set! (.-fillStyle ctx) "#888")
     (.fillText ctx (str "(" (:type item) ")")
-               (+ (:x item) (/ (:w item) 2)) (+ (:y item) 35))))
+               (+ (:x item) (/ (:w item) 2)) (+ (:y item) 35)))))
 
 (defn- draw-arrowhead [ctx from to]
   (let [angle (js/Math.atan2 (- (:y to) (:y from)) (- (:x to) (:x from)))
@@ -97,7 +102,7 @@
     (.fill ctx)
     (.restore ctx)))
 
-(defn- draw-edge [ctx item sel?]
+(defn- draw-edge [ctx item sel? detail?]
   (set! (.-strokeStyle ctx) (if sel? ACCENT "#555"))
   (set! (.-lineWidth ctx) (if sel? 2.5 1.5))
   (doseq [pts (:sections item)]
@@ -109,11 +114,11 @@
   (let [sections (:sections item)
         first-sec (nth sections 0)
         last-sec (nth sections (dec (.-length sections)))]
-    (when (:target (:arrows item))
+    (when (and detail? (:target (:arrows item)))
       (draw-arrowhead ctx
                       (nth last-sec (- (.-length last-sec) 2))
                       (nth last-sec (dec (.-length last-sec)))))
-    (when (:source (:arrows item))
+    (when (and detail? (:source (:arrows item)))
       (draw-arrowhead ctx (nth first-sec 1) (nth first-sec 0)))))
 
 (defn- draw-edge-label [ctx item]
@@ -127,7 +132,7 @@
     (set! (.-fillStyle ctx) "#444")
     (.fillText ctx (:text item) cx cy)))
 
-(defn paint! [canvas-el scene selected-id]
+(defn paint! [canvas-el sc2 selected-id]
   (let [ctx (.getContext canvas-el "2d")
         dpr (or (.-devicePixelRatio js/window) 1)
         pw (js/Math.round (* (.-clientWidth canvas-el) dpr))
@@ -140,14 +145,22 @@
     (.fillRect ctx 0 0 pw ph)
     (.setTransform ctx (* dpr (:k view)) 0 0 (* dpr (:k view))
                    (* dpr (:x view)) (* dpr (:y view)))
-    (doseq [item (:items scene)]
-      (let [sel? (= selected-id (:id item))]
-        (case (:kind item)
-          "box" (draw-box ctx item sel?)
-          "edge" (draw-edge ctx item sel?)
-          "edge-label" (draw-edge-label ctx item)
-          "node" (draw-node ctx item sel?)
-          nil)))))
+    ;; cull to the visible graph-space rect; below TEXT-MIN-PX of rendered
+    ;; font height, skip text entirely (unreadable, dominates paint cost)
+    (let [k (:k view)
+          vr {:x0 (/ (- 0 (:x view)) k) :y0 (/ (- 0 (:y view)) k)
+              :x1 (/ (- (.-clientWidth canvas-el) (:x view)) k)
+              :y1 (/ (- (.-clientHeight canvas-el) (:y view)) k)}
+          text? (>= (* k 11) TEXT-MIN-PX)]
+      (doseq [item (:items sc2)]
+        (when (scene/visible? item vr)
+          (let [sel? (= selected-id (:id item))]
+            (case (:kind item)
+              "box" (draw-box ctx item sel? text?)
+              "edge" (draw-edge ctx item sel? text?)
+              "edge-label" (when text? (draw-edge-label ctx item))
+              "node" (draw-node ctx item sel? text?)
+              nil)))))))
 
 (defn setup-pan-zoom! [wrap]
   (.addEventListener wrap "wheel"

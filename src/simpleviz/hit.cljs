@@ -52,13 +52,15 @@
         by-kind (fn [k] (filterv (fn [it] (= (:kind it) k)) items))
         edges (by-kind "edge")
         labels (by-kind "edge-label")
-        edge-by-id (reduce (fn [acc e] (assoc acc (:id e) e)) {} edges)
+        ;; looked up lazily on an actual label hit — building an id map on
+        ;; every click is the dominant cost at 10k edges
+        edge-of (fn [id] (some (fn [e] (when (= (:id e) id) e)) edges))
         labeled (js/Set. (mapv (fn [l] (:edge-id l)) labels))]
     (or (some (fn [it] (when (in-rect? p (:x it) (:y it) (:w it) (:h it)) it))
               (by-kind "node"))
         (some (fn [l] (when (in-rect? p (- (:x l) 3) (- (:y l) 3)
                                       (+ (:w l) 6) (+ (:h l) 6))
-                        (get edge-by-id (:edge-id l))))
+                        (edge-of (:edge-id l))))
               labels)
         (some (fn [it] (when (and (not (.has labeled (:id it)))
                                   (near-sections? p (:sections it) tol))

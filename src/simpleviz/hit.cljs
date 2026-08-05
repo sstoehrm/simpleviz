@@ -43,14 +43,26 @@
              (>= (:y p) (- (+ y h) 4))))))
 
 (defn hit-test
-  "Returns the hit scene item or nil. Priority: nodes, then edges within
-  tol, then boxes innermost-first (reverse draw order)."
+  "Returns the hit scene item or nil. Priority: nodes, then edge labels
+  (resolving to their edge), then label-less edges within tol of their
+  line, then boxes innermost-first (reverse draw order). Labeled edges
+  are deliberately NOT selectable via their line."
   [scene p tol]
   (let [items (:items scene)
-        by-kind (fn [k] (filterv (fn [it] (= (:kind it) k)) items))]
+        by-kind (fn [k] (filterv (fn [it] (= (:kind it) k)) items))
+        edges (by-kind "edge")
+        labels (by-kind "edge-label")
+        edge-by-id (reduce (fn [acc e] (assoc acc (:id e) e)) {} edges)
+        labeled (js/Set. (mapv (fn [l] (:edge-id l)) labels))]
     (or (some (fn [it] (when (in-rect? p (:x it) (:y it) (:w it) (:h it)) it))
               (by-kind "node"))
-        (some (fn [it] (when (near-sections? p (:sections it) tol) it))
-              (by-kind "edge"))
+        (some (fn [l] (when (in-rect? p (- (:x l) 3) (- (:y l) 3)
+                                      (+ (:w l) 6) (+ (:h l) 6))
+                        (get edge-by-id (:edge-id l))))
+              labels)
+        (some (fn [it] (when (and (not (.has labeled (:id it)))
+                                  (near-sections? p (:sections it) tol))
+                         it))
+              edges)
         (some (fn [it] (when (box-hit? p it) it))
               (reverse (by-kind "box"))))))

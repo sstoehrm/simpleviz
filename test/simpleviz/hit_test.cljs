@@ -49,3 +49,25 @@
     (let [top {:kind "box" :id "b:top" :x 60 :y 52 :w 120 :h 60 :title-h 28}
           s (scene [outer-box top])]
       (assert/equal (:id (hit-test s {:x 100 :y 60} 6)) "b:top"))))
+
+(def labeled-edge {:kind "edge" :id "e1"
+                   :sections [[{:x 0 :y 300} {:x 300 :y 300}]]})
+(def e1-label {:kind "edge-label" :id "e1-label" :edge-id "e1"
+               :x 120 :y 280 :w 60 :h 14})
+
+(test "labeled edge selects via its label, not its line"
+  (fn []
+    (let [s (scene [labeled-edge e1-label])]
+      (assert/equal (:id (hit-test s {:x 150 :y 287} 6)) "e1")
+      (assert/equal (:kind (hit-test s {:x 150 :y 287} 6)) "edge")
+      (assert/ok (nil? (hit-test s {:x 150 :y 301} 6))))))
+
+(test "label hit zone has a small padding"
+  (fn []
+    (let [s (scene [labeled-edge e1-label])]
+      (assert/equal (:id (hit-test s {:x 118 :y 278} 6)) "e1"))))
+
+(test "unlabeled edge still selects via its line"
+  (fn []
+    (let [s (scene [edge-e])]
+      (assert/equal (:id (hit-test s {:x 150 :y 202} 6)) "e0"))))

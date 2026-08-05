@@ -64,7 +64,7 @@
     (let [resp (js-await (js/fetch "/api/graph"))
           raw (js-await (.json resp))]
       (if (some? (:error raw))
-        (swap! state assoc :error (str "EDN parse error: " (:error raw)))
+        (swap! state assoc :error (str "Graph error: " (:error raw)))
         (let [g (assoc raw :boxes-by-name
                        (reduce (fn [acc b] (assoc acc (:name b) b)) {} (:boxes raw)))
               cmap {:node (colors/color-map (mapv (fn [n] (:type n))

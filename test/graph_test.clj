@@ -142,3 +142,25 @@
                                                  {:components ["b"]}]))]
     (is (= [] (:boxes g)))
     (is (= 2 (count (:warnings g))))))
+
+(deftest keyword-identifiers-end-to-end
+  (let [g (graph/normalize {:nodes {:api {}}
+                            :edges [{:nodes [:api :api]}]
+                            :boxes [{:name :backend :components [:api]}]})]
+    (is (= ["api"] (keys (:nodes g))))
+    (is (= "api" (get-in g [:nodes "api" :name])))
+    (is (= 1 (count (:edges g))))
+    (is (= "api" (:source (first (:edges g)))))
+    (is (= "api" (:target (first (:edges g)))))
+    (is (= 1 (count (:boxes g))))
+    (is (= "backend" (:name (first (:boxes g)))))
+    (is (= ["n:api"] (:components (first (:boxes g)))))
+    (is (= "backend" (get (:parent-of g) "n:api")))
+    (is (= [] (:warnings g)))))
+
+(deftest edges-as-set-accepted
+  (let [g (graph/normalize (assoc (base) :edges #{{:nodes ["a" "b"]}}))]
+    (is (= 1 (count (:edges g))))
+    (is (= "a" (:source (first (:edges g)))))
+    (is (= "b" (:target (first (:edges g)))))
+    (is (= [] (:warnings g)))))

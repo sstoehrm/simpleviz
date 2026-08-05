@@ -1,5 +1,7 @@
 (ns serve
-  "Dumb static + EDN->JSON server. All graph logic lives in the browser."
+  "Static file server + EDN->JSON API. Parses and normalizes the graph
+  (shape checks, semantics) server-side via graph/normalize; the browser
+  just renders the resulting JSON."
   (:require [cheshire.core :as json]
             [clojure.edn :as edn]
             [clojure.java.io :as io]

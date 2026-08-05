@@ -54,4 +54,6 @@
                     :parent-of {"n:a" "grp" "n:b" "grp"}})]
       (-> (.layout (ELK.) (to-elk g measure))
           (.then (fn [layout]
+                   ;; the renderer must offset by the container's absolute origin — this
+                   ;; documents the contract it relies on
                    (assert/equal (:container (nth (:edges layout) 0)) "b:grp")))))))

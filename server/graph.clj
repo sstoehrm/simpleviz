@@ -7,31 +7,39 @@
             [malli.error :as me]))
 
 (def ^:private EdgeShape
-  [:map [:nodes [:tuple :string :string]]])
+  [:map [:nodes [:tuple [:or :string :keyword] [:or :string :keyword]]]])
 
 (def ^:private directions
   {:-> :-> :<- :<- :<-> :<-> :- :-
    "->" :-> "<-" :<- "<->" :<-> "-" :-})
 
-(defn- coerce-str [x fallback]
-  (str (if (nil? x) fallback x)))
+(defn- ident->str
+  "Coerce a node/box/component identifier to a display string. Keywords lose
+  their leading colon (matching the old EDN->cheshire->frontend pipeline);
+  anything else falls back to str."
+  [x]
+  (if (keyword? x) (name x) (str x)))
 
-(defn- shape-warning
-  "nil when value matches schema, else a humanized warning string."
-  [schema label value]
+(defn- coerce-str [x fallback]
+  (ident->str (if (nil? x) fallback x)))
+
+(defn- explain-str
+  "nil when value matches schema, else the humanized malli explanation
+  rendered as a string."
+  [schema value]
   (when-let [expl (m/explain schema value)]
-    (str label ": " (pr-str (me/humanize expl)))))
+    (pr-str (me/humanize expl))))
 
 (defn- top-level [raw warn! k pred coerce-empty msg]
   (let [v (get raw k)]
     (cond (nil? v) coerce-empty
-          (pred v) v
+          (pred v) (if (set? v) (vec v) v)
           :else (do (warn! msg) coerce-empty))))
 
 (defn- build-nodes [nodes-in warn!]
   (reduce-kv
    (fn [acc k v]
-     (let [k (str k)
+     (let [k (ident->str k)
            attrs (if (map? v) v {})]
        (when-not (or (nil? v) (map? v))
          (warn! (str "node \"" k "\": attributes must be a map, using {}")))
@@ -47,9 +55,13 @@
         (fn [i e]
           (if-not (map? e)
             (do (warn! (str "edge " i ": not a map, skipped")) nil)
-            (if-let [w (shape-warning EdgeShape (str "edge " i) e)]
-              (do (warn! w) nil)
-              (let [[a b] (:nodes e)
+            (if-let [humanized (explain-str EdgeShape e)]
+              (do (warn! (str "edge " i ": :nodes must be a vector of exactly 2 node names ("
+                              humanized ")"))
+                  nil)
+              (let [[a0 b0] (:nodes e)
+                    a (ident->str a0)
+                    b (ident->str b0)
                     missing (remove #(contains? nodes %) [a b])]
                 (if (seq missing)
                   (do (warn! (str "edge " i " [" a " " b "]: unknown node(s): "
@@ -115,7 +127,7 @@
        (let [[kept parents]
              (reduce
               (fn [[kept parents] c]
-                (let [c (str c)
+                (let [c (ident->str c)
                       is-node (contains? nodes c)
                       is-box (contains? box-names c)]
                   (cond
@@ -171,8 +183,8 @@
               raw
               (do (when (some? raw) (warn! "root must be a map, ignoring content")) {}))
         nodes-in (top-level raw warn! :nodes map? {} ":nodes must be a map, ignoring it")
-        edges-in (top-level raw warn! :edges sequential? [] ":edges must be a vector, ignoring it")
-        boxes-in (top-level raw warn! :boxes sequential? [] ":boxes must be a vector, ignoring it")
+        edges-in (top-level raw warn! :edges #(or (sequential? %) (set? %)) [] ":edges must be a vector, ignoring it")
+        boxes-in (top-level raw warn! :boxes #(or (sequential? %) (set? %)) [] ":boxes must be a vector, ignoring it")
         nodes (build-nodes nodes-in warn!)
         edges (build-edges edges-in nodes warn!)
         boxes0 (build-boxes boxes-in warn!)

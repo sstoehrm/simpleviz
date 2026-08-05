@@ -10,6 +10,16 @@
 
 (def TITLE-H 28)
 
+;; shared by the painter (draw threshold) and hit-testing (click zone):
+;; below this rendered font height, text/labels/arrowheads and the box
+;; hide-button are neither drawn nor clickable
+(def TEXT-MIN-PX 4.5)
+
+;; hide-button square in the box header, offsets from the top-right corner
+(def HIDE-BTN-SIZE 15)
+(def HIDE-BTN-RIGHT 22)
+(def HIDE-BTN-TOP 7)
+
 (def ^:private BBOX-PAD 10)
 
 (defn- node-color [node colors]

@@ -14,8 +14,6 @@
 
 (def ACCENT "#2563eb")
 
-(def ^:private TEXT-MIN-PX 4.5)
-
 ;; Mutated in place (assoc!), outside the state atom so pan/zoom repaints
 ;; without re-rendering the DOM.
 (def view {:x 0 :y 0 :k 1 :initialized false})
@@ -67,7 +65,20 @@
       (set! (.-font ctx) SUB-FONT)
       (set! (.-fillStyle ctx) "#888")
       (.fillText ctx (str "(" (:type item) ")")
-                 (+ (:x item) 12 nw 5) (+ (:y item) 20))))))
+                 (+ (:x item) 12 nw 5) (+ (:y item) 20))))
+  (let [bx (- (+ (:x item) (:w item)) scene/HIDE-BTN-RIGHT)
+        by (+ (:y item) scene/HIDE-BTN-TOP)
+        s scene/HIDE-BTN-SIZE]
+    (rounded-rect ctx bx by s s 3)
+    (set! (.-fillStyle ctx) "#ffffffcc")
+    (.fill ctx)
+    (set! (.-strokeStyle ctx) (:border item))
+    (set! (.-lineWidth ctx) 1)
+    (.stroke ctx)
+    (.beginPath ctx)
+    (.moveTo ctx (+ bx 4) (+ by (/ s 2)))
+    (.lineTo ctx (+ bx s -4) (+ by (/ s 2)))
+    (.stroke ctx))))
 
 (defn- draw-node [ctx item sel? text?]
   (rounded-rect ctx (:x item) (:y item) (:w item) (:h item) 6)
@@ -151,7 +162,7 @@
           vr {:x0 (/ (- 0 (:x view)) k) :y0 (/ (- 0 (:y view)) k)
               :x1 (/ (- (.-clientWidth canvas-el) (:x view)) k)
               :y1 (/ (- (.-clientHeight canvas-el) (:y view)) k)}
-          text? (>= (* k 11) TEXT-MIN-PX)]
+          text? (>= (* k 11) scene/TEXT-MIN-PX)]
       (doseq [item (:items sc2)]
         (when (scene/visible? item vr)
           (let [sel? (= selected-id (:id item))]

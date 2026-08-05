@@ -20,16 +20,21 @@ Click nodes, edges, or boxes for their full attributes. Drag to pan, wheel to zo
 
 ## Data format
 
-    {:nodes {"api" {:name "API"          ; display name (defaults to the key)
-                    :type "service"      ; free-form; colors the name, shown as (type)
-                    :lang "clojure"}}    ; any other attr: details panel only
-     :edges [{:nodes ["web" "api"]       ; vector: order defines left/right
-              :direction :->             ; :-> | :<- | :<-> | :- (default :-)
+    {:nodes {:api {:name "API"           ; display name (defaults to the key)
+                   :type "service"       ; free-form; colors the name, shown as (type)
+                   :lang "clojure"}}     ; any other attr: inspector panel only
+     :edges {[:web :api]                 ; key: endpoints, order defines left/right;
+                                         ; the same edge cannot appear twice
+             {:direction :->             ; :-> | :<- | :<-> | :- (default :-)
               :name "REST"
-              :type "http"}]
-     :boxes [{:name "backend"
-              :type "zone"               ; colors the box (separate palette)
-              :components #{"api" "db"}}]} ; node and/or box names; boxes nest
+              :type "http"}}
+     :boxes {:backend                    ; key is the box id (and display name)
+             {:type "zone"               ; colors the box (separate palette)
+              :components #{:api :db}}}} ; node and/or box ids; boxes nest
+
+Identifiers may be keywords or strings. The pre-v2 vector forms
+(`:edges [{:nodes [..] ..}]`, `:boxes [{:name ".." ..}]`) are still accepted.
+Writing both `[:a :b]` and `[:b :a]` produces a "same connection" warning.
 
 Colors are stable: a type keeps its color across restarts and unrelated edits
 (FNV-1a hash into a fixed 255-color table, golden-angle hues, linear probing

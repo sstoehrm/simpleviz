@@ -164,3 +164,60 @@
     (is (= "a" (:source (first (:edges g)))))
     (is (= "b" (:target (first (:edges g)))))
     (is (= [] (:warnings g)))))
+
+;; ---- format v2: maps for boxes and edges ----
+
+(deftest boxes-as-map-with-keyword-ids
+  (let [g (graph/normalize {:nodes {:a {} :b {}}
+                            :boxes {:x {:components #{:a}}
+                                    :outer {:components [:x :b]}}})]
+    (is (= 2 (count (:boxes g))))
+    (is (= "outer" (get (:parent-of g) "b:x")))
+    (is (= "outer" (get (:parent-of g) "n:b")))
+    (is (= "x" (get (:parent-of g) "n:a")))
+    (is (= [] (:warnings g)))))
+
+(deftest box-map-value-name-ignored-with-warning
+  (let [g (graph/normalize {:boxes {:x {:name "other"}}})]
+    (is (= "x" (:name (first (:boxes g)))))
+    (is (= 1 (count (:warnings g))))))
+
+(deftest box-map-nil-value-allowed
+  (let [g (graph/normalize {:boxes {:x nil}})]
+    (is (= "x" (:name (first (:boxes g)))))
+    (is (= [] (:warnings g)))))
+
+(deftest edges-as-map-keyed-by-endpoints
+  (let [g (graph/normalize {:nodes {:a {} :b {} :c {}}
+                            :edges {[:a :b] {:direction :-> :name "x"}
+                                    [:b :c] nil}})]
+    (is (= 2 (count (:edges g))))
+    (is (= "a" (:source (first (:edges g)))))
+    (is (= {:source false :target true} (:arrows (first (:edges g)))))
+    (is (= {:source false :target false} (:arrows (second (:edges g)))))
+    (is (= [] (:warnings g)))))
+
+(deftest edge-map-ids-deterministic-sorted
+  (let [g (graph/normalize {:nodes {:a {} :b {} :c {}}
+                            :edges {[:b :c] {} [:a :c] {}}})]
+    (is (= ["a" "c"] [(:source (first (:edges g))) (:target (first (:edges g)))]))
+    (is (= "e0" (:id (first (:edges g)))))))
+
+(deftest edge-map-bad-keys-and-values
+  (let [g (graph/normalize {:nodes {:a {} :b {}}
+                            :edges {:oops {} [:a :b] "nope"}})]
+    (is (= [] (:edges g)))
+    (is (= 2 (count (:warnings g))))))
+
+(deftest edge-map-nodes-in-value-ignored
+  (let [g (graph/normalize {:nodes {:a {} :b {}}
+                            :edges {[:a :b] {:nodes [:b :a]}}})]
+    (is (= "a" (:source (first (:edges g)))))
+    (is (= 1 (count (:warnings g))))))
+
+(deftest reversed-edge-pair-warns
+  (let [g (graph/normalize {:nodes {:a {} :b {}}
+                            :edges [{:nodes [:a :b]} {:nodes [:b :a]}]})]
+    (is (= 2 (count (:edges g))))
+    (is (= 1 (count (:warnings g))))
+    (is (re-find #"same connection" (first (:warnings g))))))

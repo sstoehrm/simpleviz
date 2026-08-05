@@ -11,7 +11,7 @@
                                     {:replace-existing true})
                       (fs/copy-tree "node_modules/squint-cljs" "public/js/vendor/squint-cljs"
                                     {:replace-existing true}))}
-  serve    {:doc "Serve an EDN graph file: bb serve examples/demo.edn"
+  serve    {:doc "Serve an EDN graph file: bb serve examples/demo.edn [--port N]"
             :requires ([serve])
             :task (apply serve/-main *command-line-args*)}
   test:clj {:doc "Run Clojure server tests"
@@ -27,8 +27,12 @@
                       (apply shell "node" "--test" files)))}
   test     {:doc "Run all tests"
             :depends [build test:clj test:js]}
-  dev      {:doc "Compile, watch and serve (default examples/demo.edn)"
-            :requires ([babashka.process :as p] [serve])
+  dev      {:doc "Compile, watch and serve: bb dev [graph.edn] [--port N]"
+            :requires ([babashka.cli :as cli] [babashka.process :as p] [serve])
             :task (do (run 'build)
                       (p/process ["npx" "squint" "watch"] {:inherit true})
-                      (serve/-main (or (first *command-line-args*) "examples/demo.edn")))}}}
+                      ;; prepend the default file unless a positional arg is present
+                      (let [args *command-line-args*
+                            positional (try (:args (cli/parse-args args serve/cli-spec))
+                                            (catch Exception _ [:let-serve-report-it]))]
+                        (apply serve/-main (if (seq positional) args (cons "examples/demo.edn" args)))))}}}

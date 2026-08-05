@@ -1,4 +1,5 @@
-(ns simpleviz.hit)
+(ns simpleviz.hit
+  (:require [simpleviz.scene :as scene]))
 
 ;; Pure hit-testing over the scene display list. All coordinates in graph
 ;; space; convert mouse coordinates with client->graph first. No DOM.
@@ -46,8 +47,12 @@
   "Returns the hit scene item or nil. Priority: nodes, then edge labels
   (resolving to their edge), then label-less edges within tol of their
   line, then boxes innermost-first (reverse draw order). Labeled edges
-  are deliberately NOT selectable via their line."
-  [scene p tol]
+  are deliberately NOT selectable via their line. A box's hide button
+  (drawn only when text is legible, see scene/TEXT-MIN-PX) yields
+  {:kind \"hide-button\" :box-id ..}. The 3-arity derives the zoom from
+  tol (the app passes tol = 8/k)."
+  ([scene p tol] (hit-test scene p tol (/ 8 tol)))
+  ([scene p tol k]
   (let [items (:items scene)
         by-kind (fn [k] (filterv (fn [it] (= (:kind it) k)) items))
         edges (by-kind "edge")
@@ -66,5 +71,13 @@
                                   (near-sections? p (:sections it) tol))
                          it))
               edges)
-        (some (fn [it] (when (box-hit? p it) it))
-              (reverse (by-kind "box"))))))
+        (let [btn? (>= (* k 11) scene/TEXT-MIN-PX)]
+          (some (fn [it]
+                  (or (when (and btn?
+                                 (in-rect? p
+                                           (- (+ (:x it) (:w it)) scene/HIDE-BTN-RIGHT)
+                                           (+ (:y it) scene/HIDE-BTN-TOP)
+                                           scene/HIDE-BTN-SIZE scene/HIDE-BTN-SIZE))
+                        {:kind "hide-button" :box-id (:id it)})
+                      (when (box-hit? p it) it)))
+                (reverse (by-kind "box"))))))))

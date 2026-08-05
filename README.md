@@ -14,6 +14,8 @@ that live-reloads while you edit the file.
 
     bb serve examples/demo.edn              # default port 7373
     bb serve examples/demo.edn --port 9000  # or -p 9000
+    bb serve examples/big-5k.edn            # 5k-node stress example
+                                            # (bb dev/gen-example.clj 10000 big.edn for more)
 
 Open http://localhost:7373. Edit the file — the page updates automatically.
 Click nodes, edges, or boxes for their full attributes. Drag to pan, wheel to zoom.

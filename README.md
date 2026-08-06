@@ -64,3 +64,16 @@ boxes, ELK-placed edge labels).
 
 Sources in `src/simpleviz/`, tests in `test/simpleviz/` (run by `node --test`
 against the compiled output).
+
+## Releases
+
+Release tarballs on the GitHub releases page contain the precompiled frontend
+plus the server — only babashka is needed to run them (no node/npm):
+
+    tar xzf simpleviz-vX.Y.Z.tar.gz
+    cd simpleviz-vX.Y.Z
+    bb serve examples/demo.edn
+
+CI (`bb test`) runs on every push and pull request. Pushing a `v*` tag runs
+`bb bundle`, which builds the tarball into `dist/` and publishes it as a
+GitHub release; `bb bundle` also works locally.

@@ -217,9 +217,21 @@
       (if (some? (:error raw))
         (swap! state assoc :error (str "Graph error: " (:error raw)))
         (let [g (assoc raw :boxes-by-name
-                       (reduce (fn [acc b] (assoc acc (:name b) b)) {} (:boxes raw)))]
+                       (reduce (fn [acc b] (assoc acc (:name b) b)) {} (:boxes raw)))
+              first-load? (nil? (:graph @state))]
           (.clear layout-cache)
           (swap! state assoc :error nil :graph g :warnings (:warnings g))
+          ;; big graphs open as a collapsed overview: all top-level boxes
+          ;; start folded, drill in from there (also makes the first ELK
+          ;; run cheap). Small graphs open fully expanded.
+          (when (and first-load?
+                     (> (.-length (js/Object.keys (:nodes g))) 500))
+            (swap! state assoc :collapsed-boxes
+                   (set (keep (fn [b]
+                                (when (nil? (get (:parent-of g)
+                                                 (str "b:" (:name b))))
+                                  (:name b)))
+                              (:boxes g)))))
           (js-await (relayout!)))))
     (catch :default e
       (js/console.error "Reload failed:" e)

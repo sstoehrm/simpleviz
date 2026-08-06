@@ -12,7 +12,12 @@
 
 (def state (atom {:error nil :warnings [] :graph nil :layout nil
                   :colors nil :selected nil :collapsed false
-                  :collapsed-boxes #{} :layouting false}))
+                  :collapsed-boxes #{} :layouting false
+                  :theme (or (js/localStorage.getItem "simpleviz-theme")
+                             (if (.-matches (js/window.matchMedia
+                                             "(prefers-color-scheme: dark)"))
+                               "dark"
+                               "light"))}))
 (def last-mtime (atom nil))
 
 (defn- on-select [payload]
@@ -166,6 +171,10 @@
    (collapsed-view st)
    (when (:layouting st)
      [:div {:id "layouting"} "re-layouting…"])
+   [:button {:id "theme-toggle" :type "button"
+             :title (if (= (:theme st) "dark") "Switch to light mode" "Switch to dark mode")
+             :on-click (fn [e] (.stopPropagation e) (toggle-theme!))}
+    (if (= (:theme st) "dark") "☀" "🌙")]
    (canvas-view)
    (when (some? (:selected st))
      (details-view (:selected st)))])
@@ -261,8 +270,20 @@
       (reset! last-mtime mtime)
       (js-await (reload!)))))
 
+(defn- apply-theme! [t]
+  (set! (.. js/document -documentElement -dataset -theme) t)
+  (canvas/set-theme! t)
+  (canvas/request-paint!))
+
+(defn- toggle-theme! []
+  (let [t (if (= (:theme @state) "dark") "light" "dark")]
+    (js/localStorage.setItem "simpleviz-theme" t)
+    (swap! state assoc :theme t)
+    (apply-theme! t)))
+
 ;; init
 (canvas/set-repaint! paint-now!)
+(apply-theme! (:theme @state))
 (add-watch state :render (fn [_ _ _ _] (rerender!)))
 (canvas/setup-pan-zoom! (js/document.getElementById "canvas-wrap"))
 (rerender!)

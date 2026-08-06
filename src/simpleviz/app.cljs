@@ -139,9 +139,17 @@
           (toggle-collapse! (.slice (:box-id item) 2))
           (on-select (when (some? item) (item->payload item))))))}])
 
+(defn- load-view [st]
+  [:div {:id "loadscreen"}
+   [:div {:class "load-spinner"}]
+   [:div {:class "load-title"} "simpleviz"]
+   [:div {:class "load-stage"} (or (:load-stage st) "loading…")]])
+
 (defn- app-view [st]
   [:div {:id "root"}
    (banner-view st)
+   (when (and (nil? (:scene st)) (nil? (:error st)))
+     (load-view st))
    (collapsed-view (:collapsed-boxes st))
    (when (:layouting st)
      [:div {:id "layouting"} "re-layouting…"])
@@ -172,7 +180,11 @@
         (swap! state assoc :colors (:colors hit) :layout (:layout hit)
                :scene (:scene hit) :layouting false)
         (do
-          (swap! state assoc :layouting true)
+          (swap! state assoc
+                 :layouting true
+                 :load-stage (str "laying out "
+                                  (.-length (js/Object.keys (:nodes g0)))
+                                  " nodes, " (.-length (:edges g0)) " edges…"))
           (js-await (yield-paint!))
           (let [g (collapse-boxes g0 collapsed)
                 cmap {:node (colors/color-map (mapv (fn [n] (:type n))
@@ -198,6 +210,8 @@
 
 (defn ^:async reload! []
   (try
+    (when (nil? (:scene @state))
+      (swap! state assoc :load-stage "loading graph…"))
     (let [resp (js-await (js/fetch "/api/graph"))
           raw (js-await (.json resp))]
       (if (some? (:error raw))

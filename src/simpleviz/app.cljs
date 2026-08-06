@@ -2,7 +2,7 @@
   (:require ["reagami" :refer [render]]
             [simpleviz.colors :as colors]
             [simpleviz.transform :refer [to-elk]]
-            [simpleviz.prune :refer [prune-hidden prune-scene]]
+            [simpleviz.prune :refer [collapse-boxes collapse-scene]]
             [simpleviz.scene :as scene]
             [simpleviz.hit :as hit]
             [simpleviz.canvas :as canvas]))
@@ -12,7 +12,7 @@
 
 (def state (atom {:error nil :warnings [] :graph nil :layout nil
                   :colors nil :selected nil :collapsed false
-                  :hidden #{} :layouting false}))
+                  :collapsed-boxes #{} :layouting false}))
 (def last-mtime (atom nil))
 
 (defn- on-select [payload]
@@ -20,29 +20,36 @@
 
 (declare relayout!)
 
-;; layouts per hidden-set, so unhiding (or re-hiding a seen combination)
-;; is instant instead of a multi-second ELK run; cleared on file reload
+;; layouts per collapsed-set, so expanding (or re-collapsing a seen
+;; combination) is instant instead of a multi-second ELK run; cleared on
+;; file reload
 (def ^:private layout-cache (js/Map.))
 
-(defn- cache-key [hidden]
-  (.join (.sort (js/Array.from hidden)) "|"))
+(defn- cache-key [collapsed]
+  (.join (.sort (js/Array.from collapsed)) "|"))
 
-(defn- hide-box! [box-name]
+(defn- collapse-box! [box-name]
   (swap! state (fn [st]
-                 (let [hidden (conj (:hidden st) box-name)]
+                 (let [collapsed (conj (:collapsed-boxes st) box-name)]
                    (assoc st
-                          :hidden hidden
+                          :collapsed-boxes collapsed
                           :selected nil
-                          ;; instant feedback: drop the box from the current
-                          ;; scene right away (gaps close on the re-layout)
+                          ;; instant feedback: empty the shell right away
+                          ;; (boundary edges snap to it on the re-layout)
                           :scene (if (some? (:scene st))
-                                   (prune-scene (:scene st) (:graph st) hidden)
+                                   (collapse-scene (:scene st) (:graph st) collapsed)
                                    (:scene st))))))
   (relayout!))
 
-(defn- unhide-box! [box-name]
-  (swap! state (fn [st] (assoc st :hidden (disj (:hidden st) box-name))))
+(defn- expand-box! [box-name]
+  (swap! state (fn [st] (assoc st :collapsed-boxes (disj (:collapsed-boxes st) box-name)
+                               :selected nil)))
   (relayout!))
+
+(defn- toggle-collapse! [box-name]
+  (if (contains? (:collapsed-boxes @state) box-name)
+    (expand-box! box-name)
+    (collapse-box! box-name)))
 
 (defn- yield-paint!
   "Resolves after the browser painted the current DOM/canvas state —
@@ -52,15 +59,15 @@
                  (js/requestAnimationFrame
                   (fn [_] (js/setTimeout res 0))))))
 
-(defn- hidden-view [hidden]
-  (when (pos? (.-size hidden))
-    (into [:div {:id "hidden-boxes"}]
+(defn- collapsed-view [collapsed]
+  (when (pos? (.-size collapsed))
+    (into [:div {:id "collapsed-boxes"}]
           (mapv (fn [b]
                   [:button {:key b :class "chip" :type "button"
-                            :title "Show this box again"
-                            :on-click (fn [e] (.stopPropagation e) (unhide-box! b))}
-                   (str b " ×")])
-                (vec (sort (js/Array.from hidden)))))))
+                            :title "Expand this box"
+                            :on-click (fn [e] (.stopPropagation e) (expand-box! b))}
+                   (str b " +")])
+                (vec (sort (js/Array.from collapsed)))))))
 
 ;; attrs already represented visually (endpoints/arrow on the canvas,
 ;; membership by containment) stay out of the inspector
@@ -128,14 +135,14 @@
             tol (/ 8 (:k canvas/view))
             s (:scene @state)
             item (when (some? s) (hit/hit-test s p tol (:k canvas/view)))]
-        (if (= (:kind item) "hide-button")
-          (hide-box! (.slice (:box-id item) 2))
+        (if (= (:kind item) "collapse-button")
+          (toggle-collapse! (.slice (:box-id item) 2))
           (on-select (when (some? item) (item->payload item))))))}])
 
 (defn- app-view [st]
   [:div {:id "root"}
    (banner-view st)
-   (hidden-view (:hidden st))
+   (collapsed-view (:collapsed-boxes st))
    (when (:layouting st)
      [:div {:id "layouting"} "re-layouting…"])
    (canvas-view)
@@ -152,22 +159,22 @@
   (canvas/request-paint!))
 
 (defn ^:async relayout!
-  "Layout + scene from the stored graph, minus hidden boxes. Colors come
-  from the FULL graph so hiding never shifts type colors. Results are
-  cached per hidden-set; a stale async result (hidden changed meanwhile)
-  is cached but not applied."
+  "Layout + scene from the stored graph, with collapsed boxes contracted.
+  Colors come from the FULL graph so collapsing never shifts type colors.
+  Results are cached per collapsed-set; a stale async result (set changed
+  meanwhile) is cached but not applied."
   []
   (try
     (let [g0 (:graph @state)
-          hidden (:hidden @state)
-          ck (cache-key hidden)]
+          collapsed (:collapsed-boxes @state)
+          ck (cache-key collapsed)]
       (if-let [hit (.get layout-cache ck)]
         (swap! state assoc :colors (:colors hit) :layout (:layout hit)
                :scene (:scene hit) :layouting false)
         (do
           (swap! state assoc :layouting true)
           (js-await (yield-paint!))
-          (let [g (prune-hidden g0 hidden)
+          (let [g (collapse-boxes g0 collapsed)
                 cmap {:node (colors/color-map (mapv (fn [n] (:type n))
                                                     (js/Object.values (:nodes g0)))
                                               colors/NODE-TABLE)
@@ -180,7 +187,7 @@
             (canvas/fit-view-once! sc)
             (when (> (.-size layout-cache) 16) (.clear layout-cache))
             (.set layout-cache ck {:colors cmap :layout layout :scene sc})
-            (if (= ck (cache-key (:hidden @state)))
+            (if (= ck (cache-key (:collapsed-boxes @state)))
               (swap! state assoc :colors cmap :layout layout :scene sc
                      :layouting false)
               (swap! state assoc :layouting false))))))

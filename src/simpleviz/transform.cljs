@@ -16,13 +16,20 @@
                       :width (+ (js/Math.ceil w) 24)
                       :height (if typed? 44 30)}))
         box-elk (fn box-elk [b]
-                  {:id (str "b:" (:name b))
-                   :layoutOptions {"elk.padding" "[top=40,left=14,bottom=14,right=14]"}
-                   :children (mapv (fn [c]
-                                     (if (.startsWith c "n:")
-                                       (node-elk (get nodes (.slice c 2)))
-                                       (box-elk (get boxes-by-name (.slice c 2)))))
-                                   (:components b))})
+                  (if (:collapsed b)
+                    (let [typed? (pos? (.-length (:type b)))
+                          w (max (measure (:name b) NODE-FONT)
+                                 (if typed? (measure (str "(" (:type b) ")") SUB-FONT) 0))]
+                      {:id (str "b:" (:name b))
+                       :width (+ (js/Math.ceil w) 46)
+                       :height 40})
+                    {:id (str "b:" (:name b))
+                     :layoutOptions {"elk.padding" "[top=40,left=14,bottom=14,right=14]"}
+                     :children (mapv (fn [c]
+                                       (if (.startsWith c "n:")
+                                         (node-elk (get nodes (.slice c 2)))
+                                         (box-elk (get boxes-by-name (.slice c 2)))))
+                                     (:components b))}))
         root-nodes (vec (filter some?
                          (mapv (fn [n] (when (nil? (get parent-of (str "n:" (:id n))))
                                          (node-elk n)))
@@ -50,8 +57,8 @@
                                             "")])
                           label (.join parts " ")
                           base {:id (:id e)
-                                :sources [(str "n:" (:source e))]
-                                :targets [(str "n:" (:target e))]}]
+                                :sources [(or (:source-id e) (str "n:" (:source e)))]
+                                :targets [(or (:target-id e) (str "n:" (:target e)))]}]
                       (if (pos? (.-length label))
                         (assoc base :labels [{:text label
                                               :width (+ (js/Math.ceil (measure label SUB-FONT)) 4)

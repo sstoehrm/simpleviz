@@ -78,7 +78,12 @@
     (.beginPath ctx)
     (.moveTo ctx (+ bx 4) (+ by (/ s 2)))
     (.lineTo ctx (+ bx s -4) (+ by (/ s 2)))
-    (.stroke ctx))))
+    (.stroke ctx)
+    (when (:collapsed item)
+      (.beginPath ctx)
+      (.moveTo ctx (+ bx (/ s 2)) (+ by 4))
+      (.lineTo ctx (+ bx (/ s 2)) (+ by s -4))
+      (.stroke ctx)))))
 
 (defn- draw-node [ctx item sel? text?]
   (rounded-rect ctx (:x item) (:y item) (:w item) (:h item) 6)

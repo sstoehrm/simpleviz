@@ -72,12 +72,18 @@
     (let [s (scene [edge-e])]
       (assert/equal (:id (hit-test s {:x 150 :y 202} 6)) "e0"))))
 
-(test "hide button hit when zoomed in; header when zoomed out"
+(test "collapse button hit when zoomed in; header when zoomed out"
   (fn []
     (let [s (scene [outer-box])
           btn-p {:x 330 :y 60}]           ; button rect: x 328-343, y 57-72
       (let [it (hit-test s btn-p 6 1.0)]
-        (assert/equal (:kind it) "hide-button")
+        (assert/equal (:kind it) "collapse-button")
         (assert/equal (:box-id it) "b:outer"))
       ;; zoomed far out: button not drawn, so the same point is a header hit
       (assert/equal (:kind (hit-test s btn-p 40 0.2)) "box"))))
+
+
+(test "collapsed box is clickable across its whole area"
+  (fn []
+    (let [cb {:kind "box" :id "b:c" :x 0 :y 0 :w 100 :h 60 :title-h 28 :collapsed true}]
+      (assert/equal (:id (hit-test (scene [cb]) {:x 50 :y 45} 6)) "b:c"))))

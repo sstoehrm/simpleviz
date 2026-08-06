@@ -27,12 +27,12 @@ body { margin: 0; font-family: system-ui, sans-serif; overflow: hidden; }
 #details dd { margin: 2px 0 0; font-size: 13px; white-space: pre-wrap;
               font-family: ui-monospace, "Cascadia Mono", monospace; }
 
-#hidden-boxes { position: fixed; top: 8px; left: 8px; z-index: 6;
+#collapsed-boxes { position: fixed; top: 8px; left: 8px; z-index: 6;
                 display: flex; flex-wrap: wrap; gap: 6px; max-width: 40vw; }
-#hidden-boxes .chip { border: 1px solid #ccc; border-radius: 12px;
+#collapsed-boxes .chip { border: 1px solid #ccc; border-radius: 12px;
                       background: #fff; padding: 2px 10px; font-size: 12px;
                       cursor: pointer; color: #444; }
-#hidden-boxes .chip:hover { background: #f1f5ff; border-color: #2563eb; }
+#collapsed-boxes .chip:hover { background: #f1f5ff; border-color: #2563eb; }
 
 #layouting { position: fixed; top: 8px; left: 50%; transform: translateX(-50%);
              z-index: 7; background: #1f2937; color: #fff; border-radius: 12px;

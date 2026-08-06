@@ -1,0 +1,45 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install babashka
+        uses: DeLaGuardo/setup-clojure@13.4
+        with:
+          bb: latest
+
+      - name: Cache babashka deps
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: bb-deps-${{ hashFiles('bb.edn') }}
+
+      - name: Run tests
+        run: bb test
+
+      - name: Build bundle
+        run: bb bundle ${{ github.ref_name }}
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "${{ github.ref_name }}"
+          dist/*.tar.gz
+          --title "simpleviz ${{ github.ref_name }}"
+          --generate-notes

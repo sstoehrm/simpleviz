@@ -17,12 +17,13 @@
                       :height (if typed? 44 30)}))
         box-elk (fn box-elk [b]
                   (if (:collapsed b)
+                    ;; node-style two-line label + room for the toggle button
                     (let [typed? (pos? (.-length (:type b)))
                           w (max (measure (:name b) NODE-FONT)
                                  (if typed? (measure (str "(" (:type b) ")") SUB-FONT) 0))]
                       {:id (str "b:" (:name b))
-                       :width (+ (js/Math.ceil w) 46)
-                       :height 40})
+                       :width (+ (js/Math.ceil w) 44)
+                       :height (if typed? 44 30)})
                     {:id (str "b:" (:name b))
                      :layoutOptions {"elk.padding" "[top=40,left=14,bottom=14,right=14]"}
                      :children (mapv (fn [c]

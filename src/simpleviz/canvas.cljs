@@ -56,16 +56,29 @@
   (set! (.-lineWidth ctx) (if sel? 2 1))
   (.stroke ctx)
   (when text?
-  (set! (.-textAlign ctx) "left")
-  (set! (.-font ctx) "bold 13px system-ui, sans-serif")
-  (set! (.-fillStyle ctx) (:border item))
-  (.fillText ctx (:name item) (+ (:x item) 12) (+ (:y item) 20))
-  (when (pos? (.-length (:type item)))
-    (let [nw (.-width (.measureText ctx (:name item)))]
-      (set! (.-font ctx) SUB-FONT)
-      (set! (.-fillStyle ctx) "#888")
-      (.fillText ctx (str "(" (:type item) ")")
-                 (+ (:x item) 12 nw 5) (+ (:y item) 20))))
+  (if (:collapsed item)
+    ;; collapsed: node-style two lines, centered left of the button zone
+    (let [cx (+ (:x item) (/ (- (:w item) 18) 2))]
+      (set! (.-textAlign ctx) "center")
+      (set! (.-font ctx) "bold 13px system-ui, sans-serif")
+      (set! (.-fillStyle ctx) (:border item))
+      (.fillText ctx (:name item) cx (+ (:y item) 18))
+      (when (pos? (.-length (:type item)))
+        (set! (.-font ctx) SUB-FONT)
+        (set! (.-fillStyle ctx) "#888")
+        (.fillText ctx (str "(" (:type item) ")") cx (+ (:y item) 33))))
+    ;; expanded: header line, name + inline (type)
+    (do
+      (set! (.-textAlign ctx) "left")
+      (set! (.-font ctx) "bold 13px system-ui, sans-serif")
+      (set! (.-fillStyle ctx) (:border item))
+      (.fillText ctx (:name item) (+ (:x item) 12) (+ (:y item) 20))
+      (when (pos? (.-length (:type item)))
+        (let [nw (.-width (.measureText ctx (:name item)))]
+          (set! (.-font ctx) SUB-FONT)
+          (set! (.-fillStyle ctx) "#888")
+          (.fillText ctx (str "(" (:type item) ")")
+                     (+ (:x item) 12 nw 5) (+ (:y item) 20))))))
   (let [bx (- (+ (:x item) (:w item)) scene/HIDE-BTN-RIGHT)
         by (+ (:y item) scene/HIDE-BTN-TOP)
         s scene/HIDE-BTN-SIZE]

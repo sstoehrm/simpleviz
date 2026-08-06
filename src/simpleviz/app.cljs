@@ -59,15 +59,28 @@
                  (js/requestAnimationFrame
                   (fn [_] (js/setTimeout res 0))))))
 
-(defn- collapsed-view [collapsed]
-  (when (pos? (.-size collapsed))
-    (into [:div {:id "collapsed-boxes"}]
-          (mapv (fn [b]
-                  [:button {:key b :class "chip" :type "button"
-                            :title "Expand this box"
-                            :on-click (fn [e] (.stopPropagation e) (expand-box! b))}
-                   (str b " +")])
-                (vec (sort (js/Array.from collapsed)))))))
+(defn- collapsed-view [st]
+  (let [collapsed (:collapsed-boxes st)]
+    (when (pos? (.-size collapsed))
+      [:aside {:id "collapsed-panel"}
+       [:div {:class "cp-header"}
+        (str "Collapsed boxes (" (.-size collapsed) ")")]
+       (into [:div {:class "cp-list"}]
+             (mapv (fn [b]
+                     (let [box (get (:boxes-by-name (:graph st)) b)
+                           color (if (and (some? box)
+                                          (pos? (.-length (:type box))))
+                                   (:border (get (:box (:colors st)) (:type box)))
+                                   (:border (:neutral-box (:colors st))))]
+                       [:button {:key b :class "cp-row" :type "button"
+                                 :title "Expand this box"
+                                 :on-click (fn [e]
+                                             (.stopPropagation e)
+                                             (expand-box! b))}
+                        [:span {:class "cp-dot" :style {:background color}}]
+                        [:span {:class "cp-name"} b]
+                        [:span {:class "cp-plus"} "+"]]))
+                   (vec (sort (js/Array.from collapsed)))))])))
 
 ;; attrs already represented visually (endpoints/arrow on the canvas,
 ;; membership by containment) stay out of the inspector
@@ -150,7 +163,7 @@
    (banner-view st)
    (when (and (nil? (:scene st)) (nil? (:error st)))
      (load-view st))
-   (collapsed-view (:collapsed-boxes st))
+   (collapsed-view st)
    (when (:layouting st)
      [:div {:id "layouting"} "re-layouting…"])
    (canvas-view)

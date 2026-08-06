@@ -194,7 +194,7 @@
 (defn setup-pan-zoom! [wrap]
   (.addEventListener wrap "wheel"
     (fn [e]
-      (when-not (.closest (.-target e) "#details, #banner")
+      (when-not (.closest (.-target e) "#details, #banner, #collapsed-panel")
         (.preventDefault e)
         (let [factor (if (< (.-deltaY e) 0) 1.1 (/ 1 1.1))
               rect (.getBoundingClientRect wrap)
@@ -209,7 +209,7 @@
   (let [drag (atom nil)]
     (.addEventListener wrap "pointerdown"
       (fn [e]
-        (when-not (.closest (.-target e) "#details, #banner")
+        (when-not (.closest (.-target e) "#details, #banner, #collapsed-panel")
           ;; NO setPointerCapture here: capturing on pointerdown retargets
           ;; the subsequent click to the wrap, so the canvas onclick
           ;; (selection) would never fire for plain clicks.

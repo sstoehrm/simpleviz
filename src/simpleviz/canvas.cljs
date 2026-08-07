@@ -14,6 +14,27 @@
 
 (def ACCENT "#2563eb")
 
+;; painter palette per theme; node/box TYPE colors come from the color
+;; tables — in dark mode node name colors get their lightness raised so
+;; they stay legible on the dark background
+(def ^:private palettes
+  {"light" {:dark? false :bg "#fafafa" :node-fill "#fff" :node-stroke "#ddd"
+            :edge "#555" :arrow "#555" :sub "#888" :label "#444"
+            :btn-fill "#ffffffcc"}
+   "dark" {:dark? true :bg "#111827" :node-fill "#1f2937" :node-stroke "#4b5563"
+           :edge "#9ca3af" :arrow "#9ca3af" :sub "#9ca3af" :label "#d1d5db"
+           :btn-fill "#1f2937cc"}})
+
+(def ^:private palette (atom (get palettes "light")))
+
+(defn set-theme! [name]
+  (reset! palette (or (get palettes name) (get palettes "light"))))
+
+(defn- type-color
+  "Node name color, lightened for dark backgrounds."
+  [c]
+  (if (:dark? @palette) (.replace c "38%)" "72%)") c))
+
 ;; Mutated in place (assoc!), outside the state atom so pan/zoom repaints
 ;; without re-rendering the DOM.
 (def view {:x 0 :y 0 :k 1 :initialized false})
@@ -56,21 +77,37 @@
   (set! (.-lineWidth ctx) (if sel? 2 1))
   (.stroke ctx)
   (when text?
-  (set! (.-textAlign ctx) "left")
-  (set! (.-font ctx) "bold 13px system-ui, sans-serif")
-  (set! (.-fillStyle ctx) (:border item))
-  (.fillText ctx (:name item) (+ (:x item) 12) (+ (:y item) 20))
-  (when (pos? (.-length (:type item)))
-    (let [nw (.-width (.measureText ctx (:name item)))]
-      (set! (.-font ctx) SUB-FONT)
-      (set! (.-fillStyle ctx) "#888")
-      (.fillText ctx (str "(" (:type item) ")")
-                 (+ (:x item) 12 nw 5) (+ (:y item) 20))))
+  (if (:collapsed item)
+    ;; collapsed: node-style two lines, centered left of the button zone
+    (let [cx (+ (:x item) (/ (- (:w item) 18) 2))]
+      (set! (.-textAlign ctx) "center")
+      (set! (.-font ctx) "bold 13px system-ui, sans-serif")
+      (set! (.-fillStyle ctx) (:border item))
+      (.fillText ctx (:name item) cx (+ (:y item) 18))
+      (when (pos? (.-length (:type item)))
+        (set! (.-font ctx) SUB-FONT)
+        (set! (.-fillStyle ctx) (:sub @palette))
+        (.fillText ctx (str "(" (:type item) ")") cx (+ (:y item) 33))))
+    ;; expanded: header line, name + inline (type)
+    (do
+      (set! (.-textAlign ctx) "left")
+      (set! (.-font ctx) "bold 13px system-ui, sans-serif")
+      (set! (.-fillStyle ctx) (:border item))
+      (.fillText ctx (:name item) (+ (:x item) 12) (+ (:y item) 20))
+      (when (pos? (.-length (:type item)))
+        (let [nw (.-width (.measureText ctx (:name item)))
+              label (str "(" (:type item) ")")
+              _ (set! (.-font ctx) SUB-FONT)
+              tw (.-width (.measureText ctx label))]
+          ;; only draw the inline type if it fits left of the button
+          (when (< (+ 12 nw 5 tw) (- (:w item) 26))
+            (set! (.-fillStyle ctx) (:sub @palette))
+            (.fillText ctx label (+ (:x item) 12 nw 5) (+ (:y item) 20)))))))
   (let [bx (- (+ (:x item) (:w item)) scene/HIDE-BTN-RIGHT)
         by (+ (:y item) scene/HIDE-BTN-TOP)
         s scene/HIDE-BTN-SIZE]
     (rounded-rect ctx bx by s s 3)
-    (set! (.-fillStyle ctx) "#ffffffcc")
+    (set! (.-fillStyle ctx) (:btn-fill @palette))
     (.fill ctx)
     (set! (.-strokeStyle ctx) (:border item))
     (set! (.-lineWidth ctx) 1)
@@ -78,23 +115,28 @@
     (.beginPath ctx)
     (.moveTo ctx (+ bx 4) (+ by (/ s 2)))
     (.lineTo ctx (+ bx s -4) (+ by (/ s 2)))
-    (.stroke ctx))))
+    (.stroke ctx)
+    (when (:collapsed item)
+      (.beginPath ctx)
+      (.moveTo ctx (+ bx (/ s 2)) (+ by 4))
+      (.lineTo ctx (+ bx (/ s 2)) (+ by s -4))
+      (.stroke ctx)))))
 
 (defn- draw-node [ctx item sel? text?]
   (rounded-rect ctx (:x item) (:y item) (:w item) (:h item) 6)
-  (set! (.-fillStyle ctx) "#fff")
+  (set! (.-fillStyle ctx) (:node-fill @palette))
   (.fill ctx)
-  (set! (.-strokeStyle ctx) (if sel? ACCENT "#ddd"))
+  (set! (.-strokeStyle ctx) (if sel? ACCENT (:node-stroke @palette)))
   (set! (.-lineWidth ctx) (if sel? 2 1))
   (.stroke ctx)
   (when text?
   (set! (.-textAlign ctx) "center")
   (set! (.-font ctx) NODE-FONT)
-  (set! (.-fillStyle ctx) (:color item))
+  (set! (.-fillStyle ctx) (type-color (:color item)))
   (.fillText ctx (:name item) (+ (:x item) (/ (:w item) 2)) (+ (:y item) 19))
   (when (pos? (.-length (:type item)))
     (set! (.-font ctx) SUB-FONT)
-    (set! (.-fillStyle ctx) "#888")
+    (set! (.-fillStyle ctx) (:sub @palette))
     (.fillText ctx (str "(" (:type item) ")")
                (+ (:x item) (/ (:w item) 2)) (+ (:y item) 35)))))
 
@@ -109,12 +151,12 @@
     (.lineTo ctx (- size) (/ size 2.2))
     (.lineTo ctx (- size) (/ size -2.2))
     (.closePath ctx)
-    (set! (.-fillStyle ctx) "#555")
+    (set! (.-fillStyle ctx) (:arrow @palette))
     (.fill ctx)
     (.restore ctx)))
 
 (defn- draw-edge [ctx item sel? detail?]
-  (set! (.-strokeStyle ctx) (if sel? ACCENT "#555"))
+  (set! (.-strokeStyle ctx) (if sel? ACCENT (:edge @palette)))
   (set! (.-lineWidth ctx) (if sel? 2.5 1.5))
   (doseq [pts (:sections item)]
     (.beginPath ctx)
@@ -138,9 +180,9 @@
   (let [cx (+ (:x item) (/ (:w item) 2))
         cy (+ (:y item) (:h item) -3)]
     (set! (.-lineWidth ctx) 3)
-    (set! (.-strokeStyle ctx) "#fafafa")
+    (set! (.-strokeStyle ctx) (:bg @palette))
     (.strokeText ctx (:text item) cx cy)
-    (set! (.-fillStyle ctx) "#444")
+    (set! (.-fillStyle ctx) (:label @palette))
     (.fillText ctx (:text item) cx cy)))
 
 (defn paint! [canvas-el sc2 selected-id]
@@ -152,7 +194,7 @@
       (set! (.-width canvas-el) pw)
       (set! (.-height canvas-el) ph))
     (.setTransform ctx 1 0 0 1 0 0)
-    (set! (.-fillStyle ctx) "#fafafa")
+    (set! (.-fillStyle ctx) (:bg @palette))
     (.fillRect ctx 0 0 pw ph)
     (.setTransform ctx (* dpr (:k view)) 0 0 (* dpr (:k view))
                    (* dpr (:x view)) (* dpr (:y view)))
@@ -176,7 +218,7 @@
 (defn setup-pan-zoom! [wrap]
   (.addEventListener wrap "wheel"
     (fn [e]
-      (when-not (.closest (.-target e) "#details, #banner")
+      (when-not (.closest (.-target e) "#details, #banner, #collapsed-panel, #theme-toggle")
         (.preventDefault e)
         (let [factor (if (< (.-deltaY e) 0) 1.1 (/ 1 1.1))
               rect (.getBoundingClientRect wrap)
@@ -191,7 +233,7 @@
   (let [drag (atom nil)]
     (.addEventListener wrap "pointerdown"
       (fn [e]
-        (when-not (.closest (.-target e) "#details, #banner")
+        (when-not (.closest (.-target e) "#details, #banner, #collapsed-panel, #theme-toggle")
           ;; NO setPointerCapture here: capturing on pointerdown retargets
           ;; the subsequent click to the wrap, so the canvas onclick
           ;; (selection) would never fire for plain clicks.

@@ -38,7 +38,8 @@
   [p item]
   (let [{:keys [x y w h title-h]} item]
     (and (in-rect? p x y w h)
-         (or (<= (:y p) (+ y title-h))
+         (or (:collapsed item)
+             (<= (:y p) (+ y title-h))
              (<= (:x p) (+ x 4))
              (>= (:x p) (- (+ x w) 4))
              (>= (:y p) (- (+ y h) 4))))))
@@ -47,7 +48,7 @@
   "Returns the hit scene item or nil. Priority: nodes, then edge labels
   (resolving to their edge), then label-less edges within tol of their
   line, then boxes innermost-first (reverse draw order). Labeled edges
-  are deliberately NOT selectable via their line. A box's hide button
+  are deliberately NOT selectable via their line. A box's collapse button
   (drawn only when text is legible, see scene/TEXT-MIN-PX) yields
   {:kind \"hide-button\" :box-id ..}. The 3-arity derives the zoom from
   tol (the app passes tol = 8/k)."
@@ -78,6 +79,6 @@
                                            (- (+ (:x it) (:w it)) scene/HIDE-BTN-RIGHT)
                                            (+ (:y it) scene/HIDE-BTN-TOP)
                                            scene/HIDE-BTN-SIZE scene/HIDE-BTN-SIZE))
-                        {:kind "hide-button" :box-id (:id it)})
+                        {:kind "collapse-button" :box-id (:id it)})
                       (when (box-hit? p it) it)))
                 (reverse (by-kind "box"))))))))

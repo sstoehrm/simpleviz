@@ -76,6 +76,7 @@
                (.push boxes {:kind "box" :id (:id child)
                              :x x :y y :w (:width child) :h (:height child)
                              :title-h TITLE-H
+                             :collapsed (:collapsed box)
                              :bbox (rect-bbox x y (:width child) (:height child))
                              :border (:border c) :fill (:fill c)
                              :name (:name box) :type (:type box)

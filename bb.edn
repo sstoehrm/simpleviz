@@ -27,6 +27,33 @@
                       (apply shell "node" "--test" files)))}
   test     {:doc "Run all tests"
             :depends [build test:clj test:js]}
+  bundle   {:doc "Build a release tarball into dist/: bb bundle [version]"
+            :depends [build]
+            :requires ([babashka.fs :as fs] [clojure.edn :as edn] [clojure.string :as str])
+            :task (let [version (or (first *command-line-args*)
+                                    (some-> (shell {:out :string :continue true}
+                                                   "git describe --tags --always")
+                                            :out str/trim not-empty)
+                                    "dev")
+                        bundle-name (str "simpleviz-" version)
+                        dir (fs/path "dist" bundle-name)
+                        ;; standalone bb.edn: serving only, deps taken from this file
+                        release-bb {:paths ["server"]
+                                    :deps (:deps (edn/read-string (slurp "bb.edn")))
+                                    :tasks (quote {serve {:doc "Serve an EDN graph file: bb serve graph.edn [--port N]"
+                                                          :requires ([serve])
+                                                          :task (apply serve/-main *command-line-args*)}})}]
+                    (fs/delete-tree dir)
+                    (fs/create-dirs dir)
+                    (doseq [p ["public" "server" "examples"]]
+                      (fs/copy-tree p (fs/path dir p)))
+                    (doseq [f (fs/glob dir "public/js/simpleviz/*_test.mjs")]
+                      (fs/delete f))
+                    (fs/copy "README.md" (fs/path dir "README.md"))
+                    (spit (str (fs/path dir "bb.edn"))
+                          (binding [*print-namespace-maps* false] (pr-str release-bb)))
+                    (shell {:dir "dist"} "tar" "czf" (str bundle-name ".tar.gz") bundle-name)
+                    (println (str "created dist/" bundle-name ".tar.gz")))}
   dev      {:doc "Compile, watch and serve: bb dev [graph.edn] [--port N]"
             :requires ([babashka.cli :as cli] [babashka.process :as p] [serve])
             :task (do (run 'build)

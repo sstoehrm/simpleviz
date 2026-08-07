@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install babashka
+        uses: DeLaGuardo/setup-clojure@13.6.1
+        with:
+          bb: latest
+
+      - name: Cache babashka deps
+        uses: actions/cache@v6
+        with:
+          path: ~/.m2/repository
+          key: bb-deps-${{ hashFiles('bb.edn') }}
+
+      - name: Run tests
+        run: bb test

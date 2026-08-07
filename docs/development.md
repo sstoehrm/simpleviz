@@ -1,0 +1,40 @@
+# Development
+
+## Requirements
+
+- [babashka](https://babashka.org/) (serving + tests)
+- node + npm (frontend development — compiling the Squint sources)
+- A browser
+
+## Working on the code
+
+The frontend is written in [Squint](https://github.com/squint-cljs/squint)
+ClojureScript rendered with [reagami](https://github.com/borkdude/reagami),
+compiled to plain ES modules (no bundler).
+
+    bb dev [graph.edn]   # compile, watch sources, serve (default: examples/demo.edn)
+    bb build             # one-shot compile to public/js/ (git-ignored)
+    bb test              # compile + Clojure server tests + JS unit tests
+    bb serve graph.edn   # serve only (needs a prior bb build)
+    bb bundle [version]  # build a release tarball into dist/
+
+Rendering: HTML5 canvas (HiDPI) fed by a pure scene list; layout by vendored
+[ELK.js](https://github.com/kieler/elkjs) (layered, left-to-right, compound
+boxes, ELK-placed edge labels).
+
+Sources in `src/simpleviz/`, tests in `test/simpleviz/` (run by `node --test`
+against the compiled output).
+
+Large example graphs can be generated with
+`bb dev/gen-example.clj 10000 big.edn`.
+
+## CI and releases
+
+CI (`bb test`) runs on every push to main and every pull request
+(`.github/workflows/ci.yml`).
+
+Pushing a `v*` tag runs `bb bundle` and publishes the tarball as a GitHub
+release (`.github/workflows/release.yml`). The bundle contains the precompiled
+frontend, the server, the examples, and a serve-only `bb.edn` — end users need
+only babashka. Dependabot keeps the GitHub Actions pins and npm
+devDependencies current (weekly).

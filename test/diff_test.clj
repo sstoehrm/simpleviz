@@ -41,3 +41,41 @@
   (let [g (u {:nodes [1 2]} {:nodes {:a {}}})]
     (is (= [":nodes must be a map, ignoring it"] (:warnings (norm {:nodes [1 2]}))))
     (is (= ["old.edn: :nodes must be a map, ignoring it"] (:warnings g)))))
+
+(deftest added-and-removed-boxes
+  (let [g (u {:boxes {:x {}}} {:boxes {:y {}}})
+        by-name (into {} (map (juxt :name identity)) (:boxes g))]
+    (is (= "added" (:diff (get by-name "y"))))
+    (is (= "removed" (:diff (get by-name "x"))))))
+
+(deftest box-attr-and-component-changes-are-modified
+  (let [g (u {:nodes {:a {} :b {}} :boxes {:x {:type "zone" :components #{:a}}}}
+             {:nodes {:a {} :b {}} :boxes {:x {:type "area" :components #{:a :b}}}})
+        x (first (filter (fn [b] (= "x" (:name b))) (:boxes g)))]
+    (is (= "modified" (:diff x)))
+    (is (= {:old "zone" :new "area"} (get (:changed x) :type)))
+    (is (= {:old ["n:a"] :new ["n:a" "n:b"]} (get (:changed x) "components")))))
+
+(deftest removed-node-stays-in-old-parent-box
+  (let [g (u {:nodes {:a {} :gone {}} :boxes {:x {:components #{:a :gone}}}}
+             {:nodes {:a {}} :boxes {:x {:components #{:a}}}})
+        x (first (filter (fn [b] (= "x" (:name b))) (:boxes g)))]
+    (is (= "x" (get (:parent-of g) "n:gone")))
+    (is (some #{"n:gone"} (:components x)))
+    ;; the box changed only because a member vanished -> still "modified"
+    (is (= "modified" (:diff x)))))
+
+(deftest removed-box-keeps-its-removed-members
+  (let [g (u {:nodes {:a {} :b {}} :boxes {:x {:components #{:a :b}}}}
+             {:nodes {:a {}}})
+        x (first (filter (fn [b] (= "x" (:name b))) (:boxes g)))]
+    (is (= "removed" (:diff x)))
+    ;; a survives in new at top level -> no longer inside x; b is removed -> stays
+    (is (= ["n:b"] (:components x)))
+    (is (nil? (get (:parent-of g) "n:a")))
+    (is (= "x" (get (:parent-of g) "n:b")))))
+
+(deftest moved-node-follows-new-structure
+  (let [g (u {:nodes {:a {}} :boxes {:x {:components #{:a}} :y {}}}
+             {:nodes {:a {}} :boxes {:x {} :y {:components #{:a}}}})]
+    (is (= "y" (get (:parent-of g) "n:a")))))

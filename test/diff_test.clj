@@ -79,3 +79,61 @@
   (let [g (u {:nodes {:a {}} :boxes {:x {:components #{:a}} :y {}}}
              {:nodes {:a {}} :boxes {:x {} :y {:components #{:a}}}})]
     (is (= "y" (get (:parent-of g) "n:a")))))
+
+(defn edges-by-endpoints [g]
+  (into {} (map (fn [e] [[(:source e) (:target e)] e])) (:edges g)))
+
+(deftest reversed-endpoints-match-as-modified
+  (let [g (u {:nodes {:a {} :b {}} :edges {[:a :b] {:direction :->}}}
+             {:nodes {:a {} :b {}} :edges {[:b :a] {:direction :->}}})
+        e (get (edges-by-endpoints g) ["b" "a"])]
+    (is (= 1 (count (:edges g))))
+    (is (= "modified" (:diff e)))
+    (is (= {:old ["a" "b"] :new ["b" "a"]} (get (:changed e) :nodes)))))
+
+(deftest direction-change-is-modified
+  (let [g (u {:nodes {:a {} :b {}} :edges {[:a :b] {:direction :->}}}
+             {:nodes {:a {} :b {}} :edges {[:a :b] {:direction :<->}}})
+        e (first (:edges g))]
+    (is (= "modified" (:diff e)))
+    (is (= {:old :-> :new :<->} (get (:changed e) :direction)))
+    ;; orientation and arrows come from the NEW file
+    (is (= {:source true :target true} (:arrows e)))))
+
+(deftest added-and-removed-edges
+  (let [g (u {:nodes {:a {} :b {} :c {}} :edges {[:a :b] {}}}
+             {:nodes {:a {} :b {} :c {}} :edges {[:a :c] {}}})
+        by (edges-by-endpoints g)]
+    (is (= "added" (:diff (get by ["a" "c"]))))
+    (is (= "removed" (:diff (get by ["a" "b"]))))
+    (is (= 2 (count (:edges g))))))
+
+(deftest edge-to-removed-node-survives
+  (let [g (u {:nodes {:a {} :m {}} :edges {[:a :m] {:name "send"}}}
+             {:nodes {:a {}}})
+        e (first (:edges g))]
+    (is (= "removed" (:diff e)))
+    (is (= "removed" (get-in g [:nodes "m" :diff])))
+    (is (= "send" (:name e)))))
+
+(deftest union-edge-ids-are-unique-and-sequential
+  (let [g (u {:nodes {:a {} :b {} :c {}} :edges {[:a :b] {} [:b :c] {}}}
+             {:nodes {:a {} :b {} :c {}} :edges {[:a :c] {} [:a :b] {}}})]
+    (is (= 3 (count (:edges g))))
+    (is (= (set (map :id (:edges g))) #{"e0" "e1" "e2"}))))
+
+(deftest both-orientations-in-old-one-in-new
+  ;; old wrote the pair twice (both directions); new keeps one -> the
+  ;; other is removed, deterministically
+  (let [g (u {:nodes {:a {} :b {}} :edges [{:nodes [:a :b]} {:nodes [:b :a]}]}
+             {:nodes {:a {} :b {}} :edges {[:a :b] {}}})
+        statuses (frequencies (map :diff (:edges g)))]
+    (is (= 2 (count (:edges g))))
+    (is (= 1 (get statuses "removed")))))
+
+(deftest equivalent-spellings-are-not-changes
+  ;; pre-v2 vector form (keyword idents, string direction) vs map form:
+  ;; canonicalization keeps the edge unchanged
+  (let [g (u {:nodes {:a {} :b {}} :edges [{:nodes [:a :b] :direction "->"}]}
+             {:nodes {:a {} :b {}} :edges {[:a :b] {:direction :->}}})]
+    (is (nil? (:diff (first (:edges g)))))))

@@ -99,6 +99,52 @@
             (assoc b :components (into kept extra))))
         boxes))
 
+(defn- edge-key [e] (vec (sort [(:source e) (:target e)])))
+
+(def ^:private canon-dir
+  {:-> :-> :<- :<- :<-> :<-> :- :- "->" :-> "<-" :<- "<->" :<-> "-" :-})
+
+(defn- ident->str [x] (if (keyword? x) (name x) (str x)))
+
+(defn- edge-cmp-attrs
+  "Edge attrs with :nodes and :direction canonicalized, so equivalent
+  spellings (keyword vs string idents, \"->\" vs :->) never read as
+  changes when the two files use different edge syntaxes."
+  [e]
+  (cond-> (:attrs e)
+    (contains? (:attrs e) :nodes)
+    (update :nodes (fn [ns] (mapv ident->str ns)))
+    (contains? (:attrs e) :direction)
+    (update :direction (fn [d] (get canon-dir d d)))))
+
+(defn- diff-edges
+  "Match by unordered endpoint pair. Several edges may share a pair (both
+  orientations written); pair them up in file order per key, leftovers
+  become added/removed. Matched edges keep the NEW file's orientation and
+  attrs; all union edges are renumbered sequentially."
+  [old-g new-g]
+  (let [old-by (group-by edge-key (:edges old-g))
+        [matched+added consumed]
+        (reduce
+         (fn [[acc consumed] e]
+           (let [k (edge-key e)
+                 i (get consumed k 0)
+                 o (get (get old-by k) i)]
+             [(conj acc
+                    (if (some? o)
+                      (let [ch (changed-attrs (edge-cmp-attrs o) (edge-cmp-attrs e))]
+                        (if (seq ch) (assoc e :diff "modified" :changed ch) e))
+                      (assoc e :diff "added")))
+              (assoc consumed k (inc i))]))
+         [[] {}] (:edges new-g))
+        removed (into []
+                      (mapcat (fn [[k es]]
+                                (map (fn [e] (assoc e :diff "removed"))
+                                     (drop (get consumed k 0) es))))
+                      (sort-by (fn [[k _]] (pr-str k)) old-by))]
+    (vec (map-indexed (fn [i e] (assoc e :id (str "e" i)))
+                      (into matched+added removed)))))
+
 (defn union
   "old-g/new-g are graph/normalize outputs; old-name/new-name label the
   files in warnings and the frontend legend."
@@ -107,7 +153,7 @@
         boxes0 (diff-boxes old-g new-g)
         parent-of (union-parent-of old-g new-g nodes boxes0)]
     {:nodes nodes
-     :edges (:edges new-g)          ; diffed in Task 3
+     :edges (diff-edges old-g new-g)
      :boxes (with-components boxes0 parent-of)
      :parent-of parent-of
      :compare {:old old-name :new new-name}

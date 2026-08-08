@@ -17,8 +17,8 @@
 
 (def ^:private usage
   (str "usage: bb serve <graph.edn> [<new.edn>] [--port N]\n"
-       "  two files compare them: first = old, second = new"
-       "  (default port " default-port ")"))
+       "  pass two files to compare them: first = old, second = new"
+       "\n  (default port " default-port ")"))
 
 (def cli-spec {:alias {:p :port} :coerce {:port :long}})
 

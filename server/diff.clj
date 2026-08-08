@@ -114,8 +114,9 @@
   (cond-> (:attrs e)
     (contains? (:attrs e) :nodes)
     (update :nodes (fn [ns] (mapv ident->str ns)))
-    (contains? (:attrs e) :direction)
-    (update :direction (fn [d] (get canon-dir d d)))))
+    true
+    (assoc :direction (let [d (get (:attrs e) :direction)]
+                         (if (nil? d) :- (get canon-dir d d))))))
 
 (defn- diff-edges
   "Match by unordered endpoint pair. Several edges may share a pair (both

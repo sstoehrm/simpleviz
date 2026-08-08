@@ -137,3 +137,8 @@
   (let [g (u {:nodes {:a {} :b {}} :edges [{:nodes [:a :b] :direction "->"}]}
              {:nodes {:a {} :b {}} :edges {[:a :b] {:direction :->}}})]
     (is (nil? (:diff (first (:edges g)))))))
+
+(deftest absent-direction-equals-explicit-default
+  (let [g (u {:nodes {:a {} :b {}} :edges {[:a :b] {}}}
+             {:nodes {:a {} :b {}} :edges {[:a :b] {:direction :-}}})]
+    (is (nil? (:diff (first (:edges g)))))))

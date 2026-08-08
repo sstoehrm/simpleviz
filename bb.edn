@@ -54,7 +54,7 @@
                           (binding [*print-namespace-maps* false] (pr-str release-bb)))
                     (shell {:dir "dist"} "tar" "czf" (str bundle-name ".tar.gz") bundle-name)
                     (println (str "created dist/" bundle-name ".tar.gz")))}
-  dev      {:doc "Compile, watch and serve: bb dev [graph.edn] [--port N]"
+  dev      {:doc "Compile, watch and serve: bb dev [graph.edn [new.edn]] [--port N]"
             :requires ([babashka.cli :as cli] [babashka.process :as p] [serve])
             :task (do (run 'build)
                       (p/process ["npx" "squint" "watch"] {:inherit true})

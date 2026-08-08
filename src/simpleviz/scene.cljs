@@ -80,7 +80,8 @@
                              :bbox (rect-bbox x y (:width child) (:height child))
                              :border (:border c) :fill (:fill c)
                              :name (:name box) :type (:type box)
-                             :attrs (:attrs box)})
+                             :attrs (:attrs box)
+                             :diff (:diff box) :changed (:changed box) :diff-inside (:diff-inside box)})
                (.set origins (:id child) {:x x :y y})
                (walk child x y))
              (let [node (get (:nodes graph) (.slice (:id child) 2))]
@@ -89,7 +90,8 @@
                              :bbox (rect-bbox x y (:width child) (:height child))
                              :color (node-color node colors)
                              :name (:name node) :type (:type node)
-                             :attrs (:attrs node)}))))))
+                             :attrs (:attrs node)
+                             :diff (:diff node) :changed (:changed node)}))))))
      layout 0 0)
     (let [edges-by-id (let [m (js/Map.)]
                         (doseq [e (:edges graph)] (.set m (:id e) e))
@@ -111,7 +113,8 @@
                                  :arrows (:arrows e)
                                  :source (:source e)
                                  :target (:target e)
-                                 :name (:name e) :type (:type e) :attrs (:attrs e)})))
+                                 :name (:name e) :type (:type e) :attrs (:attrs e)
+                                 :diff (:diff e) :changed (:changed e)})))
           (when-let [lbl (first (or (:labels elk-edge) []))]
             (let [lx (+ (:x lbl) (:x origin))
                   ly (+ (:y lbl) (:y origin))]
@@ -120,7 +123,8 @@
                                   :x lx :y ly
                                   :w (:width lbl) :h (:height lbl)
                                   :bbox (rect-bbox lx ly (:width lbl) (:height lbl))
-                                  :text (:text lbl)})))))
+                                  :text (:text lbl)
+                                  :diff (when (some? e) (:diff e))})))))
       {:items (.concat boxes edge-items label-items nodes)
        :width (or (:width layout) 0)
        :height (or (:height layout) 0)})))

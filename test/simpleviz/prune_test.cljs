@@ -100,3 +100,52 @@
   (fn []
     (let [sc {:items [] :width 1 :height 1}]
       (assert/equal (collapse-scene sc (graph) #{}) sc))))
+
+(test "collapsed box rolls up hidden diffs as :diff-inside"
+  (fn []
+    (let [raw (assoc-in (graph) [:nodes "d" :diff] "added")
+          g (collapse-boxes raw #{"inner"})]
+      (assert/ok (:diff-inside (get (:boxes-by-name g) "inner"))))
+    ;; nested: change inside inner, collapse outer
+    (let [raw (assoc-in (graph) [:nodes "b" :diff] "removed")
+          g (collapse-boxes raw #{"outer"})]
+      (assert/ok (:diff-inside (get (:boxes-by-name g) "outer"))))
+    ;; no changes -> falsy
+    (let [g (collapse-boxes (graph) #{"inner"})]
+      (assert/ok (not (:diff-inside (get (:boxes-by-name g) "inner")))))))
+
+(test "fully-interior diff edge sets :diff-inside"
+  (fn []
+    (let [raw (update (graph) :edges
+                      (fn [es] (mapv (fn [e] (if (= (:id e) "e2")
+                                               (assoc e :diff "removed")
+                                               e))
+                                     es)))
+          g (collapse-boxes raw #{"inner"})]
+      (assert/ok (:diff-inside (get (:boxes-by-name g) "inner"))))))
+
+(test "aggregated edge with a changed constituent becomes modified"
+  (fn []
+    (let [raw (update (graph) :edges
+                      (fn [es] (conj es (assoc (edge "e4" "c" "d") :diff "added"))))
+          g (collapse-boxes raw #{"inner"})
+          agg (first (filterv (fn [e] (= (:id e) "e0")) (:edges g)))]
+      (assert/equal (:name agg) "2 edges")
+      (assert/equal (:diff agg) "modified"))
+    ;; without changed constituents it stays unmarked
+    (let [raw (update (graph) :edges
+                      (fn [es] (conj es (edge "e4" "c" "d"))))
+          g (collapse-boxes raw #{"inner"})
+          agg (first (filterv (fn [e] (= (:id e) "e0")) (:edges g)))]
+      (assert/ok (not (:diff agg))))))
+
+(test "collapse-scene marks freshly collapsed shells with :diff-inside"
+  (fn []
+    (let [raw (assoc-in (graph) [:nodes "d" :diff] "added")
+          sc {:items [{:kind "box" :id "b:inner"}
+                      {:kind "box" :id "b:outer"}
+                      {:kind "node" :id "n:b"}]}
+          out (collapse-scene sc raw #{"inner"})
+          shell (first (filterv (fn [it] (= (:id it) "b:inner")) (:items out)))]
+      (assert/ok (:collapsed shell))
+      (assert/ok (:diff-inside shell)))))

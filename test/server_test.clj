@@ -34,3 +34,34 @@
   (is (contains? (serve/parse-args ["g.edn" "--port" "abc"]) :error))
   (is (contains? (serve/parse-args ["g.edn" "--port" "0"]) :error))
   (is (contains? (serve/parse-args ["g.edn" "--port" "70000"]) :error)))
+
+(deftest parse-args-two-files-enables-compare
+  (is (= {:old-file "a.edn" :file "b.edn" :port 7373}
+         (serve/parse-args ["a.edn" "b.edn"])))
+  (is (= {:old-file "a.edn" :file "b.edn" :port 9000}
+         (serve/parse-args ["a.edn" "b.edn" "-p" "9000"]))))
+
+(deftest parse-args-rejects-three-files
+  (is (contains? (serve/parse-args ["a.edn" "b.edn" "c.edn"]) :error)))
+
+(deftest compare-json-diffs-two-graphs
+  (let [out (json/parse-string
+             (serve/compare-json "{:nodes {:a {}}}"
+                                 "{:nodes {:a {} :b {}}}"
+                                 "old.edn" "new.edn"))]
+    (is (= "added" (get-in out ["nodes" "b" "diff"])))
+    (is (nil? (get-in out ["nodes" "a" "diff"])))
+    (is (= {"old" "old.edn" "new" "new.edn"} (get out "compare")))))
+
+(deftest compare-json-parse-error-names-the-file
+  (let [out (json/parse-string
+             (serve/compare-json "{:unclosed" "{}" "old.edn" "new.edn"))]
+    (is (clojure.string/starts-with? (get out "error") "old.edn: ")))
+  (let [out (json/parse-string
+             (serve/compare-json "{}" "{:unclosed" "old.edn" "new.edn"))]
+    (is (clojure.string/starts-with? (get out "error") "new.edn: "))))
+
+(deftest single-file-json-has-no-compare-keys
+  (let [out (json/parse-string (serve/graph-json "{:nodes {:a {}}}"))]
+    (is (not (contains? out "compare")))
+    (is (not (contains? (get-in out ["nodes" "a"]) "diff")))))

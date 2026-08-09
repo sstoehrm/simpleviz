@@ -1,4 +1,16 @@
+# build output
 node_modules/
 public/js/
 dist/
+
+# editor / LSP tooling caches (config.edn in these dirs stays committable)
+.clj-kondo/.cache/
+.lsp/.cache/
+.nrepl-port
+
+# Claude Code session scratch
+.claude/worktrees/
+.superpowers/
+
+# Local feature worktrees
 .worktrees/

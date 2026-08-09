@@ -128,3 +128,19 @@
       {:items (.concat boxes edge-items label-items nodes)
        :width (or (:width layout) 0)
        :height (or (:height layout) 0)})))
+
+(defn diff-stops
+  "Cycle stops per diff status: {\"added\" [items] ...}. Nodes, boxes and
+  edges whose :diff matches; collapsed shells additionally stop for every
+  status in :diff-inside (deduped against their own :diff). Edge labels
+  are never stops. Nil-safe for a missing scene."
+  [sc]
+  (let [acc {"added" (js/Array.) "modified" (js/Array.) "removed" (js/Array.)}]
+    (doseq [it (or (:items sc) [])]
+      (when (not= (:kind it) "edge-label")
+        (let [d (:diff it)]
+          (when (some? (get acc d)) (.push (get acc d) it))
+          (doseq [s (or (:diff-inside it) [])]
+            (when (and (not= s d) (some? (get acc s)))
+              (.push (get acc s) it))))))
+    acc))

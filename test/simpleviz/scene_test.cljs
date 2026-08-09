@@ -161,3 +161,30 @@
       (assert/equal (:diff (get by-id "e0")) "modified")
       (assert/ok (some? (:changed (get by-id "e0"))))
       (assert/equal (:diff (get by-id "e0-label")) "modified"))))
+
+(test "diff-stops groups visible items by status"
+  (fn []
+    (let [items [{:kind "node" :id "n:a" :diff "added"}
+                 {:kind "node" :id "n:b"}
+                 {:kind "edge" :id "e0" :diff "removed"}
+                 {:kind "edge-label" :id "e0-label" :diff "removed"}
+                 {:kind "box" :id "b:x" :diff "modified"}]
+          stops (scene/diff-stops {:items items})]
+      (assert/deepEqual (mapv (fn [it] (:id it)) (get stops "added")) ["n:a"])
+      (assert/deepEqual (mapv (fn [it] (:id it)) (get stops "modified")) ["b:x"])
+      ;; edge labels are never stops
+      (assert/deepEqual (mapv (fn [it] (:id it)) (get stops "removed")) ["e0"]))))
+
+(test "diff-stops expands collapsed shells once per hidden status"
+  (fn []
+    (let [shell {:kind "box" :id "b:s" :diff "modified"
+                 :collapsed true :diff-inside ["modified" "removed"]}
+          stops (scene/diff-stops {:items [shell]})]
+      ;; own :diff and hidden "modified" dedupe to ONE stop
+      (assert/deepEqual (mapv (fn [it] (:id it)) (get stops "modified")) ["b:s"])
+      (assert/deepEqual (mapv (fn [it] (:id it)) (get stops "removed")) ["b:s"])
+      (assert/deepEqual (get stops "added") []))))
+
+(test "diff-stops is nil-safe"
+  (fn []
+    (assert/deepEqual (get (scene/diff-stops nil) "added") [])))

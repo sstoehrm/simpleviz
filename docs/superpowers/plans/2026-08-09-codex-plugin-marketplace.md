@@ -32,7 +32,7 @@
 - Consumes: the existing skill directory at `plugins/simpleviz/skills/simpleviz/`
 - Produces: a `simpleviz` marketplace entry resolving to `./plugins/simpleviz`, a `simpleviz` plugin manifest loading `./skills/`, and Codex skill-picker metadata
 
-- [ ] **Step 1: Record the no-skill baseline**
+- [x] **Step 1: Record the no-skill baseline**
 
 Run the following request in a fresh agent context without supplying the simpleviz skill:
 
@@ -40,9 +40,11 @@ Run the following request in a fresh agent context without supplying the simplev
 Create a simpleviz EDN graph with web and api nodes, a directed HTTP edge from web to api, and a backend box containing api. Return only EDN.
 ```
 
-Record whether the response uses all three canonical map forms: `:nodes` keyed by node id, `:edges` keyed by `[from to]`, and `:boxes` with `:components`. This is the no-guidance control required before validating the shared skill; do not edit the skill based on assumed failures.
+Record whether the response uses all three canonical map forms: `:nodes` keyed by node id, `:edges` keyed by `[from to]`, and `:boxes` with `:components`. This is the no-guidance control required before validating the shared skill; do not edit the skill based on assumed failures. A successful control is acceptable and does not establish that the unchanged shared skill caused an improvement.
 
-- [ ] **Step 2: Run the package preflight and verify it fails**
+Completed 2026-08-09: the no-skill control used all three canonical map forms.
+
+- [x] **Step 2: Run the package preflight and verify it fails**
 
 Run:
 
@@ -52,7 +54,7 @@ python3 -c 'from pathlib import Path; required=[Path(".agents/plugins/marketplac
 
 Expected: FAIL with `missing Codex package files` listing all three paths.
 
-- [ ] **Step 3: Scaffold the repo-local plugin and marketplace**
+- [x] **Step 3: Scaffold the repo-local plugin and marketplace**
 
 Run:
 
@@ -66,7 +68,7 @@ python3 /home/soeren/.codex/skills/.system/plugin-creator/scripts/create_basic_p
 
 Expected: creates only `.agents/plugins/marketplace.json` and `plugins/simpleviz/.codex-plugin/plugin.json` inside the existing plugin tree.
 
-- [ ] **Step 4: Replace the generated plugin manifest with project metadata**
+- [x] **Step 4: Replace the generated plugin manifest with project metadata**
 
 Set `plugins/simpleviz/.codex-plugin/plugin.json` to:
 
@@ -99,7 +101,7 @@ Set `plugins/simpleviz/.codex-plugin/plugin.json` to:
 }
 ```
 
-- [ ] **Step 5: Generate Codex skill-picker metadata**
+- [x] **Step 5: Generate Codex skill-picker metadata**
 
 Read `/home/soeren/.codex/skills/.system/skill-creator/references/openai_yaml.md`, then run:
 
@@ -113,7 +115,7 @@ python3 /home/soeren/.codex/skills/.system/skill-creator/scripts/generate_openai
 
 Expected: `agents/openai.yaml` contains only generated interface metadata and does not duplicate the graph-format instructions.
 
-- [ ] **Step 6: Run the shared-skill behavior check**
+- [x] **Step 6: Run the shared-skill behavior check**
 
 Run the Step 1 request in a fresh agent context with the skill explicitly supplied from `plugins/simpleviz/skills/simpleviz`. Expected EDN shape:
 
@@ -123,22 +125,22 @@ Run the Step 1 request in a fresh agent context with the skill explicitly suppli
  :boxes {:backend {:components #{:api}}}}
 ```
 
-Equivalent names and extra free-form attributes are acceptable. The response must retain the canonical map forms and must not invent `:from`, `:to`, `:groups`, or `:children` fields.
+Equivalent names and extra free-form attributes are acceptable. The response must retain the canonical map forms and must not invent `:from`, `:to`, `:groups`, or `:children` fields. This validates the packaged, unchanged shared skill's canonical behavior; it is not a before/after causality test when the no-skill control also succeeds.
 
-- [ ] **Step 7: Validate the package and marketplace**
+- [x] **Step 7: Validate the package and marketplace**
 
 Run:
 
 ```bash
 python3 /home/soeren/.codex/skills/.system/skill-creator/scripts/quick_validate.py plugins/simpleviz/skills/simpleviz
 python3 /home/soeren/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py plugins/simpleviz
-python3 -c 'import json; from pathlib import Path; market=json.loads(Path(".agents/plugins/marketplace.json").read_text()); manifest=json.loads(Path("plugins/simpleviz/.codex-plugin/plugin.json").read_text()); entry=market["plugins"][0]; assert market["name"]==entry["name"]==manifest["name"]=="simpleviz"; assert entry["source"]=={"source":"local","path":"./plugins/simpleviz"}; assert entry["policy"]=={"installation":"AVAILABLE","authentication":"ON_INSTALL"}; assert entry["category"]=="Productivity"; assert manifest["skills"]=="./skills/"'
+python3 -c 'import json; from pathlib import Path; market=json.loads(Path(".agents/plugins/marketplace.json").read_text()); manifest=json.loads(Path("plugins/simpleviz/.codex-plugin/plugin.json").read_text()); claude_manifest=json.loads(Path("plugins/simpleviz/.claude-plugin/plugin.json").read_text()); entry=market["plugins"][0]; assert market["name"]==entry["name"]==manifest["name"]==claude_manifest["name"]=="simpleviz"; assert entry["source"]=={"source":"local","path":"./plugins/simpleviz"}; assert entry["policy"]=={"installation":"AVAILABLE","authentication":"ON_INSTALL"}; assert entry["category"]=="Productivity"; assert manifest["skills"]=="./skills/"'
 git diff --exit-code -- .claude-plugin/marketplace.json plugins/simpleviz/.claude-plugin/plugin.json
 ```
 
 Expected: both validators report success, the Python assertion exits zero, and the Claude-file diff is empty.
 
-- [ ] **Step 8: Commit the Codex package**
+- [x] **Step 8: Commit the Codex package**
 
 ```bash
 git add .agents/plugins/marketplace.json plugins/simpleviz/.codex-plugin/plugin.json plugins/simpleviz/skills/simpleviz/agents/openai.yaml
@@ -159,7 +161,7 @@ git commit -m "feat: add Codex plugin marketplace"
 - Consumes: marketplace name `simpleviz` and plugin name `simpleviz` from Task 1
 - Produces: copyable Git marketplace and plugin installation commands for repository users
 
-- [ ] **Step 1: Run the documentation preflight and verify it fails**
+- [x] **Step 1: Run the documentation preflight and verify it fails**
 
 Run:
 
@@ -169,7 +171,7 @@ rg -F 'codex plugin marketplace add sstoehrm/simpleviz' README.md
 
 Expected: exit status 1 because the Codex installation command is absent.
 
-- [ ] **Step 2: Add the Codex plugin section**
+- [x] **Step 2: Add the Codex plugin section**
 
 Append immediately after the existing Claude Code plugin section:
 
@@ -183,7 +185,7 @@ marketplace:
     codex plugin add simpleviz@simpleviz
 ```
 
-- [ ] **Step 3: Verify the documentation and package**
+- [x] **Step 3: Verify the documentation and package**
 
 Run:
 
@@ -197,7 +199,7 @@ git diff --check
 
 Expected: both README searches match, both validators report success, and `git diff --check` prints nothing.
 
-- [ ] **Step 4: Review the complete change set**
+- [x] **Step 4: Review the complete change set**
 
 Run:
 
@@ -209,7 +211,7 @@ git diff --exit-code -- .claude-plugin/marketplace.json plugins/simpleviz/.claud
 
 Expected: only the plan, README, and three Codex package files are new or modified; unrelated untracked directories remain untouched; the Claude-file diff is empty.
 
-- [ ] **Step 5: Commit the documentation**
+- [x] **Step 5: Commit the documentation**
 
 ```bash
 git add README.md docs/superpowers/plans/2026-08-09-codex-plugin-marketplace.md

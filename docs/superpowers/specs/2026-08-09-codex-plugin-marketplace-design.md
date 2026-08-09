@@ -70,9 +70,11 @@ shared stable name.
   all equal `simpleviz`, and confirm the source path is
   `./plugins/simpleviz`.
 - Exercise representative simpleviz authoring prompts in fresh agent contexts
-  before and after supplying the skill, recording the baseline failure and
-  verifying that the skill produces canonical map-form nodes, edges, and
-  boxes.
+  without and with the packaged shared skill. Record the no-skill control and
+  verify that the packaged skill produces canonical map-form nodes, edges, and
+  boxes. A successful no-skill control is acceptable: because this change
+  packages an unchanged shared skill, the check establishes preserved
+  canonical behavior rather than a causal skill-driven improvement.
 - Review the final diff to ensure no existing Claude plugin file changed.
 
 ## Error handling

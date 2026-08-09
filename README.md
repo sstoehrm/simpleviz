@@ -6,6 +6,17 @@ that live-reloads while you edit the file.
 
 ## Getting started
 
+Quickest install (Linux, needs [babashka](https://babashka.org/), curl and tar):
+
+    curl -fsSL https://raw.githubusercontent.com/sstoehrm/simpleviz/main/install.sh | bash
+    simpleviz ~/.simpleviz/examples/demo.edn   # or any graph.edn; picks a free port 7370-7379
+
+`simpleviz --version` prints the installed release; `simpleviz update`
+fetches the latest one. The install lives in `~/.simpleviz` (managed by the
+installer) plus a launcher in `~/.local/bin`.
+
+Alternatively, run from a tarball by hand:
+
 Grab the latest tarball from the
 [releases page](https://github.com/sstoehrm/simpleviz/releases) — it contains
 the precompiled frontend, so all you need is

@@ -32,9 +32,9 @@ check_deps() {
 fetch_release() { # sets TAG and TARBALL_URL
   local json
   json=$(curl -fsSL "$API_URL") || die "could not query $API_URL"
-  TAG=$(grep -m1 '"tag_name"' <<<"$json" | sed -E 's/.*: *"([^"]+)".*/\1/')
+  TAG=$(grep -m1 '"tag_name"' <<<"$json" | sed -E 's/.*: *"([^"]+)".*/\1/' || true)
   TARBALL_URL=$(grep -m1 -o '"browser_download_url" *: *"[^"]*\.tar\.gz"' <<<"$json" \
-                | sed -E 's/.*"(https[^"]+)".*/\1/')
+                | sed -E 's/.*"(https[^"]+)".*/\1/' || true)
   [ -n "$TAG" ] && [ -n "$TARBALL_URL" ] \
     || die "no .tar.gz asset found in the latest release"
 }
@@ -45,6 +45,12 @@ install_files() {
   # scope is gone, so the variable must survive it
   tmp=$(mktemp -d)
   trap 'rm -rf "$tmp"' EXIT
+  # snapshot the running script now, before any download; during
+  # `simpleviz update` the SIMPLEVIZ_HOME directory (and thus
+  # BASH_SOURCE[0]) gets rm -rf'd below, so this must happen first
+  if [ -f "${BASH_SOURCE[0]:-}" ]; then
+    cp "${BASH_SOURCE[0]}" "$tmp/installer-self"
+  fi
   echo "downloading $TARBALL_URL"
   curl -fsSL "$TARBALL_URL" -o "$tmp/bundle.tar.gz"
   tar xzf "$tmp/bundle.tar.gz" -C "$tmp"
@@ -56,14 +62,16 @@ install_files() {
   echo "$TAG" >"$SIMPLEVIZ_HOME/VERSION"
   # keep a copy of this installer for `simpleviz update`; when run via
   # `curl | bash` there is no file on disk, so fetch it from the repo
-  if [ -f "${BASH_SOURCE[0]:-}" ]; then
-    cp "${BASH_SOURCE[0]}" "$SIMPLEVIZ_HOME/install.sh"
+  if [ -f "$tmp/installer-self" ]; then
+    cp "$tmp/installer-self" "$SIMPLEVIZ_HOME/install.sh"
   else
     curl -fsSL "https://raw.githubusercontent.com/$REPO/main/install.sh" \
       -o "$SIMPLEVIZ_HOME/install.sh" \
       || echo "note: could not store installer copy; 'simpleviz update' will not work" >&2
   fi
-  [ -f "$SIMPLEVIZ_HOME/install.sh" ] && chmod +x "$SIMPLEVIZ_HOME/install.sh"
+  if [ -f "$SIMPLEVIZ_HOME/install.sh" ]; then
+    chmod +x "$SIMPLEVIZ_HOME/install.sh"
+  fi
 }
 
 write_launcher() {

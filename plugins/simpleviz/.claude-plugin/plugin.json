@@ -1,0 +1,10 @@
+{
+  "name": "simpleviz",
+  "description": "Teaches Claude the simpleviz EDN graph format (nodes, edges, boxes) and how to serve and compare graphs",
+  "author": {
+    "name": "Sören Stöhrmann",
+    "url": "https://github.com/sstoehrm"
+  },
+  "homepage": "https://github.com/sstoehrm/simpleviz",
+  "repository": "https://github.com/sstoehrm/simpleviz"
+}

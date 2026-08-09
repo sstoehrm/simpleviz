@@ -40,6 +40,7 @@
                    (assoc st
                           :collapsed-boxes collapsed
                           :selected nil
+                          :diff-cursors {}
                           ;; instant feedback: empty the shell right away
                           ;; (boundary edges snap to it on the re-layout)
                           :scene (if (some? (:scene st))

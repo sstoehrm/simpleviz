@@ -101,18 +101,25 @@
     (let [sc {:items [] :width 1 :height 1}]
       (assert/equal (collapse-scene sc (graph) #{}) sc))))
 
-(test "collapsed box rolls up hidden diffs as :diff-inside"
+(test "collapsed box rolls up hidden diff statuses as :diff-inside"
   (fn []
     (let [raw (assoc-in (graph) [:nodes "d" :diff] "added")
           g (collapse-boxes raw #{"inner"})]
-      (assert/ok (:diff-inside (get (:boxes-by-name g) "inner"))))
+      (assert/deepEqual (:diff-inside (get (:boxes-by-name g) "inner")) ["added"]))
     ;; nested: change inside inner, collapse outer
     (let [raw (assoc-in (graph) [:nodes "b" :diff] "removed")
           g (collapse-boxes raw #{"outer"})]
-      (assert/ok (:diff-inside (get (:boxes-by-name g) "outer"))))
-    ;; no changes -> falsy
+      (assert/deepEqual (:diff-inside (get (:boxes-by-name g) "outer")) ["removed"]))
+    ;; multiple statuses: sorted array
+    (let [raw (-> (graph)
+                  (assoc-in [:nodes "b" :diff] "removed")
+                  (assoc-in [:nodes "d" :diff] "added"))
+          g (collapse-boxes raw #{"inner"})]
+      (assert/deepEqual (:diff-inside (get (:boxes-by-name g) "inner"))
+                        ["added" "removed"]))
+    ;; no changes -> nil, not []
     (let [g (collapse-boxes (graph) #{"inner"})]
-      (assert/ok (not (:diff-inside (get (:boxes-by-name g) "inner")))))))
+      (assert/ok (nil? (:diff-inside (get (:boxes-by-name g) "inner")))))))
 
 (test "fully-interior diff edge sets :diff-inside"
   (fn []
@@ -122,7 +129,7 @@
                                                e))
                                      es)))
           g (collapse-boxes raw #{"inner"})]
-      (assert/ok (:diff-inside (get (:boxes-by-name g) "inner"))))))
+      (assert/deepEqual (:diff-inside (get (:boxes-by-name g) "inner")) ["removed"]))))
 
 (test "aggregated edge with a changed constituent becomes modified"
   (fn []
@@ -148,4 +155,4 @@
           out (collapse-scene sc raw #{"inner"})
           shell (first (filterv (fn [it] (= (:id it) "b:inner")) (:items out)))]
       (assert/ok (:collapsed shell))
-      (assert/ok (:diff-inside shell)))))
+      (assert/deepEqual (:diff-inside shell) ["added"]))))

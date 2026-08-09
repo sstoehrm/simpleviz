@@ -24,20 +24,27 @@
     (doseq [b box-names] (mark b))
     {:boxes dead-boxes :nodes dead-nodes}))
 
-(defn- contents-changed?
-  "Any :diff on box b's transitive contents: member nodes, nested boxes,
-  or edges running wholly inside it?"
+(defn- contents-changed
+  "Sorted array of the :diff statuses present in box b's transitive
+  contents (member nodes, nested boxes, edges wholly inside); nil when
+  none — never an empty array (empty arrays are truthy in JS and the
+  canvas dot / stop expansion rely on nil = no hidden changes)."
   [graph b]
-  (let [{bs' :boxes ns' :nodes} (mark-dead graph [b])]
-    (or (some? (.find (js/Array.from bs')
-                      (fn [nm] (and (not= nm b)
-                                    (some? (:diff (get (:boxes-by-name graph) nm)))))))
-        (some? (.find (js/Array.from ns')
-                      (fn [n] (some? (:diff (get (:nodes graph) n))))))
-        (some? (.find (:edges graph)
-                      (fn [e] (and (some? (:diff e))
-                                   (.has ns' (:source e))
-                                   (.has ns' (:target e)))))))))
+  (let [{bs' :boxes ns' :nodes} (mark-dead graph [b])
+        acc (js/Set.)]
+    (doseq [nm (js/Array.from bs')]
+      (let [d (:diff (get (:boxes-by-name graph) nm))]
+        (when (and (not= nm b) (some? d)) (.add acc d))))
+    (doseq [n (js/Array.from ns')]
+      (let [d (:diff (get (:nodes graph) n))]
+        (when (some? d) (.add acc d))))
+    (doseq [e (:edges graph)]
+      (when (and (some? (:diff e))
+                 (.has ns' (:source e))
+                 (.has ns' (:target e)))
+        (.add acc (:diff e))))
+    (when (pos? (.-size acc))
+      (.sort (js/Array.from acc)))))
 
 (defn- effective-collapsed
   "Collapsed boxes that exist and are not inside another collapsed box
@@ -82,7 +89,7 @@
                        (mapv (fn [b]
                                (if (.has eff-set (:name b))
                                  (assoc b :collapsed true :components []
-                                        :diff-inside (contents-changed? graph (:name b)))
+                                        :diff-inside (contents-changed graph (:name b)))
                                  (assoc b :components
                                         (filterv (fn [c]
                                                    (if (.startsWith c "n:")
@@ -164,6 +171,6 @@
                          (if (and (= (:kind it) "box")
                                   (.has eff-set (.slice (:id it) 2)))
                            (assoc it :collapsed true
-                                  :diff-inside (contents-changed? graph (.slice (:id it) 2)))
+                                  :diff-inside (contents-changed graph (.slice (:id it) 2)))
                            it))))]
         (assoc sc :items items)))))

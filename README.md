@@ -73,3 +73,12 @@ key, boxes by name, edges by their endpoints (flipping the pair or changing
 `:direction` counts as modified). Layout follows the new file; removed
 elements keep their old place. A collapsed box hiding any change shows an
 amber dot. Both files live-reload.
+
+## Claude Code plugin
+
+This repo doubles as a [Claude Code](https://claude.com/claude-code) plugin
+marketplace. The plugin teaches Claude the graph EDN format and the CLI, so
+it can author and serve simpleviz diagrams for you:
+
+    /plugin marketplace add sstoehrm/simpleviz
+    /plugin install simpleviz@simpleviz

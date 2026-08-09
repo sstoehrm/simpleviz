@@ -13,6 +13,7 @@
 (def state (atom {:error nil :warnings [] :graph nil :layout nil
                   :colors nil :selected nil :collapsed false
                   :collapsed-boxes #{} :layouting false
+                  :diff-cursors {}
                   :theme (or (js/localStorage.getItem "simpleviz-theme")
                              (if (.-matches (js/window.matchMedia
                                              "(prefers-color-scheme: dark)"))
@@ -39,6 +40,7 @@
                    (assoc st
                           :collapsed-boxes collapsed
                           :selected nil
+                          :diff-cursors {}
                           ;; instant feedback: empty the shell right away
                           ;; (boundary edges snap to it on the re-layout)
                           :scene (if (some? (:scene st))
@@ -86,14 +88,6 @@
                         [:span {:class "cp-name"} b]
                         [:span {:class "cp-plus"} "+"]]))
                    (vec (sort (js/Array.from collapsed)))))])))
-
-(defn- legend-view [g]
-  (when-let [cmp (:compare g)]
-    [:div {:id "diff-legend"}
-     [:div {:class "dl-files"} (str (:old cmp) " → " (:new cmp))]
-     [:div {:class "dl-row"} [:span {:class "dl-key dl-added"} "+"] "added"]
-     [:div {:class "dl-row"} [:span {:class "dl-key dl-modified"} "~"] "modified"]
-     [:div {:class "dl-row"} [:span {:class "dl-key dl-removed"} "−"] "removed"]]))
 
 ;; attrs already represented visually (endpoints/arrow on the canvas,
 ;; membership by containment) stay out of the inspector
@@ -165,6 +159,42 @@
      :diff (:diff item)
      :changed (:changed item)}))
 
+(defn- cycle-diff! [status]
+  (let [stops (get (scene/diff-stops (:scene @state)) status)]
+    (when (pos? (.-length stops))
+      (let [idx (mod (inc (get (:diff-cursors @state) status -1))
+                     (.-length stops))
+            item (nth stops idx)]
+        (swap! state (fn [st]
+                       (-> st
+                           (assoc-in [:diff-cursors status] idx)
+                           (assoc :selected (item->payload item)))))
+        (canvas/center-on! item)))))
+
+(defn- legend-row [st status glyph cls stops]
+  (let [n (.-length stops)
+        idx (get (:diff-cursors st) status)]
+    [:button {:key status :type "button"
+              :class (str "dl-row" (if (zero? n) " dl-empty" ""))
+              :disabled (zero? n)
+              :title (if (zero? n)
+                       (str "no " status " elements")
+                       (str "jump to the next " status " element"))
+              :on-click (fn [e] (.stopPropagation e) (cycle-diff! status))}
+     [:span {:class (str "dl-key " cls)} glyph]
+     [:span {:class "dl-label"} status]
+     [:span {:class "dl-count"}
+      (if (some? idx) (str (inc idx) "/" n) (str n))]]))
+
+(defn- legend-view [st]
+  (when-let [cmp (:compare (:graph st))]
+    (let [stops (scene/diff-stops (:scene st))]
+      [:div {:id "diff-legend"}
+       [:div {:class "dl-files"} (str (:old cmp) " → " (:new cmp))]
+       (legend-row st "added" "+" "dl-added" (get stops "added"))
+       (legend-row st "modified" "~" "dl-modified" (get stops "modified"))
+       (legend-row st "removed" "−" "dl-removed" (get stops "removed"))])))
+
 (defn- canvas-view []
   [:canvas
    {:id "canvas" :key "the-canvas"
@@ -195,7 +225,7 @@
    (when (and (nil? (:scene st)) (nil? (:error st)))
      (load-view st))
    (collapsed-view st)
-   (when (some? (:graph st)) (legend-view (:graph st)))
+   (when (some? (:graph st)) (legend-view st))
    (when (:layouting st)
      [:div {:id "layouting"} "re-layouting…"])
    [:button {:id "theme-toggle" :type "button"
@@ -227,7 +257,7 @@
           ck (cache-key collapsed)]
       (if-let [hit (.get layout-cache ck)]
         (swap! state assoc :colors (:colors hit) :layout (:layout hit)
-               :scene (:scene hit) :layouting false)
+               :scene (:scene hit) :layouting false :diff-cursors {})
         (do
           (swap! state assoc
                  :layouting true
@@ -250,7 +280,7 @@
             (.set layout-cache ck {:colors cmap :layout layout :scene sc})
             (if (= ck (cache-key (:collapsed-boxes @state)))
               (swap! state assoc :colors cmap :layout layout :scene sc
-                     :layouting false)
+                     :layouting false :diff-cursors {})
               (swap! state assoc :layouting false))))))
     (catch :default e
       (js/console.error "Relayout failed:" e)

@@ -67,6 +67,26 @@
               :x (/ (- (.-width rect) (* w k)) 2)
               :y (/ (- (.-height rect) (* h k)) 2)))))
 
+(defn center-on!
+  "Pan so the item's bbox center is view-centered. Zoom is raised (never
+  lowered, capped at 1.0) only when the item would render under 40px in
+  its larger dimension."
+  [item]
+  (let [rect (.getBoundingClientRect (js/document.getElementById "canvas-wrap"))
+        bb (:bbox item)
+        cx (/ (+ (:x0 bb) (:x1 bb)) 2)
+        cy (/ (+ (:y0 bb) (:y1 bb)) 2)
+        dim (js/Math.max (- (:x1 bb) (:x0 bb)) (- (:y1 bb) (:y0 bb)))
+        k0 (:k view)
+        k (if (< (* dim k0) 40)
+            (js/Math.max k0 (js/Math.min 1.0 (/ 40 dim)))
+            k0)]
+    (assoc! view
+            :k k
+            :x (- (/ (.-width rect) 2) (* cx k))
+            :y (- (/ (.-height rect) 2) (* cy k)))
+    (request-paint!)))
+
 (defn- rounded-rect [ctx x y w h r]
   (.beginPath ctx)
   (.roundRect ctx x y w h r))

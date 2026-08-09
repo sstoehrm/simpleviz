@@ -87,6 +87,14 @@
                         [:span {:class "cp-plus"} "+"]]))
                    (vec (sort (js/Array.from collapsed)))))])))
 
+(defn- legend-view [g]
+  (when-let [cmp (:compare g)]
+    [:div {:id "diff-legend"}
+     [:div {:class "dl-files"} (str (:old cmp) " → " (:new cmp))]
+     [:div {:class "dl-row"} [:span {:class "dl-key dl-added"} "+"] "added"]
+     [:div {:class "dl-row"} [:span {:class "dl-key dl-modified"} "~"] "modified"]
+     [:div {:class "dl-row"} [:span {:class "dl-key dl-removed"} "−"] "removed"]]))
+
 ;; attrs already represented visually (endpoints/arrow on the canvas,
 ;; membership by containment) stay out of the inspector
 (def ^:private hidden-attrs
@@ -98,6 +106,11 @@
     (filterv (fn [[k _]] (not (and (some? hidden) (.has hidden k))))
              (js/Object.entries (:attrs sel)))))
 
+(defn- fmt-val [v]
+  (cond (nil? v) "—"
+        (string? v) v
+        :else (js/JSON.stringify v)))
+
 (defn- details-view [sel]
   [:aside {:id "details"}
    [:button {:id "details-close" :type "button" :aria-label "Close details"
@@ -105,15 +118,26 @@
     "×"]
    [:h2 (:title sel)]
    [:div {:class "details-type"}
-    (if (pos? (.-length (:subtitle sel)))
-      (str "(" (:subtitle sel) ") — " (:kind sel))
-      (:kind sel))]
+    (str (if (pos? (.-length (:subtitle sel)))
+           (str "(" (:subtitle sel) ") — ")
+           "")
+         (:kind sel)
+         (if (some? (:diff sel)) (str " — " (:diff sel)) ""))]
    (into [:dl]
          (mapcat (fn [[k v]]
                    [[:dt {:key (str "t" k)} k]
                     [:dd {:key (str "d" k)}
                      (if (string? v) v (js/JSON.stringify v nil 2))]])
-                 (visible-attrs sel)))])
+                 (visible-attrs sel)))
+   (when (some? (:changed sel))
+     [:div {:class "details-changes"}
+      [:div {:class "details-changes-header"} "changes (old → new)"]
+      (into [:dl]
+            (mapcat (fn [[k v]]
+                      [[:dt {:key (str "ct" k)} k]
+                       [:dd {:key (str "cd" k)}
+                        (str (fmt-val (:old v)) " → " (fmt-val (:new v)))]])
+                    (js/Object.entries (:changed sel))))])])
 
 (defn- banner-view [{:keys [error warnings collapsed]}]
   (cond
@@ -137,7 +161,9 @@
      :elk-id (:id item)
      :title (if (pos? (.-length nm)) nm fallback)
      :subtitle (str (if (nil? (:type item)) "" (:type item)))
-     :attrs (:attrs item)}))
+     :attrs (:attrs item)
+     :diff (:diff item)
+     :changed (:changed item)}))
 
 (defn- canvas-view []
   [:canvas
@@ -169,6 +195,7 @@
    (when (and (nil? (:scene st)) (nil? (:error st)))
      (load-view st))
    (collapsed-view st)
+   (when (some? (:graph st)) (legend-view (:graph st)))
    (when (:layouting st)
      [:div {:id "layouting"} "re-layouting…"])
    [:button {:id "theme-toggle" :type "button"

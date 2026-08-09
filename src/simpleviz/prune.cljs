@@ -24,6 +24,21 @@
     (doseq [b box-names] (mark b))
     {:boxes dead-boxes :nodes dead-nodes}))
 
+(defn- contents-changed?
+  "Any :diff on box b's transitive contents: member nodes, nested boxes,
+  or edges running wholly inside it?"
+  [graph b]
+  (let [{bs' :boxes ns' :nodes} (mark-dead graph [b])]
+    (or (some? (.find (js/Array.from bs')
+                      (fn [nm] (and (not= nm b)
+                                    (some? (:diff (get (:boxes-by-name graph) nm)))))))
+        (some? (.find (js/Array.from ns')
+                      (fn [n] (some? (:diff (get (:nodes graph) n))))))
+        (some? (.find (:edges graph)
+                      (fn [e] (and (some? (:diff e))
+                                   (.has ns' (:source e))
+                                   (.has ns' (:target e)))))))))
+
 (defn- effective-collapsed
   "Collapsed boxes that exist and are not inside another collapsed box
   (those are swallowed as ordinary interior content)."
@@ -66,7 +81,8 @@
                        (filterv (fn [b] (not (.has dead-boxes (:name b)))))
                        (mapv (fn [b]
                                (if (.has eff-set (:name b))
-                                 (assoc b :collapsed true :components [])
+                                 (assoc b :collapsed true :components []
+                                        :diff-inside (contents-changed? graph (:name b)))
                                  (assoc b :components
                                         (filterv (fn [c]
                                                    (if (.startsWith c "n:")
@@ -95,21 +111,25 @@
                     (let [k (str (:id s) "→" (:id t)
                                  "|" (:source (:arrows e)) (:target (:arrows e)))]
                       (if-let [m (.get merged k)]
-                        (.set merged k (assoc m :aggregated (inc (:aggregated m))))
+                        (.set merged k (assoc m :aggregated (inc (:aggregated m))
+                                              :agg-diff (or (:agg-diff m) (some? (:diff e)))))
                         (do (.push order k)
                             (.set merged k
                                   (assoc e
                                          :source-id (:id s) :target-id (:id t)
                                          :source (:name s) :target (:name t)
-                                         :aggregated 1))))))))
+                                         :aggregated 1 :agg-diff (some? (:diff e))))))))))
             edges (mapv (fn [k]
                           (let [m (.get merged k)]
-                            (if (> (:aggregated m) 1)
-                              (assoc m
-                                     :name (str (:aggregated m) " edges")
-                                     :type ""
-                                     :attrs {:aggregated (:aggregated m)})
-                              m)))
+                            (dissoc
+                             (if (> (:aggregated m) 1)
+                               (let [m (assoc m :name (str (:aggregated m) " edges")
+                                              :type ""
+                                              :attrs {:aggregated (:aggregated m)}
+                                              :changed nil)]
+                                 (if (:agg-diff m) (assoc m :diff "modified") (dissoc m :diff)))
+                               m)
+                             :agg-diff)))
                         order)]
         {:nodes nodes :edges edges :boxes boxes :boxes-by-name by-name
          :parent-of parent-of :warnings (:warnings graph)}))))
@@ -143,6 +163,7 @@
                        (fn [it]
                          (if (and (= (:kind it) "box")
                                   (.has eff-set (.slice (:id it) 2)))
-                           (assoc it :collapsed true)
+                           (assoc it :collapsed true
+                                  :diff-inside (contents-changed? graph (.slice (:id it) 2)))
                            it))))]
         (assoc sc :items items)))))

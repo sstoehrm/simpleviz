@@ -1,0 +1,20 @@
+{:nodes {:web     {:name "Web UI"   :type "frontend" :framework "htmx" :role [:active]}
+         :api     {:name "API"      :type "service"  :lang "clojure" :replicas 3}
+         :auth    {:name "Auth"     :type "service"}
+         :db      {:name "Postgres" :type "database" :version "17"}
+         :cache   {:name "Redis"    :type "cache"}
+         :worker  {:name "Worker"   :type "service"}
+         :queue   {:name "Queue"    :type "queue"}
+         :metrics {:name "Metrics"  :type "service"}
+         :logs    {:name "Log Sink"}}
+ :edges {[:web :api]      {:direction :->  :name "REST"    :type "http" :auth "mtls"}
+         [:api :db]       {:direction :->  :name "queries" :type "sql"}
+         [:api :cache]    {:direction :<-> :name "session" :type "resp"}
+         [:queue :api]    {:direction :<-  :name "publish" :type "amqp"}
+         [:worker :queue] {:direction :->  :name "consume" :type "amqp"}
+         [:api :metrics]  {:direction :->  :name "emit"    :type "http"}
+         [:api :auth]     {:direction :-   :name "trust"}
+         [:worker :logs]  {:direction :->  :name "write"}}
+ :boxes {:backend {:type "zone" :components #{:api :auth :storage :worker :queue :metrics}
+                   :owner "platform-team"}
+         :storage {:type "zone" :components #{:db :cache}}}}

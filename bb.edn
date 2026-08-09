@@ -11,12 +11,12 @@
                                     {:replace-existing true})
                       (fs/copy-tree "node_modules/squint-cljs" "public/js/vendor/squint-cljs"
                                     {:replace-existing true}))}
-  serve    {:doc "Serve an EDN graph file: bb serve examples/demo.edn [--port N]"
+  serve    {:doc "Serve an EDN graph file: bb serve graph.edn [new.edn] [--port N] (two files = compare)"
             :requires ([serve])
             :task (apply serve/-main *command-line-args*)}
   test:clj {:doc "Run Clojure server tests"
-            :requires ([clojure.test :as t] [server-test] [graph-test])
-            :task (let [{:keys [fail error]} (t/run-tests 'graph-test 'server-test)]
+            :requires ([clojure.test :as t] [server-test] [graph-test] [diff-test])
+            :task (let [{:keys [fail error]} (t/run-tests 'graph-test 'server-test 'diff-test)]
                     (when (pos? (+ fail error)) (System/exit 1)))}
   test:js  {:doc "Run JS unit tests (compiled squint output)"
             :requires ([babashka.fs :as fs])
@@ -54,7 +54,7 @@
                           (binding [*print-namespace-maps* false] (pr-str release-bb)))
                     (shell {:dir "dist"} "tar" "czf" (str bundle-name ".tar.gz") bundle-name)
                     (println (str "created dist/" bundle-name ".tar.gz")))}
-  dev      {:doc "Compile, watch and serve: bb dev [graph.edn] [--port N]"
+  dev      {:doc "Compile, watch and serve: bb dev [graph.edn [new.edn]] [--port N]"
             :requires ([babashka.cli :as cli] [babashka.process :as p] [serve])
             :task (do (run 'build)
                       (p/process ["npx" "squint" "watch"] {:inherit true})

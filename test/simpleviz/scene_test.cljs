@@ -130,3 +130,34 @@
       (assert/equal (.-length (:items sc)) (* 2 n))
       (assert/ok (< elapsed 2000)
                  (str "build-scene took " (js/Math.round elapsed) "ms for 20k items")))))
+
+(def diff-graph
+  {:nodes {"a" (assoc (gnode "a" "svc") :diff "added")
+           "b" (assoc (gnode "b" "") :diff "removed")}
+   :edges [{:id "e0" :source "a" :target "b"
+            :arrows {:source false :target true} :name "" :type ""
+            :diff "modified" :changed {:direction {:old "->" :new "<->"}}
+            :attrs {}}]
+   :boxes-by-name {"grp" {:id "b:grp" :name "grp" :type "" :components ["n:a"]
+                          :diff "modified" :diff-inside true :attrs {}}}})
+
+(def diff-layout
+  {:width 500 :height 300
+   :children [{:id "b:grp" :x 10 :y 20 :width 200 :height 150
+               :children [{:id "n:a" :x 14 :y 40 :width 60 :height 30}]}
+              {:id "n:b" :x 300 :y 50 :width 60 :height 30}]
+   :edges [{:id "e0" :container "root"
+            :sections [{:startPoint {:x 1 :y 2} :endPoint {:x 5 :y 6}}]
+            :labels [{:x 2 :y 3 :width 20 :height 14 :text "~"}]}]})
+
+(test "diff status flows through to scene items"
+  (fn []
+    (let [sc (build-scene {:layout diff-layout :graph diff-graph :colors colors})
+          by-id (reduce (fn [acc it] (assoc acc (:id it) it)) {} (:items sc))]
+      (assert/equal (:diff (get by-id "n:a")) "added")
+      (assert/equal (:diff (get by-id "n:b")) "removed")
+      (assert/equal (:diff (get by-id "b:grp")) "modified")
+      (assert/ok (:diff-inside (get by-id "b:grp")))
+      (assert/equal (:diff (get by-id "e0")) "modified")
+      (assert/ok (some? (:changed (get by-id "e0"))))
+      (assert/equal (:diff (get by-id "e0-label")) "modified"))))

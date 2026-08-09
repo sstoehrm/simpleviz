@@ -80,3 +80,17 @@
       (assert/ok (>= (:width lbl) (measure "calls (http)" nil)))
       (assert/equal (:height lbl) 14)
       (assert/equal (:labels (second (:edges elk))) js/undefined))))
+
+(test "diff edges get a glyph-prefixed label"
+  (fn []
+    (let [g (graph {:nodes {"a" (node "a") "b" (node "b")}
+                    :edges [{:id "e0" :source "a" :target "b"
+                             :arrows {:source false :target true}
+                             :name "calls" :type "http" :diff "added" :attrs {}}
+                            {:id "e1" :source "b" :target "a"
+                             :arrows {:source false :target true}
+                             :name "" :type "" :diff "removed" :attrs {}}]})
+          elk (to-elk g measure)
+          labels (mapv (fn [e] (:text (first (or (:labels e) [{}])))) (:edges elk))]
+      (assert/equal (nth labels 0) "+ calls (http)")
+      (assert/equal (nth labels 1) "−"))))

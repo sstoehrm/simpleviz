@@ -6,6 +6,8 @@
 (def NODE-FONT "bold 14px system-ui, sans-serif")
 (def SUB-FONT "11px system-ui, sans-serif")
 
+(def ^:private diff-glyphs {"added" "+" "removed" "−" "modified" "~"})
+
 (defn to-elk [graph measure]
   (let [{:keys [nodes boxes boxes-by-name parent-of edges]} graph
         node-elk (fn [n]
@@ -51,8 +53,10 @@
                      "elk.padding" "[top=20,left=20,bottom=20,right=20]"}
      :children (into root-nodes root-boxes)
      :edges (mapv (fn [e]
-                    (let [parts (filterv (fn [s] (pos? (.-length s)))
-                                         [(:name e)
+                    (let [glyph (get diff-glyphs (:diff e))
+                          parts (filterv (fn [s] (pos? (.-length s)))
+                                         [(if (some? glyph) glyph "")
+                                          (:name e)
                                           (if (pos? (.-length (:type e)))
                                             (str "(" (:type e) ")")
                                             "")])

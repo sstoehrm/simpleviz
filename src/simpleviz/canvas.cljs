@@ -20,10 +20,12 @@
 (def ^:private palettes
   {"light" {:dark? false :bg "#fafafa" :node-fill "#fff" :node-stroke "#ddd"
             :edge "#555" :arrow "#555" :sub "#888" :label "#444"
-            :btn-fill "#ffffffcc"}
+            :btn-fill "#ffffffcc"
+            :diff-added "#0ca30c" :diff-modified "#b45309" :diff-removed "#d03b3b"}
    "dark" {:dark? true :bg "#111827" :node-fill "#1f2937" :node-stroke "#4b5563"
            :edge "#9ca3af" :arrow "#9ca3af" :sub "#9ca3af" :label "#d1d5db"
-           :btn-fill "#1f2937cc"}})
+           :btn-fill "#1f2937cc"
+           :diff-added "#22c55e" :diff-modified "#fab219" :diff-removed "#f87171"}})
 
 (def ^:private palette (atom (get palettes "light")))
 
@@ -69,7 +71,38 @@
   (.beginPath ctx)
   (.roundRect ctx x y w h r))
 
+(def ^:private diff-glyphs {"added" "+" "modified" "~" "removed" "−"})
+
+(defn- diff-color [d]
+  (case d
+    "added" (:diff-added @palette)
+    "modified" (:diff-modified @palette)
+    "removed" (:diff-removed @palette)
+    nil))
+
+(defn- draw-diff-ring
+  "Status ring + glyph just outside an element's top-left corner. Rings
+  sit inside the scene bbox pad; the glyph can clip one frame early at
+  the viewport edge, which is acceptable."
+  [ctx item r text?]
+  (let [d (:diff item)
+        c (diff-color d)]
+    (when (= d "removed") (.setLineDash ctx [5 4]))
+    (rounded-rect ctx (- (:x item) 3) (- (:y item) 3)
+                  (+ (:w item) 6) (+ (:h item) 6) r)
+    (set! (.-strokeStyle ctx) c)
+    (set! (.-lineWidth ctx) 2)
+    (.stroke ctx)
+    (.setLineDash ctx [])
+    (when text?
+      (set! (.-font ctx) "bold 11px system-ui, sans-serif")
+      (set! (.-fillStyle ctx) c)
+      (set! (.-textAlign ctx) "left")
+      (.fillText ctx (get diff-glyphs d) (- (:x item) 2) (- (:y item) 6)))))
+
 (defn- draw-box [ctx item sel? text?]
+  (let [removed? (= (:diff item) "removed")]
+  (when removed? (set! (.-globalAlpha ctx) 0.45))
   (rounded-rect ctx (:x item) (:y item) (:w item) (:h item) 10)
   (set! (.-fillStyle ctx) (:fill item))
   (.fill ctx)
@@ -120,27 +153,40 @@
       (.beginPath ctx)
       (.moveTo ctx (+ bx (/ s 2)) (+ by 4))
       (.lineTo ctx (+ bx (/ s 2)) (+ by s -4))
-      (.stroke ctx)))))
+      (.stroke ctx))
+    (when (and (:collapsed item) (:diff-inside item))
+      (.beginPath ctx)
+      (.arc ctx (- bx 8) (+ by (/ s 2)) 3.5 0 (* 2 js/Math.PI))
+      (set! (.-fillStyle ctx) (:diff-modified @palette))
+      (.fill ctx))))
+  (when (some? (:diff item))
+    (draw-diff-ring ctx item 12 text?))
+  (when removed? (set! (.-globalAlpha ctx) 1))))
 
 (defn- draw-node [ctx item sel? text?]
-  (rounded-rect ctx (:x item) (:y item) (:w item) (:h item) 6)
-  (set! (.-fillStyle ctx) (:node-fill @palette))
-  (.fill ctx)
-  (set! (.-strokeStyle ctx) (if sel? ACCENT (:node-stroke @palette)))
-  (set! (.-lineWidth ctx) (if sel? 2 1))
-  (.stroke ctx)
-  (when text?
-  (set! (.-textAlign ctx) "center")
-  (set! (.-font ctx) NODE-FONT)
-  (set! (.-fillStyle ctx) (type-color (:color item)))
-  (.fillText ctx (:name item) (+ (:x item) (/ (:w item) 2)) (+ (:y item) 19))
-  (when (pos? (.-length (:type item)))
-    (set! (.-font ctx) SUB-FONT)
-    (set! (.-fillStyle ctx) (:sub @palette))
-    (.fillText ctx (str "(" (:type item) ")")
-               (+ (:x item) (/ (:w item) 2)) (+ (:y item) 35)))))
+  (let [removed? (= (:diff item) "removed")]
+    (when removed? (set! (.-globalAlpha ctx) 0.45))
+    (rounded-rect ctx (:x item) (:y item) (:w item) (:h item) 6)
+    (set! (.-fillStyle ctx) (:node-fill @palette))
+    (.fill ctx)
+    (set! (.-strokeStyle ctx) (if sel? ACCENT (:node-stroke @palette)))
+    (set! (.-lineWidth ctx) (if sel? 2 1))
+    (.stroke ctx)
+    (when text?
+    (set! (.-textAlign ctx) "center")
+    (set! (.-font ctx) NODE-FONT)
+    (set! (.-fillStyle ctx) (type-color (:color item)))
+    (.fillText ctx (:name item) (+ (:x item) (/ (:w item) 2)) (+ (:y item) 19))
+    (when (pos? (.-length (:type item)))
+      (set! (.-font ctx) SUB-FONT)
+      (set! (.-fillStyle ctx) (:sub @palette))
+      (.fillText ctx (str "(" (:type item) ")")
+                 (+ (:x item) (/ (:w item) 2)) (+ (:y item) 35))))
+    (when (some? (:diff item))
+      (draw-diff-ring ctx item 8 text?))
+    (when removed? (set! (.-globalAlpha ctx) 1))))
 
-(defn- draw-arrowhead [ctx from to]
+(defn- draw-arrowhead [ctx from to color]
   (let [angle (js/Math.atan2 (- (:y to) (:y from)) (- (:x to) (:x from)))
         size 8]
     (.save ctx)
@@ -151,39 +197,52 @@
     (.lineTo ctx (- size) (/ size 2.2))
     (.lineTo ctx (- size) (/ size -2.2))
     (.closePath ctx)
-    (set! (.-fillStyle ctx) (:arrow @palette))
+    (set! (.-fillStyle ctx) color)
     (.fill ctx)
     (.restore ctx)))
 
 (defn- draw-edge [ctx item sel? detail?]
-  (set! (.-strokeStyle ctx) (if sel? ACCENT (:edge @palette)))
-  (set! (.-lineWidth ctx) (if sel? 2.5 1.5))
-  (doseq [pts (:sections item)]
-    (.beginPath ctx)
-    (.moveTo ctx (:x (nth pts 0)) (:y (nth pts 0)))
-    (doseq [p (rest pts)]
-      (.lineTo ctx (:x p) (:y p)))
-    (.stroke ctx))
-  (let [sections (:sections item)
-        first-sec (nth sections 0)
-        last-sec (nth sections (dec (.-length sections)))]
-    (when (and detail? (:target (:arrows item)))
-      (draw-arrowhead ctx
-                      (nth last-sec (- (.-length last-sec) 2))
-                      (nth last-sec (dec (.-length last-sec)))))
-    (when (and detail? (:source (:arrows item)))
-      (draw-arrowhead ctx (nth first-sec 1) (nth first-sec 0)))))
+  (let [d (:diff item)
+        removed? (= d "removed")
+        color (if sel? ACCENT (if (some? d) (diff-color d) (:edge @palette)))
+        arrow-color (if (some? d) (diff-color d) (:arrow @palette))]
+    (when removed?
+      (set! (.-globalAlpha ctx) 0.45)
+      (.setLineDash ctx [6 4]))
+    (set! (.-strokeStyle ctx) color)
+    (set! (.-lineWidth ctx) (if sel? 2.5 (if (some? d) 2 1.5)))
+    (doseq [pts (:sections item)]
+      (.beginPath ctx)
+      (.moveTo ctx (:x (nth pts 0)) (:y (nth pts 0)))
+      (doseq [p (rest pts)]
+        (.lineTo ctx (:x p) (:y p)))
+      (.stroke ctx))
+    (.setLineDash ctx [])
+    (let [sections (:sections item)
+          first-sec (nth sections 0)
+          last-sec (nth sections (dec (.-length sections)))]
+      (when (and detail? (:target (:arrows item)))
+        (draw-arrowhead ctx
+                        (nth last-sec (- (.-length last-sec) 2))
+                        (nth last-sec (dec (.-length last-sec)))
+                        arrow-color))
+      (when (and detail? (:source (:arrows item)))
+        (draw-arrowhead ctx (nth first-sec 1) (nth first-sec 0) arrow-color)))
+    (when removed? (set! (.-globalAlpha ctx) 1))))
 
 (defn- draw-edge-label [ctx item]
-  (set! (.-textAlign ctx) "center")
-  (set! (.-font ctx) SUB-FONT)
-  (let [cx (+ (:x item) (/ (:w item) 2))
-        cy (+ (:y item) (:h item) -3)]
-    (set! (.-lineWidth ctx) 3)
-    (set! (.-strokeStyle ctx) (:bg @palette))
-    (.strokeText ctx (:text item) cx cy)
-    (set! (.-fillStyle ctx) (:label @palette))
-    (.fillText ctx (:text item) cx cy)))
+  (let [removed? (= (:diff item) "removed")]
+    (when removed? (set! (.-globalAlpha ctx) 0.45))
+    (set! (.-textAlign ctx) "center")
+    (set! (.-font ctx) SUB-FONT)
+    (let [cx (+ (:x item) (/ (:w item) 2))
+          cy (+ (:y item) (:h item) -3)]
+      (set! (.-lineWidth ctx) 3)
+      (set! (.-strokeStyle ctx) (:bg @palette))
+      (.strokeText ctx (:text item) cx cy)
+      (set! (.-fillStyle ctx) (:label @palette))
+      (.fillText ctx (:text item) cx cy))
+    (when removed? (set! (.-globalAlpha ctx) 1))))
 
 (defn paint! [canvas-el sc2 selected-id]
   (let [ctx (.getContext canvas-el "2d")
@@ -218,7 +277,7 @@
 (defn setup-pan-zoom! [wrap]
   (.addEventListener wrap "wheel"
     (fn [e]
-      (when-not (.closest (.-target e) "#details, #banner, #collapsed-panel, #theme-toggle")
+      (when-not (.closest (.-target e) "#details, #banner, #collapsed-panel, #theme-toggle, #diff-legend")
         (.preventDefault e)
         (let [factor (if (< (.-deltaY e) 0) 1.1 (/ 1 1.1))
               rect (.getBoundingClientRect wrap)
@@ -233,7 +292,7 @@
   (let [drag (atom nil)]
     (.addEventListener wrap "pointerdown"
       (fn [e]
-        (when-not (.closest (.-target e) "#details, #banner, #collapsed-panel, #theme-toggle")
+        (when-not (.closest (.-target e) "#details, #banner, #collapsed-panel, #theme-toggle, #diff-legend")
           ;; NO setPointerCapture here: capturing on pointerdown retargets
           ;; the subsequent click to the wrap, so the canvas onclick
           ;; (selection) would never fire for plain clicks.

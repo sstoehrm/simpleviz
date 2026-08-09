@@ -79,7 +79,7 @@
         dim (js/Math.max (- (:x1 bb) (:x0 bb)) (- (:y1 bb) (:y0 bb)))
         k0 (:k view)
         k (if (< (* dim k0) 40)
-            (js/Math.min 1.0 (js/Math.max k0 (/ 40 dim)))
+            (js/Math.max k0 (js/Math.min 1.0 (/ 40 dim)))
             k0)]
     (assoc! view
             :k k

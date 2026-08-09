@@ -11,3 +11,6 @@ dist/
 # Claude Code session scratch
 .claude/worktrees/
 .superpowers/
+
+# Local feature worktrees
+.worktrees/

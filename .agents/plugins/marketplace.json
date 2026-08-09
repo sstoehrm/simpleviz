@@ -1,0 +1,20 @@
+{
+  "name": "simpleviz",
+  "interface": {
+    "displayName": "Simpleviz"
+  },
+  "plugins": [
+    {
+      "name": "simpleviz",
+      "source": {
+        "source": "local",
+        "path": "./plugins/simpleviz"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

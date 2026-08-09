@@ -82,3 +82,11 @@ it can author and serve simpleviz diagrams for you:
 
     /plugin marketplace add sstoehrm/simpleviz
     /plugin install simpleviz@simpleviz
+
+## Codex plugin
+
+The same skill is available to Codex through this repository's plugin
+marketplace:
+
+    codex plugin marketplace add sstoehrm/simpleviz
+    codex plugin add simpleviz@simpleviz

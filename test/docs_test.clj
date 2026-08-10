@@ -36,6 +36,20 @@
     (is (pos? (count (:edges g))) (str source " example keeps its edges"))
     (is (pos? (count (:boxes g))) (str source " example keeps its boxes"))))
 
+(defn- heredoc-block
+  "Body of the first <<'MARKER' heredoc in the text."
+  [text marker]
+  (->> (str/split-lines text)
+       (drop-while (fn [l] (not (str/includes? l (str "<<'" marker "'")))))
+       (rest)
+       (take-while (fn [l] (not= l marker)))
+       (str/join "\n")))
+
+(deftest init-template-is-functional
+  (assert-example-clean
+   "install.sh init template"
+   (heredoc-block (slurp "install.sh") "TEMPLATE")))
+
 (deftest third-party-notices-cover-vendored-components
   (let [notices (slurp "THIRD-PARTY-NOTICES.md")
         vendored (concat ["elk.bundled.js"]

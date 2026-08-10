@@ -10,6 +10,7 @@ Quickest install (Linux, needs [babashka](https://babashka.org/), curl and tar):
 
     curl -fsSL https://raw.githubusercontent.com/sstoehrm/simpleviz/main/install.sh | bash
     simpleviz ~/.simpleviz/examples/demo.edn   # or any graph.edn; picks a free port 7370-7379
+    simpleviz init my-arch.edn                 # write a starter file to edit
 
 `simpleviz --version` prints the installed release; `simpleviz update`
 fetches the latest one. The install lives in `~/.simpleviz` (managed by the

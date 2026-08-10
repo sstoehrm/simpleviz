@@ -89,6 +89,7 @@ usage() {
   cat <<USAGE
 usage: simpleviz <graph.edn> [new.edn]   serve a graph (two files: compare old -> new)
        simpleviz init <graph.edn>        write a starter graph file (won't overwrite)
+       simpleviz extract <diagram.png> [out.edn] [--old]   print/extract the embedded EDN
        simpleviz update                  install the latest release if it is newer
        simpleviz --version               print the installed version
 Serves on a random free port between 7370 and 7379.
@@ -181,6 +182,19 @@ case "${1:-}" in
   init)
     shift
     init_cmd "$@"
+    ;;
+  extract)
+    shift
+    check_bb
+    [ -d "$SIMPLEVIZ_HOME" ] || die "$SIMPLEVIZ_HOME not found — run install.sh first"
+    args=()
+    for a in "$@"; do
+      case "$a" in
+        --old) args+=("$a") ;;
+        *) args+=("$(realpath -m "$a")") ;;
+      esac
+    done
+    (cd "$SIMPLEVIZ_HOME" && exec bb extract "${args[@]}")
     ;;
   *)
     [ "$#" -le 2 ] || { usage >&2; exit 1; }

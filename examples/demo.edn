@@ -1,7 +1,8 @@
 {:nodes {:web    {:name "Web UI"   :type "frontend" :framework "htmx" :role [:active]}
          :api    {:name "API"      :type "service"  :lang "clojure" :replicas 3}
          :auth   {:name "Auth"     :type "service"}
-         :db     {:name "Postgres" :type "database" :version "16"}
+         :db     {:name "Postgres" :type "database" :version "16"
+                  :limits {:cpu "500m" :mem "1Gi"}}
          :cache  {:name "Redis"    :type "cache"}
          :worker {:name "Worker"   :type "service"}
          :queue  {:name "Queue"    :type "queue"}

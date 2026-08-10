@@ -1,6 +1,7 @@
 (ns simpleviz.app
   (:require ["reagami" :refer [render]]
             [simpleviz.colors :as colors]
+            [simpleviz.format :as format]
             [simpleviz.transform :refer [to-elk]]
             [simpleviz.prune :refer [collapse-boxes collapse-scene]]
             [simpleviz.scene :as scene]
@@ -121,7 +122,7 @@
          (mapcat (fn [[k v]]
                    [[:dt {:key (str "t" k)} k]
                     [:dd {:key (str "d" k)}
-                     (if (string? v) v (js/JSON.stringify v nil 2))]])
+                     (format/value->hiccup v)]])
                  (visible-attrs sel)))
    (when (some? (:changed sel))
      [:div {:class "details-changes"}

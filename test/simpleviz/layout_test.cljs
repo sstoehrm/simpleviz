@@ -68,3 +68,24 @@
                    (let [lbl (first (:labels (first (:edges layout))))]
                      (assert/ok lbl "label present in layout output")
                      (assert/ok (and (some? (:x lbl)) (some? (:y lbl)))))))))))
+
+(test "ELK routes edges to expanded boxes and between boxes"
+  (fn []
+    (let [box-edge (fn [i a b sid tid]
+                     (assoc (edge i a b {:source false :target true})
+                            :source-id sid :target-id tid))
+          g (graph {:nodes {"web" (node "web" "") "api" (node "api" "")
+                            "db" (node "db" "")}
+                    :edges [(box-edge 0 "web" "backend" "n:web" "b:backend")
+                            (box-edge 1 "backend" "storage" "b:backend" "b:storage")]
+                    :boxes [{:id "b:backend" :name "backend" :type ""
+                             :components ["n:api"] :attrs {}}
+                            {:id "b:storage" :name "storage" :type ""
+                             :components ["n:db"] :attrs {}}]
+                    :parent-of {"n:api" "backend" "n:db" "storage"}})]
+      (-> (.layout (ELK.) (to-elk g measure))
+          (.then (fn [layout]
+                   (assert/equal (.-length (:edges layout)) 2)
+                   (doseq [e (:edges layout)]
+                     (assert/ok (and (:sections e) (pos? (.-length (:sections e))))
+                                (str "edge " (:id e) " routes to a box endpoint")))))))))

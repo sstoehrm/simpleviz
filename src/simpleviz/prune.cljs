@@ -24,6 +24,11 @@
     (doseq [b box-names] (mark b))
     {:boxes dead-boxes :nodes dead-nodes}))
 
+(defn- endpoint-id
+  "Prefixed endpoint id; hand-built fixtures without ids default to node."
+  [id nm]
+  (if (some? id) id (str "n:" nm)))
+
 (defn- contents-changed
   "Sorted array of the :diff statuses present in box b's transitive
   contents (member nodes, nested boxes, edges wholly inside); nil when
@@ -39,10 +44,15 @@
       (let [d (:diff (get (:nodes graph) n))]
         (when (some? d) (.add acc d))))
     (doseq [e (:edges graph)]
-      (when (and (some? (:diff e))
-                 (.has ns' (:source e))
-                 (.has ns' (:target e)))
-        (.add acc (:diff e))))
+      (let [inside? (fn [id nm]
+                      (let [eid (endpoint-id id nm)]
+                        (if (.startsWith eid "b:")
+                          (.has bs' (.slice eid 2))
+                          (.has ns' (.slice eid 2)))))]
+        (when (and (some? (:diff e))
+                   (inside? (:source-id e) (:source e))
+                   (inside? (:target-id e) (:target e)))
+          (.add acc (:diff e)))))
     (when (pos? (.-size acc))
       (.sort (js/Array.from acc)))))
 
@@ -75,10 +85,14 @@
             ;; the collapsed boxes themselves survive
             _ (doseq [b effective] (.delete dead-boxes b))
             owner (js/Map.)
+            box-owner (js/Map.)
             _ (doseq [b effective]
-                (let [{ns' :nodes} (mark-dead graph [b])]
+                (let [{bs' :boxes ns' :nodes} (mark-dead graph [b])]
                   (doseq [n (js/Array.from ns')]
-                    (when-not (.has owner n) (.set owner n b)))))
+                    (when-not (.has owner n) (.set owner n b)))
+                  (doseq [x (js/Array.from bs')]
+                    (when (and (not= x b) (not (.has box-owner x)))
+                      (.set box-owner x b)))))
             nodes (let [o {}]
                     (doseq [[k v] (js/Object.entries (:nodes graph))]
                       (when-not (.has dead-nodes k) (assoc! o k v)))
@@ -105,15 +119,20 @@
                                        (not (.has dead-boxes (.slice k 2)))))
                             (assoc! o k v)))
                         o)
-            resolve-end (fn [n]
-                          (if-let [b (.get owner n)]
-                            {:id (str "b:" b) :name b}
-                            {:id (str "n:" n) :name n}))
+            resolve-end (fn [id nm]
+                          (let [eid (endpoint-id id nm)]
+                            (if (.startsWith eid "b:")
+                              (if-let [b (.get box-owner (.slice eid 2))]
+                                {:id (str "b:" b) :name b}
+                                {:id eid :name nm})
+                              (if-let [b (.get owner (.slice eid 2))]
+                                {:id (str "b:" b) :name b}
+                                {:id eid :name nm}))))
             merged (js/Map.)
             order (js/Array.)
             _ (doseq [e (:edges graph)]
-                (let [s (resolve-end (:source e))
-                      t (resolve-end (:target e))]
+                (let [s (resolve-end (:source-id e) (:source e))
+                      t (resolve-end (:target-id e) (:target e))]
                   (when (not= (:id s) (:id t))
                     (let [k (str (:id s) "→" (:id t)
                                  "|" (:source (:arrows e)) (:target (:arrows e)))]
@@ -160,10 +179,16 @@
                          (case (:kind it)
                            "box" (not (.has dead-boxes (.slice (:id it) 2)))
                            "node" (not (.has dead-nodes (.slice (:id it) 2)))
-                           "edge" (if (and (.has dead-nodes (:source it))
-                                           (.has dead-nodes (:target it)))
-                                    (do (.add dead-edges (:id it)) false)
-                                    true)
+                           "edge"
+                           (let [gone? (fn [id nm]
+                                         (let [eid (endpoint-id id nm)]
+                                           (if (.startsWith eid "b:")
+                                             (.has dead-boxes (.slice eid 2))
+                                             (.has dead-nodes (.slice eid 2)))))]
+                             (if (and (gone? (:source-id it) (:source it))
+                                      (gone? (:target-id it) (:target it)))
+                               (do (.add dead-edges (:id it)) false)
+                               true))
                            "edge-label" (not (.has dead-edges (:edge-id it)))
                            true)))
                       (.map

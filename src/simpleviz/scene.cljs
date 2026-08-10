@@ -113,6 +113,8 @@
                                  :arrows (:arrows e)
                                  :source (:source e)
                                  :target (:target e)
+                                 :source-id (:source-id e)
+                                 :target-id (:target-id e)
                                  :name (:name e) :type (:type e) :attrs (:attrs e)
                                  :diff (:diff e) :changed (:changed e)})))
           (when-let [lbl (first (or (:labels elk-edge) []))]

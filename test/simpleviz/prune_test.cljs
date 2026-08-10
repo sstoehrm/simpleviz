@@ -156,3 +156,51 @@
           shell (first (filterv (fn [it] (= (:id it) "b:inner")) (:items out)))]
       (assert/ok (:collapsed shell))
       (assert/deepEqual (:diff-inside shell) ["added"]))))
+
+(defn box-edge [id a b sid tid]
+  (assoc (edge id a b) :source-id sid :target-id tid))
+
+;; box-edge reuses `edge`'s default arrows ({:source false :target true}),
+;; the same direction as the shared fixture's e0 (c->b). Since b and inner
+;; resolve to the same collapsed ancestor, an e5 sharing that direction
+;; would legitimately merge into e0 (existing, tested aggregation
+;; behavior) rather than surviving under its own id. Flip the arrow
+;; direction here so these two tests isolate box-endpoint resolution
+;; without colliding with e0's aggregation key.
+(test "box-endpoint edge re-attaches when its box is swallowed"
+  (fn []
+    (let [raw (update (graph) :edges
+                      (fn [es] (conj es (assoc (box-edge "e5" "c" "inner" "n:c" "b:inner")
+                                               :arrows {:source true :target false}))))
+          g (collapse-boxes raw #{"outer"})
+          e5 (first (filterv (fn [e] (= (:id e) "e5")) (:edges g)))]
+      (assert/equal (:target-id e5) "b:outer")
+      (assert/equal (:target e5) "outer"))))
+
+(test "edge to the collapsed box itself survives unchanged"
+  (fn []
+    (let [raw (update (graph) :edges
+                      (fn [es] (conj es (assoc (box-edge "e5" "c" "inner" "n:c" "b:inner")
+                                               :arrows {:source true :target false}))))
+          g (collapse-boxes raw #{"inner"})
+          e5 (first (filterv (fn [e] (= (:id e) "e5")) (:edges g)))]
+      (assert/equal (:target-id e5) "b:inner"))))
+
+(test "wholly-interior box-endpoint edge is dropped and feeds :diff-inside"
+  (fn []
+    (let [raw (update (graph) :edges
+                      (fn [es] (conj es (assoc (box-edge "e5" "a" "inner" "n:a" "b:inner")
+                                               :diff "added"))))
+          g (collapse-boxes raw #{"outer"})]
+      (assert/deepEqual (filterv (fn [e] (= (:id e) "e5")) (:edges g)) [])
+      (assert/deepEqual (:diff-inside (get (:boxes-by-name g) "outer")) ["added"]))))
+
+(test "collapse-scene drops interior box-endpoint edges"
+  (fn []
+    (let [raw (update (graph) :edges
+                      (fn [es] (conj es (box-edge "e5" "a" "inner" "n:a" "b:inner"))))
+          sc {:items [{:kind "edge" :id "e5" :source "a" :target "inner"
+                       :source-id "n:a" :target-id "b:inner"}
+                      {:kind "edge-label" :id "e5-label" :edge-id "e5"}]}
+          out (collapse-scene sc raw #{"outer"})]
+      (assert/deepEqual (:items out) []))))

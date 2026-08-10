@@ -356,6 +356,17 @@
       (if (.-ok resp) (js-await (.text resp)) nil))
     (catch :default _ nil)))
 
+(defn- download-blob!
+  "Trigger a browser download of blob as <nm>.png via a throwaway
+  object URL and anchor click."
+  [blob nm]
+  (let [url (js/URL.createObjectURL blob)
+        a (js/document.createElement "a")]
+    (set! (.-href a) url)
+    (set! (.-download a) (str nm ".png"))
+    (.click a)
+    (js/setTimeout (fn [] (js/URL.revokeObjectURL url)) 1000)))
+
 (defn- ^:async export-png! []
   (when-let [sc (:scene @state)]
     (let [g (:graph @state)
@@ -376,15 +387,14 @@
                    (-> (.arrayBuffer blob)
                        (.then
                         (fn [buf]
-                          (let [out (png/embed-many (js/Uint8Array. buf) pairs)
-                                blob2 (js/Blob. [out] {:type "image/png"})
-                                url (js/URL.createObjectURL blob2)
-                                a (js/document.createElement "a")]
-                            (set! (.-href a) url)
-                            (set! (.-download a) (str nm ".png"))
-                            (.click a)
-                            (js/setTimeout
-                             (fn [] (js/URL.revokeObjectURL url)) 1000)))))
+                          (let [out (png/embed-many (js/Uint8Array. buf) pairs)]
+                            (download-blob! (js/Blob. [out] {:type "image/png"}) nm))))
+                       ;; Embedding metadata failed for some unexpected
+                       ;; reason (e.g. embed-many throws) — degrade
+                       ;; gracefully to a plain, metadata-less download
+                       ;; rather than silently losing the export as an
+                       ;; unhandled promise rejection.
+                       (.catch (fn [_] (download-blob! blob nm))))
                    (swap! state assoc :error
                           "PNG export failed — the diagram may be too large")))
                "image/png"))))

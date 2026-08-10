@@ -98,3 +98,21 @@
 (deftest api-source-old-without-compare-404s
   (reset! serve/files {:old nil :new "examples/demo.edn"})
   (is (= 404 (:status (serve/handler {:uri "/api/source" :query-string "which=old"})))))
+
+(deftest api-source-deleted-file-404s-instead-of-500
+  ;; A file that vanished between serve-startup and the request (e.g.
+  ;; deleted mid-serve) must not slurp-throw a raw exception message
+  ;; (incl. the absolute path) back to the client as a 500.
+  (reset! serve/files {:old nil :new "test/fixtures/does-not-exist.edn"})
+  (let [resp (serve/handler {:uri "/api/source"})]
+    (is (= 404 (:status resp)))
+    (is (= "not found" (:body resp)))))
+
+(deftest api-source-which-regex-is-anchored
+  ;; A substring match like "awhich=old" must not be treated as
+  ;; which=old — it should fall through to the default (single-file
+  ;; mode: :new, unaffected by :old since it's nil here).
+  (reset! serve/files {:old nil :new "examples/demo.edn"})
+  (let [resp (serve/handler {:uri "/api/source" :query-string "awhich=old"})]
+    (is (= 200 (:status resp)))
+    (is (= (slurp "examples/demo.edn") (:body resp)))))

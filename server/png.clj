@@ -29,21 +29,35 @@
               next-i (+ i 12 len)]
           (if (= type "iTXt")
             (let [data-off (+ i 8)
+                  ;; Never trust the chunk's declared length further than
+                  ;; the bytes actually present — a truncated/corrupt
+                  ;; chunk must not walk the scan past the real array.
+                  cap (min len (- (alength bs) data-off))
                   z (loop [j 0]
-                      (if (or (>= j len) (zero? (aget bs (+ data-off j))))
-                        j
-                        (recur (inc j))))
-                  k (String. bs data-off z "UTF-8")]
-              (if (= k kw)
-                (let [after (loop [j (+ z 3) nulls 0]
-                              (if (= nulls 2)
-                                j
-                                (recur (inc j)
-                                       (if (zero? (aget bs (+ data-off j)))
-                                         (inc nulls)
-                                         nulls))))]
-                  (String. bs (+ data-off after) (- len after) "UTF-8"))
-                (recur next-i)))
+                      (cond
+                        (>= j cap) nil
+                        (zero? (aget bs (+ data-off j))) j
+                        :else (recur (inc j))))]
+              (if (nil? z)
+                ;; keyword never NUL-terminated within bounds: malformed,
+                ;; skip this chunk
+                (recur next-i)
+                (let [k (String. bs data-off z "UTF-8")]
+                  (if (= k kw)
+                    (let [after (loop [j (+ z 3) nulls 0]
+                                  (cond
+                                    (= nulls 2) j
+                                    (>= j cap) nil
+                                    (zero? (aget bs (+ data-off j))) (recur (inc j) (inc nulls))
+                                    :else (recur (inc j) nulls)))
+                          tlen (when (some? after) (- cap after))]
+                      (if (or (nil? after) (neg? tlen))
+                        ;; terminator NULs never found (or malformed
+                        ;; enough to yield a negative length) within
+                        ;; bounds: malformed, skip this chunk
+                        (recur next-i)
+                        (String. bs (+ data-off after) tlen "UTF-8")))
+                    (recur next-i)))))
             (recur next-i)))))))
 
 (defn -main

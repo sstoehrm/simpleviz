@@ -99,14 +99,16 @@
                           (recur (inc i))))]
                 (when (= (.decode dec (.subarray data 0 z)) kw)
                   ;; skip NUL, flag, method, then two NUL-terminated
-                  ;; (empty) fields
+                  ;; (empty) fields — bounded by data's own length so a
+                  ;; chunk missing its terminator NULs is treated as
+                  ;; malformed (skip) instead of scanning forever
                   (let [after (loop [i (+ z 3) nulls 0]
-                                (if (= nulls 2)
-                                  i
-                                  (recur (inc i)
-                                         (if (zero? (aget data i))
-                                           (inc nulls)
-                                           nulls))))]
-                    (.decode dec (.subarray data after)))))))
+                                (cond
+                                  (= nulls 2) i
+                                  (>= i (.-length data)) nil
+                                  (zero? (aget data i)) (recur (inc i) (inc nulls))
+                                  :else (recur (inc i) nulls)))]
+                    (when (some? after)
+                      (.decode dec (.subarray data after))))))))
           (chunk-seq u8))
      nil)))

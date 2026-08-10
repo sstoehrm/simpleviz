@@ -41,7 +41,9 @@ graphs (500+ nodes) open with all top-level boxes collapsed.
 
     {:nodes {:api {:name "API"           ; display name (defaults to the key)
                    :type "service"       ; free-form; colors the name, shown as (type)
-                   :lang "clojure"}}     ; any other attr: inspector panel only
+                   :lang "clojure"}      ; any other attr: inspector panel only
+             :web {:type "frontend"}
+             :db  {:type "database"}}
      :edges {[:web :api]                 ; key: endpoints (nodes or boxes), order defines left/right;
                                          ; the same edge cannot appear twice
              {:direction :->             ; :-> | :<- | :<-> | :- (default :-)

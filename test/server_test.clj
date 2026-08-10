@@ -77,3 +77,24 @@
   (let [out (json/parse-string
              (serve/compare-json "{}" "{}" "examples/old.edn" "examples/new.edn"))]
     (is (= "new.edn" (get out "file")))))
+
+(deftest api-source-serves-raw-text
+  (reset! serve/files {:old nil :new "examples/demo.edn"})
+  (let [resp (serve/handler {:uri "/api/source"})]
+    (is (= 200 (:status resp)))
+    (is (= (slurp "examples/demo.edn") (:body resp)))
+    (is (clojure.string/starts-with?
+         (get-in resp [:headers "Content-Type"]) "text/plain"))))
+
+(deftest api-source-compare-selects-files
+  (reset! serve/files {:old "examples/demo.edn" :new "examples/demo-next.edn"})
+  (is (= (slurp "examples/demo.edn")
+         (:body (serve/handler {:uri "/api/source" :query-string "which=old"}))))
+  (is (= (slurp "examples/demo-next.edn")
+         (:body (serve/handler {:uri "/api/source" :query-string "which=new"}))))
+  (is (= (slurp "examples/demo-next.edn")
+         (:body (serve/handler {:uri "/api/source"})))))
+
+(deftest api-source-old-without-compare-404s
+  (reset! serve/files {:old nil :new "examples/demo.edn"})
+  (is (= 404 (:status (serve/handler {:uri "/api/source" :query-string "which=old"})))))

@@ -31,7 +31,8 @@ the precompiled frontend, so all you need is
 
 Open http://localhost:7373. Edit the file — the page updates automatically.
 Click nodes, edges, or boxes for their full attributes. Drag to pan, wheel to
-zoom.
+zoom. The `−` button in a box header collapses it to a single node; big
+graphs (500+ nodes) open with all top-level boxes collapsed.
 
 (Running from a git clone instead requires a build step — see
 [docs/development.md](https://github.com/sstoehrm/simpleviz/blob/main/docs/development.md).)
@@ -76,7 +77,9 @@ removed ones stay visible as red, dashed, ghosted shapes. Nodes match by
 key, boxes by name, edges by their endpoints (flipping the pair or changing
 `:direction` counts as modified). Layout follows the new file; removed
 elements keep their old place. A collapsed box hiding any change shows an
-amber dot. Both files live-reload.
+amber dot. The legend at the bottom counts the changes per status — click
+a row to jump through them (selects and centers each element, wraps
+around). Both files live-reload.
 
 ## Claude Code plugin
 

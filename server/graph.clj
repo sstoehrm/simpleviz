@@ -99,7 +99,7 @@
                      :attrs attrs})))
    {} nodes-in))
 
-(defn- build-edges [edges-in nodes warn!]
+(defn- build-edges [edges-in nodes box-names warn!]
   (->> edges-in
        (map-indexed
         (fn [i e]
@@ -112,9 +112,24 @@
               (let [[a0 b0] (:nodes e)
                     a (ident->str a0)
                     b (ident->str b0)
-                    missing (remove #(contains? nodes %) [a b])]
+                    resolve-end
+                    (fn [x]
+                      (let [is-node (contains? nodes x)
+                            is-box (contains? box-names x)]
+                        (cond
+                          (and is-node is-box)
+                          (do (warn! (str "\"" x "\" names both a node and a box; edge ["
+                                          a " " b "] gets the node"))
+                              {:name x :eid (str "n:" x)})
+                          is-node {:name x :eid (str "n:" x)}
+                          is-box {:name x :eid (str "b:" x)}
+                          :else nil)))
+                    ra (resolve-end a)
+                    rb (resolve-end b)
+                    missing (into [] (keep (fn [[x r]] (when (nil? r) x)))
+                                  [[a ra] [b rb]])]
                 (if (seq missing)
-                  (do (warn! (str "edge " i " [" a " " b "]: unknown node(s): "
+                  (do (warn! (str "edge " i " [" a " " b "]: unknown node or box: "
                                   (str/join ", " missing)))
                       nil)
                   (let [dir0 (:direction e)
@@ -125,10 +140,12 @@
                                                     (pr-str dir0)
                                                     ", treating as undirected"))
                                         :-))
-                        [source target] (if (= dir :<-) [b a] [a b])]
+                        [src tgt] (if (= dir :<-) [rb ra] [ra rb])]
                     {:id (str "e" i)
-                     :source source
-                     :target target
+                     :source (:name src)
+                     :target (:name tgt)
+                     :source-id (:eid src)
+                     :target-id (:eid tgt)
                      :arrows {:source (= dir :<->) :target (not= dir :-)}
                      :name (coerce-str (:name e) "")
                      :type (coerce-str (:type e) "")
@@ -245,8 +262,8 @@
                                 ":boxes must be a map or vector, ignoring it")))
         _ (warn-reversed-pairs! edges-in warn!)
         nodes (build-nodes nodes-in warn!)
-        edges (build-edges edges-in nodes warn!)
         boxes0 (build-boxes boxes-in warn!)
+        edges (build-edges edges-in nodes (set (map :name boxes0)) warn!)
         [boxes1 parents1] (resolve-membership boxes0 nodes warn!)
         [boxes parent-of] (break-cycles boxes1 parents1 warn!)]
     {:nodes nodes

@@ -142,3 +142,20 @@
   (let [g (u {:nodes {:a {} :b {}} :edges {[:a :b] {}}}
              {:nodes {:a {} :b {}} :edges {[:a :b] {:direction :-}}})]
     (is (nil? (:diff (first (:edges g)))))))
+
+(deftest box-endpoint-edges-match-by-name
+  (let [g (u {:nodes {:web {}} :boxes {:backend {}}
+              :edges {[:web :backend] {:direction :->}}}
+             {:nodes {:web {}} :boxes {:backend {}}
+              :edges {[:web :backend] {:direction :<->}}})]
+    (is (= 1 (count (:edges g))))
+    (is (= "modified" (:diff (first (:edges g)))))
+    (is (= "b:backend" (:target-id (first (:edges g)))))))
+
+(deftest removed-edge-to-removed-box-survives
+  (let [g (u {:nodes {:a {}} :boxes {:x {}} :edges {[:a :x] {:name "uses"}}}
+             {:nodes {:a {}}})
+        e (first (:edges g))]
+    (is (= "removed" (:diff e)))
+    (is (= "b:x" (:target-id e)))
+    (is (= "removed" (:diff (first (filter (fn [b] (= "x" (:name b))) (:boxes g))))))))

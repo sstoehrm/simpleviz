@@ -243,6 +243,44 @@
          :else (recur (conj seen p) (get parents (str "b:" p))))))
    [boxes parent-of] boxes))
 
+(defn- ancestor?
+  "Is `box-name` a transitive container of the element with prefixed id?"
+  [parent-of box-name id]
+  (loop [p (get parent-of id)]
+    (cond
+      (nil? p) false
+      (= p box-name) true
+      :else (recur (get parent-of (str "b:" p))))))
+
+(defn- drop-containment-edges
+  "Remove edges where a box endpoint contains the other endpoint, or both
+  endpoints are the same box; warns per dropped edge."
+  [edges parent-of warn!]
+  (filterv
+   (fn [e]
+     (let [s (:source-id e)
+           t (:target-id e)
+           s-box (when (str/starts-with? s "b:") (subs s 2))
+           t-box (when (str/starts-with? t "b:") (subs t 2))]
+       (cond
+         (and (some? s-box) (= s t))
+         (do (warn! (str "edge [" (:source e) " " (:target e)
+                         "]: a box cannot connect to itself, skipped"))
+             false)
+
+         (and (some? s-box) (ancestor? parent-of s-box t))
+         (do (warn! (str "edge [" (:source e) " " (:target e) "]: "
+                         s-box " contains " (:target e) ", skipped"))
+             false)
+
+         (and (some? t-box) (ancestor? parent-of t-box s))
+         (do (warn! (str "edge [" (:source e) " " (:target e) "]: "
+                         t-box " contains " (:source e) ", skipped"))
+             false)
+
+         :else true)))
+   edges))
+
 (defn normalize [raw]
   (let [warnings (atom [])
         warn! (fn [msg] (swap! warnings conj msg))
@@ -263,9 +301,10 @@
         _ (warn-reversed-pairs! edges-in warn!)
         nodes (build-nodes nodes-in warn!)
         boxes0 (build-boxes boxes-in warn!)
-        edges (build-edges edges-in nodes (set (map :name boxes0)) warn!)
+        edges0 (build-edges edges-in nodes (set (map :name boxes0)) warn!)
         [boxes1 parents1] (resolve-membership boxes0 nodes warn!)
-        [boxes parent-of] (break-cycles boxes1 parents1 warn!)]
+        [boxes parent-of] (break-cycles boxes1 parents1 warn!)
+        edges (drop-containment-edges edges0 parent-of warn!)]
     {:nodes nodes
      :edges edges
      :boxes boxes

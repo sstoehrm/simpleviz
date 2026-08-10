@@ -261,3 +261,33 @@
   (let [g (graph/normalize (assoc (base) :edges [{:nodes ["a" "ghost"]}]))]
     (is (= [] (:edges g)))
     (is (some (fn [w] (.contains w "unknown node or box: ghost")) (:warnings g)))))
+
+(deftest edge-to-own-content-is-skipped
+  (let [g (graph/normalize {:nodes {"api" {} "db" {}}
+                            :boxes {:backend {:components #{"api" :storage}}
+                                    :storage {:components #{"db"}}}
+                            :edges {[:backend "api"] {}      ; direct member
+                                    [:backend "db"] {}       ; transitive member
+                                    [:backend :storage] {}   ; nested box
+                                    [:backend :backend] {}}})] ; box self-loop
+    (is (= [] (:edges g)))
+    (is (= 4 (count (filter (fn [w] (.contains w "skipped")) (:warnings g)))))))
+
+(deftest containment-checked-in-both-directions
+  (let [g (graph/normalize {:nodes {"api" {}}
+                            :boxes {:backend {:components #{"api"}}}
+                            :edges {["api" :backend] {:direction :->}}})]
+    (is (= [] (:edges g)))
+    (is (some (fn [w] (.contains w "backend contains api")) (:warnings g)))))
+
+(deftest node-self-loop-still-allowed
+  (let [g (graph/normalize {:nodes {"a" {}} :edges {["a" "a"] {:direction :<->}}})]
+    (is (= 1 (count (:edges g))))
+    (is (= [] (:warnings g)))))
+
+(deftest sibling-box-edge-not-skipped
+  (let [g (graph/normalize {:nodes {"a" {} "b" {}}
+                            :boxes {:x {:components #{"a"}} :y {:components #{"b"}}}
+                            :edges {[:x :y] {}}})]
+    (is (= 1 (count (:edges g))))
+    (is (= [] (:warnings g)))))

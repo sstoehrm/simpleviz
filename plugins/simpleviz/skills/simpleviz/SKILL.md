@@ -12,7 +12,10 @@ EDN-driven graph visualization: nodes, directed edges, nested grouping boxes; au
 ```edn
 {:nodes {:api {:name "API"           ; display name (defaults to the key)
                :type "service"       ; free-form string; determines color, shown as (type)
-               :lang "clojure"}}     ; any other attr: shown in the click inspector only
+               :lang "clojure"}      ; any other attr: shown in the click inspector only
+         :web {:type "frontend"}
+         :db {:type "database"}
+         :cache {:type "cache"}}
  :edges {[:web :api]                 ; key = the two endpoints; order defines left/right
          {:direction :->             ; :-> | :<- | :<-> | :- (default :-)
           :name "REST"               ; edge label

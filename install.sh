@@ -88,6 +88,7 @@ MIN_BB="1.3.0"
 usage() {
   cat <<USAGE
 usage: simpleviz <graph.edn> [new.edn]   serve a graph (two files: compare old -> new)
+       simpleviz init <graph.edn>        write a starter graph file (won't overwrite)
        simpleviz update                  install the latest release if it is newer
        simpleviz --version               print the installed version
 Serves on a random free port between 7370 and 7379.
@@ -107,6 +108,21 @@ check_bb() {
 }
 
 version() { cat "$SIMPLEVIZ_HOME/VERSION" 2>/dev/null || echo "unknown"; }
+
+init_cmd() {
+  [ "$#" -eq 1 ] || { usage >&2; exit 1; }
+  local f="$1"
+  if [ -e "$f" ]; then
+    die "$f already exists"
+  fi
+  cat >"$f" <<'TEMPLATE'
+{:nodes {:web {:name "Web" :type "frontend"}
+         :api {:name "API" :type "service"}}
+ :edges {[:web :api] {:direction :-> :name "calls" :type "http"}}
+ :boxes {:backend {:type "zone" :components #{:api}}}}
+TEMPLATE
+  echo "created $f — view it with: simpleviz $f"
+}
 
 update() {
   local latest
@@ -162,6 +178,10 @@ case "${1:-}" in
   "" | -h | --help) usage ;;
   --version | version) echo "simpleviz $(version)" ;;
   update) update ;;
+  init)
+    shift
+    init_cmd "$@"
+    ;;
   *)
     [ "$#" -le 2 ] || { usage >&2; exit 1; }
     serve "$@"

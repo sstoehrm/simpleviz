@@ -36,6 +36,26 @@
     (is (pos? (count (:edges g))) (str source " example keeps its edges"))
     (is (pos? (count (:boxes g))) (str source " example keeps its boxes"))))
 
+(deftest third-party-notices-cover-vendored-components
+  (let [notices (slurp "THIRD-PARTY-NOTICES.md")
+        vendored (concat ["elk.bundled.js"]
+                         (if-let [fs (seq (.listFiles (java.io.File. "public/js/vendor")))]
+                           (map (fn [f] (.getName f)) fs)
+                           ;; before a build the copied packages are absent;
+                           ;; pin the known ones so the check still bites
+                           ["reagami" "squint-cljs"]))]
+    (doseq [v vendored]
+      (is (str/includes? notices v)
+          (str "THIRD-PARTY-NOTICES.md must mention vendored component " v)))
+    (is (str/includes? notices "Eclipse Public License - v 2.0"))))
+
+(deftest bundle-ships-license-files
+  (let [bb (slurp "bb.edn")]
+    (is (str/includes? bb "THIRD-PARTY-NOTICES.md")
+        "bundle task must copy THIRD-PARTY-NOTICES.md")
+    (is (str/includes? bb "\"LICENSE\"")
+        "bundle task must copy LICENSE")))
+
 (deftest readme-data-format-example-is-functional
   (assert-example-clean
    "README"

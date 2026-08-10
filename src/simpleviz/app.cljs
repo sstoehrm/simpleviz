@@ -229,6 +229,9 @@
    (when (some? (:graph st)) (legend-view st))
    (when (:layouting st)
      [:div {:id "layouting"} "re-layouting…"])
+   [:button {:id "export-btn" :type "button" :title "Export PNG"
+             :on-click (fn [e] (.stopPropagation e) (export-png!))}
+    "⇩"]
    [:button {:id "theme-toggle" :type "button"
              :title (if (= (:theme st) "dark") "Switch to light mode" "Switch to dark mode")
              :on-click (fn [e] (.stopPropagation e) (toggle-theme!))}
@@ -338,6 +341,21 @@
     (js/localStorage.setItem "simpleviz-theme" t)
     (swap! state assoc :theme t)
     (apply-theme! t)))
+
+(defn- export-png! []
+  (when-let [sc (:scene @state)]
+    (let [nm (let [f (:file (:graph @state))]
+               (if (some? f) (.replace f (js/RegExp. "\\.edn$") "") "graph"))
+          cnv (canvas/export-canvas sc)]
+      (.toBlob cnv
+               (fn [blob]
+                 (let [url (js/URL.createObjectURL blob)
+                       a (js/document.createElement "a")]
+                   (set! (.-href a) url)
+                   (set! (.-download a) (str nm ".png"))
+                   (.click a)
+                   (js/setTimeout (fn [] (js/URL.revokeObjectURL url)) 1000)))
+               "image/png"))))
 
 ;; init
 (canvas/set-repaint! paint-now!)

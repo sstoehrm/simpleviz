@@ -99,42 +99,61 @@
                      :attrs attrs})))
    {} nodes-in))
 
-(defn- build-edges [edges-in nodes warn!]
-  (->> edges-in
-       (map-indexed
-        (fn [i e]
-          (if-not (map? e)
-            (do (warn! (str "edge " i ": not a map, skipped")) nil)
-            (if-let [humanized (explain-str EdgeShape e)]
-              (do (warn! (str "edge " i ": :nodes must be a vector of exactly 2 node names ("
-                              humanized ")"))
-                  nil)
-              (let [[a0 b0] (:nodes e)
-                    a (ident->str a0)
-                    b (ident->str b0)
-                    missing (remove #(contains? nodes %) [a b])]
-                (if (seq missing)
-                  (do (warn! (str "edge " i " [" a " " b "]: unknown node(s): "
-                                  (str/join ", " missing)))
-                      nil)
-                  (let [dir0 (:direction e)
-                        dir (cond
-                              (nil? dir0) :-
-                              (contains? directions dir0) (get directions dir0)
-                              :else (do (warn! (str "edge " i ": unknown direction "
-                                                    (pr-str dir0)
-                                                    ", treating as undirected"))
-                                        :-))
-                        [source target] (if (= dir :<-) [b a] [a b])]
-                    {:id (str "e" i)
-                     :source source
-                     :target target
-                     :arrows {:source (= dir :<->) :target (not= dir :-)}
-                     :name (coerce-str (:name e) "")
-                     :type (coerce-str (:type e) "")
-                     :attrs e})))))))
-       (remove nil?)
-       vec))
+(defn- build-edges [edges-in nodes box-names warn!]
+  (let [warned (atom #{})
+        resolve-end
+        (fn [x]
+          (let [is-node (contains? nodes x)
+                is-box (contains? box-names x)]
+            (cond
+              (and is-node is-box)
+              (do (when-not (contains? @warned x)
+                    (warn! (str "\"" x "\" names both a node and a box; edges get the node"))
+                    (swap! warned conj x))
+                  {:name x :eid (str "n:" x)})
+              is-node {:name x :eid (str "n:" x)}
+              is-box {:name x :eid (str "b:" x)}
+              :else nil)))]
+    (->> edges-in
+         (map-indexed
+          (fn [i e]
+            (if-not (map? e)
+              (do (warn! (str "edge " i ": not a map, skipped")) nil)
+              (if-let [humanized (explain-str EdgeShape e)]
+                (do (warn! (str "edge " i ": :nodes must be a vector of exactly 2 node names ("
+                                humanized ")"))
+                    nil)
+                (let [[a0 b0] (:nodes e)
+                      a (ident->str a0)
+                      b (ident->str b0)
+                      ra (resolve-end a)
+                      rb (resolve-end b)
+                      missing (into [] (keep (fn [[x r]] (when (nil? r) x)))
+                                    [[a ra] [b rb]])]
+                  (if (seq missing)
+                    (do (warn! (str "edge " i " [" a " " b "]: unknown node or box: "
+                                    (str/join ", " missing)))
+                        nil)
+                    (let [dir0 (:direction e)
+                          dir (cond
+                                (nil? dir0) :-
+                                (contains? directions dir0) (get directions dir0)
+                                :else (do (warn! (str "edge " i ": unknown direction "
+                                                      (pr-str dir0)
+                                                      ", treating as undirected"))
+                                          :-))
+                          [src tgt] (if (= dir :<-) [rb ra] [ra rb])]
+                      {:id (str "e" i)
+                       :source (:name src)
+                       :target (:name tgt)
+                       :source-id (:eid src)
+                       :target-id (:eid tgt)
+                       :arrows {:source (= dir :<->) :target (not= dir :-)}
+                       :name (coerce-str (:name e) "")
+                       :type (coerce-str (:type e) "")
+                       :attrs e})))))))
+         (remove nil?)
+         vec)))
 
 (defn- build-boxes [boxes-in warn!]
   (let [named (->> boxes-in
@@ -226,6 +245,44 @@
          :else (recur (conj seen p) (get parents (str "b:" p))))))
    [boxes parent-of] boxes))
 
+(defn- ancestor?
+  "Is `box-name` a transitive container of the element with prefixed id?"
+  [parent-of box-name id]
+  (loop [p (get parent-of id)]
+    (cond
+      (nil? p) false
+      (= p box-name) true
+      :else (recur (get parent-of (str "b:" p))))))
+
+(defn- drop-containment-edges
+  "Remove edges where a box endpoint contains the other endpoint, or both
+  endpoints are the same box; warns per dropped edge."
+  [edges parent-of warn!]
+  (filterv
+   (fn [e]
+     (let [s (:source-id e)
+           t (:target-id e)
+           s-box (when (str/starts-with? s "b:") (subs s 2))
+           t-box (when (str/starts-with? t "b:") (subs t 2))]
+       (cond
+         (and (some? s-box) (= s t))
+         (do (warn! (str "edge [" (:source e) " " (:target e)
+                         "]: a box cannot connect to itself, skipped"))
+             false)
+
+         (and (some? s-box) (ancestor? parent-of s-box t))
+         (do (warn! (str "edge [" (:source e) " " (:target e) "]: "
+                         s-box " contains " (:target e) ", skipped"))
+             false)
+
+         (and (some? t-box) (ancestor? parent-of t-box s))
+         (do (warn! (str "edge [" (:source e) " " (:target e) "]: "
+                         t-box " contains " (:source e) ", skipped"))
+             false)
+
+         :else true)))
+   edges))
+
 (defn normalize [raw]
   (let [warnings (atom [])
         warn! (fn [msg] (swap! warnings conj msg))
@@ -245,10 +302,11 @@
                                 ":boxes must be a map or vector, ignoring it")))
         _ (warn-reversed-pairs! edges-in warn!)
         nodes (build-nodes nodes-in warn!)
-        edges (build-edges edges-in nodes warn!)
         boxes0 (build-boxes boxes-in warn!)
+        edges0 (build-edges edges-in nodes (set (map :name boxes0)) warn!)
         [boxes1 parents1] (resolve-membership boxes0 nodes warn!)
-        [boxes parent-of] (break-cycles boxes1 parents1 warn!)]
+        [boxes parent-of] (break-cycles boxes1 parents1 warn!)
+        edges (drop-containment-edges edges0 parent-of warn!)]
     {:nodes nodes
      :edges edges
      :boxes boxes

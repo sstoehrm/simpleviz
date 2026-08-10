@@ -188,3 +188,21 @@
 (test "diff-stops is nil-safe"
   (fn []
     (assert/deepEqual (get (scene/diff-stops nil) "added") [])))
+
+(test "scene edges carry endpoint ids through"
+  (fn []
+    (let [g {:nodes {"a" (gnode "a" "")}
+             :edges [{:id "e0" :source "a" :target "bx"
+                      :source-id "n:a" :target-id "b:bx"
+                      :arrows {:source false :target true}
+                      :name "" :type "" :attrs {}}]
+             :boxes-by-name {"bx" {:id "b:bx" :name "bx" :type "" :components [] :attrs {}}}}
+          layout {:width 100 :height 100
+                  :children [{:id "n:a" :x 0 :y 0 :width 60 :height 30}
+                             {:id "b:bx" :x 70 :y 0 :width 30 :height 30}]
+                  :edges [{:id "e0" :container "root"
+                           :sections [{:startPoint {:x 0 :y 0} :endPoint {:x 1 :y 1}}]}]}
+          sc (build-scene {:layout layout :graph g :colors colors})
+          e (first (filterv (fn [it] (= (:kind it) "edge")) (:items sc)))]
+      (assert/equal (:source-id e) "n:a")
+      (assert/equal (:target-id e) "b:bx"))))

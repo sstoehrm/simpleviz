@@ -221,3 +221,80 @@
     (is (= 2 (count (:edges g))))
     (is (= 1 (count (:warnings g))))
     (is (re-find #"same connection" (first (:warnings g))))))
+
+(deftest node-edges-carry-prefixed-ids
+  (let [g (graph/normalize (assoc (base) :edges [{:nodes ["a" "b"] :direction :->}]))]
+    (is (= "n:a" (:source-id (first (:edges g)))))
+    (is (= "n:b" (:target-id (first (:edges g)))))))
+
+(deftest box-endpoints-resolve
+  (let [g (graph/normalize {:nodes {"web" {}}
+                            :boxes {:backend {:components #{}}
+                                    :storage {:components #{}}}
+                            :edges {["web" :backend] {:direction :->}
+                                    [:backend :storage] {}}})]
+    (let [by-target (into {} (map (juxt :target identity)) (:edges g))]
+      (is (= [] (:warnings g)))
+      (is (= "b:backend" (:target-id (get by-target "backend"))))
+      (is (= "n:web" (:source-id (get by-target "backend"))))
+      (is (= "b:backend" (:source-id (get by-target "storage"))))
+      (is (= "b:storage" (:target-id (get by-target "storage")))))))
+
+(deftest direction-swap-swaps-ids-too
+  (let [g (graph/normalize {:nodes {"web" {}}
+                            :boxes {:backend {}}
+                            :edges {["web" :backend] {:direction :<-}}})
+        e (first (:edges g))]
+    (is (= "backend" (:source e)))
+    (is (= "b:backend" (:source-id e)))
+    (is (= "n:web" (:target-id e)))))
+
+(deftest ambiguous-endpoint-gets-node-with-warning
+  (let [g (graph/normalize {:nodes {"x" {} "a" {}}
+                            :boxes {:x {}}
+                            :edges {["a" "x"] {}}})]
+    (is (= "n:x" (:target-id (first (:edges g)))))
+    (is (some (fn [w] (.contains w "names both a node and a box"))
+              (:warnings g)))))
+
+(deftest ambiguity-warns-once-per-name
+  (let [g (graph/normalize {:nodes {"x" {} "a" {} "b" {}}
+                            :boxes {:x {}}
+                            :edges {["a" "x"] {} ["b" "x"] {} ["x" "x"] {}}})]
+    (is (= 1 (count (filter (fn [w] (.contains w "names both a node and a box"))
+                            (:warnings g)))))))
+
+(deftest unknown-endpoint-wording
+  (let [g (graph/normalize (assoc (base) :edges [{:nodes ["a" "ghost"]}]))]
+    (is (= [] (:edges g)))
+    (is (some (fn [w] (.contains w "unknown node or box: ghost")) (:warnings g)))))
+
+(deftest edge-to-own-content-is-skipped
+  (let [g (graph/normalize {:nodes {"api" {} "db" {}}
+                            :boxes {:backend {:components #{"api" :storage}}
+                                    :storage {:components #{"db"}}}
+                            :edges {[:backend "api"] {}      ; direct member
+                                    [:backend "db"] {}       ; transitive member
+                                    [:backend :storage] {}   ; nested box
+                                    [:backend :backend] {}}})] ; box self-loop
+    (is (= [] (:edges g)))
+    (is (= 4 (count (filter (fn [w] (.contains w "skipped")) (:warnings g)))))))
+
+(deftest containment-checked-in-both-directions
+  (let [g (graph/normalize {:nodes {"api" {}}
+                            :boxes {:backend {:components #{"api"}}}
+                            :edges {["api" :backend] {:direction :->}}})]
+    (is (= [] (:edges g)))
+    (is (some (fn [w] (.contains w "backend contains api")) (:warnings g)))))
+
+(deftest node-self-loop-still-allowed
+  (let [g (graph/normalize {:nodes {"a" {}} :edges {["a" "a"] {:direction :<->}}})]
+    (is (= 1 (count (:edges g))))
+    (is (= [] (:warnings g)))))
+
+(deftest sibling-box-edge-not-skipped
+  (let [g (graph/normalize {:nodes {"a" {} "b" {}}
+                            :boxes {:x {:components #{"a"}} :y {:components #{"b"}}}
+                            :edges {[:x :y] {}}})]
+    (is (= 1 (count (:edges g))))
+    (is (= [] (:warnings g)))))

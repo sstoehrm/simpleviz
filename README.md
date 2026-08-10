@@ -31,7 +31,8 @@ the precompiled frontend, so all you need is
 
 Open http://localhost:7373. Edit the file — the page updates automatically.
 Click nodes, edges, or boxes for their full attributes. Drag to pan, wheel to
-zoom.
+zoom. The `−` button in a box header collapses it to a single node; big
+graphs (500+ nodes) open with all top-level boxes collapsed.
 
 (Running from a git clone instead requires a build step — see
 [docs/development.md](https://github.com/sstoehrm/simpleviz/blob/main/docs/development.md).)
@@ -41,7 +42,7 @@ zoom.
     {:nodes {:api {:name "API"           ; display name (defaults to the key)
                    :type "service"       ; free-form; colors the name, shown as (type)
                    :lang "clojure"}}     ; any other attr: inspector panel only
-     :edges {[:web :api]                 ; key: endpoints, order defines left/right;
+     :edges {[:web :api]                 ; key: endpoints (nodes or boxes), order defines left/right;
                                          ; the same edge cannot appear twice
              {:direction :->             ; :-> | :<- | :<-> | :- (default :-)
               :name "REST"
@@ -53,6 +54,10 @@ zoom.
 Identifiers may be keywords or strings. The pre-v2 vector forms
 (`:edges [{:nodes [..] ..}]`, `:boxes [{:name ".." ..}]`) are still accepted.
 Writing both `[:a :b]` and `[:b :a]` produces a "same connection" warning.
+
+Edge endpoints may be nodes or boxes. An edge between a box and its own
+content — or a box and itself — is skipped with a warning; when a name is
+both a node and a box, the edge gets the node.
 
 Colors are stable: a type keeps its color across restarts and unrelated edits
 (FNV-1a hash into a fixed 255-color table, golden-angle hues, linear probing
@@ -72,7 +77,9 @@ removed ones stay visible as red, dashed, ghosted shapes. Nodes match by
 key, boxes by name, edges by their endpoints (flipping the pair or changing
 `:direction` counts as modified). Layout follows the new file; removed
 elements keep their old place. A collapsed box hiding any change shows an
-amber dot. Both files live-reload.
+amber dot. The legend at the bottom counts the changes per status — click
+a row to jump through them (selects and centers each element, wraps
+around). Both files live-reload.
 
 ## Claude Code plugin
 

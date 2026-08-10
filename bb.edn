@@ -49,7 +49,8 @@
                       (fs/copy-tree p (fs/path dir p)))
                     (doseq [f (fs/glob dir "public/js/simpleviz/*_test.mjs")]
                       (fs/delete f))
-                    (fs/copy "README.md" (fs/path dir "README.md"))
+                    (doseq [f ["README.md" "LICENSE" "THIRD-PARTY-NOTICES.md"]]
+                      (fs/copy f (fs/path dir f)))
                     (spit (str (fs/path dir "bb.edn"))
                           (binding [*print-namespace-maps* false] (pr-str release-bb)))
                     (shell {:dir "dist"} "tar" "czf" (str bundle-name ".tar.gz") bundle-name)

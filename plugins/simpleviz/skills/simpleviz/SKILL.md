@@ -26,8 +26,8 @@ EDN-driven graph visualization: nodes, directed edges, nested grouping boxes; au
 Rules that are easy to get wrong:
 - `:nodes` is a MAP keyed by id — not a vector. There is no `:id`, `:label`, or nested `:attrs` key; the display key is `:name`, and every other key in the node map is a free-form attribute shown in the inspector.
 - `:edges` is a map keyed by `[from to]` vectors — not `:from`/`:to` maps. Direction lives in `:direction`; there is no `:bidirectional` (use `:<->`). The same pair cannot appear twice; writing both `[:a :b]` and `[:b :a]` triggers a "same connection" warning.
-- Grouping is `:boxes` with `:components` — there is no `:zones`, `:groups`, or `:children`. Boxes nest by listing another box's id in `:components`. Edge endpoints must be node ids (never box ids).
-- Identifiers may be keywords or strings, interchangeably (`:api` ≡ `"api"`).
+- Grouping is `:boxes` with `:components` — there is no `:zones`, `:groups`, or `:children`. Boxes nest by listing another box's id in `:components`. Edge endpoints may be node ids or box names; an edge between a box and its own content — or a box and itself — is skipped with a warning.
+- Identifiers may be keywords or strings, interchangeably (`:api` ≡ `"api"`). When a name refers to both a node and a box, an edge endpoint resolves to the node (with a warning).
 - A node's attribute map may be empty or nil: `{:nodes {:api {} :db nil}}` is valid.
 - An element may belong to at most one box; contested membership goes to the first box by sorted name, with a warning.
 - Colors are stable: a `:type` string keeps its color across restarts and unrelated edits.

@@ -14,7 +14,8 @@
          [:worker :queue] {:direction :->  :name "consume" :type "amqp"}
          [:worker :mail]  {:direction :->  :name "send"    :type "smtp"}
          [:api :auth]     {:direction :-   :name "trust"}
-         [:worker :logs]  {:direction :->  :name "write"}}
+         [:worker :logs]  {:direction :->  :name "write"}
+         [:web :backend]  {:direction :->  :name "ingress" :type "http"}}
  :boxes {:backend {:type "zone" :components #{:api :auth :storage :worker :queue}
                    :owner "platform-team"}
          :storage {:type "zone" :components #{:db :cache}}}}

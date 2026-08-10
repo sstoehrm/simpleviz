@@ -41,7 +41,7 @@ zoom.
     {:nodes {:api {:name "API"           ; display name (defaults to the key)
                    :type "service"       ; free-form; colors the name, shown as (type)
                    :lang "clojure"}}     ; any other attr: inspector panel only
-     :edges {[:web :api]                 ; key: endpoints, order defines left/right;
+     :edges {[:web :api]                 ; key: endpoints (nodes or boxes), order defines left/right;
                                          ; the same edge cannot appear twice
              {:direction :->             ; :-> | :<- | :<-> | :- (default :-)
               :name "REST"
@@ -53,6 +53,10 @@ zoom.
 Identifiers may be keywords or strings. The pre-v2 vector forms
 (`:edges [{:nodes [..] ..}]`, `:boxes [{:name ".." ..}]`) are still accepted.
 Writing both `[:a :b]` and `[:b :a]` produces a "same connection" warning.
+
+Edge endpoints may be nodes or boxes. An edge between a box and its own
+content — or a box and itself — is skipped with a warning; when a name is
+both a node and a box, the edge gets the node.
 
 Colors are stable: a type keeps its color across restarts and unrelated edits
 (FNV-1a hash into a fixed 255-color table, golden-angle hues, linear probing

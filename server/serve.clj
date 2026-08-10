@@ -42,12 +42,16 @@
 
 (defn graph-json
   "Parse an EDN string, normalize it, return the graph as a JSON string.
-  Parse failures return {\"error\": message} instead of throwing."
-  [s]
-  (try
-    (json/generate-string (graph/normalize (edn/read-string s)))
-    (catch Exception e
-      (json/generate-string {:error (ex-message e)}))))
+  With fname, the payload carries it as :file (the export download
+  name). Parse failures return {\"error\": message} instead of throwing."
+  ([s] (graph-json s nil))
+  ([s fname]
+   (try
+     (json/generate-string
+      (cond-> (graph/normalize (edn/read-string s))
+        (some? fname) (assoc :file fname)))
+     (catch Exception e
+       (json/generate-string {:error (ex-message e)})))))
 
 (defn compare-json
   "Parse and normalize two EDN strings, diff them into one union-graph
@@ -60,7 +64,9 @@
                          (throw (ex-info (str nm ": " (ex-message e)) {})))))
           old-g (graph/normalize (parse old-s old-name))
           new-g (graph/normalize (parse new-s new-name))]
-      (json/generate-string (diff/union old-g new-g old-name new-name)))
+      (json/generate-string
+       (assoc (diff/union old-g new-g old-name new-name)
+              :file (.getName (io/file new-name)))))
     (catch Exception e
       (json/generate-string {:error (ex-message e)}))))
 
@@ -100,7 +106,7 @@
                       (let [{:keys [old new]} @files]
                         (if (some? old)
                           (compare-json (slurp old) (slurp new) old new)
-                          (graph-json (slurp new))))
+                          (graph-json (slurp new) (.getName (io/file new)))))
                       (catch Exception e
                         (json/generate-string {:error (ex-message e)}))))
     "/api/version" (json-response

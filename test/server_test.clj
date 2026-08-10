@@ -65,3 +65,15 @@
   (let [out (json/parse-string (serve/graph-json "{:nodes {:a {}}}"))]
     (is (not (contains? out "compare")))
     (is (not (contains? (get-in out ["nodes" "a"]) "diff")))))
+
+(deftest graph-json-includes-file-basename
+  (let [out (json/parse-string (serve/graph-json "{:nodes {:a {}}}" "demo.edn"))]
+    (is (= "demo.edn" (get out "file"))))
+  ;; 1-arity unchanged: no :file key
+  (let [out (json/parse-string (serve/graph-json "{:nodes {:a {}}}"))]
+    (is (not (contains? out "file")))))
+
+(deftest compare-json-includes-new-file-basename
+  (let [out (json/parse-string
+             (serve/compare-json "{}" "{}" "examples/old.edn" "examples/new.edn"))]
+    (is (= "new.edn" (get out "file")))))

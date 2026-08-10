@@ -55,9 +55,10 @@ With the launcher installed by `install.sh` (files in `~/.simpleviz`, launcher i
     simpleviz init graph.edn         # write a starter graph file (refuses to overwrite)
     simpleviz update                 # install the latest release if newer
     simpleviz --version              # print the installed version
+    simpleviz extract diagram.png    # print the EDN embedded in an exported PNG
 
 There is no `bb diff` or similar — comparing is just passing two files. In compare mode: added elements get a green `+` ring, modified an amber `~` ring (click for attribute-level old → new), removed stay visible as red dashed ghosts; nodes match by key, boxes by name, edges by endpoints. A legend at the bottom center names both files and shows a count per status — each legend row is a button: clicking jumps to that status's next element (selecting it and centering the view, `2/3`-style position, wrap-around). Collapsed boxes hiding changes count as stops.
 
 ## Viewer
 
-Click any node/edge/box for its full attributes. Drag pans, wheel zooms. Boxes collapse/expand via the `−` button in their header (a collapsed box showing an amber dot hides changes in compare mode). Theme toggle top-right. Saving the file live-reloads the page (~1s).
+Click any node/edge/box for its full attributes. Drag pans, wheel zooms. Boxes collapse/expand via the `−` button in their header (a collapsed box showing an amber dot hides changes in compare mode). Theme toggle top-right. Saving the file live-reloads the page (~1s). The ⇩ button exports the whole diagram as a PNG with the source EDN embedded as metadata (recoverable via simpleviz extract).

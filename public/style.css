@@ -63,6 +63,9 @@ body { margin: 0; font-family: system-ui, sans-serif; overflow: hidden;
 #details dt { font-weight: 600; font-size: 12px; margin-top: 10px; color: var(--text); }
 #details dd { margin: 2px 0 0; font-size: 13px; white-space: pre-wrap;
               font-family: ui-monospace, "Cascadia Mono", monospace; }
+#details dd ul.dd-list { margin: 2px 0 0; padding-left: 18px; list-style: disc; }
+#details dd ol.dd-map { margin: 2px 0 0; padding-left: 6px; list-style: none; }
+#details dd .dd-map-key { font-weight: 600; color: var(--text-muted); }
 
 #collapsed-panel { position: fixed; top: 0; left: 0; bottom: 0; width: 216px;
                    z-index: 5; background: var(--panel);

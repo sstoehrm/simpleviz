@@ -229,9 +229,10 @@
    (when (some? (:graph st)) (legend-view st))
    (when (:layouting st)
      [:div {:id "layouting"} "re-layouting…"])
-   [:button {:id "export-btn" :type "button" :title "Export PNG"
-             :on-click (fn [e] (.stopPropagation e) (export-png!))}
-    "⇩"]
+   (when (some? (:scene st))
+     [:button {:id "export-btn" :type "button" :title "Export PNG"
+               :on-click (fn [e] (.stopPropagation e) (export-png!))}
+      "⇩"])
    [:button {:id "theme-toggle" :type "button"
              :title (if (= (:theme st) "dark") "Switch to light mode" "Switch to dark mode")
              :on-click (fn [e] (.stopPropagation e) (toggle-theme!))}
@@ -349,12 +350,15 @@
           cnv (canvas/export-canvas sc)]
       (.toBlob cnv
                (fn [blob]
-                 (let [url (js/URL.createObjectURL blob)
-                       a (js/document.createElement "a")]
-                   (set! (.-href a) url)
-                   (set! (.-download a) (str nm ".png"))
-                   (.click a)
-                   (js/setTimeout (fn [] (js/URL.revokeObjectURL url)) 1000)))
+                 (if (some? blob)
+                   (let [url (js/URL.createObjectURL blob)
+                         a (js/document.createElement "a")]
+                     (set! (.-href a) url)
+                     (set! (.-download a) (str nm ".png"))
+                     (.click a)
+                     (js/setTimeout (fn [] (js/URL.revokeObjectURL url)) 1000))
+                   (swap! state assoc :error
+                          "PNG export failed — the diagram may be too large")))
                "image/png"))))
 
 ;; init

@@ -265,18 +265,19 @@
     (when removed? (set! (.-globalAlpha ctx) 1))))
 
 (defn- paint-items!
-  "Draw every scene item visible in the graph-space rect vr at zoom k."
-  [ctx sc vr k selected-id]
-  (let [text? (>= (* k 11) scene/TEXT-MIN-PX)]
-    (doseq [item (:items sc)]
-      (when (scene/visible? item vr)
-        (let [sel? (= selected-id (:id item))]
-          (case (:kind item)
-            "box" (draw-box ctx item sel? text?)
-            "edge" (draw-edge ctx item sel? text?)
-            "edge-label" (when text? (draw-edge-label ctx item))
-            "node" (draw-node ctx item sel? text?)
-            nil))))))
+  "Draw every scene item visible in the graph-space rect vr at zoom k.
+  text? controls both text rendering and edge arrowheads (draw-edge's
+  detail? param)."
+  [ctx sc vr k selected-id text?]
+  (doseq [item (:items sc)]
+    (when (scene/visible? item vr)
+      (let [sel? (= selected-id (:id item))]
+        (case (:kind item)
+          "box" (draw-box ctx item sel? text?)
+          "edge" (draw-edge ctx item sel? text?)
+          "edge-label" (when text? (draw-edge-label ctx item))
+          "node" (draw-node ctx item sel? text?)
+          nil)))))
 
 (defn paint! [canvas-el sc2 selected-id]
   (let [ctx (.getContext canvas-el "2d")
@@ -296,8 +297,9 @@
     (let [k (:k view)
           vr {:x0 (/ (- 0 (:x view)) k) :y0 (/ (- 0 (:y view)) k)
               :x1 (/ (- (.-clientWidth canvas-el) (:x view)) k)
-              :y1 (/ (- (.-clientHeight canvas-el) (:y view)) k)}]
-      (paint-items! ctx sc2 vr k selected-id))))
+              :y1 (/ (- (.-clientHeight canvas-el) (:y view)) k)}
+          text? (>= (* k 11) scene/TEXT-MIN-PX)]
+      (paint-items! ctx sc2 vr k selected-id text?))))
 
 (defn export-canvas
   "Offscreen canvas with the WHOLE scene at up to 2x scale (capped so
@@ -309,12 +311,12 @@
         k (js/Math.min 2 (/ 8000 (js/Math.max w h)))
         cnv (js/document.createElement "canvas")
         ctx (.getContext cnv "2d")]
-    (set! (.-width cnv) (js/Math.ceil (* w k)))
-    (set! (.-height cnv) (js/Math.ceil (* h k)))
+    (set! (.-width cnv) (js/Math.min 8000 (js/Math.ceil (* w k))))
+    (set! (.-height cnv) (js/Math.min 8000 (js/Math.ceil (* h k))))
     (set! (.-fillStyle ctx) (:bg @palette))
     (.fillRect ctx 0 0 (.-width cnv) (.-height cnv))
     (.setTransform ctx k 0 0 k 0 0)
-    (paint-items! ctx sc {:x0 0 :y0 0 :x1 w :y1 h} k nil)
+    (paint-items! ctx sc {:x0 0 :y0 0 :x1 w :y1 h} k nil true)
     cnv))
 
 (defn setup-pan-zoom! [wrap]

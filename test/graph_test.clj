@@ -257,6 +257,13 @@
     (is (some (fn [w] (.contains w "names both a node and a box"))
               (:warnings g)))))
 
+(deftest ambiguity-warns-once-per-name
+  (let [g (graph/normalize {:nodes {"x" {} "a" {} "b" {}}
+                            :boxes {:x {}}
+                            :edges {["a" "x"] {} ["b" "x"] {} ["x" "x"] {}}})]
+    (is (= 1 (count (filter (fn [w] (.contains w "names both a node and a box"))
+                            (:warnings g)))))))
+
 (deftest unknown-endpoint-wording
   (let [g (graph/normalize (assoc (base) :edges [{:nodes ["a" "ghost"]}]))]
     (is (= [] (:edges g)))

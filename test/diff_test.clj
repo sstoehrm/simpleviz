@@ -159,3 +159,17 @@
     (is (= "removed" (:diff e)))
     (is (= "b:x" (:target-id e)))
     (is (= "removed" (:diff (first (filter (fn [b] (= "x" (:name b))) (:boxes g))))))))
+
+(deftest union-keeps-removed-edge-whose-endpoint-moved-into-the-box
+  ;; old: web outside backend, edge web->backend. new: web inside backend,
+  ;; edge gone. The union edge n:web->b:backend violates the single-file
+  ;; containment rule by construction — it must survive as removed.
+  (let [g (u {:nodes {:web {}} :boxes {:backend {}}
+              :edges {[:web :backend] {:direction :->}}}
+             {:nodes {:web {}} :boxes {:backend {:components #{:web}}}})
+        e (first (:edges g))]
+    (is (= 1 (count (:edges g))))
+    (is (= "removed" (:diff e)))
+    (is (= "n:web" (:source-id e)))
+    (is (= "b:backend" (:target-id e)))
+    (is (= "backend" (get (:parent-of g) "n:web")))))

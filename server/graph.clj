@@ -100,58 +100,60 @@
    {} nodes-in))
 
 (defn- build-edges [edges-in nodes box-names warn!]
-  (->> edges-in
-       (map-indexed
-        (fn [i e]
-          (if-not (map? e)
-            (do (warn! (str "edge " i ": not a map, skipped")) nil)
-            (if-let [humanized (explain-str EdgeShape e)]
-              (do (warn! (str "edge " i ": :nodes must be a vector of exactly 2 node names ("
-                              humanized ")"))
-                  nil)
-              (let [[a0 b0] (:nodes e)
-                    a (ident->str a0)
-                    b (ident->str b0)
-                    resolve-end
-                    (fn [x]
-                      (let [is-node (contains? nodes x)
-                            is-box (contains? box-names x)]
-                        (cond
-                          (and is-node is-box)
-                          (do (warn! (str "\"" x "\" names both a node and a box; edge ["
-                                          a " " b "] gets the node"))
-                              {:name x :eid (str "n:" x)})
-                          is-node {:name x :eid (str "n:" x)}
-                          is-box {:name x :eid (str "b:" x)}
-                          :else nil)))
-                    ra (resolve-end a)
-                    rb (resolve-end b)
-                    missing (into [] (keep (fn [[x r]] (when (nil? r) x)))
-                                  [[a ra] [b rb]])]
-                (if (seq missing)
-                  (do (warn! (str "edge " i " [" a " " b "]: unknown node or box: "
-                                  (str/join ", " missing)))
-                      nil)
-                  (let [dir0 (:direction e)
-                        dir (cond
-                              (nil? dir0) :-
-                              (contains? directions dir0) (get directions dir0)
-                              :else (do (warn! (str "edge " i ": unknown direction "
-                                                    (pr-str dir0)
-                                                    ", treating as undirected"))
-                                        :-))
-                        [src tgt] (if (= dir :<-) [rb ra] [ra rb])]
-                    {:id (str "e" i)
-                     :source (:name src)
-                     :target (:name tgt)
-                     :source-id (:eid src)
-                     :target-id (:eid tgt)
-                     :arrows {:source (= dir :<->) :target (not= dir :-)}
-                     :name (coerce-str (:name e) "")
-                     :type (coerce-str (:type e) "")
-                     :attrs e})))))))
-       (remove nil?)
-       vec))
+  (let [warned (atom #{})
+        resolve-end
+        (fn [x]
+          (let [is-node (contains? nodes x)
+                is-box (contains? box-names x)]
+            (cond
+              (and is-node is-box)
+              (do (when-not (contains? @warned x)
+                    (warn! (str "\"" x "\" names both a node and a box; edges get the node"))
+                    (swap! warned conj x))
+                  {:name x :eid (str "n:" x)})
+              is-node {:name x :eid (str "n:" x)}
+              is-box {:name x :eid (str "b:" x)}
+              :else nil)))]
+    (->> edges-in
+         (map-indexed
+          (fn [i e]
+            (if-not (map? e)
+              (do (warn! (str "edge " i ": not a map, skipped")) nil)
+              (if-let [humanized (explain-str EdgeShape e)]
+                (do (warn! (str "edge " i ": :nodes must be a vector of exactly 2 node names ("
+                                humanized ")"))
+                    nil)
+                (let [[a0 b0] (:nodes e)
+                      a (ident->str a0)
+                      b (ident->str b0)
+                      ra (resolve-end a)
+                      rb (resolve-end b)
+                      missing (into [] (keep (fn [[x r]] (when (nil? r) x)))
+                                    [[a ra] [b rb]])]
+                  (if (seq missing)
+                    (do (warn! (str "edge " i " [" a " " b "]: unknown node or box: "
+                                    (str/join ", " missing)))
+                        nil)
+                    (let [dir0 (:direction e)
+                          dir (cond
+                                (nil? dir0) :-
+                                (contains? directions dir0) (get directions dir0)
+                                :else (do (warn! (str "edge " i ": unknown direction "
+                                                      (pr-str dir0)
+                                                      ", treating as undirected"))
+                                          :-))
+                          [src tgt] (if (= dir :<-) [rb ra] [ra rb])]
+                      {:id (str "e" i)
+                       :source (:name src)
+                       :target (:name tgt)
+                       :source-id (:eid src)
+                       :target-id (:eid tgt)
+                       :arrows {:source (= dir :<->) :target (not= dir :-)}
+                       :name (coerce-str (:name e) "")
+                       :type (coerce-str (:type e) "")
+                       :attrs e})))))))
+         (remove nil?)
+         vec)))
 
 (defn- build-boxes [boxes-in warn!]
   (let [named (->> boxes-in

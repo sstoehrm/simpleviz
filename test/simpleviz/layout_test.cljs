@@ -89,3 +89,17 @@
                    (doseq [e (:edges layout)]
                      (assert/ok (and (:sections e) (pos? (.-length (:sections e))))
                                 (str "edge " (:id e) " routes to a box endpoint")))))))))
+
+(test "ELK routes a child-to-ancestor edge (compare-mode union shape)"
+  (fn []
+    (let [g (graph {:nodes {"web" (node "web" "") "api" (node "api" "")}
+                    :edges [(assoc (edge 0 "web" "backend" {:source false :target true})
+                                   :source-id "n:web" :target-id "b:backend")]
+                    :boxes [{:id "b:backend" :name "backend" :type ""
+                             :components ["n:web" "n:api"] :attrs {}}]
+                    :parent-of {"n:web" "backend" "n:api" "backend"}})]
+      (-> (.layout (ELK.) (to-elk g measure))
+          (.then (fn [layout]
+                   (let [e (nth (:edges layout) 0)]
+                     (assert/ok (and (:sections e) (pos? (.-length (:sections e))))
+                                "child->ancestor edge has routed sections"))))))))

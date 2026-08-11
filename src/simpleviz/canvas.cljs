@@ -264,6 +264,21 @@
       (.fillText ctx (:text item) cx cy))
     (when removed? (set! (.-globalAlpha ctx) 1))))
 
+(defn- paint-items!
+  "Draw every scene item visible in the graph-space rect vr at zoom k.
+  text? controls both text rendering and edge arrowheads (draw-edge's
+  detail? param)."
+  [ctx sc vr k selected-id text?]
+  (doseq [item (:items sc)]
+    (when (scene/visible? item vr)
+      (let [sel? (= selected-id (:id item))]
+        (case (:kind item)
+          "box" (draw-box ctx item sel? text?)
+          "edge" (draw-edge ctx item sel? text?)
+          "edge-label" (when text? (draw-edge-label ctx item))
+          "node" (draw-node ctx item sel? text?)
+          nil)))))
+
 (defn paint! [canvas-el sc2 selected-id]
   (let [ctx (.getContext canvas-el "2d")
         dpr (or (.-devicePixelRatio js/window) 1)
@@ -284,20 +299,30 @@
               :x1 (/ (- (.-clientWidth canvas-el) (:x view)) k)
               :y1 (/ (- (.-clientHeight canvas-el) (:y view)) k)}
           text? (>= (* k 11) scene/TEXT-MIN-PX)]
-      (doseq [item (:items sc2)]
-        (when (scene/visible? item vr)
-          (let [sel? (= selected-id (:id item))]
-            (case (:kind item)
-              "box" (draw-box ctx item sel? text?)
-              "edge" (draw-edge ctx item sel? text?)
-              "edge-label" (when text? (draw-edge-label ctx item))
-              "node" (draw-node ctx item sel? text?)
-              nil)))))))
+      (paint-items! ctx sc2 vr k selected-id text?))))
+
+(defn export-canvas
+  "Offscreen canvas with the WHOLE scene at up to 2x scale (capped so
+  the larger pixel dimension stays <= 8000), on the current theme's
+  background. No selection ring."
+  [sc]
+  (let [w (js/Math.max 1 (:width sc))
+        h (js/Math.max 1 (:height sc))
+        k (js/Math.min 2 (/ 8000 (js/Math.max w h)))
+        cnv (js/document.createElement "canvas")
+        ctx (.getContext cnv "2d")]
+    (set! (.-width cnv) (js/Math.min 8000 (js/Math.ceil (* w k))))
+    (set! (.-height cnv) (js/Math.min 8000 (js/Math.ceil (* h k))))
+    (set! (.-fillStyle ctx) (:bg @palette))
+    (.fillRect ctx 0 0 (.-width cnv) (.-height cnv))
+    (.setTransform ctx k 0 0 k 0 0)
+    (paint-items! ctx sc {:x0 0 :y0 0 :x1 w :y1 h} k nil true)
+    cnv))
 
 (defn setup-pan-zoom! [wrap]
   (.addEventListener wrap "wheel"
     (fn [e]
-      (when-not (.closest (.-target e) "#details, #banner, #collapsed-panel, #theme-toggle, #diff-legend")
+      (when-not (.closest (.-target e) "#details, #banner, #collapsed-panel, #theme-toggle, #diff-legend, #export-btn")
         (.preventDefault e)
         (let [factor (if (< (.-deltaY e) 0) 1.1 (/ 1 1.1))
               rect (.getBoundingClientRect wrap)
@@ -312,7 +337,7 @@
   (let [drag (atom nil)]
     (.addEventListener wrap "pointerdown"
       (fn [e]
-        (when-not (.closest (.-target e) "#details, #banner, #collapsed-panel, #theme-toggle, #diff-legend")
+        (when-not (.closest (.-target e) "#details, #banner, #collapsed-panel, #theme-toggle, #diff-legend, #export-btn")
           ;; NO setPointerCapture here: capturing on pointerdown retargets
           ;; the subsequent click to the wrap, so the canvas onclick
           ;; (selection) would never fire for plain clicks.

@@ -71,6 +71,24 @@ invalid references, duplicate box memberships, or containment cycles never
 break rendering — the element is skipped and a warning banner explains it.
 A parse error shows an error banner and keeps the last good render.
 
+## Exporting
+
+The ⇩ button downloads the diagram as a PNG of the whole graph, with the
+source EDN embedded as image metadata — an exported picture is never a
+dead end. An export made in compare mode embeds BOTH input files; other
+exports embed the one served file.
+
+    simpleviz extract diagram.png            # print the embedded EDN
+                                             # (from a compare export: the NEW file)
+    simpleviz extract diagram.png graph.edn  # write it to a file instead (won't overwrite)
+    simpleviz extract diagram.png --old      # from a compare export: the OLD file
+
+So a single compare-mode PNG is enough to re-run the whole comparison:
+
+    simpleviz extract diagram.png before.edn --old
+    simpleviz extract diagram.png after.edn
+    simpleviz before.edn after.edn
+
 ## Comparing two versions
 
 Pass two files to compare architectures: `bb serve old.edn new.edn`. Both

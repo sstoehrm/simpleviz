@@ -14,9 +14,12 @@
   serve    {:doc "Serve an EDN graph file: bb serve graph.edn [new.edn] [--port N] (two files = compare)"
             :requires ([serve])
             :task (apply serve/-main *command-line-args*)}
+  extract  {:doc "Extract embedded EDN from an exported PNG: bb extract diagram.png [out.edn] [--old]"
+            :requires ([png])
+            :task (apply png/-main *command-line-args*)}
   test:clj {:doc "Run Clojure server tests"
-            :requires ([clojure.test :as t] [server-test] [graph-test] [diff-test] [docs-test])
-            :task (let [{:keys [fail error]} (t/run-tests 'graph-test 'server-test 'diff-test 'docs-test)]
+            :requires ([clojure.test :as t] [server-test] [graph-test] [diff-test] [docs-test] [png-test])
+            :task (let [{:keys [fail error]} (t/run-tests 'graph-test 'server-test 'diff-test 'docs-test 'png-test)]
                     (when (pos? (+ fail error)) (System/exit 1)))}
   test:js  {:doc "Run JS unit tests (compiled squint output)"
             :requires ([babashka.fs :as fs])
@@ -42,7 +45,10 @@
                                     :deps (:deps (edn/read-string (slurp "bb.edn")))
                                     :tasks (quote {serve {:doc "Serve an EDN graph file: bb serve graph.edn [--port N]"
                                                           :requires ([serve])
-                                                          :task (apply serve/-main *command-line-args*)}})}]
+                                                          :task (apply serve/-main *command-line-args*)}
+                                                   extract {:doc "Extract embedded EDN from an exported PNG: bb extract diagram.png [out.edn] [--old]"
+                                                            :requires ([png])
+                                                            :task (apply png/-main *command-line-args*)}})}]
                     (fs/delete-tree dir)
                     (fs/create-dirs dir)
                     (doseq [p ["public" "server" "examples"]]

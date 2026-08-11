@@ -6,7 +6,8 @@
             [simpleviz.prune :refer [collapse-boxes collapse-scene]]
             [simpleviz.scene :as scene]
             [simpleviz.hit :as hit]
-            [simpleviz.canvas :as canvas]))
+            [simpleviz.canvas :as canvas]
+            [simpleviz.png :as png]))
 
 (def elk (js/ELK.))
 (def app-el (js/document.getElementById "app"))
@@ -229,6 +230,10 @@
    (when (some? (:graph st)) (legend-view st))
    (when (:layouting st)
      [:div {:id "layouting"} "re-layouting…"])
+   (when (some? (:scene st))
+     [:button {:id "export-btn" :type "button" :title "Export PNG"
+               :on-click (fn [e] (.stopPropagation e) (export-png!))}
+      "⇩"])
    [:button {:id "theme-toggle" :type "button"
              :title (if (= (:theme st) "dark") "Switch to light mode" "Switch to dark mode")
              :on-click (fn [e] (.stopPropagation e) (toggle-theme!))}
@@ -338,6 +343,61 @@
     (js/localStorage.setItem "simpleviz-theme" t)
     (swap! state assoc :theme t)
     (apply-theme! t)))
+
+(defn- ^:async fetch-source
+  "Raw EDN text from /api/source (which = \"old\"|\"new\"|nil), or nil on
+  any failure — a failed fetch degrades the export to metadata-less."
+  [which]
+  (try
+    (let [resp (js-await (js/fetch (str "/api/source"
+                                        (if (some? which)
+                                          (str "?which=" which)
+                                          ""))))]
+      (if (.-ok resp) (js-await (.text resp)) nil))
+    (catch :default _ nil)))
+
+(defn- download-blob!
+  "Trigger a browser download of blob as <nm>.png via a throwaway
+  object URL and anchor click."
+  [blob nm]
+  (let [url (js/URL.createObjectURL blob)
+        a (js/document.createElement "a")]
+    (set! (.-href a) url)
+    (set! (.-download a) (str nm ".png"))
+    (.click a)
+    (js/setTimeout (fn [] (js/URL.revokeObjectURL url)) 1000)))
+
+(defn- ^:async export-png! []
+  (when-let [sc (:scene @state)]
+    (let [g (:graph @state)
+          nm (let [f (:file g)]
+               (if (some? f) (.replace f (js/RegExp. "\\.edn$") "") "graph"))
+          pairs (if (some? (:compare g))
+                  (let [o (js-await (fetch-source "old"))
+                        n (js-await (fetch-source "new"))]
+                    (cond-> []
+                      (some? o) (conj ["simpleviz-edn-old" o])
+                      (some? n) (conj ["simpleviz-edn-new" n])))
+                  (let [s (js-await (fetch-source nil))]
+                    (if (some? s) [["simpleviz-edn" s]] [])))
+          cnv (canvas/export-canvas sc)]
+      (.toBlob cnv
+               (fn [blob]
+                 (if (some? blob)
+                   (-> (.arrayBuffer blob)
+                       (.then
+                        (fn [buf]
+                          (let [out (png/embed-many (js/Uint8Array. buf) pairs)]
+                            (download-blob! (js/Blob. [out] {:type "image/png"}) nm))))
+                       ;; Embedding metadata failed for some unexpected
+                       ;; reason (e.g. embed-many throws) — degrade
+                       ;; gracefully to a plain, metadata-less download
+                       ;; rather than silently losing the export as an
+                       ;; unhandled promise rejection.
+                       (.catch (fn [_] (download-blob! blob nm))))
+                   (swap! state assoc :error
+                          "PNG export failed — the diagram may be too large")))
+               "image/png"))))
 
 ;; init
 (canvas/set-repaint! paint-now!)

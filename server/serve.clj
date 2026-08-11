@@ -99,7 +99,7 @@
                  "Cache-Control" "no-store"}
        :body "not found"})))
 
-(defn handler [{:keys [uri]}]
+(defn handler [{:keys [uri query-string]}]
   (case uri
     "/api/graph"   (json-response
                     (try
@@ -116,6 +116,23 @@
                                (if (some? old)
                                  (str (.lastModified (io/file old)) "-" m)
                                  m))}))
+    "/api/source"
+    (let [{:keys [old new]} @files
+          which (when (some? query-string)
+                  (second (re-find #"(?:^|&)which=(old|new)(?:&|$)" query-string)))
+          f (case which "old" old "new" new new)
+          not-found {:status 404
+                     :headers {"Content-Type" "text/plain; charset=utf-8"
+                               "Cache-Control" "no-store"}
+                     :body "not found"}]
+      (if (some? f)
+        (try
+          {:status 200
+           :headers {"Content-Type" "text/plain; charset=utf-8"
+                     "Cache-Control" "no-store"}
+           :body (slurp f)}
+          (catch Exception _ not-found))
+        not-found))
     (static-response uri)))
 
 (defn -main [& args]

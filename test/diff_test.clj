@@ -173,3 +173,12 @@
     (is (= "n:web" (:source-id e)))
     (is (= "b:backend" (:target-id e)))
     (is (= "backend" (get (:parent-of g) "n:web")))))
+
+(deftest namespaced-keyword-vs-string-spelling-not-a-change
+  (let [g (u {:nodes {:app/web {} :backend.server/database {}}
+              :edges [{:nodes [:app/web :backend.server/database] :direction :->}]}
+             {:nodes {"app/web" {} "backend.server/database" {}}
+              :edges [{:nodes ["app/web" "backend.server/database"] :direction :->}]})]
+    (is (nil? (get-in g [:nodes "backend.server/database" :diff])))
+    (is (= 1 (count (:edges g))))
+    (is (nil? (:diff (first (:edges g)))))))

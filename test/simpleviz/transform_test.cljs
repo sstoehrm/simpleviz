@@ -94,3 +94,13 @@
           labels (mapv (fn [e] (:text (first (or (:labels e) [{}])))) (:edges elk))]
       (assert/equal (nth labels 0) "+ calls (http)")
       (assert/equal (nth labels 1) "−"))))
+
+(test "empty boxes become fixed-size leaves, not empty ELK compounds"
+  (fn []
+    (let [g (graph {:boxes [{:id "b:ghost" :name "ghost" :type "zone"
+                             :components [] :attrs {}}]})
+          elk (to-elk g measure)
+          ghost (nth (:children elk) 0)]
+      (assert/equal (:children ghost) js/undefined)
+      (assert/ok (pos? (:width ghost)))
+      (assert/equal (:height ghost) 44))))

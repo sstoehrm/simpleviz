@@ -103,3 +103,20 @@
                    (let [e (nth (:edges layout) 0)]
                      (assert/ok (and (:sections e) (pos? (.-length (:sections e))))
                                 "child->ancestor edge has routed sections"))))))))
+
+(test "ELK gives an empty box (compare-mode removed shell) a real size"
+  (fn []
+    (let [g (graph {:nodes {"api" (node "api" "")}
+                    :boxes [{:id "b:backend" :name "backend" :type ""
+                             :components ["n:api" "b:storage"] :attrs {}}
+                            {:id "b:storage" :name "storage" :type "zone"
+                             :components [] :attrs {} :diff "removed"}]
+                    :parent-of {"n:api" "backend" "b:storage" "backend"}})]
+      (-> (.layout (ELK.) (to-elk g measure))
+          (.then (fn [layout]
+                   (let [backend (first (filterv (fn [c] (= (:id c) "b:backend"))
+                                                 (:children layout)))
+                         storage (first (filterv (fn [c] (= (:id c) "b:storage"))
+                                                 (:children backend)))]
+                     (assert/ok (pos? (:width storage)) "empty box has width")
+                     (assert/ok (pos? (:height storage)) "empty box has height"))))))))

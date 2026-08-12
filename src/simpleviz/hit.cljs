@@ -75,6 +75,7 @@
         (let [btn? (>= (* k 11) scene/TEXT-MIN-PX)]
           (some (fn [it]
                   (or (when (and btn?
+                                 (not (:empty it))
                                  (in-rect? p
                                            (- (+ (:x it) (:w it)) scene/HIDE-BTN-RIGHT)
                                            (+ (:y it) scene/HIDE-BTN-TOP)

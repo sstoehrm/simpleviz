@@ -206,3 +206,27 @@
           e (first (filterv (fn [it] (= (:kind it) "edge")) (:items sc)))]
       (assert/equal (:source-id e) "n:a")
       (assert/equal (:target-id e) "b:bx"))))
+
+(test "empty boxes render as shells: collapsed style, flagged empty"
+  (fn []
+    (let [g {:nodes {} :edges []
+             :boxes-by-name {"ghost" {:id "b:ghost" :name "ghost" :type ""
+                                      :components [] :attrs {} :diff "removed"}}}
+          l {:width 100 :height 60 :edges []
+             :children [{:id "b:ghost" :x 10 :y 10 :width 80 :height 30}]}
+          [box] (filterv (fn [it] (= (:kind it) "box"))
+                         (:items (build-scene {:layout l :graph g :colors colors})))]
+      (assert/equal (:collapsed box) true)
+      (assert/equal (:empty box) true))))
+
+(test "user-collapsed shells are not flagged empty"
+  (fn []
+    (let [g {:nodes {} :edges []
+             :boxes-by-name {"grp2" {:id "b:grp2" :name "grp2" :type ""
+                                     :components [] :attrs {} :collapsed true}}}
+          l {:width 100 :height 60 :edges []
+             :children [{:id "b:grp2" :x 10 :y 10 :width 80 :height 30}]}
+          [box] (filterv (fn [it] (= (:kind it) "box"))
+                         (:items (build-scene {:layout l :graph g :colors colors})))]
+      (assert/equal (:collapsed box) true)
+      (assert/ok (not (:empty box))))))

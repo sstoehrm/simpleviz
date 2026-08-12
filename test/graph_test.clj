@@ -298,3 +298,16 @@
                             :edges {[:x :y] {}}})]
     (is (= 1 (count (:edges g))))
     (is (= [] (:warnings g)))))
+
+(deftest namespaced-keywords-keep-their-namespace
+  (let [g (graph/normalize
+           {:nodes {:backend.server/database {}
+                    :frontend/database {}}
+            :edges [{:nodes [:frontend/database :backend.server/database]}]
+            :boxes {:backend/core {:components [:backend.server/database]}}})]
+    (is (= #{"backend.server/database" "frontend/database"} (set (keys (:nodes g)))))
+    (is (= ["frontend/database" "backend.server/database"]
+           ((juxt :source :target) (first (:edges g)))))
+    (is (= "backend/core" (:name (first (:boxes g)))))
+    (is (= ["n:backend.server/database"] (:components (first (:boxes g)))))
+    (is (= [] (:warnings g)))))

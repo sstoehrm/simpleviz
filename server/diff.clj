@@ -104,7 +104,7 @@
 (def ^:private canon-dir
   {:-> :-> :<- :<- :<-> :<-> :- :- "->" :-> "<-" :<- "<->" :<-> "-" :-})
 
-(defn- ident->str [x] (if (keyword? x) (name x) (str x)))
+(defn- ident->str [x] (if (keyword? x) (subs (str x) 1) (str x)))
 
 (defn- edge-cmp-attrs
   "Edge attrs with :nodes and :direction canonicalized, so equivalent

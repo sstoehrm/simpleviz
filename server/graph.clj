@@ -15,10 +15,10 @@
 
 (defn- ident->str
   "Coerce a node/box/component identifier to a display string. Keywords lose
-  their leading colon (matching the old EDN->cheshire->frontend pipeline);
-  anything else falls back to str."
+  their leading colon but keep their namespace (matching the old
+  EDN->cheshire->frontend pipeline); anything else falls back to str."
   [x]
-  (if (keyword? x) (name x) (str x)))
+  (if (keyword? x) (subs (str x) 1) (str x)))
 
 (defn- coerce-str [x fallback]
   (ident->str (if (nil? x) fallback x)))

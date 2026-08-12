@@ -85,7 +85,7 @@
                              :empty empty?
                              :bbox (rect-bbox x y (:width child) (:height child))
                              :border (:border c) :fill (:fill c)
-                             :name (:name box) :type (:type box)
+                             :name (or (:label box) (:name box)) :type (:type box)
                              :attrs (:attrs box)
                              :diff (:diff box) :changed (:changed box) :diff-inside (:diff-inside box)})
                (.set origins (:id child) {:x x :y y})

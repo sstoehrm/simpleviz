@@ -177,10 +177,37 @@
     (is (= "x" (get (:parent-of g) "n:a")))
     (is (= [] (:warnings g)))))
 
-(deftest box-map-value-name-ignored-with-warning
-  (let [g (graph/normalize {:boxes {:x {:name "other"}}})]
+(deftest box-map-value-name-is-display-label
+  (let [g (graph/normalize {:boxes {:x {:name "Storage Zone"}}})]
     (is (= "x" (:name (first (:boxes g)))))
-    (is (= 1 (count (:warnings g))))))
+    (is (= "Storage Zone" (:label (first (:boxes g)))))
+    (is (= "Storage Zone" (get-in (first (:boxes g)) [:attrs :name])))
+    (is (= [] (:warnings g)))))
+
+(deftest box-label-defaults-to-key
+  (let [g (graph/normalize {:boxes {:x {:type "zone"} :y nil}
+                            :nodes {"a" {}}})
+        by-name (into {} (map (juxt :name identity)) (:boxes g))]
+    (is (= "x" (:label (get by-name "x"))))
+    (is (= "y" (:label (get by-name "y"))))))
+
+(deftest box-numeric-label-coerced
+  (let [g (graph/normalize {:boxes {:x {:name 7}}})]
+    (is (= "7" (:label (first (:boxes g)))))))
+
+(deftest vector-form-box-name-stays-identity-and-label
+  (let [g (graph/normalize {:boxes [{:name "x" :type "zone"}]})]
+    (is (= "x" (:name (first (:boxes g)))))
+    (is (= "x" (:label (first (:boxes g)))))
+    (is (= [] (:warnings g)))))
+
+(deftest edges-reference-boxes-by-key-not-label
+  (let [g (graph/normalize {:nodes {"a" {}}
+                            :boxes {:x {:name "Fancy Label"}}
+                            :edges [{:nodes ["a" :x] :direction :->}]})]
+    (is (= 1 (count (:edges g))))
+    (is (= "b:x" (:target-id (first (:edges g)))))
+    (is (= [] (:warnings g)))))
 
 (deftest box-map-nil-value-allowed
   (let [g (graph/normalize {:boxes {:x nil}})]

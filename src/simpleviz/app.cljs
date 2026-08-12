@@ -87,7 +87,7 @@
                                              (.stopPropagation e)
                                              (expand-box! b))}
                         [:span {:class "cp-dot" :style {:background color}}]
-                        [:span {:class "cp-name"} b]
+                        [:span {:class "cp-name"} (or (:label box) b)]
                         [:span {:class "cp-plus"} "+"]]))
                    (vec (sort (js/Array.from collapsed)))))])))
 

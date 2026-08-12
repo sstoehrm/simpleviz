@@ -37,19 +37,35 @@
           :else (do (warn! msg) coerce-empty))))
 
 (defn- boxes-map->seq
-  "Map-form boxes {:id {..}} -> box maps with the key as :name. Sorted by
-  name so contested memberships resolve deterministically (EDN maps above
-  8 entries do not preserve file order)."
+  "Map-form boxes {:id {..}} -> uniform {:name :label :attrs} entries: the
+  key is the box identity, :name in the value is the display label
+  (defaulting to the key), like nodes. Sorted by key so contested
+  memberships resolve deterministically (EDN maps above 8 entries do not
+  preserve file order)."
   [m warn!]
   (->> (sort-by (fn [[k _]] (ident->str k)) (seq m))
        (keep (fn [[k v]]
                (let [nm (ident->str k)]
                  (cond
-                   (nil? v) {:name nm}
-                   (map? v) (do (when (some? (:name v))
-                                  (warn! (str "box \"" nm "\": :name in value ignored (the key is the name)")))
-                                (assoc v :name nm))
+                   (nil? v) {:name nm :label nm :attrs {}}
+                   (map? v) {:name nm :label (coerce-str (:name v) nm) :attrs v}
                    :else (do (warn! (str "box \"" nm "\": value must be a map, skipped")) nil)))))
+       vec))
+
+(defn- boxes-vec->seq
+  "Pre-v2 vector-form boxes [{:name ..}] -> uniform {:name :label :attrs}
+  entries; :name is both the identity and the display label."
+  [boxes-in warn!]
+  (->> boxes-in
+       (map-indexed
+        (fn [i b]
+          (if-not (map? b)
+            (do (warn! (str "box " i ": not a map, skipped")) nil)
+            (let [nm (coerce-str (:name b) "")]
+              (if (str/blank? nm)
+                (do (warn! (str "box " i ": missing :name, skipped")) nil)
+                {:name nm :label nm :attrs b})))))
+       (remove nil?)
        vec))
 
 (defn- edges-map->seq
@@ -155,37 +171,39 @@
          (remove nil?)
          vec)))
 
-(defn- build-boxes [boxes-in warn!]
-  (let [named (->> boxes-in
-                   (map-indexed
-                    (fn [i b]
-                      (if-not (map? b)
-                        (do (warn! (str "box " i ": not a map, skipped")) nil)
-                        (let [nm (coerce-str (:name b) "")]
-                          (if (str/blank? nm)
-                            (do (warn! (str "box " i ": missing :name, skipped")) nil)
-                            {:name nm :box b})))))
-                   (remove nil?))]
-    (first
-     (reduce
-      (fn [[acc seen] {:keys [name box]}]
-        (if (contains? seen name)
-          (do (warn! (str "box \"" name "\": duplicate name, later definition skipped"))
-              [acc seen])
-          (let [components
-                (let [c (:components box)]
-                  (cond (nil? c) []
-                        (or (sequential? c) (set? c)) (vec c)
-                        :else (do (warn! (str "box \"" name
-                                              "\": :components must be a collection, skipped"))
-                                  [])))]
-            [(conj acc {:id (str "b:" name)
-                        :name name
-                        :type (coerce-str (:type box) "")
-                        :components components
-                        :attrs box})
-             (conj seen name)])))
-      [[] #{}] named))))
+(defn- build-boxes
+  "Uniform {:name :label :attrs} entries -> normalized box maps. :name is
+  the identity (referenced by edges and :components), :label the display
+  name."
+  [entries warn!]
+  (first
+   (reduce
+    (fn [[acc seen] {:keys [name label attrs]}]
+      (cond
+        (str/blank? name)
+        (do (warn! (str "box " (count acc) ": missing :name, skipped"))
+            [acc seen])
+
+        (contains? seen name)
+        (do (warn! (str "box \"" name "\": duplicate name, later definition skipped"))
+            [acc seen])
+
+        :else
+        (let [components
+              (let [c (:components attrs)]
+                (cond (nil? c) []
+                      (or (sequential? c) (set? c)) (vec c)
+                      :else (do (warn! (str "box \"" name
+                                            "\": :components must be a collection, skipped"))
+                                [])))]
+          [(conj acc {:id (str "b:" name)
+                      :name name
+                      :label label
+                      :type (coerce-str (:type attrs) "")
+                      :components components
+                      :attrs attrs})
+           (conj seen name)])))
+    [[] #{}] entries)))
 
 (defn- resolve-membership
   "First box in file order wins; components become prefixed ids."
@@ -298,8 +316,10 @@
         boxes-in (let [b (:boxes raw)]
                    (if (map? b)
                      (boxes-map->seq b warn!)
-                     (top-level raw warn! :boxes #(or (sequential? %) (set? %)) []
-                                ":boxes must be a map or vector, ignoring it")))
+                     (boxes-vec->seq
+                      (top-level raw warn! :boxes #(or (sequential? %) (set? %)) []
+                                 ":boxes must be a map or vector, ignoring it")
+                      warn!)))
         _ (warn-reversed-pairs! edges-in warn!)
         nodes (build-nodes nodes-in warn!)
         boxes0 (build-boxes boxes-in warn!)

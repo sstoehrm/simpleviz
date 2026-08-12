@@ -50,8 +50,9 @@ graphs (500+ nodes) open with all top-level boxes collapsed.
              {:direction :->             ; :-> | :<- | :<-> | :- (default :-)
               :name "REST"
               :type "http"}}
-     :boxes {:backend                    ; key is the box id (and display name)
-             {:type "zone"               ; colors the box (separate palette)
+     :boxes {:backend                    ; key is the box id
+             {:name "Backend"            ; display name (defaults to the key)
+              :type "zone"               ; colors the box (separate palette)
               :components #{:api :db}}}} ; node and/or box ids; boxes nest
 
 Identifiers may be keywords or strings. The pre-v2 vector forms
@@ -94,8 +95,8 @@ So a single compare-mode PNG is enough to re-run the whole comparison:
 Pass two files to compare architectures: `bb serve old.edn new.edn`. Both
 render as ONE merged diagram — added elements get a green `+` ring, modified
 ones an amber `~` ring (click for an attribute-level old → new list), and
-removed ones stay visible as red, dashed, ghosted shapes. Nodes match by
-key, boxes by name, edges by their endpoints (flipping the pair or changing
+removed ones stay visible as red, dashed, ghosted shapes. Nodes and boxes
+match by key, edges by their endpoints (flipping the pair or changing
 `:direction` counts as modified). Layout follows the new file; removed
 elements keep their old place. A collapsed box hiding any change shows an
 amber dot. The legend at the bottom counts the changes per status — click

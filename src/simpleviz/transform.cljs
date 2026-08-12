@@ -23,7 +23,7 @@
                   (if (or (:collapsed b) (zero? (.-length (:components b))))
                     ;; node-style two-line label + room for the toggle button
                     (let [typed? (pos? (.-length (:type b)))
-                          w (max (measure (:name b) NODE-FONT)
+                          w (max (measure (or (:label b) (:name b)) NODE-FONT)
                                  (if typed? (measure (str "(" (:type b) ")") SUB-FONT) 0))]
                       {:id (str "b:" (:name b))
                        :width (+ (js/Math.ceil w) (if (:collapsed b) 44 24))

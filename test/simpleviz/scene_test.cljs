@@ -230,3 +230,14 @@
                          (:items (build-scene {:layout l :graph g :colors colors})))]
       (assert/equal (:collapsed box) true)
       (assert/ok (not (:empty box))))))
+
+(test "box items display the label when present"
+  (fn []
+    (let [g {:nodes {} :edges []
+             :boxes-by-name {"x" {:id "b:x" :name "x" :label "Fancy Label"
+                                  :type "" :components ["n:a"] :attrs {}}}}
+          l {:width 100 :height 60 :edges []
+             :children [{:id "b:x" :x 10 :y 10 :width 80 :height 30}]}
+          [box] (filterv (fn [it] (= (:kind it) "box"))
+                         (:items (build-scene {:layout l :graph g :colors colors})))]
+      (assert/equal (:name box) "Fancy Label"))))

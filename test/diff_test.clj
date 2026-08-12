@@ -182,3 +182,12 @@
     (is (nil? (get-in g [:nodes "backend.server/database" :diff])))
     (is (= 1 (count (:edges g))))
     (is (nil? (:diff (first (:edges g)))))))
+
+(deftest box-label-rename-is-a-modification
+  (let [g (u {:nodes {:a {}} :boxes {:x {:name "Old Label" :components #{:a}}}}
+             {:nodes {:a {}} :boxes {:x {:name "New Label" :components #{:a}}}})
+        box (first (:boxes g))]
+    (is (= 1 (count (:boxes g))))
+    (is (= "modified" (:diff box)))
+    (is (= "New Label" (:label box)))
+    (is (= {:old "Old Label" :new "New Label"} (get-in box [:changed :name])))))

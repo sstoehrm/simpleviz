@@ -104,3 +104,13 @@
       (assert/equal (:children ghost) js/undefined)
       (assert/ok (pos? (:width ghost)))
       (assert/equal (:height ghost) 44))))
+
+(test "collapsed shells size by the display label, not the identity"
+  (fn []
+    (let [g (graph {:boxes [{:id "b:x" :name "x" :label "a much longer label"
+                             :type "" :components ["n:a"] :attrs {} :collapsed true}]
+                    :nodes {"a" (node "a")}
+                    :parent-of {"n:a" "x"}})
+          elk (to-elk g measure)
+          x (first (filterv (fn [c] (= (:id c) "b:x")) (:children elk)))]
+      (assert/ok (>= (:width x) (measure "a much longer label" nil))))))

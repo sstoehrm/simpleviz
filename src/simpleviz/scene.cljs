@@ -72,11 +72,17 @@
                y (+ oy (:y child))]
            (if (.startsWith (:id child) "b:")
              (let [box (get (:boxes-by-name graph) (.slice (:id child) 2))
-                   c (box-colors box colors)]
+                   c (box-colors box colors)
+                   ;; genuinely empty (unlike a user-collapsed shell, which
+                   ;; also has no components but carries :collapsed): draw
+                   ;; collapsed-style, but there is nothing to toggle
+                   empty? (and (not (:collapsed box))
+                               (zero? (.-length (or (:components box) []))))]
                (.push boxes {:kind "box" :id (:id child)
                              :x x :y y :w (:width child) :h (:height child)
                              :title-h TITLE-H
-                             :collapsed (:collapsed box)
+                             :collapsed (or (:collapsed box) empty?)
+                             :empty empty?
                              :bbox (rect-bbox x y (:width child) (:height child))
                              :border (:border c) :fill (:fill c)
                              :name (:name box) :type (:type box)

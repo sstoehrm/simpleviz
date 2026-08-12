@@ -132,7 +132,8 @@
   (when text?
   (if (:collapsed item)
     ;; collapsed: node-style two lines, centered left of the button zone
-    (let [cx (+ (:x item) (/ (- (:w item) 18) 2))]
+    ;; (empty shells have no button, so their label centers fully)
+    (let [cx (+ (:x item) (/ (- (:w item) (if (:empty item) 0 18)) 2))]
       (set! (.-textAlign ctx) "center")
       (set! (.-font ctx) "bold 13px system-ui, sans-serif")
       (set! (.-fillStyle ctx) (:border item))
@@ -156,6 +157,7 @@
           (when (< (+ 12 nw 5 tw) (- (:w item) 26))
             (set! (.-fillStyle ctx) (:sub @palette))
             (.fillText ctx label (+ (:x item) 12 nw 5) (+ (:y item) 20)))))))
+  (when-not (:empty item)
   (let [bx (- (+ (:x item) (:w item)) scene/HIDE-BTN-RIGHT)
         by (+ (:y item) scene/HIDE-BTN-TOP)
         s scene/HIDE-BTN-SIZE]
@@ -178,7 +180,7 @@
       (.beginPath ctx)
       (.arc ctx (- bx 8) (+ by (/ s 2)) 3.5 0 (* 2 js/Math.PI))
       (set! (.-fillStyle ctx) (:diff-modified @palette))
-      (.fill ctx))))
+      (.fill ctx)))))
   (when (some? (:diff item))
     (draw-diff-ring ctx item 12 text?))
   (when removed? (set! (.-globalAlpha ctx) 1))))

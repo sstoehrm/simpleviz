@@ -18,13 +18,15 @@
                       :width (+ (js/Math.ceil w) 24)
                       :height (if typed? 44 30)}))
         box-elk (fn box-elk [b]
-                  (if (:collapsed b)
+                  ;; empty boxes (e.g. compare-mode removed shells) must not
+                  ;; reach ELK as childless compounds — those lay out as 0×0
+                  (if (or (:collapsed b) (zero? (.-length (:components b))))
                     ;; node-style two-line label + room for the toggle button
                     (let [typed? (pos? (.-length (:type b)))
                           w (max (measure (:name b) NODE-FONT)
                                  (if typed? (measure (str "(" (:type b) ")") SUB-FONT) 0))]
                       {:id (str "b:" (:name b))
-                       :width (+ (js/Math.ceil w) 44)
+                       :width (+ (js/Math.ceil w) (if (:collapsed b) 44 24))
                        :height (if typed? 44 30)})
                     {:id (str "b:" (:name b))
                      :layoutOptions {"elk.padding" "[top=40,left=14,bottom=14,right=14]"}

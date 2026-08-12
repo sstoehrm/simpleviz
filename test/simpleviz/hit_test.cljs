@@ -87,3 +87,12 @@
   (fn []
     (let [cb {:kind "box" :id "b:c" :x 0 :y 0 :w 100 :h 60 :title-h 28 :collapsed true}]
       (assert/equal (:id (hit-test (scene [cb]) {:x 50 :y 45} 6)) "b:c"))))
+
+(test "empty box shells expose no collapse button"
+  (fn []
+    (let [ghost {:kind "box" :id "b:ghost" :x 50 :y 50 :w 100 :h 30
+                 :title-h 28 :collapsed true :empty true}
+          s (scene [ghost])
+          it (hit-test s {:x 130 :y 60} 6 1.0)] ; would-be button rect: x 128-143, y 57-72
+      (assert/equal (:kind it) "box")
+      (assert/equal (:id it) "b:ghost"))))

@@ -1,7 +1,7 @@
 (ns simpleviz.hit-test
   (:require ["node:test" :refer [test]]
             ["node:assert/strict$default" :as assert]
-            [simpleviz.hit :refer [client->graph hit-test]]))
+            [simpleviz.hit :refer [client->graph hit-test hover-title]]))
 
 (defn scene [items] {:items items :width 500 :height 300})
 
@@ -96,3 +96,12 @@
           it (hit-test s {:x 130 :y 60} 6 1.0)] ; would-be button rect: x 128-143, y 57-72
       (assert/equal (:kind it) "box")
       (assert/equal (:id it) "b:ghost"))))
+
+(test "hover-title shows the referenceable id per kind"
+  (fn []
+    (assert/equal (hover-title {:kind "node" :id "n:web"}) "web")
+    (assert/equal (hover-title {:kind "box" :id "b:backend"}) "backend")
+    (assert/equal (hover-title {:kind "collapse-button" :box-id "b:backend"}) "backend")
+    (assert/equal (hover-title {:kind "edge" :id "e0" :source "web" :target "api"})
+                  "[web api]")
+    (assert/ok (nil? (hover-title nil)))))

@@ -5,6 +5,21 @@
 ;; keys; scalars stringify; nesting recurses. Pure — no DOM — so the
 ;; node tests can cover it.
 
+(defn- basename [p]
+  (let [i (.lastIndexOf p "/")]
+    (if (neg? i) p (.slice p (inc i)))))
+
+(defn tab-title
+  "Browser tab title for the loaded graph: the served file's name, in
+  compare mode \"old → new\" (basenames), plain \"simpleviz\" before a
+  graph is loaded."
+  [g]
+  (cond
+    (some? (:compare g)) (str (basename (:old (:compare g))) " → "
+                              (basename (:new (:compare g))) " — simpleviz")
+    (some? (:file g)) (str (:file g) " — simpleviz")
+    :else "simpleviz"))
+
 (defn value->hiccup [v]
   (cond
     (string? v) v

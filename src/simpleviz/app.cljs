@@ -371,7 +371,7 @@
   (when-let [sc (:scene @state)]
     (let [g (:graph @state)
           nm (let [f (:file g)]
-               (if (some? f) (.replace f (js/RegExp. "\\.edn$") "") "graph"))
+               (if (some? f) (.replace f (js/RegExp. "\\.(edn|png)$") "") "graph"))
           pairs (if (some? (:compare g))
                   (let [o (js-await (fetch-source "old"))
                         n (js-await (fetch-source "new"))]

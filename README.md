@@ -84,7 +84,14 @@ exports embed the one served file.
     simpleviz extract diagram.png graph.edn  # write it to a file instead (won't overwrite)
     simpleviz extract diagram.png --old      # from a compare export: the OLD file
 
-So a single compare-mode PNG is enough to re-run the whole comparison:
+Exported PNGs are also accepted anywhere an EDN file is — the server
+reads the embedded source back out:
+
+    simpleviz diagram.png                    # serve the embedded graph
+    simpleviz old.png new.edn                # any mix of PNG and EDN in compare mode
+    simpleviz compare-export.png             # re-opens as the full comparison
+
+Or extract the EDN explicitly:
 
     simpleviz extract diagram.png before.edn --old
     simpleviz extract diagram.png after.edn

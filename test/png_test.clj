@@ -60,3 +60,10 @@
         data (vec (concat kw [0] [1 1])) ; kw NUL, then non-zero flag/method, no NULs
         path (temp-png (vec (concat signature (be32 100) (ascii "iTXt") data)))]
     (is (nil? (png/extract path "simpleviz-edn")))))
+
+(deftest png?-sniffs-content-not-extension
+  (is (true? (png/png? "test/fixtures/embedded.png")))
+  (is (true? (png/png? "test/fixtures/plain-1x1.png")))
+  (is (false? (png/png? "README.md")))
+  (is (false? (png/png? "examples/demo.edn")))
+  (is (false? (png/png? "test/fixtures/does-not-exist.png"))))

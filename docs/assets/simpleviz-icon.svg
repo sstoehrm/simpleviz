@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Simpleviz</title>
+  <desc id="desc">Two EDN braces containing a connected pair of graph nodes</desc>
+  <rect x="52" y="52" width="408" height="408" rx="108" fill="none" stroke="#6B7280" stroke-width="24"/>
+  <path d="M204 132c-40 0-50 20-50 52v32c0 25-12 38-36 40 24 4 36 17 36 42v30c0 32 10 52 50 52"
+        fill="none" stroke="#2563EB" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M308 132c40 0 50 20 50 52v32c0 25 12 38 36 40-24 4-36 17-36 42v30c0 32-10 52-50 52"
+        fill="none" stroke="#2563EB" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M220 216 292 296" fill="none" stroke="#2563EB" stroke-width="18" stroke-linecap="round"/>
+  <circle cx="220" cy="216" r="20" fill="#2563EB"/>
+  <circle cx="292" cy="296" r="20" fill="#2563EB"/>
+</svg>

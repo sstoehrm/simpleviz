@@ -327,6 +327,7 @@
                        (reduce (fn [acc b] (assoc acc (:name b) b)) {} (:boxes raw)))
               first-load? (nil? (:graph @state))]
           (.clear layout-cache)
+          (set! (.-title js/document) (format/tab-title g))
           (swap! state assoc :error nil :graph g :warnings (:warnings g))
           ;; big graphs open as a collapsed overview: all top-level boxes
           ;; start folded, drill in from there (also makes the first ELK

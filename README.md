@@ -1,4 +1,4 @@
-# simpleviz
+# <img src="docs/assets/simpleviz-icon.svg" alt="" width="28" height="28"> simpleviz
 
 Minimal EDN-driven graph visualization. Describe nodes, directed edges, and
 nested grouping boxes in an EDN file; view it as an auto-layouted canvas diagram

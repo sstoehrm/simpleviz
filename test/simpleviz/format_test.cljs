@@ -1,7 +1,7 @@
 (ns simpleviz.format-test
   (:require ["node:test" :refer [test]]
             ["node:assert/strict$default" :as assert]
-            [simpleviz.format :refer [value->hiccup]]))
+            [simpleviz.format :refer [value->hiccup tab-title]]))
 
 (test "strings and scalars render plain"
   (fn []
@@ -33,3 +33,22 @@
                         [:ul {:class "dd-list"}
                          [:li {:key "0"} "a"]
                          [:li {:key "1"} "b"]]]])))
+
+(test "tab-title without a graph is just the app name"
+  (fn []
+    (assert/equal (tab-title nil) "simpleviz")))
+
+(test "tab-title shows the served file"
+  (fn []
+    (assert/equal (tab-title {:file "demo.edn"}) "demo.edn — simpleviz")))
+
+(test "tab-title shows compare basenames as old → new"
+  (fn []
+    (assert/equal (tab-title {:file "demo-next.edn"
+                              :compare {:old "examples/demo.edn"
+                                        :new "examples/demo-next.edn"}})
+                  "demo.edn → demo-next.edn — simpleviz")))
+
+(test "tab-title falls back to the app name when file is missing"
+  (fn []
+    (assert/equal (tab-title {:nodes {}}) "simpleviz")))

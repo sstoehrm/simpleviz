@@ -48,6 +48,8 @@ From a bundle/install/repo directory (repo needs `bb build` once):
     bb serve graph.edn               # default port 7373
     bb serve graph.edn --port 9000   # or -p
     bb serve old.edn new.edn         # compare mode: ONE merged diff view (old → new)
+    bb serve diagram.png             # exported PNGs work in place of EDN files (embedded
+                                     # source; a compare export re-opens as the comparison)
 
 With the launcher installed by `install.sh` (files in `~/.simpleviz`, launcher in `~/.local/bin`):
 

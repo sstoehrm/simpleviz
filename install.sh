@@ -88,6 +88,8 @@ MIN_BB="1.3.0"
 usage() {
   cat <<USAGE
 usage: simpleviz <graph.edn> [new.edn]   serve a graph (two files: compare old -> new)
+                                         exported PNGs work in place of EDN files
+
        simpleviz init <graph.edn>        write a starter graph file (won't overwrite)
        simpleviz extract <diagram.png> [out.edn] [--old]   print/extract the embedded EDN
        simpleviz update                  install the latest release if it is newer

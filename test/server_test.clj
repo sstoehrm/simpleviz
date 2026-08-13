@@ -116,3 +116,72 @@
   (let [resp (serve/handler {:uri "/api/source" :query-string "awhich=old"})]
     (is (= 200 (:status resp)))
     (is (= (slurp "examples/demo.edn") (:body resp)))))
+
+;; --- Serving PNGs with embedded EDN (issue #46) ----------------------
+;;
+;; A compare-export PNG fixture is built byte-by-byte here (signature +
+;; IHDR-less iTXt chunks are enough for the extractor, which walks
+;; chunks without decoding the image or checking CRCs).
+
+(defn- be32* [n]
+  [(bit-and (bit-shift-right n 24) 0xff)
+   (bit-and (bit-shift-right n 16) 0xff)
+   (bit-and (bit-shift-right n 8) 0xff)
+   (bit-and n 0xff)])
+
+(defn- itxt* [kw text]
+  (let [kw-b (map int kw)
+        txt-b (seq (.getBytes text "UTF-8"))
+        data (concat kw-b [0 0 0 0 0] txt-b)]
+    (concat (be32* (count data)) (map int "iTXt") data [0 0 0 0])))
+
+(defn- temp-png* [chunks]
+  (let [f (java.io.File/createTempFile "serve-test" ".png")]
+    (.deleteOnExit f)
+    (with-open [os (clojure.java.io/output-stream f)]
+      (.write os (byte-array (map unchecked-byte
+                                  (concat [137 80 78 71 13 10 26 10]
+                                          (apply concat chunks))))))
+    (.getPath f)))
+
+(deftest api-graph-serves-png-embedded-edn
+  (reset! serve/files {:old nil :new "test/fixtures/embedded.png"})
+  (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph"})))]
+    (is (contains? (get out "nodes") "a"))
+    (is (= "embedded.png" (get out "file")))
+    (is (not (contains? out "compare")))))
+
+(deftest api-graph-auto-compares-a-compare-export-png
+  (let [f (temp-png* [(itxt* "simpleviz-edn-old" "{:nodes {:a {}}}")
+                      (itxt* "simpleviz-edn-new" "{:nodes {:a {} :b {}}}")])]
+    (reset! serve/files {:old nil :new f})
+    (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph"})))]
+      (is (= "added" (get-in out ["nodes" "b" "diff"])))
+      (is (contains? out "compare")))))
+
+(deftest api-graph-two-file-compare-accepts-png-sides
+  (let [f (temp-png* [(itxt* "simpleviz-edn-new" "{:nodes {:a {}}}")])]
+    (reset! serve/files {:old f :new "examples/demo.edn"})
+    (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph"})))]
+      (is (contains? out "compare"))
+      (is (= "added" (get-in out ["nodes" "web" "diff"]))))))
+
+(deftest api-graph-png-without-edn-is-a-clear-error
+  (reset! serve/files {:old nil :new "test/fixtures/plain-1x1.png"})
+  (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph"})))]
+    (is (clojure.string/includes? (get out "error" "") "no embedded simpleviz EDN"))))
+
+(deftest api-source-serves-png-embedded-edn
+  (reset! serve/files {:old nil :new "test/fixtures/embedded.png"})
+  (let [resp (serve/handler {:uri "/api/source"})]
+    (is (= 200 (:status resp)))
+    (is (= "{:nodes {:a {}}}" (:body resp)))))
+
+(deftest api-source-compare-png-selects-sides
+  (let [f (temp-png* [(itxt* "simpleviz-edn-old" "{:nodes {:old {}}}")
+                      (itxt* "simpleviz-edn-new" "{:nodes {:new {}}}")])]
+    (reset! serve/files {:old nil :new f})
+    (is (= "{:nodes {:old {}}}"
+           (:body (serve/handler {:uri "/api/source" :query-string "which=old"}))))
+    (is (= "{:nodes {:new {}}}"
+           (:body (serve/handler {:uri "/api/source"}))))))

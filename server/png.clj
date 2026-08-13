@@ -14,6 +14,17 @@
      (* (ub (aget bs (+ i 2))) 256)
      (ub (aget bs (+ i 3)))))
 
+(defn png?
+  "Does the file start with the PNG signature? Content sniffing, not
+  extension matching; false for missing or too-short files."
+  [path]
+  (let [f (io/file path)]
+    (and (.isFile f)
+         (with-open [in (io/input-stream f)]
+           (let [buf (byte-array 8)]
+             (and (= 8 (.read in buf 0 8))
+                  (= signature (mapv ub buf))))))))
+
 (defn extract
   "Text of the iTXt chunk with the given keyword, or nil. Throws when
   the file is not a PNG."

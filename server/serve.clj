@@ -9,16 +9,35 @@
             [clojure.string :as str]
             [diff]
             [graph]
-            [org.httpkit.server :as srv]))
+            [org.httpkit.server :as srv]
+            [png]))
 
 (def default-port 7373)
 
 (def files (atom nil)) ; {:old <path-or-nil> :new <path>}
 
 (def ^:private usage
-  (str "usage: bb serve <graph.edn> [<new.edn>] [--port N]\n"
-       "  pass two files to compare them: first = old, second = new"
+  (str "usage: bb serve <graph.edn|export.png> [<new.edn|new.png>] [--port N]\n"
+       "  pass two files to compare them: first = old, second = new\n"
+       "  a PNG exported from simpleviz serves its embedded EDN;\n"
+       "  a compare-mode export re-opens as the comparison"
        "\n  (default port " default-port ")"))
+
+(defn- read-source
+  "EDN text of a graph file: simpleviz PNG exports yield their embedded
+  EDN (compare exports yield the new side), everything else its raw
+  contents. Throws with a clear message when a PNG has nothing embedded."
+  [f]
+  (if (png/png? f)
+    (or (png/extract f "simpleviz-edn-new")
+        (png/extract f "simpleviz-edn")
+        (throw (ex-info (str "no embedded simpleviz EDN found in " f) {})))
+    (slurp f)))
+
+(defn- embedded-old
+  "The old-side EDN of a single-file compare export, nil otherwise."
+  [f]
+  (when (png/png? f) (png/extract f "simpleviz-edn-old")))
 
 (def cli-spec {:alias {:p :port} :coerce {:port :long}})
 
@@ -55,20 +74,24 @@
 
 (defn compare-json
   "Parse and normalize two EDN strings, diff them into one union-graph
-  JSON string. A parse failure returns {\"error\": \"<file>: msg\"}."
-  [old-s new-s old-name new-name]
-  (try
-    (let [parse (fn [s nm]
-                  (try (edn/read-string s)
-                       (catch Exception e
-                         (throw (ex-info (str nm ": " (ex-message e)) {})))))
-          old-g (graph/normalize (parse old-s old-name))
-          new-g (graph/normalize (parse new-s new-name))]
-      (json/generate-string
-       (assoc (diff/union old-g new-g old-name new-name)
-              :file (.getName (io/file new-name)))))
-    (catch Exception e
-      (json/generate-string {:error (ex-message e)}))))
+  JSON string; file-name overrides the export download name (defaults to
+  new-name's basename). A parse failure returns {\"error\": \"<file>: msg\"}."
+  ([old-s new-s old-name new-name]
+   (compare-json old-s new-s old-name new-name
+                 (.getName (io/file new-name))))
+  ([old-s new-s old-name new-name file-name]
+   (try
+     (let [parse (fn [s nm]
+                   (try (edn/read-string s)
+                        (catch Exception e
+                          (throw (ex-info (str nm ": " (ex-message e)) {})))))
+           old-g (graph/normalize (parse old-s old-name))
+           new-g (graph/normalize (parse new-s new-name))]
+       (json/generate-string
+        (assoc (diff/union old-g new-g old-name new-name)
+               :file file-name)))
+     (catch Exception e
+       (json/generate-string {:error (ex-message e)})))))
 
 (def mime-types
   {"html" "text/html; charset=utf-8"
@@ -105,8 +128,12 @@
                     (try
                       (let [{:keys [old new]} @files]
                         (if (some? old)
-                          (compare-json (slurp old) (slurp new) old new)
-                          (graph-json (slurp new) (.getName (io/file new)))))
+                          (compare-json (read-source old) (read-source new) old new)
+                          (if-let [old-s (embedded-old new)]
+                            (let [nm (.getName (io/file new))]
+                              (compare-json old-s (read-source new)
+                                            (str nm " (old)") (str nm " (new)") nm))
+                            (graph-json (read-source new) (.getName (io/file new))))))
                       (catch Exception e
                         (json/generate-string {:error (ex-message e)}))))
     "/api/version" (json-response
@@ -120,19 +147,20 @@
     (let [{:keys [old new]} @files
           which (when (some? query-string)
                   (second (re-find #"(?:^|&)which=(old|new)(?:&|$)" query-string)))
-          f (case which "old" old "new" new new)
-          not-found {:status 404
-                     :headers {"Content-Type" "text/plain; charset=utf-8"
-                               "Cache-Control" "no-store"}
-                     :body "not found"}]
-      (if (some? f)
-        (try
-          {:status 200
-           :headers {"Content-Type" "text/plain; charset=utf-8"
-                     "Cache-Control" "no-store"}
-           :body (slurp f)}
-          (catch Exception _ not-found))
-        not-found))
+          body (try
+                 (if (= which "old")
+                   (if (some? old) (read-source old) (embedded-old new))
+                   (when (some? new) (read-source new)))
+                 (catch Exception _ nil))]
+      (if (some? body)
+        {:status 200
+         :headers {"Content-Type" "text/plain; charset=utf-8"
+                   "Cache-Control" "no-store"}
+         :body body}
+        {:status 404
+         :headers {"Content-Type" "text/plain; charset=utf-8"
+                   "Cache-Control" "no-store"}
+         :body "not found"}))
     (static-response uri)))
 
 (defn -main [& args]
@@ -143,10 +171,19 @@
     (doseq [f (if old-file [old-file file] [file])]
       (when-not (.isFile (io/file f))
         (println (str "file not found: " f))
-        (System/exit 1)))
+        (System/exit 1))
+      ;; resolve once so a PNG without embedded EDN fails at startup with
+      ;; a clear message instead of an empty diagram in the browser
+      (try (read-source f)
+           (catch Exception e
+             (println (ex-message e))
+             (System/exit 1))))
     (reset! files {:old old-file :new file})
     (srv/run-server handler {:port port})
     (println (str "simpleviz: serving "
-                  (if old-file (str old-file " → " file " (compare)") file)
+                  (cond
+                    old-file (str old-file " → " file " (compare)")
+                    (some? (embedded-old file)) (str file " (embedded compare)")
+                    :else file)
                   " at http://localhost:" port))
     @(promise)))

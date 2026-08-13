@@ -197,9 +197,31 @@
        (legend-row st "modified" "~" "dl-modified" (get stops "modified"))
        (legend-row st "removed" "−" "dl-removed" (get stops "removed"))])))
 
+(defn- update-hover!
+  "Set/clear the canvas title attribute to the hovered element's id —
+  the native tooltip reveals what to reference in the EDN file. Direct
+  DOM attribute write: no state, no re-render."
+  [el mx my]
+  (let [p (hit/client->graph canvas/view mx my)
+        s (:scene @state)
+        item (when (some? s)
+               (hit/hit-test s p (/ 8 (:k canvas/view)) (:k canvas/view)))
+        t (hit/hover-title item)]
+    (if (some? t)
+      (.setAttribute el "title" t)
+      (.removeAttribute el "title"))))
+
 (defn- canvas-view []
   [:canvas
    {:id "canvas" :key "the-canvas"
+    :on-pointermove
+    (fn [e]
+      (let [el (.-currentTarget e)
+            rect (.getBoundingClientRect el)]
+        (update-hover! el (- (.-clientX e) (.-left rect))
+                       (- (.-clientY e) (.-top rect)))))
+    :on-pointerleave
+    (fn [e] (.removeAttribute (.-currentTarget e) "title"))
     :on-click
     (fn [e]
       ;; drag-ending clicks never arrive here: pointer capture (acquired

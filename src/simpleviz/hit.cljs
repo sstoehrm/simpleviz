@@ -44,6 +44,17 @@
              (>= (:x p) (- (+ x w) 4))
              (>= (:y p) (- (+ y h) 4))))))
 
+(defn hover-title
+  "Tooltip text for a hit item: the id you would reference in the EDN
+  file (edges as their [source target] key), nil for no item."
+  [item]
+  (case (:kind item)
+    "node" (.slice (:id item) 2)
+    "box" (.slice (:id item) 2)
+    "collapse-button" (.slice (:box-id item) 2)
+    "edge" (str "[" (:source item) " " (:target item) "]")
+    nil))
+
 (defn hit-test
   "Returns the hit scene item or nil. Priority: nodes, then edge labels
   (resolving to their edge), then label-less edges within tol of their

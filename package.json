@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "devDependencies": {
-    "reagami": "^0.2.38",
+    "reagami": "^0.2.40",
     "squint-cljs": "^0.14.207"
   }
 }

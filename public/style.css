@@ -66,6 +66,8 @@ body { margin: 0; font-family: system-ui, sans-serif; overflow: hidden;
 #details dd ul.dd-list { margin: 2px 0 0; padding-left: 18px; list-style: disc; }
 #details dd ol.dd-map { margin: 2px 0 0; padding-left: 6px; list-style: none; }
 #details dd .dd-map-key { font-weight: 600; color: var(--text-muted); }
+.attr-edit { width: 100%; }
+.attr-del { margin-left: 6px; }
 
 #collapsed-panel { position: fixed; top: 0; left: 0; bottom: 0; width: 216px;
                    z-index: 5; background: var(--panel);

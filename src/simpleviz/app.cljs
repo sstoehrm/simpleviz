@@ -7,7 +7,8 @@
             [simpleviz.scene :as scene]
             [simpleviz.hit :as hit]
             [simpleviz.canvas :as canvas]
-            [simpleviz.png :as png]))
+            [simpleviz.png :as png]
+            [simpleviz.editor :as editor]))
 
 (def elk (js/ELK.))
 (def app-el (js/document.getElementById "app"))
@@ -16,6 +17,7 @@
                   :colors nil :selected nil :collapsed false
                   :collapsed-boxes #{} :layouting false
                   :diff-cursors {}
+                  :edit-target "new" :edit-error nil :editing nil
                   :theme (or (js/localStorage.getItem "simpleviz-theme")
                              (if (.-matches (js/window.matchMedia
                                              "(prefers-color-scheme: dark)"))
@@ -24,9 +26,9 @@
 (def last-mtime (atom nil))
 
 (defn- on-select [payload]
-  (swap! state assoc :selected payload))
+  (swap! state assoc :selected payload :editing nil))
 
-(declare relayout!)
+(declare relayout! post-edit!)
 
 ;; layouts per collapsed-set, so expanding (or re-collapsing a seen
 ;; combination) is instant instead of a multi-second ELK run; cleared on
@@ -107,36 +109,79 @@
         (string? v) v
         :else (js/JSON.stringify v)))
 
-(defn- details-view [sel]
-  [:aside {:id "details"}
-   [:button {:id "details-close" :type "button" :aria-label "Close details"
-             :on-click (fn [e] (.stopPropagation e) (on-select nil))}
-    "×"]
-   [:h2 (:title sel)]
-   [:div {:class "details-type"}
-    (str (if (pos? (.-length (:subtitle sel)))
-           (str "(" (:subtitle sel) ") — ")
-           "")
-         (:kind sel)
-         (if (some? (:diff sel)) (str " — " (:diff sel)) ""))]
-   (into [:dl]
-         (mapcat (fn [[k v]]
-                   [[:dt {:key (str "t" k)} k]
-                    [:dd {:key (str "d" k)}
-                     (format/value->hiccup v)]])
-                 (visible-attrs sel)))
-   (when (some? (:changed sel))
-     [:div {:class "details-changes"}
-      [:div {:class "details-changes-header"} "changes (old → new)"]
-      (into [:dl]
-            (mapcat (fn [[k v]]
-                      [[:dt {:key (str "ct" k)} k]
-                       [:dd {:key (str "cd" k)}
-                        (str (fmt-val (:old v)) " → " (fmt-val (:new v)))]])
-                    (js/Object.entries (:changed sel))))])])
+(defn- attr-edit-row [tgt k v scalar editing]
+  [:dd {:key (str "d" k)}
+   (if (= k (:attr editing))
+     [(if scalar :input :textarea)
+      {:value (:text editing) :class "attr-edit"
+       :on-input (fn [e] (swap! state assoc-in [:editing :text] (.. e -target -value)))
+       :on-keydown (fn [e]
+                     (case (.-key e)
+                       "Enter" (post-edit! [(editor/set-attr-op tgt k (:text (:editing @state)) scalar)])
+                       "Escape" (swap! state assoc :editing nil)
+                       nil))
+       :on-blur (fn [_] (post-edit! [(editor/set-attr-op tgt k (:text (:editing @state)) scalar)]))}]
+     [:span {:on-click (fn [_] (swap! state assoc :editing {:attr k :text (editor/value->edn-text v)}))}
+      (format/value->hiccup v)
+      [:button {:class "attr-del" :type "button"
+                :on-click (fn [e] (.stopPropagation e) (post-edit! [(editor/del-attr-op tgt k)]))}
+       "×"]])])
 
-(defn- banner-view [{:keys [error warnings collapsed]}]
+(defn- attr-add-row [tgt]
+  [:div {:class "attr-add"}
+   [:input {:id "attr-add-key" :class "attr-add-key" :type "text" :placeholder "key"
+            :on-keydown (fn [e]
+                          (when (= (.-key e) "Enter")
+                            (.focus (js/document.getElementById "attr-add-val"))))}]
+   [:input {:id "attr-add-val" :class "attr-add-val" :type "text" :placeholder "value"
+            :on-keydown (fn [e]
+                          (when (= (.-key e) "Enter")
+                            (let [key-text (.-value (js/document.getElementById "attr-add-key"))]
+                              (when (pos? (.-length key-text))
+                                (post-edit! [(editor/set-attr-op tgt key-text
+                                                                 (.. e -target -value) true)])))))}]])
+
+(defn- details-view [st]
+  (let [sel (:selected st)
+        editable (:editable (:graph st))
+        tgt (when editable (editor/target sel))
+        editing (:editing st)]
+    [:aside {:id "details"}
+     [:button {:id "details-close" :type "button" :aria-label "Close details"
+               :on-click (fn [e] (.stopPropagation e) (on-select nil))}
+      "×"]
+     [:h2 (:title sel)]
+     [:div {:class "details-type"}
+      (str (if (pos? (.-length (:subtitle sel)))
+             (str "(" (:subtitle sel) ") — ")
+             "")
+           (:kind sel)
+           (if (some? (:diff sel)) (str " — " (:diff sel)) ""))]
+     (into [:dl]
+           (mapcat (fn [[k v]]
+                     [[:dt {:key (str "t" k)} k]
+                      (if editable
+                        (attr-edit-row tgt k v (editor/scalar? v) editing)
+                        [:dd {:key (str "d" k)} (format/value->hiccup v)])])
+                   (visible-attrs sel)))
+     (when editable (attr-add-row tgt))
+     (when (some? (:changed sel))
+       [:div {:class "details-changes"}
+        [:div {:class "details-changes-header"} "changes (old → new)"]
+        (into [:dl]
+              (mapcat (fn [[k v]]
+                        [[:dt {:key (str "ct" k)} k]
+                         [:dd {:key (str "cd" k)}
+                          (str (fmt-val (:old v)) " → " (fmt-val (:new v)))]])
+                      (js/Object.entries (:changed sel))))])]))
+
+(defn- banner-view [{:keys [error warnings collapsed edit-error]}]
   (cond
+    (some? edit-error)
+    [:div {:id "banner" :class "error"
+           :on-click (fn [_] (swap! state assoc :edit-error nil))}
+     (str "Edit failed: " edit-error)]
+
     (some? error)
     [:div {:id "banner" :class "error"} error]
 
@@ -153,13 +198,14 @@
         fallback (if (= (:kind item) "edge")
                    (str (:source item) " → " (:target item))
                    (:id item))]
-    {:kind (:kind item)
-     :elk-id (:id item)
-     :title (if (pos? (.-length nm)) nm fallback)
-     :subtitle (str (if (nil? (:type item)) "" (:type item)))
-     :attrs (:attrs item)
-     :diff (:diff item)
-     :changed (:changed item)}))
+    (cond-> {:kind (:kind item)
+             :elk-id (:id item)
+             :title (if (pos? (.-length nm)) nm fallback)
+             :subtitle (str (if (nil? (:type item)) "" (:type item)))
+             :attrs (:attrs item)
+             :diff (:diff item)
+             :changed (:changed item)}
+      (= (:kind item) "edge") (assoc :source (:source item) :target (:target item)))))
 
 (defn- cycle-diff! [status]
   (let [stops (get (scene/diff-stops (:scene @state)) status)]
@@ -262,7 +308,7 @@
     (if (= (:theme st) "dark") "☀" "🌙")]
    (canvas-view)
    (when (some? (:selected st))
-     (details-view (:selected st)))])
+     (details-view st))])
 
 (defn- paint-now! []
   (when-let [canvas-el (js/document.getElementById "canvas")]
@@ -355,6 +401,18 @@
     (when (and (some? mtime) (not= mtime @last-mtime))
       (reset! last-mtime mtime)
       (js-await (reload!)))))
+
+(defn- ^:async post-edit! [ops]
+  (let [resp (js-await (js/fetch "/api/edit"
+                                 {:method "POST"
+                                  :headers {"Content-Type" "application/json"}
+                                  :body (js/JSON.stringify
+                                         {:file (:edit-target @state) :ops ops})}))
+        out (js-await (.json resp))]
+    (if (some? (:error out))
+      (swap! state assoc :edit-error (:error out))
+      (do (swap! state assoc :edit-error nil :editing nil)
+          (js-await (tick))))))
 
 (defn- apply-theme! [t]
   (set! (.. js/document -documentElement -dataset -theme) t)

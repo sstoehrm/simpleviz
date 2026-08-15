@@ -551,7 +551,13 @@
                                          {:file (:edit-target @state) :ops ops})}))
         out (js-await (.json resp))]
     (if (some? (:error out))
-      (swap! state assoc :edit-error (:error out))
+      ;; a failed edit invalidates any pending-focus jump that was armed
+      ;; for it (e.g. add-connected-ops on a duplicate id) — relayout!,
+      ;; the only place that consumes/clears :pending-focus, never runs
+      ;; on this path, so it must be cleared here or it lingers and can
+      ;; fire a stray center-on!/on-select on some later, unrelated
+      ;; relayout if that id ever comes to exist.
+      (swap! state assoc :edit-error (:error out) :pending-focus nil)
       (do (swap! state assoc :edit-error nil :editing nil)
           (js-await (tick))))))
 

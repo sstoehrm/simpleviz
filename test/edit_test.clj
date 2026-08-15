@@ -147,3 +147,34 @@
   (let [f "{:nodes {:a nil :b nil}\n :edges {[:a :b] nil}}"]
     (is (= "{:nodes {:a nil :b nil}\n :edges {[:a :b] {:direction :<->}}}"
            (edit/set-direction f {:edge ["a" "b"] :direction "<->"})))))
+
+(def casc-file
+  (str "{:nodes {:a nil :b nil :c nil}\n"
+       " :edges {[:a :b] {:direction :->}\n"
+       "         [:c :grp] nil}\n"
+       " :boxes {:grp {:components #{:a :inner}}\n"
+       "         :inner {:components [:b]}}}"))
+
+(deftest delete-edge-removes-only-that-entry
+  (let [out (edit/delete casc-file {:section :edges :id ["a" "b"]})]
+    (is (not (clojure.string/includes? out "[:a :b]")))
+    (is (clojure.string/includes? out "[:c :grp]"))))
+
+(deftest delete-node-cascades-edges-and-memberships
+  (let [out (edit/delete casc-file {:section :nodes :id "a"})
+        g (graph/normalize (clojure.edn/read-string out))]
+    (is (not (contains? (:nodes g) "a")))
+    (is (empty? (filter (fn [e] (= "a" (:source e))) (:edges g))))
+    (is (= [] (:warnings g)))))     ; no dangling references left behind
+
+(deftest delete-box-releases-members-and-references
+  (let [out (edit/delete casc-file {:section :boxes :id "grp"})
+        g (graph/normalize (clojure.edn/read-string out))]
+    (is (nil? (some (fn [b] (when (= "grp" (:name b)) b)) (:boxes g))))
+    ;; inner survives, unboxed; c's edge to grp is gone; a-b (unrelated to
+    ;; grp) is untouched
+    (is (some (fn [b] (= "inner" (:name b))) (:boxes g)))
+    (is (empty? (filter (fn [e] (or (= "grp" (:source e)) (= "grp" (:target e))))
+                        (:edges g))))
+    (is (some (fn [e] (and (= "a" (:source e)) (= "b" (:target e)))) (:edges g)))
+    (is (= [] (:warnings g)))))

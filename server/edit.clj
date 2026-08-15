@@ -69,9 +69,19 @@
     (or (find-val sect (entry-pred section id)) (unknown! section id))))
 
 (defn- remove-pair
-  "Remove a key zloc and its value; returns the root zipper."
+  "Remove a key zloc and its value; returns the root zipper.
+  Removing the value first can land the zipper's position deep inside the
+  key's own subtree when the key is compound (e.g. an edge's [from to]
+  vector) — rewrite-clj's `remove` moves to the depth-first predecessor,
+  which dives into a compound left sibling. Walk back up by comparing
+  source text (not sexpr, which would choke on a map now missing one
+  value) until we're back at the key itself, then remove that."
   [kloc]
-  (-> kloc z/right z/remove z/remove z/up))
+  (let [key-text (z/string kloc)
+        after-val (z/remove (z/right kloc))
+        at-key (loop [c after-val]
+                 (if (= key-text (z/string c)) c (recur (z/up c))))]
+    (z/remove at-key)))
 
 (defn set-attr [text {:keys [section id attr value fallback]}]
   (let [v (edn-value value fallback)
@@ -166,3 +176,47 @@
         (z/root-string (z/append-child comps (ident-node member)))
         (z/root-string (-> entry (z/append-child :components)
                            (z/append-child [(ident-node member)])))))))
+
+(defn- remove-entry
+  "Remove one map entry (key+value) from a section; nil when absent."
+  [text section pred]
+  (when-let [sect (sect-val (zroot text) section)]
+    (when-let [k (find-key sect pred)]
+      (z/root-string (remove-pair k)))))
+
+(defn- remove-first-component
+  "Remove the first occurrence of member-id from any box's :components;
+  nil when no box contains it."
+  [text member-id]
+  (when-let [sect (sect-val (zroot text) :boxes)]
+    (loop [k (z/down sect)]
+      (when (some? k)
+        (let [v (z/right k)
+              comps (when (map? (z/sexpr v)) (find-val v #(= % :components)))
+              hit (when (and (some? comps) (coll? (z/sexpr comps)))
+                    (loop [c (z/down comps)]
+                      (when (some? c)
+                        (if (= member-id (ident->str (z/sexpr c))) c (recur (z/right c))))))]
+          (if (some? hit)
+            (z/root-string (z/remove hit))
+            (recur (z/right v))))))))
+
+(defn- until-done [text f]
+  (if-let [t (f text)] (recur t f) text))
+
+(defn- remove-edges-touching [text id]
+  (until-done text
+    (fn [t] (remove-entry t :edges
+              (fn [s] (and (vector? s) (some #(= id (ident->str %)) s)))))))
+
+(defn delete [text {:keys [section id]}]
+  (case section
+    :edges (or (remove-entry text :edges (edge-key-pred id)) (unknown! :edges id))
+    :nodes (let [t (or (remove-entry text :nodes (entry-pred :nodes id))
+                       (unknown! :nodes id))]
+             (-> t (remove-edges-touching id)
+                 (until-done (fn [t'] (remove-first-component t' id)))))
+    :boxes (let [t (or (remove-entry text :boxes (entry-pred :boxes id))
+                       (unknown! :boxes id))]
+             (-> t (remove-edges-touching id)
+                 (until-done (fn [t'] (remove-first-component t' id)))))))

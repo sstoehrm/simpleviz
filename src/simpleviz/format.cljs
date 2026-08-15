@@ -5,7 +5,7 @@
 ;; keys; scalars stringify; nesting recurses. Pure — no DOM — so the
 ;; node tests can cover it.
 
-(defn- basename [p]
+(defn basename [p]
   (let [i (.lastIndexOf p "/")]
     (if (neg? i) p (.slice p (inc i)))))
 

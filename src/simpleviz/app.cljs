@@ -289,8 +289,14 @@
                         (attr-edit-row tgt k v (editor/scalar? v) editing)
                         [:dd {:key (str "d" k)} (format/value->hiccup v)])])
                    (visible-attrs sel)))
-     (when editable (attr-add-row tgt))
-     (when editable (action-bar sel tgt))]))
+     (when editable (attr-add-row tgt))]))
+
+(defn- selection-toolbar
+  "Floating bottom-center toolbar with the selection's edit tools; the
+  inspector panel itself stays read/data-only."
+  [st]
+  (let [sel (:selected st)]
+    [:div {:id "selection-toolbar"} (action-bar sel (editor/target sel))]))
 
 (defn- banner-view [{:keys [error warnings collapsed edit-error]}]
   (cond
@@ -371,7 +377,8 @@
   (when-let [cmp (:compare (:graph st))]
     (let [stops (scene/diff-stops (:scene st))]
       [:div {:id "diff-legend"}
-       [:div {:class "dl-files"} (str (:old cmp) " → " (:new cmp))]
+       [:div {:class "dl-files"}
+        (str (format/basename (:old cmp)) " → " (format/basename (:new cmp)))]
        (legend-row st "added" "+" "dl-added" (get stops "added"))
        (legend-row st "modified" "~" "dl-modified" (get stops "modified"))
        (legend-row st "removed" "−" "dl-removed" (get stops "removed"))
@@ -467,6 +474,8 @@
              :on-click (fn [e] (.stopPropagation e) (toggle-theme!))}
     (if (= (:theme st) "dark") "☀" "🌙")]
    (canvas-view)
+   (when (and (some? (:selected st)) (current-edit-target-editable? st))
+     (selection-toolbar st))
    (when (some? (:selected st))
      (details-view st))])
 

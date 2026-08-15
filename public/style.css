@@ -45,7 +45,7 @@ body { margin: 0; font-family: system-ui, sans-serif; overflow: hidden;
    down from here to #canvas rather than needing a rule on the wrap. */
 #root.picking { cursor: crosshair; }
 
-#pick-hint { position: fixed; top: 8px; left: 50%; transform: translateX(-50%);
+#pick-hint { position: fixed; bottom: 70px; left: 50%; transform: translateX(-50%);
              z-index: 8; background: var(--accent); color: #fff; border-radius: 12px;
              padding: 4px 14px; font-size: 12px; box-shadow: 0 1px 4px var(--shadow); }
 
@@ -88,40 +88,45 @@ textarea.attr-edit { min-height: 64px; resize: vertical; }
 .attr-btn.attr-del { font-size: 14px; }
 .attr-btn.attr-del:hover { color: var(--diff-removed); }
 
-#details input[type="text"], #details .attr-edit {
+#details input[type="text"], #details .attr-edit,
+#selection-toolbar input[type="text"] {
   box-sizing: border-box; background: var(--bg); color: var(--text);
   border: 1px solid var(--panel-border); border-radius: 6px;
   font-size: 12.5px; padding: 5px 8px; outline: none;
   font-family: ui-monospace, "Cascadia Mono", monospace; }
-#details input[type="text"]:focus, #details .attr-edit:focus {
+#details input[type="text"]:focus, #details .attr-edit:focus,
+#selection-toolbar input[type="text"]:focus {
   border-color: var(--accent); box-shadow: 0 0 0 2px var(--hover); }
 
-#details .details-actions { display: flex; align-items: center; gap: 6px;
-                            flex-wrap: wrap; margin-top: 16px;
-                            padding-top: 12px;
-                            border-top: 1px solid var(--panel-divider); }
-#details .action-pick { border: 1px solid var(--panel-border); background: none;
-                        color: var(--text); font-size: 11.5px; line-height: 1.5;
-                        padding: 3px 10px; border-radius: 999px; cursor: pointer; }
-#details .action-pick:hover { border-color: var(--accent); color: var(--accent);
-                              background: var(--hover); }
-#details .action-delete { margin-left: auto; border: 1px solid transparent;
-                          background: none; color: var(--diff-removed);
-                          font-size: 11.5px; line-height: 1.5;
-                          padding: 3px 10px; border-radius: 999px; cursor: pointer; }
-#details .action-delete:hover { border-color: var(--diff-removed);
-                                background: var(--diff-removed); color: #fff; }
-#details .dir-group { display: flex; border: 1px solid var(--panel-border);
-                      border-radius: 999px; overflow: hidden; }
-#details .dir-btn { border: none; background: none; color: var(--text-muted);
-                    font-size: 12.5px; line-height: 1.4; padding: 3px 9px;
-                    cursor: pointer;
-                    border-right: 1px solid var(--panel-border); }
-#details .dir-btn:last-child { border-right: none; }
-#details .dir-btn:hover { background: var(--hover-plain); color: var(--text-strong); }
-#details .dir-btn.active { background: var(--accent); color: #fff; }
-#details .id-entry { flex-basis: 100%; margin-top: 2px; }
-#details .id-entry-input { width: 100%; }
+#selection-toolbar { position: fixed; bottom: 12px; left: 50%;
+                     transform: translateX(-50%); z-index: 6; max-width: 80vw;
+                     background: var(--panel); border: 1px solid var(--panel-border);
+                     border-radius: 10px; padding: 7px 10px;
+                     box-shadow: 0 2px 8px var(--shadow); }
+.details-actions { display: flex; align-items: center; justify-content: center;
+                   gap: 6px; flex-wrap: wrap; }
+.action-pick { border: 1px solid var(--panel-border); background: none;
+               color: var(--text); font-size: 11.5px; line-height: 1.5;
+               padding: 3px 10px; border-radius: 999px; cursor: pointer; }
+.action-pick:hover { border-color: var(--accent); color: var(--accent);
+                     background: var(--hover); }
+.action-delete { margin-left: 6px; border: 1px solid transparent;
+                 background: none; color: var(--diff-removed);
+                 font-size: 11.5px; line-height: 1.5;
+                 padding: 3px 10px; border-radius: 999px; cursor: pointer; }
+.action-delete:hover { border-color: var(--diff-removed);
+                       background: var(--diff-removed); color: #fff; }
+.dir-group { display: flex; border: 1px solid var(--panel-border);
+             border-radius: 999px; overflow: hidden; }
+.dir-btn { border: none; background: none; color: var(--text-muted);
+           font-size: 12.5px; line-height: 1.4; padding: 3px 9px;
+           cursor: pointer;
+           border-right: 1px solid var(--panel-border); }
+.dir-btn:last-child { border-right: none; }
+.dir-btn:hover { background: var(--hover-plain); color: var(--text-strong); }
+.dir-btn.active { background: var(--accent); color: #fff; }
+.id-entry { flex-basis: 100%; margin-top: 4px; }
+.id-entry-input { width: 100%; }
 #details .attr-add { display: flex; gap: 6px; margin-top: 16px;
                      padding-top: 12px; border-top: 1px solid var(--panel-divider); }
 #details .attr-add-key { width: 38%; }
@@ -183,7 +188,8 @@ textarea.attr-edit { min-height: 64px; resize: vertical; }
 #loadscreen .load-stage { font-size: 12px; color: var(--text-muted); }
 @keyframes sv-spin { to { transform: rotate(360deg); } }
 
-#diff-legend { position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+#diff-legend { position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
+               z-index: 6; min-width: 240px;
                background: var(--panel); border: 1px solid var(--panel-border);
                border-radius: 8px; padding: 8px 12px; font-size: 12px;
                box-shadow: 0 2px 8px var(--shadow); }

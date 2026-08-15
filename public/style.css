@@ -169,6 +169,23 @@ body { margin: 0; font-family: system-ui, sans-serif; overflow: hidden;
 #diff-legend .dl-added { color: var(--diff-added); }
 #diff-legend .dl-modified { color: var(--diff-modified); }
 #diff-legend .dl-removed { color: var(--diff-removed); }
+#diff-legend .dl-edit-target { display: flex; align-items: center; gap: 6px;
+                               margin-top: 6px; padding-top: 6px;
+                               border-top: 1px solid var(--panel-divider); }
+#diff-legend .dl-target { border: 1px solid var(--panel-border); background: var(--panel);
+                          color: var(--text); font: inherit; padding: 2px 8px;
+                          border-radius: 4px; cursor: pointer; }
+#diff-legend .dl-target:hover:not(:disabled) { border-color: var(--accent); }
+#diff-legend .dl-target.active { background: var(--accent); border-color: var(--accent);
+                                 color: #fff; }
+#diff-legend .dl-target:disabled { opacity: .4; cursor: not-allowed; }
+
+#undo-btn { position: fixed; top: 8px; right: 92px; z-index: 4;
+            width: 32px; height: 32px; border-radius: 50%;
+            border: 1px solid var(--panel-border); background: var(--panel);
+            color: var(--text); font-size: 15px; line-height: 1;
+            cursor: pointer; box-shadow: 0 1px 4px var(--shadow); }
+#undo-btn:hover { border-color: var(--accent); }
 #details .details-changes { border-top: 1px solid var(--panel-divider);
                             margin-top: 14px; padding-top: 4px; }
 #details .details-changes-header { font-size: 12px; font-weight: 600;

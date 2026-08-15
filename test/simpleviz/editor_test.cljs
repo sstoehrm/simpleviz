@@ -4,7 +4,8 @@
             [simpleviz.editor :refer [target set-attr-op del-attr-op
                                       value->edn-text scalar? blur-op
                                       delete-op direction-op pick-ops
-                                      add-connected-ops wrap-in-box-ops]]))
+                                      add-connected-ops wrap-in-box-ops
+                                      edit-body]]))
 
 (test "target maps selection payloads to op targets"
   (fn []
@@ -113,3 +114,8 @@
     (assert/deepEqual (wrap-in-box-ops "api" "backend")
                       [{:op "add-box" :id "backend"}
                        {:op "box-add" :box "backend" :member "api"}])))
+
+(test "edit-body routes ops to the chosen file"
+  (fn []
+    (assert/deepEqual (edit-body "old" [{:op "undo"}])
+                      {:file "old" :ops [{:op "undo"}]})))

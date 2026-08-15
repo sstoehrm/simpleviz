@@ -341,6 +341,22 @@
      [:span {:class "dl-count"}
       (if (some? idx) (str (inc idx) "/" n) (str n))]]))
 
+(defn- edit-target-btn [st side ok]
+  (let [active (= (:edit-target st) side)]
+    [:button {:key side :type "button"
+              :class (str "dl-target" (if active " active" ""))
+              :disabled (not ok)
+              :title (when-not ok "PNG side is read-only")
+              :on-click (fn [e] (.stopPropagation e) (swap! state assoc :edit-target side))}
+     side]))
+
+(defn- edit-target-row [st g]
+  (when (or (:editable g) (:editable-old g))
+    [:div {:class "dl-edit-target"}
+     [:span {:class "dl-label"} "edit:"]
+     (edit-target-btn st "old" (:editable-old g))
+     (edit-target-btn st "new" (:editable g))]))
+
 (defn- legend-view [st]
   (when-let [cmp (:compare (:graph st))]
     (let [stops (scene/diff-stops (:scene st))]
@@ -348,7 +364,8 @@
        [:div {:class "dl-files"} (str (:old cmp) " → " (:new cmp))]
        (legend-row st "added" "+" "dl-added" (get stops "added"))
        (legend-row st "modified" "~" "dl-modified" (get stops "modified"))
-       (legend-row st "removed" "−" "dl-removed" (get stops "removed"))])))
+       (legend-row st "removed" "−" "dl-removed" (get stops "removed"))
+       (edit-target-row st (:graph st))])))
 
 (defn- update-hover!
   "Set/clear the canvas title attribute to the hovered element's id —
@@ -403,6 +420,10 @@
             (toggle-collapse! (.slice (:box-id item) 2))
             (on-select (when (some? item) (item->payload item)))))))}])
 
+(defn- current-edit-target-editable? [st]
+  (when-let [g (:graph st)]
+    (boolean (if (= (:edit-target st) "old") (:editable-old g) (:editable g)))))
+
 (defn- pick-hint-view [st]
   (when-let [pick (:pick st)]
     [:div {:id "pick-hint"} (:pick-hint st) " — Esc cancels"]))
@@ -427,6 +448,10 @@
      [:button {:id "export-btn" :type "button" :title "Export PNG"
                :on-click (fn [e] (.stopPropagation e) (export-png!))}
       "⇩"])
+   (when (current-edit-target-editable? st)
+     [:button {:id "undo-btn" :type "button" :title "Undo last edit (Ctrl+Z)"
+               :on-click (fn [e] (.stopPropagation e) (post-edit! [{:op "undo"}]))}
+      "⟲"])
    [:button {:id "theme-toggle" :type "button"
              :title (if (= (:theme st) "dark") "Switch to light mode" "Switch to dark mode")
              :on-click (fn [e] (.stopPropagation e) (toggle-theme!))}
@@ -502,6 +527,25 @@
       (swap! state assoc :layouting false
              :error (str "Render error: " (or (.-message e) (str e)))))))
 
+(defn- resolve-edit-target
+  "The :edit-target to use for a freshly loaded graph g, given the
+  current value. Single-file mode always edits \"new\". In compare
+  mode the current target is kept as long as its own editable flag
+  (:editable for \"new\", :editable-old for \"old\") is true — the
+  user's toggle choice survives every live-reload tick; only when it
+  goes stale (that side turned/became a PNG) do we hop to whichever
+  side is still editable, falling back to the unchanged current value
+  when neither side is."
+  [g current]
+  (if (:compare g)
+    (let [new-ok (:editable g)
+          old-ok (:editable-old g)
+          cur-ok (if (= current "old") old-ok new-ok)]
+      (if cur-ok
+        current
+        (cond old-ok "old" new-ok "new" :else current)))
+    "new"))
+
 (defn ^:async reload! []
   (try
     (when (nil? (:scene @state))
@@ -515,7 +559,9 @@
               first-load? (nil? (:graph @state))]
           (.clear layout-cache)
           (set! (.-title js/document) (format/tab-title g))
-          (swap! state assoc :error nil :graph g :warnings (:warnings g))
+          (swap! state (fn [st]
+                         (assoc st :error nil :graph g :warnings (:warnings g)
+                                :edit-target (resolve-edit-target g (:edit-target st)))))
           ;; big graphs open as a collapsed overview: all top-level boxes
           ;; start folded, drill in from there (also makes the first ELK
           ;; run cheap). Small graphs open fully expanded.
@@ -548,7 +594,7 @@
                                  {:method "POST"
                                   :headers {"Content-Type" "application/json"}
                                   :body (js/JSON.stringify
-                                         {:file (:edit-target @state) :ops ops})}))
+                                         (editor/edit-body (:edit-target @state) ops))}))
         out (js-await (.json resp))]
     (if (some? (:error out))
       ;; a failed edit invalidates any pending-focus jump that was armed
@@ -638,8 +684,14 @@
 ;; init
 (js/window.addEventListener "keydown"
   (fn [e]
-    (when (= (.-key e) "Escape")
-      (cancel-pick!))))
+    (cond
+      (= (.-key e) "Escape") (cancel-pick!)
+      (and (or (.-ctrlKey e) (.-metaKey e))
+           (= (.toLowerCase (.-key e)) "z")
+           (let [tag (.-tagName (.-activeElement js/document))]
+             (not (or (= tag "INPUT") (= tag "TEXTAREA"))))
+           (current-edit-target-editable? @state))
+      (do (.preventDefault e) (post-edit! [{:op "undo"}])))))
 (canvas/set-repaint! paint-now!)
 (apply-theme! (:theme @state))
 (add-watch state :render (fn [_ _ _ _] (rerender!)))

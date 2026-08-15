@@ -34,6 +34,12 @@
   [{:op "add-box" :id box-id}
    {:op "box-add" :box box-id :member node-id}])
 
+(defn edit-body
+  "The /api/edit POST body: routes ops to whichever file (\"old\"/\"new\")
+  is the current edit target."
+  [file ops]
+  {:file file :ops ops})
+
 (defn pick-ops
   "Ops for a pick-mode hit, or nil when item isn't a valid target for
   pick (keep picking). pick is one of:

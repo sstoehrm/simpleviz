@@ -63,6 +63,11 @@
       "into-box" (if (= kind "box")
                    [{:op "box-add" :box (bare-id item) :member (:member pick)}]
                    nil)
+      "connect" (if (and (or (= kind "node") (= kind "box"))
+                         (not= (bare-id item) (:from pick)))
+                  [{:op "add-edge" :from (:from pick) :to (bare-id item)
+                    :direction "->"}]
+                  nil)
       "box-take" (if (and (= kind (:want pick))
                           (not= (bare-id item) (:box pick)))
                    [{:op "box-add" :box (:box pick) :member (bare-id item)}]

@@ -192,10 +192,16 @@
             (pick-btn "change target"
                       {:mode "retarget" :edge (:id tgt) :end "target"}
                       "click the new target node or box")]
-    "node" [(pick-btn "add to box"
+    "node" [(pick-btn "add edge"
+                      {:mode "connect" :from (:id tgt)}
+                      "click the target node or box")
+            (pick-btn "add to box"
                       {:mode "into-box" :member (:id tgt)}
                       "click the destination box")]
-    "box" [(pick-btn "add node"
+    "box" [(pick-btn "add edge"
+                     {:mode "connect" :from (:id tgt)}
+                     "click the target node or box")
+           (pick-btn "add node"
                      {:mode "box-take" :box (:id tgt) :want "node"}
                      "click a node to add")
            (pick-btn "add box"

@@ -124,3 +124,12 @@
   (fn []
     (assert/deepEqual (add-node-ops "cache")
                       [{:op "add-node" :id "cache"}])))
+
+(test "pick-ops connect mode wires an edge to a node or box, never itself"
+  (fn []
+    (assert/deepEqual (pick-ops {:mode "connect" :from "api"} {:kind "node" :id "n:db"})
+                      [{:op "add-edge" :from "api" :to "db" :direction "->"}])
+    (assert/deepEqual (pick-ops {:mode "connect" :from "api"} {:kind "box" :id "b:grp"})
+                      [{:op "add-edge" :from "api" :to "grp" :direction "->"}])
+    (assert/ok (nil? (pick-ops {:mode "connect" :from "api"} {:kind "node" :id "n:api"})))
+    (assert/ok (nil? (pick-ops {:mode "connect" :from "api"} {:kind "edge" :id "e0"})))))

@@ -226,6 +226,8 @@
         "connect" (do (post-edit! (editor/add-connected-ops (:id tgt) text))
                       (swap! state assoc :pending-focus text))
         "newbox" (post-edit! (editor/wrap-in-box-ops (:id tgt) text))
+        "node" (do (post-edit! (editor/add-node-ops text))
+                   (swap! state assoc :pending-focus text))
         nil)
       (swap! state assoc :id-entry nil))))
 
@@ -292,11 +294,17 @@
      (when editable (attr-add-row tgt))]))
 
 (defn- selection-toolbar
-  "Floating bottom-center toolbar with the selection's edit tools; the
-  inspector panel itself stays read/data-only."
+  "Floating bottom-center toolbar: the selection's edit tools, or — with
+  nothing selected — a standalone add-node button. The inspector panel
+  itself stays read/data-only."
   [st]
   (let [sel (:selected st)]
-    [:div {:id "selection-toolbar"} (action-bar sel (editor/target sel))]))
+    [:div {:id "selection-toolbar"}
+     (if (some? sel)
+       (action-bar sel (editor/target sel))
+       (into [:div {:class "details-actions"}
+              (id-entry-btn "add node" "node")]
+             (when-let [entry (:id-entry st)] [(id-entry-row nil entry)])))]))
 
 (defn- banner-view [{:keys [error warnings collapsed edit-error]}]
   (cond
@@ -474,7 +482,7 @@
              :on-click (fn [e] (.stopPropagation e) (toggle-theme!))}
     (if (= (:theme st) "dark") "☀" "🌙")]
    (canvas-view)
-   (when (and (some? (:selected st)) (current-edit-target-editable? st))
+   (when (and (some? (:scene st)) (current-edit-target-editable? st))
      (selection-toolbar st))
    (when (some? (:selected st))
      (details-view st))])

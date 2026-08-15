@@ -22,6 +22,11 @@
 
 (defn- bare-id [item] (.slice (:id item) 2))
 
+(defn add-node-ops
+  "Ops to create a new free-standing node (no selection required)."
+  [new-id]
+  [{:op "add-node" :id new-id}])
+
 (defn add-connected-ops
   "Ops to create a new node and wire an edge from the selected node to it."
   [from new-id]

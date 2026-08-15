@@ -10,6 +10,10 @@
 
 (def small-file "{:nodes {:a nil}\n :edges {}\n :boxes {:grp {:components #{:a}}}}")
 
+(def no-boxes-file "{:nodes {:a nil}\n :edges {}}")
+
+(def nil-box-file "{:nodes {:a nil}\n :edges {}\n :boxes {:empty nil}}")
+
 (deftest set-attr-replaces-value-preserving-comment
   (is (= "{:nodes {:web {:name \"Web UI\" ;; keep me\n               :type \"frontend\"}\n         :api nil}\n :edges {[:web :api] {:direction :->}}}"
          (edit/set-attr nodes-file {:section :nodes :id "web" :attr :name
@@ -92,3 +96,31 @@
                 (edit/box-add {:box "grp" :member "b"}))]
     (is (contains? (set (:components (first (:boxes (graph/normalize (clojure.edn/read-string out))))))
                    "n:b"))))
+
+(deftest add-node-on-malformed-edn-fails-wrapped
+  (let [e (try (edit/add-node "{:nodes {:a" {:id "b" :attrs-text nil})
+               (catch Exception e e))]
+    (is (some? e))
+    (is (true? (:edit-error (ex-data e))))
+    (is (re-find #"does not parse as EDN" (.getMessage e)))))
+
+(deftest add-box-creates-missing-boxes-section
+  (let [out (edit/add-box no-boxes-file {:id "zone"})]
+    (is (clojure.string/includes? out ":boxes {:zone {:components []}}"))
+    (is (some #(= (:name %) "zone")
+              (:boxes (graph/normalize (clojure.edn/read-string out)))))))
+
+(deftest box-add-unknown-member-fails
+  (is (thrown-with-msg? Exception #"unknown node or box \"ghost\""
+        (edit/box-add small-file {:box "grp" :member "ghost"}))))
+
+(deftest box-add-self-containment-fails
+  (is (thrown-with-msg? Exception #"a box cannot contain itself"
+        (edit/box-add small-file {:box "grp" :member "grp"}))))
+
+(deftest box-add-materializes-nil-box-entry
+  (let [out (edit/box-add nil-box-file {:box "empty" :member "a"})]
+    (is (clojure.string/includes? out ":empty {:components [:a]}"))
+    (is (contains? (set (:components (first (filter #(= (:name %) "empty")
+                                                      (:boxes (graph/normalize (clojure.edn/read-string out)))))))
+                   "n:a"))))

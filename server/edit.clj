@@ -90,7 +90,8 @@
                 (fail! (str "no attribute " attr " to delete")))]
       (z/root-string (remove-pair k)))))
 
-(defn- parsed [text] (edn/read-string text))
+(defn- parsed [text]
+  (try (edn/read-string text) (catch Exception _ (fail! "file does not parse as EDN"))))
 
 (defn- ensure-sect
   "Root zipper positioned at the section map, creating `section {}` at

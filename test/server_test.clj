@@ -240,3 +240,30 @@
     (is (true? (get (json/parse-string (:body (serve/handler {:uri "/api/graph"}))) "editable"))))
   (reset! serve/files {:old nil :new "test/fixtures/embedded.png"})
   (is (false? (get (json/parse-string (:body (serve/handler {:uri "/api/graph"}))) "editable"))))
+
+(deftest api-graph-compare-mode-carries-editable-flags
+  (let [old-p (temp-edn "{:nodes {:a nil}}")
+        new-p (temp-edn "{:nodes {:a nil :b nil}}")]
+    (reset! serve/files {:old old-p :new new-p})
+    (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph"})))]
+      (is (true? (get out "editable")))
+      (is (true? (get out "editable-old")))))
+  (reset! serve/files {:old "test/fixtures/embedded.png" :new (temp-edn "{:nodes {:a nil}}")})
+  (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph"})))]
+    (is (true? (get out "editable")))
+    (is (false? (get out "editable-old")))))
+
+(deftest api-graph-embedded-compare-png-is-not-editable
+  (let [f (temp-png* [(itxt* "simpleviz-edn-old" "{:nodes {:a {}}}")
+                      (itxt* "simpleviz-edn-new" "{:nodes {:a {} :b {}}}")])]
+    (reset! serve/files {:old nil :new f})
+    (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph"})))]
+      (is (false? (get out "editable")))
+      (is (false? (get out "editable-old"))))))
+
+(deftest api-edit-refuses-png-in-old-slot
+  (let [p (temp-edn "{:nodes {:a nil}}")]
+    (reset! serve/files {:old "test/fixtures/embedded.png" :new p})
+    (reset! serve/undo-stacks {})
+    (is (= "PNG sources are read-only"
+           (get (json/parse-string (:body (serve/handler (edit-req {:file "old" :ops []})))) "error")))))

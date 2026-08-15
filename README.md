@@ -119,10 +119,22 @@ it can author and serve simpleviz diagrams for you:
     /plugin marketplace add sstoehrm/simpleviz
     /plugin install simpleviz@simpleviz
 
+Claude Code auto-updates marketplace plugins in the background by default.
+To update the skill by hand (e.g. right after a release):
+
+    /plugin marketplace update simpleviz
+    claude plugin update simpleviz@simpleviz
+
 ## Codex plugin
 
 The same skill is available to Codex through this repository's plugin
 marketplace:
 
     codex plugin marketplace add sstoehrm/simpleviz
+    codex plugin add simpleviz@simpleviz
+
+To update, refresh the marketplace snapshot and re-add (re-adding an
+installed plugin is a clean reinstall from the fresh snapshot):
+
+    codex plugin marketplace upgrade
     codex plugin add simpleviz@simpleviz

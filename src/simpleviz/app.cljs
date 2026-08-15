@@ -137,8 +137,13 @@
        :on-blur (fn [_] (when-let [ops (editor/blur-op (:editing @state) k tgt scalar)]
                          (post-edit! ops)))}]
      [:span {:on-click (fn [_] (swap! state assoc :editing {:attr k :text (editor/value->edn-text v)}))}
-      (format/value->hiccup v)
-      [:button {:class "attr-del" :type "button"
+      [:span {:class "attr-val"} (format/value->hiccup v)]
+      [:button {:class "attr-btn" :type "button" :title "Edit value"
+                :on-click (fn [e]
+                            (.stopPropagation e)
+                            (swap! state assoc :editing {:attr k :text (editor/value->edn-text v)}))}
+       "✎"]
+      [:button {:class "attr-btn attr-del" :type "button" :title "Delete attribute"
                 :on-click (fn [e] (.stopPropagation e) (post-edit! [(editor/del-attr-op tgt k)]))}
        "×"]])])
 
@@ -268,15 +273,6 @@
              "")
            (:kind sel)
            (if (some? (:diff sel)) (str " — " (:diff sel)) ""))]
-     (when editable (action-bar sel tgt))
-     (into [:dl]
-           (mapcat (fn [[k v]]
-                     [[:dt {:key (str "t" k)} k]
-                      (if editable
-                        (attr-edit-row tgt k v (editor/scalar? v) editing)
-                        [:dd {:key (str "d" k)} (format/value->hiccup v)])])
-                   (visible-attrs sel)))
-     (when editable (attr-add-row tgt))
      (when (some? (:changed sel))
        [:div {:class "details-changes"}
         [:div {:class "details-changes-header"} "changes (old → new)"]
@@ -285,7 +281,16 @@
                         [[:dt {:key (str "ct" k)} k]
                          [:dd {:key (str "cd" k)}
                           (str (fmt-val (:old v)) " → " (fmt-val (:new v)))]])
-                      (js/Object.entries (:changed sel))))])]))
+                      (js/Object.entries (:changed sel))))])
+     (into [:dl]
+           (mapcat (fn [[k v]]
+                     [[:dt {:key (str "t" k)} k]
+                      (if editable
+                        (attr-edit-row tgt k v (editor/scalar? v) editing)
+                        [:dd {:key (str "d" k)} (format/value->hiccup v)])])
+                   (visible-attrs sel)))
+     (when editable (attr-add-row tgt))
+     (when editable (action-bar sel tgt))]))
 
 (defn- banner-view [{:keys [error warnings collapsed edit-error]}]
   (cond

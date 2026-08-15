@@ -111,10 +111,19 @@
       (-> root (z/append-child section) (z/append-child {})
           z/root-string zroot (sect-val section))))
 
+(defn- ensure-map-section
+  "The section's raw value, having refused a pre-v2 vector form before
+  any (keys ..) walk would blow up on it with an opaque cast exception."
+  [data section]
+  (let [v (get data section)]
+    (when (and (some? v) (not (map? v)))
+      (fail! (str "pre-v2 vector form: convert " (name section) " to map form to edit")))
+    v))
+
 (defn- exists? [data section id]
   (case section
     :nodes (contains? (into #{} (map ident->str) (keys (:nodes data))) id)
-    :boxes (contains? (into #{} (map ident->str) (keys (:boxes data))) id)))
+    :boxes (contains? (into #{} (map ident->str) (keys (ensure-map-section data :boxes))) id)))
 
 (defn add-node [text {:keys [id attrs-text]}]
   (let [data (parsed text)]
@@ -131,7 +140,7 @@
 
 (defn- edge-pairs [data]
   (into #{} (comp (filter vector?) (map (fn [k] (set (map ident->str k)))))
-        (keys (:edges data))))
+        (keys (ensure-map-section data :edges))))
 
 (defn add-edge [text {:keys [from to direction]}]
   (let [data (parsed text)]

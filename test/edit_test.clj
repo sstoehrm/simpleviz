@@ -63,6 +63,43 @@
         (edit/set-attr "{:nodes {:a nil} :edges [{:nodes [:a :a]}]}"
                        {:section :edges :id ["a" "a"] :attr :x :value "1" :fallback false}))))
 
+;; add-edge/retarget-edge consult edge-pairs (a (keys ..) walk) before the
+;; usual sect-val vector-form guard runs; box-add/add-box consult exists?
+;; on :boxes the same way. Both must refuse cleanly instead of leaking a
+;; raw ClassCastException from (keys <vector>).
+(def vec-edges-file "{:nodes {:a nil :b nil}\n :edges [{:nodes [:a :b]}]}")
+(def vec-boxes-file "{:nodes {:a nil}\n :boxes [{:name \"g\" :components #{:a}}]}")
+
+(deftest add-edge-refuses-vector-form-edges-before-walking-keys
+  (let [e (try (edit/add-edge vec-edges-file {:from "a" :to "b" :direction nil})
+               (catch Exception e e))]
+    (is (some? e))
+    (is (true? (:edit-error (ex-data e))))
+    (is (= "pre-v2 vector form: convert edges to map form to edit" (.getMessage e)))))
+
+(deftest retarget-edge-refuses-vector-form-edges-before-walking-keys
+  (let [e (try (edit/retarget-edge vec-edges-file {:edge ["a" "b"] :end "target" :to "b"})
+               (catch Exception e e))]
+    (is (some? e))
+    (is (true? (:edit-error (ex-data e))))
+    (is (= "pre-v2 vector form: convert edges to map form to edit" (.getMessage e)))))
+
+(deftest add-box-refuses-vector-form-boxes-before-walking-keys
+  (let [e (try (edit/add-box vec-boxes-file {:id "h"})
+               (catch Exception e e))]
+    (is (some? e))
+    (is (true? (:edit-error (ex-data e))))
+    (is (= "pre-v2 vector form: convert boxes to map form to edit" (.getMessage e)))))
+
+(deftest box-add-refuses-vector-form-boxes-before-walking-keys
+  ;; member "ghost" isn't a node, so the :nodes exists? check short-circuits
+  ;; false and falls through to the :boxes branch, hitting the same guard.
+  (let [e (try (edit/box-add vec-boxes-file {:box "g" :member "ghost"})
+               (catch Exception e e))]
+    (is (some? e))
+    (is (true? (:edit-error (ex-data e))))
+    (is (= "pre-v2 vector form: convert boxes to map form to edit" (.getMessage e)))))
+
 (deftest add-node-appends-entry
   (let [out (edit/add-node small-file {:id "b" :attrs-text nil})]
     (is (clojure.string/includes? out ":b nil"))

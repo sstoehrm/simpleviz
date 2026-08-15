@@ -138,8 +138,8 @@ Edits patch the file in place — comments and formatting outside the changed
 value are preserved — and the usual live-reload picks up the change. A
 session serving an exported PNG is always read-only, since there's no
 source file to write back to. Editing requires map-form EDN; pre-v2
-vector-form sections (`:edges [..]`, `:boxes [..]`) refuse edits, asking
-you to convert to map form first.
+vector-form files (`:edges [..]`, `:boxes [..]`) refuse edits with a clear
+error asking you to convert to map form first.
 
 ## Claude Code plugin
 

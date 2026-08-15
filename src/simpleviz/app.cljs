@@ -19,6 +19,7 @@
                   :diff-cursors {}
                   :edit-target "new" :edit-error nil :editing nil
                   :pick nil :pick-hint nil
+                  :id-entry nil :pending-focus nil
                   :theme (or (js/localStorage.getItem "simpleviz-theme")
                              (if (.-matches (js/window.matchMedia
                                              "(prefers-color-scheme: dark)"))
@@ -27,13 +28,19 @@
 (def last-mtime (atom nil))
 
 (defn- on-select [payload]
-  (swap! state assoc :selected payload :editing nil))
+  (swap! state assoc :selected payload :editing nil :id-entry nil))
 
 (defn- start-pick! [pick hint]
   (swap! state assoc :pick pick :pick-hint hint))
 
 (defn- cancel-pick! []
   (swap! state assoc :pick nil :pick-hint nil))
+
+(defn- start-id-entry! [for-kind]
+  (swap! state assoc :id-entry {:for for-kind :text ""}))
+
+(defn- cancel-id-entry! []
+  (swap! state assoc :id-entry nil))
 
 (declare relayout! post-edit! delete!)
 
@@ -186,6 +193,45 @@
                      "click a box to add")]
     []))
 
+(defn- id-entry-btn [label for-kind]
+  [:button {:class "action-pick" :type "button"
+            :on-click (fn [e] (.stopPropagation e) (start-id-entry! for-kind))}
+   label])
+
+(defn- id-entry-buttons
+  "Extra action-bar buttons that open the id-entry input — node only:
+  add a freshly-created node connected to this one, or wrap this node
+  in a freshly-created box."
+  [sel]
+  (if (= (:kind sel) "node")
+    [(id-entry-btn "add node" "connect")
+     (id-entry-btn "new box" "newbox")]
+    []))
+
+(defn- submit-id-entry! [tgt]
+  (let [entry (:id-entry @state)
+        text (.trim (:text entry))]
+    (when (pos? (.-length text))
+      (case (:for entry)
+        "connect" (do (post-edit! (editor/add-connected-ops (:id tgt) text))
+                      (swap! state assoc :pending-focus text))
+        "newbox" (post-edit! (editor/wrap-in-box-ops (:id tgt) text))
+        nil)
+      (swap! state assoc :id-entry nil))))
+
+(defn- id-entry-row [tgt entry]
+  [:div {:class "id-entry"}
+   [:input {:class "id-entry-input" :type "text" :value (:text entry)
+            :placeholder (if (= (:for entry) "connect") "new node id" "new box id")
+            :on-render (fn [el lifecycle _]
+                         (when (= lifecycle "mount") (.focus el)))
+            :on-input (fn [e] (swap! state assoc-in [:id-entry :text] (.. e -target -value)))
+            :on-keydown (fn [e]
+                          (case (.-key e)
+                            "Enter" (submit-id-entry! tgt)
+                            "Escape" (cancel-id-entry!)
+                            nil))}]])
+
 (defn- action-bar [sel tgt]
   (into [:div {:class "details-actions"}
          [:button {:class "action-delete" :type "button"
@@ -197,7 +243,9 @@
              [(into [:div {:class "dir-group"}]
                     (mapv (fn [[label dir]] (direction-btn tgt current label dir))
                           direction-choices))]))
-         (pick-buttons sel tgt))))
+         (pick-buttons sel tgt)
+         (id-entry-buttons sel)
+         (when-let [entry (:id-entry @state)] [(id-entry-row tgt entry)]))))
 
 (defn- details-view [st]
   (let [sel (:selected st)
@@ -396,6 +444,20 @@
   (render app-el (app-view @state))
   (canvas/request-paint!))
 
+(defn- apply-pending-focus!
+  "When an add-connected-node flow is in flight, jump the view to the
+  freshly created node once its scene item lands — found by its scene
+  id `n:<pending>`. Always clears :pending-focus, found or not: the
+  edit may have failed, and either way this is a one-shot request."
+  [sc]
+  (when-let [pending (:pending-focus @state)]
+    (let [want (str "n:" pending)
+          item (some (fn [it] (when (= (:id it) want) it)) (:items sc))]
+      (when (some? item)
+        (canvas/center-on! item)
+        (on-select (item->payload item))))
+    (swap! state assoc :pending-focus nil)))
+
 (defn ^:async relayout!
   "Layout + scene from the stored graph, with collapsed boxes contracted.
   Colors come from the FULL graph so collapsing never shifts type colors.
@@ -407,8 +469,9 @@
           collapsed (:collapsed-boxes @state)
           ck (cache-key collapsed)]
       (if-let [hit (.get layout-cache ck)]
-        (swap! state assoc :colors (:colors hit) :layout (:layout hit)
-               :scene (:scene hit) :layouting false :diff-cursors {})
+        (do (swap! state assoc :colors (:colors hit) :layout (:layout hit)
+                   :scene (:scene hit) :layouting false :diff-cursors {})
+            (apply-pending-focus! (:scene hit)))
         (do
           (swap! state assoc
                  :layouting true
@@ -430,8 +493,9 @@
             (when (> (.-size layout-cache) 16) (.clear layout-cache))
             (.set layout-cache ck {:colors cmap :layout layout :scene sc})
             (if (= ck (cache-key (:collapsed-boxes @state)))
-              (swap! state assoc :colors cmap :layout layout :scene sc
-                     :layouting false :diff-cursors {})
+              (do (swap! state assoc :colors cmap :layout layout :scene sc
+                         :layouting false :diff-cursors {})
+                  (apply-pending-focus! sc))
               (swap! state assoc :layouting false))))))
     (catch :default e
       (js/console.error "Relayout failed:" e)

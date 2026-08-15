@@ -3,7 +3,8 @@
             ["node:assert/strict$default" :as assert]
             [simpleviz.editor :refer [target set-attr-op del-attr-op
                                       value->edn-text scalar? blur-op
-                                      delete-op direction-op pick-ops]]))
+                                      delete-op direction-op pick-ops
+                                      add-connected-ops wrap-in-box-ops]]))
 
 (test "target maps selection payloads to op targets"
   (fn []
@@ -103,3 +104,12 @@
     (assert/equal (pick-ops {:mode "box-take" :box "grp" :want "node"}
                             {:kind "collapse-button" :box-id "b:grp"})
                   nil)))
+
+(test "add-connected-ops and wrap-in-box-ops"
+  (fn []
+    (assert/deepEqual (add-connected-ops "api" "db")
+                      [{:op "add-node" :id "db"}
+                       {:op "add-edge" :from "api" :to "db" :direction "->"}])
+    (assert/deepEqual (wrap-in-box-ops "api" "backend")
+                      [{:op "add-box" :id "backend"}
+                       {:op "box-add" :box "backend" :member "api"}])))

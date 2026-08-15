@@ -95,6 +95,11 @@ body { margin: 0; font-family: system-ui, sans-serif; overflow: hidden;
 #details .dir-btn:last-child { border-right: none; }
 #details .dir-btn:hover { background: var(--hover-plain); }
 #details .dir-btn.active { background: var(--accent); color: #fff; }
+#details .id-entry { width: 100%; margin-top: 4px; }
+#details .id-entry-input { width: 100%; box-sizing: border-box; font-size: 12px;
+                           padding: 4px 8px; border: 1px solid var(--accent);
+                           border-radius: 6px; background: var(--panel);
+                           color: var(--text); }
 
 #collapsed-panel { position: fixed; top: 0; left: 0; bottom: 0; width: 216px;
                    z-index: 5; background: var(--panel);

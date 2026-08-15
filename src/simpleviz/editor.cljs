@@ -22,6 +22,18 @@
 
 (defn- bare-id [item] (.slice (:id item) 2))
 
+(defn add-connected-ops
+  "Ops to create a new node and wire an edge from the selected node to it."
+  [from new-id]
+  [{:op "add-node" :id new-id}
+   {:op "add-edge" :from from :to new-id :direction "->"}])
+
+(defn wrap-in-box-ops
+  "Ops to create a new box and put the selected node into it."
+  [node-id box-id]
+  [{:op "add-box" :id box-id}
+   {:op "box-add" :box box-id :member node-id}])
+
 (defn pick-ops
   "Ops for a pick-mode hit, or nil when item isn't a valid target for
   pick (keep picking). pick is one of:

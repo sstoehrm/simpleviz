@@ -1,9 +1,14 @@
 (ns edit-test
   (:require [clojure.test :refer [deftest is]]
-            [edit]))
+            [clojure.edn]
+            [clojure.string]
+            [edit]
+            [graph]))
 
 (def nodes-file
   "{:nodes {:web {:name \"Web\" ;; keep me\n               :type \"frontend\"}\n         :api nil}\n :edges {[:web :api] {:direction :->}}}")
+
+(def small-file "{:nodes {:a nil}\n :edges {}\n :boxes {:grp {:components #{:a}}}}")
 
 (deftest set-attr-replaces-value-preserving-comment
   (is (= "{:nodes {:web {:name \"Web UI\" ;; keep me\n               :type \"frontend\"}\n         :api nil}\n :edges {[:web :api] {:direction :->}}}"
@@ -49,3 +54,41 @@
   (is (thrown-with-msg? Exception #"pre-v2 vector form"
         (edit/set-attr "{:nodes {:a nil} :edges [{:nodes [:a :a]}]}"
                        {:section :edges :id ["a" "a"] :attr :x :value "1" :fallback false}))))
+
+(deftest add-node-appends-entry
+  (let [out (edit/add-node small-file {:id "b" :attrs-text nil})]
+    (is (clojure.string/includes? out ":b nil"))
+    ;; still parses and normalizes clean
+    (is (contains? (:nodes (graph/normalize (clojure.edn/read-string out))) "b"))))
+
+(deftest add-node-duplicate-fails
+  (is (thrown-with-msg? Exception #"node \"a\" already exists"
+        (edit/add-node small-file {:id "a" :attrs-text nil}))))
+
+(deftest add-edge-appends-with-direction
+  (let [out (-> small-file
+                (edit/add-node {:id "b" :attrs-text nil})
+                (edit/add-edge {:from "a" :to "b" :direction "->"}))]
+    (is (clojure.string/includes? out "[:a :b] {:direction :->}"))))
+
+(deftest add-edge-requires-known-endpoints-and-no-duplicate
+  (is (thrown-with-msg? Exception #"unknown node or box \"ghost\""
+        (edit/add-edge small-file {:from "a" :to "ghost" :direction nil})))
+  (let [out (-> small-file (edit/add-node {:id "b" :attrs-text nil})
+                (edit/add-edge {:from "a" :to "b" :direction nil}))]
+    (is (thrown-with-msg? Exception #"edge \[a b\] already exists"
+          (edit/add-edge out {:from "b" :to "a" :direction nil})))))
+
+(deftest add-box-and-box-add
+  (let [out (-> small-file
+                (edit/add-box {:id "zone"})
+                (edit/box-add {:box "zone" :member "a"}))]
+    (is (clojure.string/includes? out ":zone {:components [:a]}"))
+    (is (thrown-with-msg? Exception #"box \"grp\" already exists"
+          (edit/add-box out {:id "grp"})))))
+
+(deftest box-add-appends-to-existing-set
+  (let [out (-> small-file (edit/add-node {:id "b" :attrs-text nil})
+                (edit/box-add {:box "grp" :member "b"}))]
+    (is (contains? (set (:components (first (:boxes (graph/normalize (clojure.edn/read-string out))))))
+                   "n:b"))))

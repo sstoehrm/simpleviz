@@ -89,3 +89,61 @@
     (let [k (or (find-key entry #(= % attr))
                 (fail! (str "no attribute " attr " to delete")))]
       (z/root-string (remove-pair k)))))
+
+(defn- parsed [text] (edn/read-string text))
+
+(defn- ensure-sect
+  "Root zipper positioned at the section map, creating `section {}` at
+  the end of the root map when absent."
+  [root section]
+  (or (sect-val root section)
+      (-> root (z/append-child section) (z/append-child {})
+          z/root-string zroot (sect-val section))))
+
+(defn- exists? [data section id]
+  (case section
+    :nodes (contains? (into #{} (map ident->str) (keys (:nodes data))) id)
+    :boxes (contains? (into #{} (map ident->str) (keys (:boxes data))) id)))
+
+(defn add-node [text {:keys [id attrs-text]}]
+  (let [data (parsed text)]
+    (when (exists? data :nodes id) (fail! (str "node " (pr-str id) " already exists")))
+    (let [attrs (if (some? attrs-text) (edn-value attrs-text false) nil)
+          sect (ensure-sect (zroot text) :nodes)]
+      (z/root-string (-> sect (z/append-child (ident-node id)) (z/append-child attrs))))))
+
+(defn add-box [text {:keys [id]}]
+  (let [data (parsed text)]
+    (when (exists? data :boxes id) (fail! (str "box " (pr-str id) " already exists")))
+    (let [sect (ensure-sect (zroot text) :boxes)]
+      (z/root-string (-> sect (z/append-child (ident-node id)) (z/append-child {:components []}))))))
+
+(defn- edge-pairs [data]
+  (into #{} (comp (filter vector?) (map (fn [k] (set (map ident->str k)))))
+        (keys (:edges data))))
+
+(defn add-edge [text {:keys [from to direction]}]
+  (let [data (parsed text)]
+    (doseq [x [from to]]
+      (when-not (or (exists? data :nodes x) (exists? data :boxes x))
+        (fail! (str "unknown node or box " (pr-str x)))))
+    (when (contains? (edge-pairs data) (set [from to]))
+      (let [[x y] (sort [from to])]
+        (fail! (str "edge [" x " " y "] already exists"))))
+    (let [sect (ensure-sect (zroot text) :edges)
+          attrs (if (some? direction) {:direction (keyword direction)} nil)]
+      (z/root-string (-> sect
+                         (z/append-child [(ident-node from) (ident-node to)])
+                         (z/append-child attrs))))))
+
+(defn box-add [text {:keys [box member]}]
+  (let [data (parsed text)]
+    (when-not (or (exists? data :nodes member) (exists? data :boxes member))
+      (fail! (str "unknown node or box " (pr-str member))))
+    (when (= box member) (fail! "a box cannot contain itself"))
+    (let [entry (entry-val (zroot text) :boxes box)
+          entry (if (nil? (z/sexpr entry)) (z/replace entry {:components []}) entry)]
+      (if-let [comps (find-val entry #(= % :components))]
+        (z/root-string (z/append-child comps (ident-node member)))
+        (z/root-string (-> entry (z/append-child :components)
+                           (z/append-child [(ident-node member)])))))))

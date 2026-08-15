@@ -124,7 +124,7 @@
         :else (js/JSON.stringify v)))
 
 (defn- attr-edit-row [tgt k v scalar editing]
-  [:dd {:key (str "d" k)}
+  [:dd {:key (str "d" k) :class "attr-row"}
    (if (= k (:attr editing))
      [(if scalar :input :textarea)
       {:value (:text editing) :class "attr-edit"
@@ -142,6 +142,12 @@
                 :on-click (fn [e] (.stopPropagation e) (post-edit! [(editor/del-attr-op tgt k)]))}
        "×"]])])
 
+(defn- submit-attr-add! [tgt]
+  (let [key-text (.trim (.-value (js/document.getElementById "attr-add-key")))
+        val-text (.-value (js/document.getElementById "attr-add-val"))]
+    (when (pos? (.-length key-text))
+      (post-edit! [(editor/set-attr-op tgt key-text val-text true)]))))
+
 (defn- attr-add-row [tgt]
   [:div {:class "attr-add"}
    [:input {:id "attr-add-key" :class "attr-add-key" :type "text" :placeholder "key"
@@ -150,11 +156,10 @@
                             (.focus (js/document.getElementById "attr-add-val"))))}]
    [:input {:id "attr-add-val" :class "attr-add-val" :type "text" :placeholder "value"
             :on-keydown (fn [e]
-                          (when (= (.-key e) "Enter")
-                            (let [key-text (.-value (js/document.getElementById "attr-add-key"))]
-                              (when (pos? (.-length key-text))
-                                (post-edit! [(editor/set-attr-op tgt key-text
-                                                                 (.. e -target -value) true)])))))}]])
+                          (when (= (.-key e) "Enter") (submit-attr-add! tgt)))}]
+   [:button {:class "attr-add-btn" :type "button" :title "Add attribute"
+             :on-click (fn [e] (.stopPropagation e) (submit-attr-add! tgt))}
+    "+"]])
 
 (def ^:private direction-choices
   [["→" "->"] ["←" "<-"] ["↔" "<->"] ["—" "-"]])
@@ -233,10 +238,7 @@
                             nil))}]])
 
 (defn- action-bar [sel tgt]
-  (into [:div {:class "details-actions"}
-         [:button {:class "action-delete" :type "button"
-                   :on-click (fn [e] (.stopPropagation e) (delete! tgt))}
-          "Delete"]]
+  (into [:div {:class "details-actions"}]
         (concat
          (when (= (:kind sel) "edge")
            (let [current (or (:direction (:attrs sel)) "-")]
@@ -245,6 +247,9 @@
                           direction-choices))]))
          (pick-buttons sel tgt)
          (id-entry-buttons sel)
+         [[:button {:class "action-delete" :type "button"
+                    :on-click (fn [e] (.stopPropagation e) (delete! tgt))}
+           "Delete"]]
          (when-let [entry (:id-entry @state)] [(id-entry-row tgt entry)]))))
 
 (defn- details-view [st]
@@ -256,7 +261,6 @@
      [:button {:id "details-close" :type "button" :aria-label "Close details"
                :on-click (fn [e] (.stopPropagation e) (on-select nil))}
       "×"]
-     (when editable (action-bar sel tgt))
      [:h2 (:title sel)]
      [:div {:class "details-type"}
       (str (if (pos? (.-length (:subtitle sel)))
@@ -264,6 +268,7 @@
              "")
            (:kind sel)
            (if (some? (:diff sel)) (str " — " (:diff sel)) ""))]
+     (when editable (action-bar sel tgt))
      (into [:dl]
            (mapcat (fn [[k v]]
                      [[:dt {:key (str "t" k)} k]

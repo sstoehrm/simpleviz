@@ -66,40 +66,71 @@ body { margin: 0; font-family: system-ui, sans-serif; overflow: hidden;
            border-left: 1px solid var(--panel-border);
            padding: 16px; z-index: 5; box-shadow: -2px 0 8px var(--shadow); }
 #details h2 { margin: 0 0 2px; font-size: 16px; padding-right: 24px; }
-#details .details-type { color: var(--text-muted); font-size: 12px; margin-bottom: 12px; }
-#details dt { font-weight: 600; font-size: 12px; margin-top: 10px; color: var(--text); }
-#details dd { margin: 2px 0 0; font-size: 13px; white-space: pre-wrap;
+#details .details-type { color: var(--text-muted); font-size: 12px; margin-bottom: 10px; }
+#details dt { font-weight: 600; font-size: 10.5px; letter-spacing: .07em;
+              text-transform: uppercase; margin-top: 12px; color: var(--text-dim); }
+#details dd { margin: 0 -6px; padding: 3px 6px; border-radius: 6px;
+              font-size: 13px; white-space: pre-wrap;
               font-family: ui-monospace, "Cascadia Mono", monospace; }
 #details dd ul.dd-list { margin: 2px 0 0; padding-left: 18px; list-style: disc; }
 #details dd ol.dd-map { margin: 2px 0 0; padding-left: 6px; list-style: none; }
 #details dd .dd-map-key { font-weight: 600; color: var(--text-muted); }
+#details dd.attr-row:hover { background: var(--hover); }
+#details dd.attr-row > span { display: flex; align-items: baseline; gap: 6px;
+                              cursor: text; min-height: 1.2em; }
+#details dd.attr-row > span > :first-child { flex: 1; min-width: 0; }
 .attr-edit { width: 100%; }
-.attr-del { margin-left: 6px; }
+textarea.attr-edit { min-height: 64px; resize: vertical; }
+.attr-del { margin-left: auto; flex: none; opacity: 0; border: none;
+            background: none; color: var(--text-dim); cursor: pointer;
+            font-size: 14px; line-height: 1; padding: 0 3px; border-radius: 4px; }
+#details dd.attr-row:hover .attr-del { opacity: 1; }
+.attr-del:hover { color: var(--diff-removed); }
 
-#details .details-actions { display: flex; align-items: center; gap: 8px;
-                            margin: 4px 0 12px; padding-right: 24px;
-                            flex-wrap: wrap; }
-#details .action-delete { border: 1px solid var(--diff-removed); background: none;
-                          color: var(--diff-removed); font-size: 12px;
-                          padding: 4px 10px; border-radius: 6px; cursor: pointer; }
-#details .action-delete:hover { background: var(--diff-removed); color: #fff; }
-#details .action-pick { border: 1px solid var(--accent); background: none;
-                        color: var(--accent); font-size: 12px;
-                        padding: 4px 10px; border-radius: 6px; cursor: pointer; }
-#details .action-pick:hover { background: var(--accent); color: #fff; }
+#details input[type="text"], #details .attr-edit {
+  box-sizing: border-box; background: var(--bg); color: var(--text);
+  border: 1px solid var(--panel-border); border-radius: 6px;
+  font-size: 12.5px; padding: 5px 8px; outline: none;
+  font-family: ui-monospace, "Cascadia Mono", monospace; }
+#details input[type="text"]:focus, #details .attr-edit:focus {
+  border-color: var(--accent); box-shadow: 0 0 0 2px var(--hover); }
+
+#details .details-actions { display: flex; align-items: center; gap: 6px;
+                            flex-wrap: wrap; margin: 0 0 4px;
+                            padding: 8px 0; border-top: 1px solid var(--panel-divider);
+                            border-bottom: 1px solid var(--panel-divider); }
+#details .action-pick { border: 1px solid var(--panel-border); background: none;
+                        color: var(--text); font-size: 11.5px; line-height: 1.5;
+                        padding: 3px 10px; border-radius: 999px; cursor: pointer; }
+#details .action-pick:hover { border-color: var(--accent); color: var(--accent);
+                              background: var(--hover); }
+#details .action-delete { margin-left: auto; border: 1px solid transparent;
+                          background: none; color: var(--diff-removed);
+                          font-size: 11.5px; line-height: 1.5;
+                          padding: 3px 10px; border-radius: 999px; cursor: pointer; }
+#details .action-delete:hover { border-color: var(--diff-removed);
+                                background: var(--diff-removed); color: #fff; }
 #details .dir-group { display: flex; border: 1px solid var(--panel-border);
-                      border-radius: 6px; overflow: hidden; }
-#details .dir-btn { border: none; background: var(--panel); color: var(--text);
-                    font-size: 13px; line-height: 1; padding: 4px 8px; cursor: pointer;
+                      border-radius: 999px; overflow: hidden; }
+#details .dir-btn { border: none; background: none; color: var(--text-muted);
+                    font-size: 12.5px; line-height: 1.4; padding: 3px 9px;
+                    cursor: pointer;
                     border-right: 1px solid var(--panel-border); }
 #details .dir-btn:last-child { border-right: none; }
-#details .dir-btn:hover { background: var(--hover-plain); }
+#details .dir-btn:hover { background: var(--hover-plain); color: var(--text-strong); }
 #details .dir-btn.active { background: var(--accent); color: #fff; }
-#details .id-entry { width: 100%; margin-top: 4px; }
-#details .id-entry-input { width: 100%; box-sizing: border-box; font-size: 12px;
-                           padding: 4px 8px; border: 1px solid var(--accent);
-                           border-radius: 6px; background: var(--panel);
-                           color: var(--text); }
+#details .id-entry { flex-basis: 100%; margin-top: 2px; }
+#details .id-entry-input { width: 100%; }
+#details .attr-add { display: flex; gap: 6px; margin-top: 16px;
+                     padding-top: 12px; border-top: 1px solid var(--panel-divider); }
+#details .attr-add-key { width: 38%; }
+#details .attr-add-val { flex: 1; min-width: 0; }
+#details .attr-add-btn { flex: none; border: 1px solid var(--panel-border);
+                         background: none; color: var(--text-muted); width: 26px;
+                         border-radius: 6px; font-size: 14px; line-height: 1;
+                         cursor: pointer; }
+#details .attr-add-btn:hover { border-color: var(--accent); color: var(--accent);
+                               background: var(--hover); }
 
 #collapsed-panel { position: fixed; top: 0; left: 0; bottom: 0; width: 216px;
                    z-index: 5; background: var(--panel);

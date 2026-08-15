@@ -20,6 +20,32 @@
 (defn direction-op [tgt dir]
   {:op "set-direction" :edge (:id tgt) :direction dir})
 
+(defn- bare-id [item] (.slice (:id item) 2))
+
+(defn pick-ops
+  "Ops for a pick-mode hit, or nil when item isn't a valid target for
+  pick (keep picking). pick is one of:
+  {:mode \"retarget\" :edge [a b] :end \"source\"|\"target\"} — any node
+  or box is a valid new endpoint;
+  {:mode \"into-box\" :member id} — only a box is valid;
+  {:mode \"box-take\" :box id :want \"node\"|\"box\"} — only an item of
+  the wanted kind is valid, and not the box itself."
+  [pick item]
+  (let [kind (:kind item)]
+    (case (:mode pick)
+      "retarget" (if (or (= kind "node") (= kind "box"))
+                   [{:op "retarget-edge" :edge (:edge pick)
+                     :end (:end pick) :to (bare-id item)}]
+                   nil)
+      "into-box" (if (= kind "box")
+                   [{:op "box-add" :box (bare-id item) :member (:member pick)}]
+                   nil)
+      "box-take" (if (and (= kind (:want pick))
+                          (not= (bare-id item) (:box pick)))
+                   [{:op "box-add" :box (:box pick) :member (bare-id item)}]
+                   nil)
+      nil)))
+
 (defn blur-op
   "The ops to post on a blur event for attr k, or nil when the blur is a
   side effect of :editing having already moved on — Escape cleared it,

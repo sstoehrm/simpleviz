@@ -3,7 +3,7 @@
             ["node:assert/strict$default" :as assert]
             [simpleviz.editor :refer [target set-attr-op del-attr-op
                                       value->edn-text scalar? blur-op
-                                      delete-op direction-op]]))
+                                      delete-op direction-op pick-ops]]))
 
 (test "target maps selection payloads to op targets"
   (fn []
@@ -71,3 +71,35 @@
                       {:op "delete" :section "nodes" :id "web"})
     (assert/deepEqual (direction-op {:section "edges" :id ["a" "b"]} "<->")
                       {:op "set-direction" :edge ["a" "b"] :direction "<->"})))
+
+(test "pick-ops builds ops only for valid targets"
+  (fn []
+    ;; retarget: any node or box works
+    (assert/deepEqual (pick-ops {:mode "retarget" :edge ["a" "b"] :end "target"}
+                                {:kind "node" :id "n:c"})
+                      [{:op "retarget-edge" :edge ["a" "b"] :end "target" :to "c"}])
+    ;; into-box: only boxes are valid
+    (assert/equal (pick-ops {:mode "into-box" :member "web"} {:kind "node" :id "n:x"}) nil)
+    (assert/deepEqual (pick-ops {:mode "into-box" :member "web"} {:kind "box" :id "b:grp"})
+                      [{:op "box-add" :box "grp" :member "web"}])
+    ;; box-take node: only nodes
+    (assert/deepEqual (pick-ops {:mode "box-take" :box "grp" :want "node"}
+                                {:kind "node" :id "n:web"})
+                      [{:op "box-add" :box "grp" :member "web"}])
+    (assert/equal (pick-ops {:mode "box-take" :box "grp" :want "box"}
+                            {:kind "box" :id "b:grp"}) nil)   ; itself: invalid
+    (assert/deepEqual (pick-ops {:mode "box-take" :box "grp" :want "box"}
+                                {:kind "box" :id "b:other"})
+                      [{:op "box-add" :box "grp" :member "other"}])))
+
+(test "pick-ops ignores a collapse-button hit — no valid target, keep picking"
+  (fn []
+    (assert/equal (pick-ops {:mode "retarget" :edge ["a" "b"] :end "source"}
+                            {:kind "collapse-button" :box-id "b:grp"})
+                  nil)
+    (assert/equal (pick-ops {:mode "into-box" :member "web"}
+                            {:kind "collapse-button" :box-id "b:grp"})
+                  nil)
+    (assert/equal (pick-ops {:mode "box-take" :box "grp" :want "node"}
+                            {:kind "collapse-button" :box-id "b:grp"})
+                  nil)))

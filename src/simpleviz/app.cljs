@@ -18,6 +18,7 @@
                   :collapsed-boxes #{} :layouting false
                   :diff-cursors {}
                   :edit-target "new" :edit-error nil :editing nil
+                  :pick nil :pick-hint nil
                   :theme (or (js/localStorage.getItem "simpleviz-theme")
                              (if (.-matches (js/window.matchMedia
                                              "(prefers-color-scheme: dark)"))
@@ -27,6 +28,12 @@
 
 (defn- on-select [payload]
   (swap! state assoc :selected payload :editing nil))
+
+(defn- start-pick! [pick hint]
+  (swap! state assoc :pick pick :pick-hint hint))
+
+(defn- cancel-pick! []
+  (swap! state assoc :pick nil :pick-hint nil))
 
 (declare relayout! post-edit! delete!)
 
@@ -151,16 +158,46 @@
             :on-click (fn [e] (.stopPropagation e) (post-edit! [(editor/direction-op tgt dir)]))}
    label])
 
+(defn- pick-btn [label pick hint]
+  [:button {:class "action-pick" :type "button"
+            :on-click (fn [e] (.stopPropagation e) (start-pick! pick hint))}
+   label])
+
+(defn- pick-buttons
+  "Extra action-bar buttons that enter pick mode, per selection kind:
+  edge → retarget either endpoint; node → add to a box; box → take a
+  node or another box as a member."
+  [sel tgt]
+  (case (:kind sel)
+    "edge" [(pick-btn "change source"
+                      {:mode "retarget" :edge (:id tgt) :end "source"}
+                      "click the new source node or box")
+            (pick-btn "change target"
+                      {:mode "retarget" :edge (:id tgt) :end "target"}
+                      "click the new target node or box")]
+    "node" [(pick-btn "add to box"
+                      {:mode "into-box" :member (:id tgt)}
+                      "click the destination box")]
+    "box" [(pick-btn "add node"
+                     {:mode "box-take" :box (:id tgt) :want "node"}
+                     "click a node to add")
+           (pick-btn "add box"
+                     {:mode "box-take" :box (:id tgt) :want "box"}
+                     "click a box to add")]
+    []))
+
 (defn- action-bar [sel tgt]
-  [:div {:class "details-actions"}
-   [:button {:class "action-delete" :type "button"
-             :on-click (fn [e] (.stopPropagation e) (delete! tgt))}
-    "Delete"]
-   (when (= (:kind sel) "edge")
-     (let [current (or (:direction (:attrs sel)) "-")]
-       (into [:div {:class "dir-group"}]
-             (mapv (fn [[label dir]] (direction-btn tgt current label dir))
-                   direction-choices))))])
+  (into [:div {:class "details-actions"}
+         [:button {:class "action-delete" :type "button"
+                   :on-click (fn [e] (.stopPropagation e) (delete! tgt))}
+          "Delete"]]
+        (concat
+         (when (= (:kind sel) "edge")
+           (let [current (or (:direction (:attrs sel)) "-")]
+             [(into [:div {:class "dir-group"}]
+                    (mapv (fn [[label dir]] (direction-btn tgt current label dir))
+                          direction-choices))]))
+         (pick-buttons sel tgt))))
 
 (defn- details-view [st]
   (let [sel (:selected st)
@@ -300,10 +337,27 @@
                                  (- (.-clientY e) (.-top rect)))
             tol (/ 8 (:k canvas/view))
             s (:scene @state)
-            item (when (some? s) (hit/hit-test s p tol (:k canvas/view)))]
-        (if (= (:kind item) "collapse-button")
-          (toggle-collapse! (.slice (:box-id item) 2))
-          (on-select (when (some? item) (item->payload item))))))}])
+            item (when (some? s) (hit/hit-test s p tol (:k canvas/view)))
+            pick (:pick @state)]
+        (if (some? pick)
+          ;; picking: a collapse-button hit is not a valid target (ignore,
+          ;; keep picking, no mode toggle); a miss cancels; a valid-kind
+          ;; hit sends the op and clears :pick; an invalid-kind hit keeps
+          ;; picking.
+          (cond
+            (nil? item) (cancel-pick!)
+            (= (:kind item) "collapse-button") nil
+            :else (let [ops (editor/pick-ops pick item)]
+                    (when (some? ops)
+                      (cancel-pick!)
+                      (post-edit! ops))))
+          (if (= (:kind item) "collapse-button")
+            (toggle-collapse! (.slice (:box-id item) 2))
+            (on-select (when (some? item) (item->payload item)))))))}])
+
+(defn- pick-hint-view [st]
+  (when-let [pick (:pick st)]
+    [:div {:id "pick-hint"} (:pick-hint st) " — Esc cancels"]))
 
 (defn- load-view [st]
   [:div {:id "loadscreen"}
@@ -312,8 +366,9 @@
    [:div {:class "load-stage"} (or (:load-stage st) "loading…")]])
 
 (defn- app-view [st]
-  [:div {:id "root"}
+  [:div {:id "root" :class (when (some? (:pick st)) "picking")}
    (banner-view st)
+   (pick-hint-view st)
    (when (and (nil? (:scene st)) (nil? (:error st)))
      (load-view st))
    (collapsed-view st)
@@ -511,6 +566,10 @@
                "image/png"))))
 
 ;; init
+(js/window.addEventListener "keydown"
+  (fn [e]
+    (when (= (.-key e) "Escape")
+      (cancel-pick!))))
 (canvas/set-repaint! paint-now!)
 (apply-theme! (:theme @state))
 (add-watch state :render (fn [_ _ _ _] (rerender!)))

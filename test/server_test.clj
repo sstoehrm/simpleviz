@@ -267,3 +267,17 @@
     (reset! serve/undo-stacks {})
     (is (= "PNG sources are read-only"
            (get (json/parse-string (:body (serve/handler (edit-req {:file "old" :ops []})))) "error")))))
+
+;; --- e2e: edit round-trip through the file to /api/graph (Task 12) ----
+
+(deftest e2e-edit-roundtrip
+  (let [p (temp-edn "{:nodes {:web {:name \"Web\"}} ;; a comment\n :edges {}}")]
+    (reset! serve/files {:old nil :new p})
+    (reset! serve/undo-stacks {})
+    (serve/handler (edit-req {:file "new"
+                              :ops [{:op "add-node" :id "api"}
+                                    {:op "add-edge" :from "web" :to "api" :direction "->"}]}))
+    (let [g (json/parse-string (:body (serve/handler {:uri "/api/graph"})))]
+      (is (contains? (get g "nodes") "api"))
+      (is (= 1 (count (get g "edges")))))
+    (is (clojure.string/includes? (slurp p) ";; a comment"))))

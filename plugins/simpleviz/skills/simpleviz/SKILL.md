@@ -1,6 +1,6 @@
 ---
 name: simpleviz
-description: Use when creating or editing simpleviz graph EDN files, visualizing an architecture or system diagram with simpleviz, or serving and comparing graphs (bb serve, the simpleviz launcher, nodes/edges/boxes .edn files)
+description: Use when creating or editing simpleviz graph EDN files, visualizing an architecture or system diagram with simpleviz, or serving and comparing graphs (bb serve, the simpleviz launcher, nodes/edges/boxes .edn files, exported PNGs with embedded EDN)
 ---
 
 # simpleviz — graph EDN authoring and usage
@@ -31,8 +31,8 @@ Rules that are easy to get wrong:
 - `:nodes` is a MAP keyed by id — not a vector. There is no `:id`, `:label`, or nested `:attrs` key; the display key is `:name`, and every other key in the node map is a free-form attribute shown in the inspector.
 - `:edges` is a map keyed by `[from to]` vectors — not `:from`/`:to` maps. Direction lives in `:direction`; there is no `:bidirectional` (use `:<->`). The same pair cannot appear twice; writing both `[:a :b]` and `[:b :a]` triggers a "same connection" warning.
 - Grouping is `:boxes` with `:components` — there is no `:zones`, `:groups`, or `:children`. Boxes nest by listing another box's id in `:components`. Edge endpoints may be node ids or box ids (never display names); an edge between a box and its own content — or a box and itself — is skipped with a warning.
-- Identifiers may be keywords or strings, interchangeably (`:api` ≡ `"api"`). When a name refers to both a node and a box, an edge endpoint resolves to the node (with a warning).
-- A node's attribute map may be empty or nil: `{:nodes {:api {} :db nil}}` is valid.
+- Identifiers may be keywords or strings, interchangeably (`:api` ≡ `"api"`); namespaced keywords keep their namespace (`:backend.server/db` ≡ `"backend.server/db"`). When a name refers to both a node and a box, an edge endpoint resolves to the node (with a warning).
+- A node's attribute map may be empty or nil: `{:nodes {:api {} :db nil}}` is valid. A box without `:components` is valid too — it renders as a small node-style shell.
 - An element may belong to at most one box; contested membership goes to the first box by sorted name, with a warning.
 - Colors are stable: a `:type` string keeps its color across restarts and unrelated edits.
 - Pre-v2 vector forms are still accepted: `:edges [{:nodes [:a :b] :direction :->}]` and `:boxes [{:name "backend" :components #{..}}]`.
@@ -63,8 +63,8 @@ With the launcher installed by `install.sh` (files in `~/.simpleviz`, launcher i
                                      #  prints the new one, --old the old one;
                                      #  add an out.edn arg to write a file)
 
-There is no `bb diff` or similar — comparing is just passing two files. In compare mode: added elements get a green `+` ring, modified an amber `~` ring (click for attribute-level old → new), removed stay visible as red dashed ghosts; nodes match by key, boxes by name, edges by endpoints. A legend at the bottom center names both files and shows a count per status — each legend row is a button: clicking jumps to that status's next element (selecting it and centering the view, `2/3`-style position, wrap-around). Collapsed boxes hiding changes count as stops.
+There is no `bb diff` or similar — comparing is just passing two files. In compare mode: added elements get a green `+` ring, modified an amber `~` ring (click for attribute-level old → new), removed stay visible as red dashed ghosts; nodes and boxes match by key (renaming a display `:name` is a modification, not remove+add), edges by endpoints. A legend at the bottom center names both files and shows a count per status — each legend row is a button: clicking jumps to that status's next element (selecting it and centering the view, `2/3`-style position, wrap-around). Collapsed boxes hiding changes count as stops.
 
 ## Viewer
 
-Click any node/edge/box for its full attributes. Drag pans, wheel zooms. Boxes collapse/expand via the `−` button in their header (a collapsed box showing an amber dot hides changes in compare mode). Theme toggle top-right. Saving the file live-reloads the page (~1s). The ⇩ button exports the whole diagram as a PNG with the source EDN embedded as metadata (recoverable via simpleviz extract).
+Click any node/edge/box for its full attributes. Hovering shows the id to reference in the EDN file as a tooltip — nodes/boxes their bare id, edges their `[from to]` key. Drag pans, wheel zooms. Boxes collapse/expand via the `−` button in their header (a collapsed box showing an amber dot hides changes in compare mode). Theme toggle top-right. Saving the file live-reloads the page (~1s); the tab title names the served file (or `old → new` in compare mode). The ⇩ button exports the whole diagram as a PNG with the source EDN embedded as metadata (recoverable via simpleviz extract, or serve the PNG directly).

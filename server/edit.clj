@@ -11,10 +11,12 @@
 
 (defn- ident->str [x] (if (keyword? x) (subs (str x) 1) (str x)))
 
+(def ^:private ident-re #"[A-Za-z0-9*+!_'?<>=./-]+")
+
 (defn ident-node
   "New ids as keywords when legal, else strings."
   [id]
-  (if (re-matches #"[A-Za-z0-9*+!_'?<>=./-]+" id) (keyword id) id))
+  (if (re-matches ident-re id) (keyword id) id))
 
 (defn- edn-value
   "Parse an op's EDN-text value. :fallback true: unparseable or bare
@@ -241,11 +243,19 @@
                  (until-done (fn [t'] (remove-first-component t' id)))))))
 
 (defn- norm-op
-  "Browser payload -> internal op: keywordize section/attr, keep ids."
+  "Browser payload -> internal op: keywordize section/attr, keep ids.
+  Attr names are validated against the same ident regex ident-node uses —
+  set-attr/del-attr both keywordize the raw browser string and write it
+  straight into the file, so an unvalidated name (e.g. one containing a
+  space) would corrupt the EDN on write."
   [op]
   (cond-> op
     (some? (:section op)) (update :section keyword)
-    (some? (:attr op)) (update :attr keyword)))
+    (some? (:attr op)) (update :attr
+                          (fn [a]
+                            (if (re-matches ident-re a)
+                              (keyword a)
+                              (fail! (str "invalid attribute name " (pr-str a))))))))
 
 (defn- apply-op [text op]
   (let [o (norm-op op)

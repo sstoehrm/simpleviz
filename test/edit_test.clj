@@ -254,6 +254,24 @@
                                          :attr "type" :value "\"svc\"" :fallback false}])]
     (is (clojure.string/includes? text ":type \"svc\""))))
 
+(deftest apply-ops-rejects-invalid-attr-name
+  ;; norm-op keywordizes the browser's raw attr string and set-attr/del-attr
+  ;; write it straight into the file; an unvalidated name containing a
+  ;; space (or other non-ident char) would corrupt the EDN on write.
+  (is (= {:error "invalid attribute name \"my key\""}
+         (edit/apply-ops small-file [{:op "set-attr" :section "nodes" :id "a"
+                                       :attr "my key" :value "1" :fallback false}])))
+  (is (= {:error "invalid attribute name \"my key\""}
+         (edit/apply-ops small-file [{:op "del-attr" :section "nodes" :id "a"
+                                       :attr "my key"}])))
+  (is (= {:error "invalid attribute name \"   \""}
+         (edit/apply-ops small-file [{:op "set-attr" :section "nodes" :id "a"
+                                       :attr "   " :value "1" :fallback false}])))
+  (let [{:keys [text]} (edit/apply-ops small-file
+                                       [{:op "set-attr" :section "nodes" :id "a"
+                                         :attr "lang" :value "\"clojure\"" :fallback false}])]
+    (is (clojure.string/includes? text ":lang \"clojure\""))))
+
 (deftest apply-ops-unknown-op
   (is (= {:error "unknown op \"frobnicate\""}
          (edit/apply-ops small-file [{:op "frobnicate"}]))))

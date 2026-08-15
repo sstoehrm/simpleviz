@@ -188,9 +188,19 @@
 
 ;; --- /api/edit: undo stack + editable flags (Task 6) ------------------
 
-(defn- edit-req [body]
-  {:uri "/api/edit" :request-method :post
-   :body (java.io.ByteArrayInputStream. (.getBytes (json/generate-string body) "UTF-8"))})
+(defn- edit-req
+  "A POST /api/edit request map. Defaults to a same-origin-shaped request
+  (JSON content-type, port matching serve/default-port) so existing tests
+  that don't care about the Task-13 Origin/Content-Type guard keep
+  passing; :headers here are merged over those defaults so a test can
+  override just what it needs (e.g. a foreign :origin, or a nil
+  \"content-type\" to simulate a missing header)."
+  ([body] (edit-req body nil))
+  ([body {:keys [headers server-port]}]
+   {:uri "/api/edit" :request-method :post
+    :headers (merge {"content-type" "application/json"} headers)
+    :server-port (or server-port serve/default-port)
+    :body (java.io.ByteArrayInputStream. (.getBytes (json/generate-string body) "UTF-8"))}))
 
 (defn- temp-edn [text]
   (let [f (java.io.File/createTempFile "edit-test" ".edn")]
@@ -267,6 +277,46 @@
     (reset! serve/undo-stacks {})
     (is (= "PNG sources are read-only"
            (get (json/parse-string (:body (serve/handler (edit-req {:file "old" :ops []})))) "error")))))
+
+;; --- /api/edit: Origin + Content-Type guard (Task 13) ------------------
+
+(deftest api-edit-rejects-foreign-origin
+  (let [p (temp-edn "{:nodes {:a nil}}")]
+    (reset! serve/files {:old nil :new p})
+    (reset! serve/undo-stacks {})
+    (let [resp (serve/handler
+                (edit-req {:file "new" :ops [{:op "add-node" :id "b"}]}
+                          {:headers {"origin" "http://evil.example"}}))]
+      (is (= 403 (:status resp)))
+      (is (= "forbidden" (:body resp)))
+      (is (clojure.string/starts-with?
+           (get-in resp [:headers "Content-Type"]) "text/plain"))
+      (is (= "{:nodes {:a nil}}" (slurp p))))))
+
+(deftest api-edit-accepts-local-origins
+  (let [p (temp-edn "{:nodes {:a nil}}")]
+    (doseq [origin ["http://localhost:7373" "http://127.0.0.1:7373"]]
+      (reset! serve/files {:old nil :new p})
+      (reset! serve/undo-stacks {})
+      (spit p "{:nodes {:a nil}}")
+      (let [resp (serve/handler
+                  (edit-req {:file "new" :ops [{:op "add-node" :id "b"}]}
+                            {:headers {"origin" origin}}))]
+        (is (= 200 (:status resp)))
+        (is (true? (get (json/parse-string (:body resp)) "ok")))))))
+
+(deftest api-edit-rejects-missing-content-type
+  (let [p (temp-edn "{:nodes {:a nil}}")]
+    (reset! serve/files {:old nil :new p})
+    (reset! serve/undo-stacks {})
+    (let [resp (serve/handler
+                (edit-req {:file "new" :ops [{:op "add-node" :id "b"}]}
+                          {:headers {"content-type" nil}}))]
+      (is (= 415 (:status resp)))
+      (is (= "unsupported media type" (:body resp)))
+      (is (clojure.string/starts-with?
+           (get-in resp [:headers "Content-Type"]) "text/plain"))
+      (is (= "{:nodes {:a nil}}" (slurp p))))))
 
 ;; --- e2e: edit round-trip through the file to /api/graph (Task 12) ----
 

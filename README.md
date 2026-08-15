@@ -131,8 +131,8 @@ element as a member.
 In compare mode, an old|new toggle in the inspector picks which file edits
 apply to (disabled on a read-only PNG side).
 
-Ctrl+Z, or the ⟲ button, undoes the last edit. Each browser session keeps
-its own undo stack per file, capped at 100 entries.
+Ctrl+Z, or the ⟲ button, undoes the last edit. The server keeps one undo
+stack per file, shared by all viewers of that file, capped at 100 entries.
 
 Edits patch the file in place — comments and formatting outside the changed
 value are preserved — and the usual live-reload picks up the change. A
@@ -140,6 +140,10 @@ session serving an exported PNG is always read-only, since there's no
 source file to write back to. Editing requires map-form EDN; pre-v2
 vector-form files (`:edges [..]`, `:boxes [..]`) refuse edits with a clear
 error asking you to convert to map form first.
+
+The server only binds to loopback and only accepts writes whose `Origin`
+matches its own `localhost`/`127.0.0.1` address, so it trusts your machine's
+browser but rejects cross-origin writes from other sites or hosts.
 
 ## Claude Code plugin
 

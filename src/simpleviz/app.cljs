@@ -42,7 +42,7 @@
 (defn- cancel-id-entry! []
   (swap! state assoc :id-entry nil))
 
-(declare relayout! post-edit! delete!)
+(declare relayout! post-edit! delete! current-edit-target-editable?)
 
 ;; layouts per collapsed-set, so expanding (or re-collapsing a seen
 ;; combination) is instant instead of a multi-second ELK run; cleared on
@@ -249,7 +249,7 @@
 
 (defn- details-view [st]
   (let [sel (:selected st)
-        editable (:editable (:graph st))
+        editable (current-edit-target-editable? st)
         tgt (when editable (editor/target sel))
         editing (:editing st)]
     [:aside {:id "details"}

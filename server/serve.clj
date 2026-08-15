@@ -142,6 +142,30 @@
    "json" "application/json"
    "svg"  "image/svg+xml"})
 
+(defn- local-origin?
+  "true when origin is absent (non-browser clients like curl send no
+  Origin header) or is exactly this server's own http://localhost:<port>
+  or http://127.0.0.1:<port> — same-origin browser fetches send Origin on
+  POST even though they omit it on GET."
+  [origin port]
+  (or (nil? origin)
+      (contains? #{(str "http://localhost:" port) (str "http://127.0.0.1:" port)} origin)))
+
+(defn- json-content-type? [ct]
+  (and (some? ct) (str/starts-with? (str/lower-case ct) "application/json")))
+
+(defn- edit-guard
+  "HTTP-level rejection response for a write to /api/edit, or nil when the
+  request may proceed: 403 on a foreign Origin (cross-origin write
+  attempt), 415 when Content-Type isn't application/json."
+  [{:keys [headers server-port]}]
+  (cond
+    (not (local-origin? (get headers "origin") server-port))
+    {:status 403 :headers {"Content-Type" "text/plain; charset=utf-8"} :body "forbidden"}
+    (not (json-content-type? (get headers "content-type")))
+    {:status 415 :headers {"Content-Type" "text/plain; charset=utf-8"} :body "unsupported media type"}
+    :else nil))
+
 (defn- json-response [body]
   {:status 200
    :headers {"Content-Type" "application/json"
@@ -163,7 +187,7 @@
                  "Cache-Control" "no-store"}
        :body "not found"})))
 
-(defn handler [{:keys [uri query-string request-method body]}]
+(defn handler [{:keys [uri query-string request-method body] :as req}]
   (case uri
     "/api/graph"   (json-response
                     (try
@@ -183,7 +207,8 @@
                       (catch Exception e
                         (json/generate-string {:error (ex-message e)}))))
     "/api/edit"    (if (= :post request-method)
-                     (json-response (json/generate-string (edit-response @files body)))
+                     (or (edit-guard req)
+                         (json-response (json/generate-string (edit-response @files body))))
                      {:status 405 :headers {"Content-Type" "text/plain"} :body "POST only"})
     "/api/version" (json-response
                     (json/generate-string
@@ -228,7 +253,9 @@
              (println (ex-message e))
              (System/exit 1))))
     (reset! files {:old old-file :new file})
-    (srv/run-server handler {:port port})
+    ;; loopback only — /api/edit can write to disk, so the server must
+    ;; never be reachable from other hosts on the network
+    (srv/run-server handler {:port port :ip "127.0.0.1"})
     (println (str "simpleviz: serving "
                   (cond
                     old-file (str old-file " → " file " (compare)")

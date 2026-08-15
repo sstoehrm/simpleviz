@@ -14,6 +14,8 @@
 
 (def nil-box-file "{:nodes {:a nil}\n :edges {}\n :boxes {:empty nil}}")
 
+(def vec-box-file "{:nodes {:a nil :b nil}\n :edges {}\n :boxes {:zone {:components [:a]}}}")
+
 (def tri-file "{:nodes {:a nil :b nil :c nil}\n :edges {[:a :b] {:direction :-> :name \"x\"}}}")
 
 (deftest set-attr-replaces-value-preserving-comment
@@ -119,6 +121,26 @@
 (deftest box-add-self-containment-fails
   (is (thrown-with-msg? Exception #"a box cannot contain itself"
         (edit/box-add small-file {:box "grp" :member "grp"}))))
+
+(deftest box-add-duplicate-member-set-form-fails
+  ;; grp's :components is set-form #{:a}; "a" is already a member
+  (is (thrown-with-msg? Exception #"\"a\" is already in box \"grp\""
+        (edit/box-add small-file {:box "grp" :member "a"})))
+  ;; the failed attempt didn't mutate/consume small-file — a fresh,
+  ;; genuinely new box-add against the same original text still
+  ;; succeeds cleanly, proving there's no corruption path
+  (let [out (-> small-file (edit/add-node {:id "b" :attrs-text nil})
+                (edit/box-add {:box "grp" :member "b"}))]
+    (is (contains? (set (:components (first (:boxes (graph/normalize (clojure.edn/read-string out))))))
+                   "n:b"))))
+
+(deftest box-add-duplicate-member-vector-form-fails
+  ;; zone's :components is vector-form [:a]; "a" is already a member
+  (is (thrown-with-msg? Exception #"\"a\" is already in box \"zone\""
+        (edit/box-add vec-box-file {:box "zone" :member "a"})))
+  (let [out (edit/box-add vec-box-file {:box "zone" :member "b"})]
+    (is (contains? (set (:components (first (:boxes (graph/normalize (clojure.edn/read-string out))))))
+                   "n:b"))))
 
 (deftest box-add-materializes-nil-box-entry
   (let [out (edit/box-add nil-box-file {:box "empty" :member "a"})]

@@ -165,11 +165,21 @@
   (set-attr text {:section :edges :id edge :attr :direction
                   :value (str ":" direction) :fallback false}))
 
+(defn- box-components
+  "Member ids (as strings) currently in box's :components — set or
+  vector form, and nil-safe for an unknown box or a nil-valued entry
+  (both have no members)."
+  [data box]
+  (let [box-val (some (fn [[k v]] (when (= (ident->str k) box) v)) (:boxes data))]
+    (into #{} (map ident->str) (:components box-val))))
+
 (defn box-add [text {:keys [box member]}]
   (let [data (parsed text)]
     (when-not (or (exists? data :nodes member) (exists? data :boxes member))
       (fail! (str "unknown node or box " (pr-str member))))
     (when (= box member) (fail! "a box cannot contain itself"))
+    (when (contains? (box-components data box) member)
+      (fail! (str "\"" member "\" is already in box \"" box "\"")))
     (let [entry (entry-val (zroot text) :boxes box)
           entry (if (nil? (z/sexpr entry)) (z/replace entry {:components []}) entry)]
       (if-let [comps (find-val entry #(= % :components))]

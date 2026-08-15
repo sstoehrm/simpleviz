@@ -18,8 +18,8 @@
             :requires ([png])
             :task (apply png/-main *command-line-args*)}
   test:clj {:doc "Run Clojure server tests"
-            :requires ([clojure.test :as t] [server-test] [graph-test] [diff-test] [docs-test] [png-test])
-            :task (let [{:keys [fail error]} (t/run-tests 'graph-test 'server-test 'diff-test 'docs-test 'png-test)]
+            :requires ([clojure.test :as t] [server-test] [graph-test] [diff-test] [docs-test] [png-test] [edit-test])
+            :task (let [{:keys [fail error]} (t/run-tests 'graph-test 'server-test 'diff-test 'docs-test 'png-test 'edit-test)]
                     (when (pos? (+ fail error)) (System/exit 1)))}
   test:js  {:doc "Run JS unit tests (compiled squint output)"
             :requires ([babashka.fs :as fs])

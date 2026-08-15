@@ -8,6 +8,9 @@ truth; the browser never renders unsaved state.
 Spec figure: `.blend/specs/2026-08-15-editor.edn` (serve with
 `simpleviz .blend/specs/2026-08-15-editor.edn`).
 
+TODO: fold these components into a project concept graph (blend:deduce)
+— deferred at spec approval; the repo has no concept graph yet.
+
 ## Decisions (agreed)
 
 - **Persistence:** every edit writes back to the served `.edn` file

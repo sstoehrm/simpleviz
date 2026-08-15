@@ -2,7 +2,8 @@
   (:require ["node:test" :refer [test]]
             ["node:assert/strict$default" :as assert]
             [simpleviz.editor :refer [target set-attr-op del-attr-op
-                                      value->edn-text scalar? blur-op]]))
+                                      value->edn-text scalar? blur-op
+                                      delete-op direction-op]]))
 
 (test "target maps selection payloads to op targets"
   (fn []
@@ -63,3 +64,10 @@
                                {:section "nodes" :id "web"} true)
                       [{:op "set-attr" :section "nodes" :id "web"
                         :attr "name" :value "\"X\"" :fallback true}])))
+
+(test "delete-op and direction-op shapes"
+  (fn []
+    (assert/deepEqual (delete-op {:section "nodes" :id "web"})
+                      {:op "delete" :section "nodes" :id "web"})
+    (assert/deepEqual (direction-op {:section "edges" :id ["a" "b"]} "<->")
+                      {:op "set-direction" :edge ["a" "b"] :direction "<->"})))

@@ -69,6 +69,22 @@ body { margin: 0; font-family: system-ui, sans-serif; overflow: hidden;
 .attr-edit { width: 100%; }
 .attr-del { margin-left: 6px; }
 
+#details .details-actions { display: flex; align-items: center; gap: 8px;
+                            margin: 4px 0 12px; padding-right: 24px;
+                            flex-wrap: wrap; }
+#details .action-delete { border: 1px solid var(--diff-removed); background: none;
+                          color: var(--diff-removed); font-size: 12px;
+                          padding: 4px 10px; border-radius: 6px; cursor: pointer; }
+#details .action-delete:hover { background: var(--diff-removed); color: #fff; }
+#details .dir-group { display: flex; border: 1px solid var(--panel-border);
+                      border-radius: 6px; overflow: hidden; }
+#details .dir-btn { border: none; background: var(--panel); color: var(--text);
+                    font-size: 13px; line-height: 1; padding: 4px 8px; cursor: pointer;
+                    border-right: 1px solid var(--panel-border); }
+#details .dir-btn:last-child { border-right: none; }
+#details .dir-btn:hover { background: var(--hover-plain); }
+#details .dir-btn.active { background: var(--accent); color: #fff; }
+
 #collapsed-panel { position: fixed; top: 0; left: 0; bottom: 0; width: 216px;
                    z-index: 5; background: var(--panel);
                    border-right: 1px solid var(--panel-border);

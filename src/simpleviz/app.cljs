@@ -28,7 +28,7 @@
 (defn- on-select [payload]
   (swap! state assoc :selected payload :editing nil))
 
-(declare relayout! post-edit!)
+(declare relayout! post-edit! delete!)
 
 ;; layouts per collapsed-set, so expanding (or re-collapsing a seen
 ;; combination) is instant instead of a multi-second ELK run; cleared on
@@ -142,6 +142,26 @@
                                 (post-edit! [(editor/set-attr-op tgt key-text
                                                                  (.. e -target -value) true)])))))}]])
 
+(def ^:private direction-choices
+  [["→" "->"] ["←" "<-"] ["↔" "<->"] ["—" "-"]])
+
+(defn- direction-btn [tgt current label dir]
+  [:button {:key dir :type "button"
+            :class (str "dir-btn" (if (= dir current) " active" ""))
+            :on-click (fn [e] (.stopPropagation e) (post-edit! [(editor/direction-op tgt dir)]))}
+   label])
+
+(defn- action-bar [sel tgt]
+  [:div {:class "details-actions"}
+   [:button {:class "action-delete" :type "button"
+             :on-click (fn [e] (.stopPropagation e) (delete! tgt))}
+    "Delete"]
+   (when (= (:kind sel) "edge")
+     (let [current (or (:direction (:attrs sel)) "-")]
+       (into [:div {:class "dir-group"}]
+             (mapv (fn [[label dir]] (direction-btn tgt current label dir))
+                   direction-choices))))])
+
 (defn- details-view [st]
   (let [sel (:selected st)
         editable (:editable (:graph st))
@@ -151,6 +171,7 @@
      [:button {:id "details-close" :type "button" :aria-label "Close details"
                :on-click (fn [e] (.stopPropagation e) (on-select nil))}
       "×"]
+     (when editable (action-bar sel tgt))
      [:h2 (:title sel)]
      [:div {:class "details-type"}
       (str (if (pos? (.-length (:subtitle sel)))
@@ -414,6 +435,14 @@
       (swap! state assoc :edit-error (:error out))
       (do (swap! state assoc :edit-error nil :editing nil)
           (js-await (tick))))))
+
+(defn- ^:async delete! [tgt]
+  (js-await (post-edit! [(editor/delete-op tgt)]))
+  ;; :selected is a payload snapshot, not a live lookup — after a
+  ;; successful delete the element it describes is gone from the
+  ;; reloaded graph, so the panel would keep showing stale data.
+  (when (nil? (:edit-error @state))
+    (on-select nil)))
 
 (defn- apply-theme! [t]
   (set! (.. js/document -documentElement -dataset -theme) t)

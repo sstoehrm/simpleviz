@@ -14,6 +14,12 @@
 (defn del-attr-op [tgt attr]
   (assoc tgt :op "del-attr" :attr attr))
 
+(defn delete-op [tgt]
+  (assoc tgt :op "delete"))
+
+(defn direction-op [tgt dir]
+  {:op "set-direction" :edge (:id tgt) :direction dir})
+
 (defn blur-op
   "The ops to post on a blur event for attr k, or nil when the blur is a
   side effect of :editing having already moved on — Escape cleared it,

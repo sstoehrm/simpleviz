@@ -120,7 +120,8 @@
                        "Enter" (post-edit! [(editor/set-attr-op tgt k (:text (:editing @state)) scalar)])
                        "Escape" (swap! state assoc :editing nil)
                        nil))
-       :on-blur (fn [_] (post-edit! [(editor/set-attr-op tgt k (:text (:editing @state)) scalar)]))}]
+       :on-blur (fn [_] (when-let [ops (editor/blur-op (:editing @state) k tgt scalar)]
+                         (post-edit! ops)))}]
      [:span {:on-click (fn [_] (swap! state assoc :editing {:attr k :text (editor/value->edn-text v)}))}
       (format/value->hiccup v)
       [:button {:class "attr-del" :type "button"

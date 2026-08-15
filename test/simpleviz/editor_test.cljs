@@ -2,7 +2,7 @@
   (:require ["node:test" :refer [test]]
             ["node:assert/strict$default" :as assert]
             [simpleviz.editor :refer [target set-attr-op del-attr-op
-                                      value->edn-text scalar?]]))
+                                      value->edn-text scalar? blur-op]]))
 
 (test "target maps selection payloads to op targets"
   (fn []
@@ -47,3 +47,19 @@
     (assert/equal (scalar? nil) true)
     (assert/equal (scalar? [1 2]) false)
     (assert/equal (scalar? {:a 1}) false)))
+
+(test "blur-op is nil when nothing is being edited (Escape/Enter already cleared it)"
+  (fn []
+    (assert/ok (nil? (blur-op nil "name" {:section "nodes" :id "web"} true)))))
+
+(test "blur-op is nil when a DIFFERENT attr field is the one being edited"
+  (fn []
+    (assert/ok (nil? (blur-op {:attr "lang" :text "x"} "name"
+                              {:section "nodes" :id "web"} true)))))
+
+(test "blur-op posts set-attr-op when this attr is still the one being edited"
+  (fn []
+    (assert/deepEqual (blur-op {:attr "name" :text "\"X\""} "name"
+                               {:section "nodes" :id "web"} true)
+                      [{:op "set-attr" :section "nodes" :id "web"
+                        :attr "name" :value "\"X\"" :fallback true}])))

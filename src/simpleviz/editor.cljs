@@ -14,6 +14,19 @@
 (defn del-attr-op [tgt attr]
   (assoc tgt :op "del-attr" :attr attr))
 
+(defn blur-op
+  "The ops to post on a blur event for attr k, or nil when the blur is a
+  side effect of :editing having already moved on — Escape cleared it,
+  or a successful Enter save already cleared it — rather than the user
+  actually clicking/tabbing away with the field still open. Removing
+  the focused input/textarea from the DOM (which the re-render after
+  either of those does) fires a native blur synchronously; without this
+  guard that stale blur would re-post with nil/stale text and clobber
+  the value that was just saved (or restored) a moment earlier."
+  [editing k tgt scalar?]
+  (when (= k (:attr editing))
+    [(set-attr-op tgt k (:text editing) scalar?)]))
+
 (defn scalar?
   "True when v is not a collection (vector or map) — squint sets arrive
   post-JSON as vectors, so those two predicates cover everything

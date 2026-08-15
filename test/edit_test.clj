@@ -14,6 +14,8 @@
 
 (def nil-box-file "{:nodes {:a nil}\n :edges {}\n :boxes {:empty nil}}")
 
+(def tri-file "{:nodes {:a nil :b nil :c nil}\n :edges {[:a :b] {:direction :-> :name \"x\"}}}")
+
 (deftest set-attr-replaces-value-preserving-comment
   (is (= "{:nodes {:web {:name \"Web UI\" ;; keep me\n               :type \"frontend\"}\n         :api nil}\n :edges {[:web :api] {:direction :->}}}"
          (edit/set-attr nodes-file {:section :nodes :id "web" :attr :name
@@ -124,3 +126,24 @@
     (is (contains? (set (:components (first (filter #(= (:name %) "empty")
                                                       (:boxes (graph/normalize (clojure.edn/read-string out)))))))
                    "n:a"))))
+
+(deftest retarget-edge-rewrites-key-only
+  (is (= "{:nodes {:a nil :b nil :c nil}\n :edges {[:a :c] {:direction :-> :name \"x\"}}}"
+         (edit/retarget-edge tri-file {:edge ["a" "b"] :end "target" :to "c"}))))
+
+(deftest retarget-edge-validates
+  (is (thrown-with-msg? Exception #"unknown node or box \"ghost\""
+        (edit/retarget-edge tri-file {:edge ["a" "b"] :end "source" :to "ghost"})))
+  (let [two (edit/add-edge tri-file {:from "a" :to "c" :direction nil})]
+    (is (thrown-with-msg? Exception #"edge \[a c\] already exists"
+          (edit/retarget-edge two {:edge ["a" "b"] :end "target" :to "c"}))))
+  (is (thrown-with-msg? Exception #"cannot connect an element to itself"
+        (edit/retarget-edge tri-file {:edge ["a" "b"] :end "target" :to "a"}))))
+
+(deftest set-direction-sets-attr-never-swaps-key
+  (is (= "{:nodes {:a nil :b nil :c nil}\n :edges {[:a :b] {:direction :<- :name \"x\"}}}"
+         (edit/set-direction tri-file {:edge ["a" "b"] :direction "<-"})))
+  ;; edge with nil value gets a map
+  (let [f "{:nodes {:a nil :b nil}\n :edges {[:a :b] nil}}"]
+    (is (= "{:nodes {:a nil :b nil}\n :edges {[:a :b] {:direction :<->}}}"
+           (edit/set-direction f {:edge ["a" "b"] :direction "<->"})))))

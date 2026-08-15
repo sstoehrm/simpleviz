@@ -137,6 +137,24 @@
                          (z/append-child [(ident-node from) (ident-node to)])
                          (z/append-child attrs))))))
 
+(defn retarget-edge [text {:keys [edge end to]}]
+  (let [data (parsed text)
+        [from t] edge
+        new-pair (if (= end "source") [to t] [from to])]
+    (when-not (or (exists? data :nodes to) (exists? data :boxes to))
+      (fail! (str "unknown node or box " (pr-str to))))
+    (when (= (first new-pair) (second new-pair))
+      (fail! "cannot connect an element to itself"))
+    (when (contains? (edge-pairs data) (set new-pair))
+      (fail! (str "edge [" (first new-pair) " " (second new-pair) "] already exists")))
+    (let [sect (or (sect-val (zroot text) :edges) (unknown! :edges edge))
+          k (or (find-key sect (edge-key-pred edge)) (unknown! :edges edge))]
+      (z/root-string (z/replace k (mapv ident-node new-pair))))))
+
+(defn set-direction [text {:keys [edge direction]}]
+  (set-attr text {:section :edges :id edge :attr :direction
+                  :value (str ":" direction) :fallback false}))
+
 (defn box-add [text {:keys [box member]}]
   (let [data (parsed text)]
     (when-not (or (exists? data :nodes member) (exists? data :boxes member))

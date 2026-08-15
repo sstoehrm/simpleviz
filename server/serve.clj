@@ -8,6 +8,7 @@
             [clojure.java.io :as io]
             [clojure.string :as str]
             [diff]
+            [edit]
             [graph]
             [org.httpkit.server :as srv]
             [png]))
@@ -15,6 +16,39 @@
 (def default-port 7373)
 
 (def files (atom nil)) ; {:old <path-or-nil> :new <path>}
+
+(def undo-stacks (atom {})) ; path -> [text ...] newest last, capped
+
+(defn- push-undo! [path text]
+  (swap! undo-stacks update path (fn [st] (vec (take-last 100 (conj (or st []) text))))))
+
+(defn- pop-undo! [path]
+  (when-let [top (peek (get @undo-stacks path))]
+    (swap! undo-stacks update path pop)
+    top))
+
+(defn- edit-response [{:keys [old new]} body-stream]
+  (try
+    (let [{:keys [file ops]} (json/parse-string (slurp body-stream) true)
+          path (if (= file "old") old new)]
+      (cond
+        (nil? path) {:error "no old file in single-file mode"}
+        (png/png? path) {:error "PNG sources are read-only"}
+        (= "undo" (:op (first ops)))
+        (if-let [prev (pop-undo! path)]
+          (do (spit path prev) {:ok true})
+          {:error "nothing to undo"})
+        :else
+        ;; snapshot the ORIGINAL text before applying — `before` feeds
+        ;; both the patch and the undo stack
+        (let [before (slurp path)
+              {:keys [text error]} (edit/apply-ops before ops)]
+          (if (some? error)
+            {:error error}
+            (do (push-undo! path before)
+                (spit path text)
+                {:ok true})))))
+    (catch Exception e {:error (ex-message e)})))
 
 (def ^:private usage
   (str "usage: bb serve <graph.edn|export.png> [<new.edn|new.png>] [--port N]\n"
@@ -62,13 +96,17 @@
 (defn graph-json
   "Parse an EDN string, normalize it, return the graph as a JSON string.
   With fname, the payload carries it as :file (the export download
-  name). Parse failures return {\"error\": message} instead of throwing."
+  name). extra-map, when given, is merged into the payload (e.g. the
+  :editable flag). Parse failures return {\"error\": message} instead of
+  throwing."
   ([s] (graph-json s nil))
-  ([s fname]
+  ([s fname] (graph-json s fname nil))
+  ([s fname extra-map]
    (try
      (json/generate-string
       (cond-> (graph/normalize (edn/read-string s))
-        (some? fname) (assoc :file fname)))
+        (some? fname) (assoc :file fname)
+        (some? extra-map) (merge extra-map)))
      (catch Exception e
        (json/generate-string {:error (ex-message e)})))))
 
@@ -78,8 +116,10 @@
   new-name's basename). A parse failure returns {\"error\": \"<file>: msg\"}."
   ([old-s new-s old-name new-name]
    (compare-json old-s new-s old-name new-name
-                 (.getName (io/file new-name))))
+                 (.getName (io/file new-name)) nil))
   ([old-s new-s old-name new-name file-name]
+   (compare-json old-s new-s old-name new-name file-name nil))
+  ([old-s new-s old-name new-name file-name extra-map]
    (try
      (let [parse (fn [s nm]
                    (try (edn/read-string s)
@@ -88,8 +128,9 @@
            old-g (graph/normalize (parse old-s old-name))
            new-g (graph/normalize (parse new-s new-name))]
        (json/generate-string
-        (assoc (diff/union old-g new-g old-name new-name)
-               :file file-name)))
+        (cond-> (assoc (diff/union old-g new-g old-name new-name)
+                       :file file-name)
+          (some? extra-map) (merge extra-map))))
      (catch Exception e
        (json/generate-string {:error (ex-message e)})))))
 
@@ -100,6 +141,30 @@
    "mjs"  "text/javascript; charset=utf-8"
    "json" "application/json"
    "svg"  "image/svg+xml"})
+
+(defn- local-origin?
+  "true when origin is absent (non-browser clients like curl send no
+  Origin header) or is exactly this server's own http://localhost:<port>
+  or http://127.0.0.1:<port> — same-origin browser fetches send Origin on
+  POST even though they omit it on GET."
+  [origin port]
+  (or (nil? origin)
+      (contains? #{(str "http://localhost:" port) (str "http://127.0.0.1:" port)} origin)))
+
+(defn- json-content-type? [ct]
+  (and (some? ct) (str/starts-with? (str/lower-case ct) "application/json")))
+
+(defn- edit-guard
+  "HTTP-level rejection response for a write to /api/edit, or nil when the
+  request may proceed: 403 on a foreign Origin (cross-origin write
+  attempt), 415 when Content-Type isn't application/json."
+  [{:keys [headers server-port]}]
+  (cond
+    (not (local-origin? (get headers "origin") server-port))
+    {:status 403 :headers {"Content-Type" "text/plain; charset=utf-8"} :body "forbidden"}
+    (not (json-content-type? (get headers "content-type")))
+    {:status 415 :headers {"Content-Type" "text/plain; charset=utf-8"} :body "unsupported media type"}
+    :else nil))
 
 (defn- json-response [body]
   {:status 200
@@ -122,20 +187,29 @@
                  "Cache-Control" "no-store"}
        :body "not found"})))
 
-(defn handler [{:keys [uri query-string]}]
+(defn handler [{:keys [uri query-string request-method body] :as req}]
   (case uri
     "/api/graph"   (json-response
                     (try
                       (let [{:keys [old new]} @files]
                         (if (some? old)
-                          (compare-json (read-source old) (read-source new) old new)
+                          (compare-json (read-source old) (read-source new) old new
+                                        (.getName (io/file new))
+                                        {:editable (not (png/png? new))
+                                         :editable-old (not (png/png? old))})
                           (if-let [old-s (embedded-old new)]
                             (let [nm (.getName (io/file new))]
                               (compare-json old-s (read-source new)
-                                            (str nm " (old)") (str nm " (new)") nm))
-                            (graph-json (read-source new) (.getName (io/file new))))))
+                                            (str nm " (old)") (str nm " (new)") nm
+                                            {:editable false :editable-old false}))
+                            (graph-json (read-source new) (.getName (io/file new))
+                                        {:editable (not (png/png? new))}))))
                       (catch Exception e
                         (json/generate-string {:error (ex-message e)}))))
+    "/api/edit"    (if (= :post request-method)
+                     (or (edit-guard req)
+                         (json-response (json/generate-string (edit-response @files body))))
+                     {:status 405 :headers {"Content-Type" "text/plain"} :body "POST only"})
     "/api/version" (json-response
                     (json/generate-string
                      {:mtime (let [{:keys [old new]} @files
@@ -179,7 +253,9 @@
              (println (ex-message e))
              (System/exit 1))))
     (reset! files {:old old-file :new file})
-    (srv/run-server handler {:port port})
+    ;; loopback only — /api/edit can write to disk, so the server must
+    ;; never be reachable from other hosts on the network
+    (srv/run-server handler {:port port :ip "127.0.0.1"})
     (println (str "simpleviz: serving "
                   (cond
                     old-file (str old-file " → " file " (compare)")

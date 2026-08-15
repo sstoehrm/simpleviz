@@ -1,0 +1,45 @@
+{:nodes {:inspector    {:name "Inspector editor" :type "ui"
+                        :role "attr CRUD: scalars as text, nested as raw EDN, add/delete rows"}
+         :action-bar   {:name "Action bar" :type "ui"
+                        :role "per-kind buttons in details panel header"}
+         :pick-mode    {:name "Pick mode" :type "ui"
+                        :role "click-a-target state: retarget edge, add-to-box; Esc cancels"}
+         :id-input     {:name "Id input" :type "ui"
+                        :role "inline field for new node/box ids"}
+         :target-toggle {:name "Edit-target toggle" :type "ui"
+                         :role "compare mode only: route ops to old or new file"}
+         :undo-ui      {:name "Undo" :type "ui" :role "button + Ctrl+Z"}
+         :op-builder   {:name "Op builder" :type "frontend"
+                        :role "pure: UI intent -> op payloads; batches multi-step ops"}
+         :focus        {:name "Post-layout focus" :type "frontend"
+                        :role "select + center a pending id after relayout"}
+         :api-edit     {:name "POST /api/edit" :type "api"
+                        :role "op batch + :file old|new; one write, one snapshot"}
+         :edit-ops     {:name "edit.clj ops" :type "server"
+                        :role "set-attr, del-attr, delete (cascades), add-node, add-edge, retarget-edge, set-direction, add-box, box-add"}
+         :patcher      {:name "rewrite-clj patcher" :type "server"
+                        :role "zipper edits; comments and formatting preserved; map-form only"}
+         :snapshots    {:name "Undo stack" :type "server"
+                        :role "per-file pre-edit snapshots, in-memory, capped"}
+         :edn-file     {:name "graph.edn" :type "file" :role "single source of truth"}
+         :reload       {:name "Live reload" :type "existing"
+                        :role "mtime poll -> normalize -> re-render (unchanged)"}}
+ :edges {[:inspector :op-builder]    {:direction :-> :name "field edits"}
+         [:action-bar :op-builder]   {:direction :-> :name "button intents"}
+         [:pick-mode :op-builder]    {:direction :-> :name "picked target"}
+         [:id-input :op-builder]     {:direction :-> :name "new ids"}
+         [:undo-ui :op-builder]      {:direction :-> :name "undo op"}
+         [:target-toggle :op-builder] {:direction :-> :name ":file old|new"}
+         [:op-builder :api-edit]     {:direction :-> :name "op batch" :type "http"}
+         [:api-edit :edit-ops]       {:direction :-> :name "dispatch"}
+         [:edit-ops :patcher]        {:direction :-> :name "zipper edits"}
+         [:edit-ops :snapshots]      {:direction :-> :name "snapshot before write"}
+         [:patcher :edn-file]        {:direction :-> :name "minimal-diff write"}
+         [:edn-file :reload]         {:direction :-> :name "mtime bump"}
+         [:reload :focus]            {:direction :-> :name "scene ready"}
+         [:api-edit :inspector]      {:direction :-> :name "op errors" :type "http"}}
+ :boxes {:browser {:name "Browser (squint)" :type "zone"
+                   :components #{:inspector :action-bar :pick-mode :id-input
+                                 :target-toggle :undo-ui :op-builder :focus}}
+         :server  {:name "Server (babashka)" :type "zone"
+                   :components #{:api-edit :edit-ops :patcher :snapshots}}}}

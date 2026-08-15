@@ -110,6 +110,41 @@ amber dot. The legend at the bottom counts the changes per status — click
 a row to jump through them (selects and centers each element, wraps
 around). Both files live-reload.
 
+## Editing
+
+When the served file is map-form EDN — not a read-only PNG — the diagram is
+editable in place. Click any attribute value in the inspector to edit it
+inline: scalars (strings, numbers, keywords, nil) edit as plain text; raw
+collections (vectors, maps, sets) edit as EDN text. Enter commits, Escape
+cancels; a `×` next to each attr deletes it, and a row at the bottom of the
+inspector adds a new one.
+
+Each selected element gets action buttons. Delete removes it — deleting a
+node or box also removes any edges touching it and clears its membership in
+a parent box. Edges get a direction row (→ ← ↔ —) and "change source" /
+"change target" buttons that enter pick mode (click the new node or box on
+the canvas). Nodes get "add node" (a new node connected by an edge, via an
+id-entry prompt) and "new box" (wraps the node in a freshly created box).
+Boxes get "add node" / "add box" pick-mode buttons to take an existing
+element as a member.
+
+In compare mode, an old|new toggle in the inspector picks which file edits
+apply to (disabled on a read-only PNG side).
+
+Ctrl+Z, or the ⟲ button, undoes the last edit. The server keeps one undo
+stack per file, shared by all viewers of that file, capped at 100 entries.
+
+Edits patch the file in place — comments and formatting outside the changed
+value are preserved — and the usual live-reload picks up the change. A
+session serving an exported PNG is always read-only, since there's no
+source file to write back to. Editing requires map-form EDN; pre-v2
+vector-form files (`:edges [..]`, `:boxes [..]`) refuse edits with a clear
+error asking you to convert to map form first.
+
+The server only binds to loopback and only accepts writes whose `Origin`
+matches its own `localhost`/`127.0.0.1` address, so it trusts your machine's
+browser but rejects cross-origin writes from other sites or hosts.
+
 ## Claude Code plugin
 
 This repo doubles as a [Claude Code](https://claude.com/claude-code) plugin

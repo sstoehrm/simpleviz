@@ -36,6 +36,7 @@ Rules that are easy to get wrong:
 - An element may belong to at most one box; contested membership goes to the first box by sorted name, with a warning.
 - Colors are stable: a `:type` string keeps its color across restarts and unrelated edits.
 - Pre-v2 vector forms are still accepted: `:edges [{:nodes [:a :b] :direction :->}]` and `:boxes [{:name "backend" :components #{..}}]`.
+- The editor rewrites the served file. Vector-form files refuse edits; convert to map form first.
 
 ## Validation is lenient — it never fails fast
 
@@ -68,3 +69,7 @@ There is no `bb diff` or similar — comparing is just passing two files. In com
 ## Viewer
 
 Click any node/edge/box for its full attributes. Hovering shows the id to reference in the EDN file as a tooltip — nodes/boxes their bare id, edges their `[from to]` key. Drag pans, wheel zooms. Boxes collapse/expand via the `−` button in their header (a collapsed box showing an amber dot hides changes in compare mode). Theme toggle top-right. Saving the file live-reloads the page (~1s); the tab title names the served file (or `old → new` in compare mode). The ⇩ button exports the whole diagram as a PNG with the source EDN embedded as metadata (recoverable via simpleviz extract, or serve the PNG directly).
+
+## Editing (in the browser)
+
+Map-form files are editable in place. Click an attribute value in the inspector to edit it inline (scalars as text, collections as raw EDN); a `×` deletes an attr, and a row at the bottom adds one. Per-element action buttons: Delete (cascades — removes touching edges and box membership), edge source/target retarget and direction (pick mode: click the new node/box), node "add node"/"new box", box "add node"/"add box" (pick mode to take a member). Compare mode adds an old|new toggle picking which file edits apply to. Ctrl+Z or the ⟲ button undoes the last edit; the server keeps one undo stack per file, shared by all viewers, capped at 100. Edits rewrite the file on disk, preserving comments and formatting; PNG-served sessions are read-only.

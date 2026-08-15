@@ -185,3 +185,149 @@
            (:body (serve/handler {:uri "/api/source" :query-string "which=old"}))))
     (is (= "{:nodes {:new {}}}"
            (:body (serve/handler {:uri "/api/source"}))))))
+
+;; --- /api/edit: undo stack + editable flags (Task 6) ------------------
+
+(defn- edit-req
+  "A POST /api/edit request map. Defaults to a same-origin-shaped request
+  (JSON content-type, port matching serve/default-port) so existing tests
+  that don't care about the Task-13 Origin/Content-Type guard keep
+  passing; :headers here are merged over those defaults so a test can
+  override just what it needs (e.g. a foreign :origin, or a nil
+  \"content-type\" to simulate a missing header)."
+  ([body] (edit-req body nil))
+  ([body {:keys [headers server-port]}]
+   {:uri "/api/edit" :request-method :post
+    :headers (merge {"content-type" "application/json"} headers)
+    :server-port (or server-port serve/default-port)
+    :body (java.io.ByteArrayInputStream. (.getBytes (json/generate-string body) "UTF-8"))}))
+
+(defn- temp-edn [text]
+  (let [f (java.io.File/createTempFile "edit-test" ".edn")]
+    (.deleteOnExit f) (spit f text) (.getPath f)))
+
+(deftest api-edit-applies-and-writes
+  (let [p (temp-edn "{:nodes {:a nil}}")]
+    (reset! serve/files {:old nil :new p})
+    (reset! serve/undo-stacks {})
+    (let [resp (serve/handler (edit-req {:file "new" :ops [{:op "add-node" :id "b"}]}))]
+      (is (= 200 (:status resp)))
+      (is (true? (get (json/parse-string (:body resp)) "ok")))
+      (is (clojure.string/includes? (slurp p) ":b nil")))))
+
+(deftest api-edit-error-leaves-file-untouched
+  (let [p (temp-edn "{:nodes {:a nil}}")]
+    (reset! serve/files {:old nil :new p})
+    (reset! serve/undo-stacks {})
+    (let [resp (serve/handler (edit-req {:file "new" :ops [{:op "add-node" :id "a"}]}))]
+      (is (clojure.string/includes? (get (json/parse-string (:body resp)) "error") "already exists"))
+      (is (= "{:nodes {:a nil}}" (slurp p)))
+      (is (empty? (get @serve/undo-stacks p))))))
+
+(deftest api-edit-undo-restores
+  (let [p (temp-edn "{:nodes {:a nil}}")]
+    (reset! serve/files {:old nil :new p})
+    (reset! serve/undo-stacks {})
+    (serve/handler (edit-req {:file "new" :ops [{:op "add-node" :id "b"}]}))
+    (serve/handler (edit-req {:file "new" :ops [{:op "undo"}]}))
+    (is (= "{:nodes {:a nil}}" (slurp p)))
+    (let [resp (serve/handler (edit-req {:file "new" :ops [{:op "undo"}]}))]
+      (is (= "nothing to undo" (get (json/parse-string (:body resp)) "error"))))))
+
+(deftest api-edit-refuses-png-and-missing-old
+  (reset! serve/files {:old nil :new "test/fixtures/embedded.png"})
+  (is (= "PNG sources are read-only"
+         (get (json/parse-string (:body (serve/handler (edit-req {:file "new" :ops []})))) "error")))
+  (let [p (temp-edn "{:nodes {:a nil}}")]
+    (reset! serve/files {:old nil :new p})
+    (is (clojure.string/includes?
+         (get (json/parse-string (:body (serve/handler (edit-req {:file "old" :ops []})))) "error")
+         "no old file"))))
+
+(deftest api-graph-carries-editable-flags
+  (let [p (temp-edn "{:nodes {:a nil}}")]
+    (reset! serve/files {:old nil :new p})
+    (is (true? (get (json/parse-string (:body (serve/handler {:uri "/api/graph"}))) "editable"))))
+  (reset! serve/files {:old nil :new "test/fixtures/embedded.png"})
+  (is (false? (get (json/parse-string (:body (serve/handler {:uri "/api/graph"}))) "editable"))))
+
+(deftest api-graph-compare-mode-carries-editable-flags
+  (let [old-p (temp-edn "{:nodes {:a nil}}")
+        new-p (temp-edn "{:nodes {:a nil :b nil}}")]
+    (reset! serve/files {:old old-p :new new-p})
+    (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph"})))]
+      (is (true? (get out "editable")))
+      (is (true? (get out "editable-old")))))
+  (reset! serve/files {:old "test/fixtures/embedded.png" :new (temp-edn "{:nodes {:a nil}}")})
+  (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph"})))]
+    (is (true? (get out "editable")))
+    (is (false? (get out "editable-old")))))
+
+(deftest api-graph-embedded-compare-png-is-not-editable
+  (let [f (temp-png* [(itxt* "simpleviz-edn-old" "{:nodes {:a {}}}")
+                      (itxt* "simpleviz-edn-new" "{:nodes {:a {} :b {}}}")])]
+    (reset! serve/files {:old nil :new f})
+    (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph"})))]
+      (is (false? (get out "editable")))
+      (is (false? (get out "editable-old"))))))
+
+(deftest api-edit-refuses-png-in-old-slot
+  (let [p (temp-edn "{:nodes {:a nil}}")]
+    (reset! serve/files {:old "test/fixtures/embedded.png" :new p})
+    (reset! serve/undo-stacks {})
+    (is (= "PNG sources are read-only"
+           (get (json/parse-string (:body (serve/handler (edit-req {:file "old" :ops []})))) "error")))))
+
+;; --- /api/edit: Origin + Content-Type guard (Task 13) ------------------
+
+(deftest api-edit-rejects-foreign-origin
+  (let [p (temp-edn "{:nodes {:a nil}}")]
+    (reset! serve/files {:old nil :new p})
+    (reset! serve/undo-stacks {})
+    (let [resp (serve/handler
+                (edit-req {:file "new" :ops [{:op "add-node" :id "b"}]}
+                          {:headers {"origin" "http://evil.example"}}))]
+      (is (= 403 (:status resp)))
+      (is (= "forbidden" (:body resp)))
+      (is (clojure.string/starts-with?
+           (get-in resp [:headers "Content-Type"]) "text/plain"))
+      (is (= "{:nodes {:a nil}}" (slurp p))))))
+
+(deftest api-edit-accepts-local-origins
+  (let [p (temp-edn "{:nodes {:a nil}}")]
+    (doseq [origin ["http://localhost:7373" "http://127.0.0.1:7373"]]
+      (reset! serve/files {:old nil :new p})
+      (reset! serve/undo-stacks {})
+      (spit p "{:nodes {:a nil}}")
+      (let [resp (serve/handler
+                  (edit-req {:file "new" :ops [{:op "add-node" :id "b"}]}
+                            {:headers {"origin" origin}}))]
+        (is (= 200 (:status resp)))
+        (is (true? (get (json/parse-string (:body resp)) "ok")))))))
+
+(deftest api-edit-rejects-missing-content-type
+  (let [p (temp-edn "{:nodes {:a nil}}")]
+    (reset! serve/files {:old nil :new p})
+    (reset! serve/undo-stacks {})
+    (let [resp (serve/handler
+                (edit-req {:file "new" :ops [{:op "add-node" :id "b"}]}
+                          {:headers {"content-type" nil}}))]
+      (is (= 415 (:status resp)))
+      (is (= "unsupported media type" (:body resp)))
+      (is (clojure.string/starts-with?
+           (get-in resp [:headers "Content-Type"]) "text/plain"))
+      (is (= "{:nodes {:a nil}}" (slurp p))))))
+
+;; --- e2e: edit round-trip through the file to /api/graph (Task 12) ----
+
+(deftest e2e-edit-roundtrip
+  (let [p (temp-edn "{:nodes {:web {:name \"Web\"}} ;; a comment\n :edges {}}")]
+    (reset! serve/files {:old nil :new p})
+    (reset! serve/undo-stacks {})
+    (serve/handler (edit-req {:file "new"
+                              :ops [{:op "add-node" :id "api"}
+                                    {:op "add-edge" :from "web" :to "api" :direction "->"}]}))
+    (let [g (json/parse-string (:body (serve/handler {:uri "/api/graph"})))]
+      (is (contains? (get g "nodes") "api"))
+      (is (= 1 (count (get g "edges")))))
+    (is (clojure.string/includes? (slurp p) ";; a comment"))))

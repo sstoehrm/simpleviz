@@ -178,3 +178,31 @@
                         (:edges g))))
     (is (some (fn [e] (and (= "a" (:source e)) (= "b" (:target e)))) (:edges g)))
     (is (= [] (:warnings g)))))
+
+(deftest apply-ops-batch-is-atomic
+  (let [ops [{:op "add-node" :id "x"}
+             {:op "add-edge" :from "x" :to "ghost"}]]   ; second op fails
+    (is (= {:error "unknown node or box \"ghost\""}
+           (edit/apply-ops small-file ops))))
+  (let [{:keys [text]} (edit/apply-ops small-file
+                                       [{:op "add-node" :id "x"}
+                                        {:op "add-edge" :from "a" :to "x" :direction "->"}])]
+    (is (clojure.string/includes? text "[:a :x] {:direction :->}"))))
+
+(deftest apply-ops-normalizes-string-payloads
+  (let [{:keys [text]} (edit/apply-ops small-file
+                                       [{:op "set-attr" :section "nodes" :id "a"
+                                         :attr "type" :value "\"svc\"" :fallback false}])]
+    (is (clojure.string/includes? text ":type \"svc\""))))
+
+(deftest apply-ops-unknown-op
+  (is (= {:error "unknown op \"frobnicate\""}
+         (edit/apply-ops small-file [{:op "frobnicate"}]))))
+
+(deftest apply-ops-unknown-section-fails-cleanly
+  ;; ledger finding from Task 1: `unknown!` throws a raw
+  ;; IllegalArgumentException for a section outside :nodes/:edges/:boxes.
+  ;; apply-ops must catch this at dispatch time, not let it escape raw.
+  (is (= {:error "unknown section \"bogus\""}
+         (edit/apply-ops small-file [{:op "set-attr" :section "bogus" :id "a"
+                                       :attr "x" :value "1" :fallback false}]))))

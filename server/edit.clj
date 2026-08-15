@@ -220,3 +220,36 @@
                        (unknown! :boxes id))]
              (-> t (remove-edges-touching id)
                  (until-done (fn [t'] (remove-first-component t' id)))))))
+
+(defn- norm-op
+  "Browser payload -> internal op: keywordize section/attr, keep ids."
+  [op]
+  (cond-> op
+    (some? (:section op)) (update :section keyword)
+    (some? (:attr op)) (update :attr keyword)))
+
+(defn- apply-op [text op]
+  (let [o (norm-op op)
+        op-name (:op o)]
+    (when (and (some? (:section o)) (not (contains? #{:nodes :edges :boxes} (:section o))))
+      (fail! (str "unknown section " (pr-str (:section op)))))
+    (case op-name
+      "set-attr" (set-attr text o)
+      "del-attr" (del-attr text o)
+      "add-node" (add-node text o)
+      "add-edge" (add-edge text o)
+      "add-box" (add-box text o)
+      "box-add" (box-add text o)
+      "retarget-edge" (retarget-edge text o)
+      "set-direction" (set-direction text o)
+      "delete" (delete text o)
+      (fail! (str "unknown op " (pr-str op-name))))))
+
+(defn apply-ops
+  "Apply a batch of ops to text, atomically: on any failure, return
+  {:error msg} without partial mutation. On success, {:text new-text}."
+  [text ops]
+  (try
+    {:text (reduce apply-op text ops)}
+    (catch clojure.lang.ExceptionInfo e
+      (if (:edit-error (ex-data e)) {:error (ex-message e)} (throw e)))))

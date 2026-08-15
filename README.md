@@ -106,30 +106,40 @@ removed ones stay visible as red, dashed, ghosted shapes. Nodes and boxes
 match by key, edges by their endpoints (flipping the pair or changing
 `:direction` counts as modified). Layout follows the new file; removed
 elements keep their old place. A collapsed box hiding any change shows an
-amber dot. The legend at the bottom counts the changes per status — click
-a row to jump through them (selects and centers each element, wraps
-around). Both files live-reload.
+amber dot. The legend at the top center names both files and counts the
+changes per status — click a row to jump through them (selects and centers
+each element, wraps around). Both files live-reload.
 
 ## Editing
 
 When the served file is map-form EDN — not a read-only PNG — the diagram is
-editable in place. Click any attribute value in the inspector to edit it
-inline: scalars (strings, numbers, keywords, nil) edit as plain text; raw
-collections (vectors, maps, sets) edit as EDN text. Enter commits, Escape
-cancels; a `×` next to each attr deletes it, and a row at the bottom of the
-inspector adds a new one.
+editable in place.
 
-Each selected element gets action buttons. Delete removes it — deleting a
-node or box also removes any edges touching it and clears its membership in
-a parent box. Edges get a direction row (→ ← ↔ —) and "change source" /
-"change target" buttons that enter pick mode (click the new node or box on
-the canvas). Nodes get "add node" (a new node connected by an edge, via an
-id-entry prompt) and "new box" (wraps the node in a freshly created box).
-Boxes get "add node" / "add box" pick-mode buttons to take an existing
-element as a member.
+The inspector (right panel) shows the selected element's data. Click any
+attribute value — or its ✎ button — to edit it inline: scalars (strings,
+numbers, keywords, nil) edit as plain text; raw collections (vectors, maps,
+sets) edit as EDN text. Enter commits, Escape cancels; the `×` on each row
+deletes the attribute, and the key/value row at the bottom adds a new one.
+In compare mode, a modified element's old → new changes appear as a card at
+the top of the panel.
 
-In compare mode, an old|new toggle in the inspector picks which file edits
-apply to (disabled on a read-only PNG side).
+Editing tools live in a floating toolbar at the bottom center of the
+screen. With nothing selected it offers "add node" (type an id — the view
+jumps to the new node). With a selection it shows that element's tools:
+
+- **Every element**: Delete — removing a node or box also removes edges
+  touching it and clears its membership in a parent box.
+- **Edges**: a direction row (→ ← ↔ —) plus "change source" / "change
+  target" pick modes (click the new node or box on the canvas; Esc
+  cancels).
+- **Nodes**: "add edge" (pick the other endpoint), "add to box" (pick the
+  destination box), "add node" (a new node connected by an edge, via an
+  id prompt), "new box" (wraps the node in a freshly created box).
+- **Boxes**: "add edge", plus "add node" / "add box" pick modes to take an
+  existing element as a member.
+
+In compare mode, the legend at the top center carries an old|new toggle
+picking which file edits apply to (disabled on a read-only PNG side).
 
 Ctrl+Z, or the ⟲ button, undoes the last edit. The server keeps one undo
 stack per file, shared by all viewers of that file, capped at 100 entries.

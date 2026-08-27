@@ -8,6 +8,16 @@
 
 (def ^:private diff-glyphs {"added" "+" "removed" "−" "modified" "~"})
 
+(defn elk-fingerprint
+  "Structural fingerprint of an ELK input graph: its serialized JSON,
+  compared with = so reuse is exact (no hash collisions). The ELK input
+  carries everything the layout depends on (node sizes, edge label
+  sizes, hierarchy), so an equal fingerprint means a previous layout
+  result can be reused. Cache entries already retain the larger layout
+  object, so keeping the input text costs comparatively little."
+  [elk-graph]
+  (js/JSON.stringify elk-graph))
+
 (defn to-elk [graph measure]
   (let [{:keys [nodes boxes boxes-by-name parent-of edges]} graph
         node-elk (fn [n]

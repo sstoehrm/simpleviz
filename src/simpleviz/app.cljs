@@ -50,17 +50,29 @@
 ;; (not cleared) on file reload — see demote-layout-cache!
 (def ^:private layout-cache (js/Map.))
 
+;; bumped on every fresh graph from the server; an async relayout
+;; captures it at start and discards its result (no state apply, no
+;; cache write) if a reload superseded it mid-flight — otherwise a slow
+;; pre-edit ELK run resolving after an instant fingerprint-reuse
+;; relayout would overwrite the fresh scene and poison the cache
+(def ^:private graph-gen (atom 0))
+
 (defn- demote-layout-cache!
   "The file changed: cached colors/scenes are stale, but each layout
   stays reusable — relayout! skips the ELK run when the new structural
   fingerprint still matches (an attribute-only edit). Keep only
   fingerprint + layout per entry; dropping :scene routes the next
-  relayout! through the rebuild path."
+  relayout! through the rebuild path. An entry that is still demoted
+  from the previous file version was never revisited in a whole
+  version — delete it, so stale layouts are retained for at most one
+  version window."
   []
   (doseq [k (js/Array.from (.keys layout-cache))]
     (let [e (.get layout-cache k)]
-      (.set layout-cache k {:fingerprint (:fingerprint e)
-                            :layout (:layout e)}))))
+      (if (some? (:scene e))
+        (.set layout-cache k {:fingerprint (:fingerprint e)
+                              :layout (:layout e)})
+        (.delete layout-cache k)))))
 
 (defn- cache-key [collapsed]
   (.join (.sort (js/Array.from collapsed)) "|"))
@@ -569,10 +581,12 @@
   "Layout + scene from the stored graph, with collapsed boxes contracted.
   Colors come from the FULL graph so collapsing never shifts type colors.
   Results are cached per collapsed-set; a stale async result (set changed
-  meanwhile) is cached but not applied."
+  meanwhile) is cached but not applied, and one from a superseded graph
+  generation (file reloaded mid-flight) is discarded entirely."
   []
   (try
-    (let [g0 (:graph @state)
+    (let [gen @graph-gen
+          g0 (:graph @state)
           collapsed (:collapsed-boxes @state)
           ck (cache-key collapsed)
           hit (.get layout-cache ck)]
@@ -605,14 +619,15 @@
                          (js-await (.layout elk elk-graph)))
                 sc (scene/build-scene {:layout layout :graph g :colors cmap})]
             (canvas/fit-view-once! sc)
-            (when (> (.-size layout-cache) 16) (.clear layout-cache))
-            (.set layout-cache ck {:fingerprint fp :colors cmap
-                                   :layout layout :scene sc})
-            (if (= ck (cache-key (:collapsed-boxes @state)))
-              (do (swap! state assoc :colors cmap :layout layout :scene sc
-                         :layouting false :diff-cursors {})
-                  (apply-pending-focus! sc))
-              (swap! state assoc :layouting false))))))
+            (when (= gen @graph-gen)
+              (when (> (.-size layout-cache) 16) (.clear layout-cache))
+              (.set layout-cache ck {:fingerprint fp :colors cmap
+                                     :layout layout :scene sc})
+              (if (= ck (cache-key (:collapsed-boxes @state)))
+                (do (swap! state assoc :colors cmap :layout layout :scene sc
+                           :layouting false :diff-cursors {})
+                    (apply-pending-focus! sc))
+                (swap! state assoc :layouting false)))))))
     (catch :default e
       (js/console.error "Relayout failed:" e)
       (swap! state assoc :layouting false
@@ -648,6 +663,7 @@
         (let [g (assoc raw :boxes-by-name
                        (reduce (fn [acc b] (assoc acc (:name b) b)) {} (:boxes raw)))
               first-load? (nil? (:graph @state))]
+          (swap! graph-gen inc)
           (demote-layout-cache!)
           (set! (.-title js/document) (format/tab-title g))
           (swap! state (fn [st]

@@ -1,4 +1,5 @@
-(ns simpleviz.transform)
+(ns simpleviz.transform
+  (:require [simpleviz.colors :as colors]))
 
 ;; Builds the ELK JSON graph from a validated graph. Text measurement is
 ;; injected so this namespace stays DOM-free and testable.
@@ -7,6 +8,15 @@
 (def SUB-FONT "11px system-ui, sans-serif")
 
 (def ^:private diff-glyphs {"added" "+" "removed" "−" "modified" "~"})
+
+(defn elk-fingerprint
+  "Cheap structural fingerprint of an ELK input graph: JSON length plus
+  FNV-1a of the JSON text. The ELK input carries everything the layout
+  depends on (node sizes, edge label sizes, hierarchy), so an equal
+  fingerprint means a previous layout result can be reused."
+  [elk-graph]
+  (let [s (js/JSON.stringify elk-graph)]
+    (str (.-length s) ":" (colors/fnv1a s))))
 
 (defn to-elk [graph measure]
   (let [{:keys [nodes boxes boxes-by-name parent-of edges]} graph

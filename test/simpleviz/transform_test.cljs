@@ -1,7 +1,7 @@
 (ns simpleviz.transform-test
   (:require ["node:test" :refer [test]]
             ["node:assert/strict$default" :as assert]
-            [simpleviz.transform :refer [to-elk]]))
+            [simpleviz.transform :refer [to-elk elk-fingerprint]]))
 
 (defn node
   ([id] (node id ""))
@@ -114,3 +114,38 @@
           elk (to-elk g measure)
           x (first (filterv (fn [c] (= (:id c) "b:x")) (:children elk)))]
       (assert/ok (>= (:width x) (measure "a much longer label" nil))))))
+
+(test "elk-fingerprint: equal for identical inputs and attribute-only edits"
+  (fn []
+    (let [g1 (graph {:nodes {"a" (assoc (node "a" "svc") :attrs {:team "core"})
+                             "b" (node "b")}
+                     :edges [{:id "e0" :source "a" :target "b"
+                              :arrows {:source false :target true}
+                              :name "" :type "" :attrs {}}]})
+          ;; hidden attrs and arrow direction feed the inspector/canvas,
+          ;; not ELK — the fingerprint must not move
+          g2 (-> g1
+                 (assoc-in [:nodes "a" :attrs] {:team "growth" :lang "go"})
+                 (assoc-in [:edges 0 :arrows] {:source true :target true}))]
+      (assert/equal (elk-fingerprint (to-elk g1 measure))
+                    (elk-fingerprint (to-elk g1 measure)))
+      (assert/equal (elk-fingerprint (to-elk g1 measure))
+                    (elk-fingerprint (to-elk g2 measure))))))
+
+(test "elk-fingerprint: size, label and topology changes move it"
+  (fn []
+    (let [g (graph {:nodes {"a" (node "a") "b" (node "b")}
+                    :edges [{:id "e0" :source "a" :target "b"
+                             :arrows {:source false :target true}
+                             :name "" :type "" :attrs {}}]})
+          fp (elk-fingerprint (to-elk g measure))
+          renamed (assoc-in g [:nodes "a" :name] "a renamed node")
+          typed (assoc-in g [:nodes "a" :type] "svc")
+          labeled (assoc-in g [:edges 0 :name] "calls")
+          extra-edge (update g :edges conj {:id "e1" :source "b" :target "a"
+                                            :arrows {:source false :target true}
+                                            :name "" :type "" :attrs {}})]
+      (assert/notEqual fp (elk-fingerprint (to-elk renamed measure)))
+      (assert/notEqual fp (elk-fingerprint (to-elk typed measure)))
+      (assert/notEqual fp (elk-fingerprint (to-elk labeled measure)))
+      (assert/notEqual fp (elk-fingerprint (to-elk extra-edge measure))))))

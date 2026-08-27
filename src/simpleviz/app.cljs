@@ -20,6 +20,7 @@
                   :edit-target "new" :edit-error nil :editing nil
                   :pick nil :pick-hint nil
                   :id-entry nil :pending-focus nil
+                  :help false
                   :theme (or (js/localStorage.getItem "simpleviz-theme")
                              (if (.-matches (js/window.matchMedia
                                              "(prefers-color-scheme: dark)"))
@@ -455,6 +456,38 @@
   (when-let [g (:graph st)]
     (boolean (if (= (:edit-target st) "old") (:editable-old g) (:editable g)))))
 
+(defn- toggle-help! []
+  (swap! state update :help not))
+
+(defn- help-section [title & paras]
+  (into [:section [:h3 title]]
+        (mapv (fn [p] [:p p]) paras)))
+
+(defn- help-view [st]
+  (when (:help st)
+    [:aside {:id "help-panel"}
+     [:button {:id "help-close" :type "button" :aria-label "Close help"
+               :on-click (fn [e] (.stopPropagation e)
+                           (swap! state assoc :help false))}
+      "×"]
+     [:h2 "How to use"]
+     (help-section
+      "Navigate"
+      "Drag to pan, scroll to zoom. Hover an element to see its id in the EDN file; click it to inspect its attributes. The − in a box header collapses the box to a single node — the panel on the left lists collapsed boxes and re-expands them.")
+     (help-section
+      "Edit"
+      "When the served file is editable EDN, the floating toolbar at the bottom holds the tools for the current selection: delete, edge direction, and pick modes such as \"add edge\" (click the other element on the canvas; Esc cancels). With nothing selected it adds a standalone node."
+      "In the inspector, click a value or its ✎ to edit it inline — Enter commits, Escape cancels. × deletes an attribute; the key/value row at the bottom adds one. Ctrl+Z or ⟲ undoes the last edit.")
+     (help-section
+      "Compare"
+      "Serving two files renders one merged diagram: added elements get a green +, modified an amber ~ (select for an old → new list), removed ones stay as red dashed ghosts. Click a legend row to jump through the changes; the old|new toggle picks which file edits apply to.")
+     (help-section
+      "Export"
+      "⇩ downloads the diagram as a PNG with the source EDN embedded — an exported PNG can be served again, compared, or turned back into EDN with \"simpleviz extract\".")
+     (help-section
+      "Theme"
+      "☀ / 🌙 switches between light and dark mode.")]))
+
 (defn- pick-hint-view [st]
   (when-let [pick (:pick st)]
     [:div {:id "pick-hint"} (:pick-hint st) " — Esc cancels"]))
@@ -487,6 +520,10 @@
              :title (if (= (:theme st) "dark") "Switch to light mode" "Switch to dark mode")
              :on-click (fn [e] (.stopPropagation e) (toggle-theme!))}
     (if (= (:theme st) "dark") "☀" "🌙")]
+   [:button {:id "help-btn" :type "button" :title "Help"
+             :on-click (fn [e] (.stopPropagation e) (toggle-help!))}
+    "?"]
+   (help-view st)
    (canvas-view)
    (when (and (some? (:scene st)) (current-edit-target-editable? st))
      (selection-toolbar st))
@@ -718,7 +755,8 @@
 (js/window.addEventListener "keydown"
   (fn [e]
     (cond
-      (= (.-key e) "Escape") (cancel-pick!)
+      (= (.-key e) "Escape") (do (cancel-pick!)
+                                 (swap! state assoc :help false))
       (and (or (.-ctrlKey e) (.-metaKey e))
            (= (.toLowerCase (.-key e)) "z")
            (let [tag (.-tagName (.-activeElement js/document))]

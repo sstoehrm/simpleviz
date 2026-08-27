@@ -166,7 +166,29 @@ textarea.attr-edit { min-height: 64px; resize: vertical; }
                 cursor: pointer; box-shadow: 0 1px 4px var(--shadow); }
 #theme-toggle:hover { border-color: var(--accent); }
 
-#export-btn { position: fixed; top: 8px; right: 52px; z-index: 4;
+#help-btn { position: fixed; top: 8px; right: 52px; z-index: 4;
+            width: 32px; height: 32px; border-radius: 50%;
+            border: 1px solid var(--panel-border); background: var(--panel);
+            color: var(--text); font-size: 15px; line-height: 1;
+            cursor: pointer; box-shadow: 0 1px 4px var(--shadow); }
+#help-btn:hover { border-color: var(--accent); }
+
+#help-panel { position: fixed; top: 48px; right: 12px; z-index: 8;
+              width: 340px; max-height: calc(100vh - 60px); overflow: auto;
+              background: var(--panel); border: 1px solid var(--panel-border);
+              border-radius: 8px; padding: 12px 16px 14px; font-size: 13px;
+              color: var(--text); box-shadow: 0 2px 8px var(--shadow); }
+#help-panel h2 { margin: 0 0 2px; font-size: 15px; padding-right: 24px; }
+#help-panel h3 { margin: 12px 0 2px; font-size: 10.5px; font-weight: 600;
+                 letter-spacing: .07em; text-transform: uppercase;
+                 color: var(--text-dim); }
+#help-panel p { margin: 2px 0 0; line-height: 1.45; }
+#help-close { position: absolute; top: 8px; right: 10px; width: 24px; height: 24px;
+              border: none; background: none; color: var(--text-muted); font-size: 18px;
+              line-height: 1; cursor: pointer; padding: 0; border-radius: 4px; }
+#help-close:hover { background: var(--hover-plain); color: var(--text-strong); }
+
+#export-btn { position: fixed; top: 8px; right: 92px; z-index: 4;
               width: 32px; height: 32px; border-radius: 50%;
               border: 1px solid var(--panel-border); background: var(--panel);
               color: var(--text); font-size: 15px; line-height: 1;
@@ -218,7 +240,7 @@ textarea.attr-edit { min-height: 64px; resize: vertical; }
                                  color: #fff; }
 #diff-legend .dl-target:disabled { opacity: .4; cursor: not-allowed; }
 
-#undo-btn { position: fixed; top: 8px; right: 92px; z-index: 4;
+#undo-btn { position: fixed; top: 8px; right: 132px; z-index: 4;
             width: 32px; height: 32px; border-radius: 50%;
             border: 1px solid var(--panel-border); background: var(--panel);
             color: var(--text); font-size: 15px; line-height: 1;

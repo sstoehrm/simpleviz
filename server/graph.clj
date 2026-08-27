@@ -7,7 +7,12 @@
             [malli.error :as me]))
 
 (def ^:private EdgeShape
-  [:map [:nodes [:tuple [:or :string :keyword] [:or :string :keyword]]]])
+  (m/schema [:map [:nodes [:tuple [:or :string :keyword] [:or :string :keyword]]]]))
+
+;; compiled once: m/explain per edge re-interprets the schema and costs
+;; ~300x the compiled validator, which dominated normalize at 10k nodes
+(def ^:private edge-shape-valid? (m/validator EdgeShape))
+(def ^:private edge-shape-explainer (m/explainer EdgeShape))
 
 (def ^:private directions
   {:-> :-> :<- :<- :<-> :<-> :- :-
@@ -23,12 +28,12 @@
 (defn- coerce-str [x fallback]
   (ident->str (if (nil? x) fallback x)))
 
-(defn- explain-str
-  "nil when value matches schema, else the humanized malli explanation
-  rendered as a string."
-  [schema value]
-  (when-let [expl (m/explain schema value)]
-    (pr-str (me/humanize expl))))
+(defn- edge-shape-error
+  "nil when the edge matches EdgeShape, else the humanized malli
+  explanation rendered as a string; the explainer only runs on failures."
+  [e]
+  (when-not (edge-shape-valid? e)
+    (pr-str (me/humanize (edge-shape-explainer e)))))
 
 (defn- top-level [raw warn! k pred coerce-empty msg]
   (let [v (get raw k)]
@@ -71,11 +76,15 @@
 (defn- edges-map->seq
   "Map-form edges {[:a :b] {..}} -> edge maps with the key as :nodes.
   Sorted by the coerced endpoint pair so edge ids stay stable regardless
-  of EDN map iteration order."
+  of EDN map iteration order. The sort key is precomputed per entry:
+  sort-by recomputes its keyfn on every comparison, which made pr-str
+  dominate this function at 10k nodes."
   [m warn!]
-  (->> (sort-by (fn [[k _]] (if (vector? k) (pr-str (mapv ident->str k)) (pr-str k)))
-                (seq m))
-       (keep (fn [[k v]]
+  (->> (seq m)
+       (mapv (fn [[k v]]
+               [(if (vector? k) (pr-str (mapv ident->str k)) (pr-str k)) k v]))
+       (sort-by first)
+       (keep (fn [[_ k v]]
                (cond
                  (not (and (vector? k) (= 2 (count k))))
                  (do (warn! (str "edge key " (pr-str k) ": must be a 2-element vector, skipped")) nil)
@@ -135,7 +144,7 @@
           (fn [i e]
             (if-not (map? e)
               (do (warn! (str "edge " i ": not a map, skipped")) nil)
-              (if-let [humanized (explain-str EdgeShape e)]
+              (if-let [humanized (edge-shape-error e)]
                 (do (warn! (str "edge " i ": :nodes must be a vector of exactly 2 node names ("
                                 humanized ")"))
                     nil)

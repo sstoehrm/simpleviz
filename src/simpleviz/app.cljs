@@ -20,7 +20,7 @@
                   :edit-target "new" :edit-error nil :editing nil
                   :pick nil :pick-hint nil
                   :id-entry nil :pending-focus nil
-                  :help false
+                  :help false :disconnected false
                   :theme (or (js/localStorage.getItem "simpleviz-theme")
                              (if (.-matches (js/window.matchMedia
                                              "(prefers-color-scheme: dark)"))
@@ -337,8 +337,12 @@
               (id-entry-btn "add node" "node")]
              (when-let [entry (:id-entry st)] [(id-entry-row nil entry)])))]))
 
-(defn- banner-view [{:keys [error warnings collapsed edit-error]}]
+(defn- banner-view [{:keys [error warnings collapsed edit-error disconnected]}]
   (cond
+    disconnected
+    [:div {:id "banner" :class "error"}
+     "Not connected: the simpleviz server is not running. Restart it to resume live reload."]
+
     (some? edit-error)
     [:div {:id "banner" :class "error"
            :on-click (fn [_] (swap! state assoc :edit-error nil))}
@@ -692,6 +696,10 @@
                       v (js-await (.json resp))]
                   (:mtime v))
                 (catch :default _ nil))]
+    ;; a failed poll means the server is gone (or restarting); the flag
+    ;; clears on the next successful poll, so reconnection needs no action
+    (when (not= (nil? mtime) (:disconnected @state))
+      (swap! state assoc :disconnected (nil? mtime)))
     (when (and (some? mtime) (not= mtime @last-mtime))
       (reset! last-mtime mtime)
       (js-await (reload!)))))

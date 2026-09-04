@@ -80,7 +80,8 @@ body { margin: 0; font-family: system-ui, sans-serif; overflow: hidden;
                               cursor: text; min-height: 1.2em; }
 #details dd.attr-row .attr-val { flex: 1; min-width: 0; }
 .attr-edit { width: 100%; }
-textarea.attr-edit { min-height: 64px; resize: vertical; }
+textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
+                     display: block; }
 .attr-btn { flex: none; border: none; background: none; color: var(--text-dim);
             cursor: pointer; font-size: 13px; line-height: 1.2;
             padding: 1px 4px; border-radius: 4px; }
@@ -246,6 +247,12 @@ textarea.attr-edit { min-height: 64px; resize: vertical; }
             color: var(--text); font-size: 15px; line-height: 1;
             cursor: pointer; box-shadow: 0 1px 4px var(--shadow); }
 #undo-btn:hover { border-color: var(--accent); }
+#relayout-btn { position: fixed; top: 8px; right: 172px; z-index: 4;
+                width: 32px; height: 32px; border-radius: 50%;
+                border: 1px solid var(--accent); background: var(--panel);
+                color: var(--text); font-size: 15px; line-height: 1;
+                cursor: pointer; box-shadow: 0 1px 4px var(--shadow); }
+#relayout-btn:hover { background: var(--hover-plain); }
 #details .details-changes { border: 1px solid var(--panel-divider);
                             border-left: 3px solid var(--diff-modified);
                             border-radius: 6px; padding: 2px 10px 10px;

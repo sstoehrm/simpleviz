@@ -2,7 +2,7 @@
   (:require ["node:test" :refer [test]]
             ["node:assert/strict$default" :as assert]
             ["node:module" :refer [createRequire]]
-            [simpleviz.transform :refer [to-elk]]))
+            [simpleviz.transform :refer [to-elk layout-positions seed-layout]]))
 
 (def require' (createRequire (js* "import.meta.url")))
 (def ELK (require' "../../vendor/elk.bundled.js"))
@@ -120,3 +120,32 @@
                                                  (:children backend)))]
                      (assert/ok (pos? (:width storage)) "empty box has width")
                      (assert/ok (pos? (:height storage)) "empty box has height"))))))))
+
+(test "seeded interactive relayout keeps layer order after adding a node"
+  (fn []
+    (let [box {:id "b:grp" :name "grp" :type "" :components ["n:a" "n:b" "n:c"] :attrs {}}
+          g0 (graph {:nodes {"a" (node "a" "") "b" (node "b" "") "c" (node "c" "")}
+                     :edges [(edge 0 "a" "b" {:source false :target true})
+                             (edge 1 "b" "c" {:source false :target true})]
+                     :boxes [box]
+                     :parent-of {"n:a" "grp" "n:b" "grp" "n:c" "grp"}})
+          box' (assoc box :components ["n:a" "n:b" "n:c" "n:d"])
+          g1 (graph {:nodes {"a" (node "a" "") "b" (node "b" "") "c" (node "c" "") "d" (node "d" "")}
+                     :edges [(edge 0 "a" "b" {:source false :target true})
+                             (edge 1 "b" "c" {:source false :target true})
+                             (edge 2 "b" "d" {:source false :target true})]
+                     :boxes [box']
+                     :parent-of {"n:a" "grp" "n:b" "grp" "n:c" "grp" "n:d" "grp"}})
+          elk (ELK.)]
+      (-> (.layout elk (to-elk g0 measure))
+          (.then (fn [l0]
+                   (.layout elk (seed-layout (to-elk g1 measure) (layout-positions l0)))))
+          (.then (fn [l1]
+                   (let [pos (layout-positions l1)
+                         x (fn [id] (:x (get pos id)))]
+                     (assert/ok (< (x "n:a") (x "n:b")) "a stays left of b")
+                     (assert/ok (< (x "n:b") (x "n:c")) "b stays left of c")
+                     (assert/equal (x "n:d") (x "n:c") "new node shares c's layer")
+                     (doseq [e (:edges l1)]
+                       (assert/ok (and (:sections e) (pos? (.-length (:sections e))))
+                                  (str "edge " (:id e) " has sections"))))))))))

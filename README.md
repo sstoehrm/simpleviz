@@ -118,14 +118,15 @@ editable in place.
 The inspector (right panel) shows the selected element's data. Click any
 attribute value — or its ✎ button — to edit it inline: scalars (strings,
 numbers, keywords, nil) edit as plain text; raw collections (vectors, maps,
-sets) edit as EDN text. Enter commits, Escape cancels; the `×` on each row
+sets) edit as EDN text. The field grows with its content; Enter commits,
+Shift+Enter inserts a line break, Escape cancels; the `×` on each row
 deletes the attribute, and the key/value row at the bottom adds a new one.
 In compare mode, a modified element's old → new changes appear as a card at
 the top of the panel.
 
 Editing tools live in a floating toolbar at the bottom center of the
-screen. With nothing selected it offers "add node" (type an id — the view
-jumps to the new node). With a selection it shows that element's tools:
+screen. With nothing selected it offers "create node" (type an id — the
+new node is selected). With a selection it shows that element's tools:
 
 - **Every element**: Delete — removing a node or box also removes edges
   touching it and clears its membership in a parent box.
@@ -133,13 +134,19 @@ jumps to the new node). With a selection it shows that element's tools:
   target" pick modes (click the new node or box on the canvas; Esc
   cancels).
 - **Nodes**: "add edge" (pick the other endpoint), "add to box" (pick the
-  destination box), "add node" (a new node connected by an edge, via an
-  id prompt), "new box" (wraps the node in a freshly created box).
+  destination box), "create node" (a new node connected by an edge, via
+  an id prompt), "new box" (wraps the node in a freshly created box).
 - **Boxes**: "add edge", plus "add node" / "add box" pick modes to take an
   existing element as a member.
 
 In compare mode, the legend at the top center carries an old|new toggle
 picking which file edits apply to (disabled on a read-only PNG side).
+
+After an edit the diagram keeps its arrangement: the relayout is seeded
+with the previous positions, so existing elements stay in their layers and
+order and a new node appears next to the one it connects to. A ⟳ button
+then appears top right; click it for a fresh layout once the arrangement
+drifts from what a clean run would produce.
 
 Ctrl+Z, or the ⟲ button, undoes the last edit. The server keeps one undo
 stack per file, shared by all viewers of that file, capped at 100 entries.

@@ -2,7 +2,7 @@
   (:require ["reagami" :refer [render]]
             [simpleviz.colors :as colors]
             [simpleviz.format :as format]
-            [simpleviz.transform :refer [to-elk elk-fingerprint]]
+            [simpleviz.transform :refer [to-elk elk-fingerprint layout-positions seed-layout seedable?]]
             [simpleviz.prune :refer [collapse-boxes collapse-scene]]
             [simpleviz.scene :as scene]
             [simpleviz.hit :as hit]
@@ -57,25 +57,29 @@
 ;; relayout would overwrite the fresh scene and poison the cache
 (def ^:private graph-gen (atom 0))
 
+(defn- cache-key [collapsed]
+  (.join (.sort (js/Array.from collapsed)) "|"))
+
 (defn- demote-layout-cache!
   "The file changed: cached colors/scenes are stale, but each layout
   stays reusable — relayout! skips the ELK run when the new structural
-  fingerprint still matches (an attribute-only edit). Keep only
-  fingerprint + layout per entry; dropping :scene routes the next
-  relayout! through the rebuild path. An entry that is still demoted
-  from the previous file version was never revisited in a whole
-  version — delete it, so stale layouts are retained for at most one
-  version window."
+  fingerprint still matches (an attribute-only edit) and otherwise
+  seeds the next run from it. Keep only fingerprint + layout per entry;
+  dropping :scene routes the next relayout! through the rebuild path.
+  An entry that is still demoted from the previous file version was
+  never revisited in a whole version — delete it, so stale layouts are
+  retained for at most one version window. The current collapsed-set's
+  entry is exempt: it is the seed of the relayout this reload triggers,
+  possibly still demoted only because the previous one is in flight."
   []
-  (doseq [k (js/Array.from (.keys layout-cache))]
-    (let [e (.get layout-cache k)]
-      (if (some? (:scene e))
-        (.set layout-cache k {:fingerprint (:fingerprint e)
-                              :layout (:layout e)})
-        (.delete layout-cache k)))))
-
-(defn- cache-key [collapsed]
-  (.join (.sort (js/Array.from collapsed)) "|"))
+  (let [current (cache-key (:collapsed-boxes @state))]
+    (doseq [k (js/Array.from (.keys layout-cache))]
+      (let [e (.get layout-cache k)]
+        (cond (some? (:scene e))
+              (.set layout-cache k {:fingerprint (:fingerprint e)
+                                    :layout (:layout e)})
+              (not= k current)
+              (.delete layout-cache k))))))
 
 (defn- collapse-box! [box-name]
   (swap! state (fn [st]
@@ -148,17 +152,34 @@
         (string? v) v
         :else (js/JSON.stringify v)))
 
+(defn- autosize!
+  "Grow a textarea to fit its content (and shrink back), so a value
+  edits as one line when short and as many as it needs when long."
+  [el]
+  (set! (.. el -style -height) "auto")
+  (set! (.. el -style -height) (str (.-scrollHeight el) "px")))
+
 (defn- attr-edit-row [tgt k v scalar editing]
   [:dd {:key (str "d" k) :class "attr-row"}
    (if (= k (:attr editing))
-     [(if scalar :input :textarea)
-      {:value (:text editing) :class "attr-edit"
+     [:textarea
+      {:value (:text editing) :class "attr-edit" :rows 1
+       :on-render (fn [el lifecycle _]
+                    (autosize! el)
+                    (when (= lifecycle "mount")
+                      (.focus el)
+                      (let [n (.-length (.-value el))]
+                        (.setSelectionRange el n n))))
        :on-input (fn [e] (swap! state assoc-in [:editing :text] (.. e -target -value)))
        :on-keydown (fn [e]
-                     (case (.-key e)
-                       "Enter" (post-edit! [(editor/set-attr-op tgt k (:text (:editing @state)) scalar)])
-                       "Escape" (swap! state assoc :editing nil)
-                       nil))
+                     (cond
+                       ;; Enter commits; Shift+Enter is the line break
+                       (and (= (.-key e) "Enter") (not (.-shiftKey e)))
+                       (do (.preventDefault e)
+                           (post-edit! [(editor/set-attr-op tgt k (:text (:editing @state)) scalar)]))
+
+                       (= (.-key e) "Escape")
+                       (swap! state assoc :editing nil)))
        :on-blur (fn [_] (when-let [ops (editor/blur-op (:editing @state) k tgt scalar)]
                          (post-edit! ops)))}]
      [:span {:on-click (fn [_] (swap! state assoc :editing {:attr k :text (editor/value->edn-text v)}))}
@@ -245,7 +266,7 @@
   in a freshly-created box."
   [sel]
   (if (= (:kind sel) "node")
-    [(id-entry-btn "add node" "connect")
+    [(id-entry-btn "create node" "connect")
      (id-entry-btn "new box" "newbox")]
     []))
 
@@ -334,7 +355,7 @@
      (if (some? sel)
        (action-bar sel (editor/target sel))
        (into [:div {:class "details-actions"}
-              (id-entry-btn "add node" "node")]
+              (id-entry-btn "create node" "node")]
              (when-let [entry (:id-entry st)] [(id-entry-row nil entry)])))]))
 
 (defn- banner-view [{:keys [error warnings collapsed edit-error]}]
@@ -368,6 +389,16 @@
              :diff (:diff item)
              :changed (:changed item)}
       (= (:kind item) "edge") (assoc :source (:source item) :target (:target item)))))
+
+(defn- refresh-selection
+  "st with :selected re-derived from scene sc: the payload is a snapshot,
+  so after a reload its attrs would otherwise show the pre-edit values
+  until the element is clicked again. Cleared when the element is gone."
+  [st sc]
+  (if-let [sel (:selected st)]
+    (let [item (some (fn [it] (when (= (:id it) (:elk-id sel)) it)) (:items sc))]
+      (assoc st :selected (if (some? item) (item->payload item) nil)))
+    st))
 
 (defn- cycle-diff! [status]
   (let [stops (get (scene/diff-stops (:scene @state)) status)]
@@ -500,8 +531,8 @@
       "Drag to pan, scroll to zoom. Hover an element to see its id in the EDN file; click it to inspect its attributes. The − in a box header collapses the box to a single node — the panel on the left lists collapsed boxes and re-expands them.")
      (help-section
       "Edit"
-      "When the served file is editable EDN, the floating toolbar at the bottom holds the tools for the current selection: delete, edge direction, and pick modes such as \"add edge\" (click the other element on the canvas; Esc cancels). With nothing selected it adds a standalone node."
-      "In the inspector, click a value or its ✎ to edit it inline — Enter commits, Escape cancels. × deletes an attribute; the key/value row at the bottom adds one. Ctrl+Z or ⟲ undoes the last edit.")
+      "When the served file is editable EDN, the floating toolbar at the bottom holds the tools for the current selection: delete, edge direction, and pick modes such as \"add edge\" (click the other element on the canvas; Esc cancels). With nothing selected it creates a standalone node."
+      "In the inspector, click a value or its ✎ to edit it inline — Enter commits, Shift+Enter inserts a line break, Escape cancels. × deletes an attribute; the key/value row at the bottom adds one. Ctrl+Z or ⟲ undoes the last edit.")
      (help-section
       "Compare"
       "Serving two files renders one merged diagram: added elements get a green +, modified an amber ~ (select for an old → new list), removed ones stay as red dashed ghosts. Click a legend row to jump through the changes; the old|new toggle picks which file edits apply to.")
@@ -540,6 +571,11 @@
      [:button {:id "undo-btn" :type "button" :title "Undo last edit (Ctrl+Z)"
                :on-click (fn [e] (.stopPropagation e) (post-edit! [{:op "undo"}]))}
       "⟲"])
+   (when (:seeded (:layout st))
+     [:button {:id "relayout-btn" :type "button"
+               :title "Re-layout: edits kept the old arrangement, run a fresh layout"
+               :on-click (fn [e] (.stopPropagation e) (relayout! true))}
+      "⟳"])
    [:button {:id "theme-toggle" :type "button"
              :title (if (= (:theme st) "dark") "Switch to light mode" "Switch to dark mode")
              :on-click (fn [e] (.stopPropagation e) (toggle-theme!))}
@@ -564,16 +600,17 @@
   (canvas/request-paint!))
 
 (defn- apply-pending-focus!
-  "When an add-connected-node flow is in flight, jump the view to the
-  freshly created node once its scene item lands — found by its scene
-  id `n:<pending>`. Always clears :pending-focus, found or not: the
-  edit may have failed, and either way this is a one-shot request."
+  "When an add-node flow is in flight, select the freshly created node
+  once its scene item lands — found by its scene id `n:<pending>`. The
+  view is deliberately not panned: the seeded relayout puts the node
+  beside its source, and a jump would undo the arrangement staying
+  put. Always clears :pending-focus, found or not: the edit may have
+  failed, and either way this is a one-shot request."
   [sc]
   (when-let [pending (:pending-focus @state)]
     (let [want (str "n:" pending)
           item (some (fn [it] (when (= (:id it) want) it)) (:items sc))]
       (when (some? item)
-        (canvas/center-on! item)
         (on-select (item->payload item))))
     (swap! state assoc :pending-focus nil)))
 
@@ -582,17 +619,29 @@
   Colors come from the FULL graph so collapsing never shifts type colors.
   Results are cached per collapsed-set; a stale async result (set changed
   meanwhile) is cached but not applied, and one from a superseded graph
-  generation (file reloaded mid-flight) is discarded entirely."
-  []
+  generation (file reloaded mid-flight) is discarded entirely.
+
+  A structural change to a collapsed-set that already has a layout (a
+  demoted cache entry: the file was edited) runs ELK in interactive mode
+  seeded with that layout, so layers and ordering survive the edit. The
+  result is tagged :seeded — the tag travels with the layout through the
+  cache, reuse and state, and shows the re-layout button. `clean?` runs
+  a fresh layout instead, dropping the whole cache so every collapsed
+  set is laid out fresh when next shown."
+  [& [clean?]]
   (try
+    (when clean? (.clear layout-cache))
     (let [gen @graph-gen
           g0 (:graph @state)
           collapsed (:collapsed-boxes @state)
           ck (cache-key collapsed)
           hit (.get layout-cache ck)]
       (if (and (some? hit) (some? (:scene hit)))
-        (do (swap! state assoc :colors (:colors hit) :layout (:layout hit)
-                   :scene (:scene hit) :layouting false :diff-cursors {})
+        (do (swap! state (fn [st]
+                           (refresh-selection
+                            (assoc st :colors (:colors hit) :layout (:layout hit)
+                                   :scene (:scene hit) :layouting false :diff-cursors {})
+                            (:scene hit))))
             (apply-pending-focus! (:scene hit)))
         (do
           (swap! state assoc
@@ -611,12 +660,19 @@
                       :neutral-box colors/NEUTRAL-BOX}
                 elk-graph (to-elk g canvas/measure)
                 fp (elk-fingerprint elk-graph)
+                prev (when (some? hit) (:layout hit))
+                positions (when (some? prev) (layout-positions prev))
                 ;; a demoted entry with a matching fingerprint means the
                 ;; reload was attribute-only: the ELK inputs are identical,
                 ;; so reuse its layout and skip the expensive ELK run
-                layout (if (and (some? hit) (= fp (:fingerprint hit)))
-                         (:layout hit)
-                         (js-await (.layout elk elk-graph)))
+                layout (cond (and (some? prev) (= fp (:fingerprint hit)))
+                             prev
+
+                             (and (some? prev) (seedable? elk-graph positions))
+                             (assoc (js-await (.layout elk (seed-layout elk-graph positions)))
+                                    :seeded true)
+
+                             :else (js-await (.layout elk elk-graph)))
                 sc (scene/build-scene {:layout layout :graph g :colors cmap})]
             (canvas/fit-view-once! sc)
             (when (= gen @graph-gen)
@@ -624,8 +680,11 @@
               (.set layout-cache ck {:fingerprint fp :colors cmap
                                      :layout layout :scene sc})
               (if (= ck (cache-key (:collapsed-boxes @state)))
-                (do (swap! state assoc :colors cmap :layout layout :scene sc
-                           :layouting false :diff-cursors {})
+                (do (swap! state (fn [st]
+                                   (refresh-selection
+                                    (assoc st :colors cmap :layout layout :scene sc
+                                           :layouting false :diff-cursors {})
+                                    sc)))
                     (apply-pending-focus! sc))
                 (swap! state assoc :layouting false)))))))
     (catch :default e
@@ -708,7 +767,7 @@
       ;; for it (e.g. add-connected-ops on a duplicate id) — relayout!,
       ;; the only place that consumes/clears :pending-focus, never runs
       ;; on this path, so it must be cleared here or it lingers and can
-      ;; fire a stray center-on!/on-select on some later, unrelated
+      ;; fire a stray on-select on some later, unrelated
       ;; relayout if that id ever comes to exist.
       (swap! state assoc :edit-error (:error out) :pending-focus nil)
       (do (swap! state assoc :edit-error nil :editing nil)

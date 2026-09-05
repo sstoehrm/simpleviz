@@ -10,6 +10,7 @@
             [diff]
             [edit]
             [graph]
+            [log]
             [org.httpkit.server :as srv]
             [png]))
 
@@ -27,10 +28,9 @@
     (swap! undo-stacks update path pop)
     top))
 
-(defn- edit-response [{:keys [old new]} body-stream]
+(defn- edit-response [{:keys [old new]} {:keys [file ops]}]
   (try
-    (let [{:keys [file ops]} (json/parse-string (slurp body-stream) true)
-          path (if (= file "old") old new)]
+    (let [path (if (= file "old") old new)]
       (cond
         (nil? path) {:error "no old file in single-file mode"}
         (png/png? path) {:error "PNG sources are read-only"}
@@ -51,10 +51,11 @@
     (catch Exception e {:error (ex-message e)})))
 
 (def ^:private usage
-  (str "usage: bb serve <graph.edn|export.png> [<new.edn|new.png>] [--port N]\n"
+  (str "usage: bb serve <graph.edn|export.png> [<new.edn|new.png>] [--port N] [--debug]\n"
        "  pass two files to compare them: first = old, second = new\n"
        "  a PNG exported from simpleviz serves its embedded EDN;\n"
-       "  a compare-mode export re-opens as the comparison"
+       "  a compare-mode export re-opens as the comparison\n"
+       "  --debug writes a per-run log of edits and errors to " log/dir-hint
        "\n  (default port " default-port ")"))
 
 (defn- read-source
@@ -73,23 +74,28 @@
   [f]
   (when (png/png? f) (png/extract f "simpleviz-edn-old")))
 
-(def cli-spec {:alias {:p :port} :coerce {:port :long}})
+(def cli-spec {:alias {:p :port} :coerce {:port :long :debug :boolean}})
 
 (defn parse-args
-  "CLI args -> {:file f :port n}, {:old-file f1 :file f2 :port n}, or
-  {:error msg}. Graph files are positional (one = serve, two = compare
-  old -> new); --port / -p overrides the default."
+  "CLI args -> {:file f :port n :debug b}, {:old-file f1 :file f2 :port n
+  :debug b}, or {:error msg}. Graph files are positional (one = serve,
+  two = compare old -> new); --port / -p overrides the default; --debug
+  turns on the run log."
   [args]
   (try
-    (let [{:keys [args opts]} (cli/parse-args args cli-spec)
+    ;; babashka.cli reads options positionally (a positional after an
+    ;; option ends option parsing), so the bare flag is picked off first
+    ;; and may sit anywhere on the line
+    (let [debug (boolean (some #{"--debug"} args))
+          {:keys [args opts]} (cli/parse-args (remove #{"--debug"} args) cli-spec)
           [f1 f2 & extra] args
           port (get opts :port default-port)]
       (cond
         (nil? f1) {:error usage}
         (seq extra) {:error usage}
         (not (and (int? port) (<= 1 port 65535))) {:error (str "invalid port: " port)}
-        (some? f2) {:old-file f1 :file f2 :port port}
-        :else {:file f1 :port port}))
+        (some? f2) {:old-file f1 :file f2 :port port :debug debug}
+        :else {:file f1 :port port :debug debug}))
     (catch Exception e
       {:error (str "invalid arguments: " (ex-message e) "\n" usage)})))
 
@@ -187,28 +193,48 @@
                  "Cache-Control" "no-store"}
        :body "not found"})))
 
-(defn handler [{:keys [uri query-string request-method body] :as req}]
+(defn- graph-response-body []
+  (let [body (try
+               (let [{:keys [old new]} @files]
+                 (if (some? old)
+                   (compare-json (read-source old) (read-source new) old new
+                                 (.getName (io/file new))
+                                 {:editable (not (png/png? new))
+                                  :editable-old (not (png/png? old))})
+                   (if-let [old-s (embedded-old new)]
+                     (let [nm (.getName (io/file new))]
+                       (compare-json old-s (read-source new)
+                                     (str nm " (old)") (str nm " (new)") nm
+                                     {:editable false :editable-old false}))
+                     (graph-json (read-source new) (.getName (io/file new))
+                                 {:editable (not (png/png? new))}))))
+               (catch Exception e
+                 (json/generate-string {:error (ex-message e)})))]
+    ;; graph-json/compare-json fold parse failures into the payload; only
+    ;; a debug run pays for parsing it back to find out
+    (when (log/enabled?)
+      (when-let [err (get (json/parse-string body) "error")]
+        (log/event! "error" {:route "/api/graph" :error err})))
+    body))
+
+(defn- edit-response-body
+  "Parse the edit request, apply it, log what was asked and what came of
+  it, and return the JSON reply."
+  [body-stream]
+  (let [parsed (try (json/parse-string (slurp body-stream) true)
+                    (catch Exception e {:parse-error (ex-message e)}))
+        out (if-let [err (:parse-error parsed)]
+              {:error err}
+              (edit-response @files parsed))]
+    (log/event! "edit" {:file (:file parsed) :ops (:ops parsed) :result out})
+    (json/generate-string out)))
+
+(defn- route [{:keys [uri query-string request-method body] :as req}]
   (case uri
-    "/api/graph"   (json-response
-                    (try
-                      (let [{:keys [old new]} @files]
-                        (if (some? old)
-                          (compare-json (read-source old) (read-source new) old new
-                                        (.getName (io/file new))
-                                        {:editable (not (png/png? new))
-                                         :editable-old (not (png/png? old))})
-                          (if-let [old-s (embedded-old new)]
-                            (let [nm (.getName (io/file new))]
-                              (compare-json old-s (read-source new)
-                                            (str nm " (old)") (str nm " (new)") nm
-                                            {:editable false :editable-old false}))
-                            (graph-json (read-source new) (.getName (io/file new))
-                                        {:editable (not (png/png? new))}))))
-                      (catch Exception e
-                        (json/generate-string {:error (ex-message e)}))))
+    "/api/graph"   (json-response (graph-response-body))
     "/api/edit"    (if (= :post request-method)
                      (or (edit-guard req)
-                         (json-response (json/generate-string (edit-response @files body))))
+                         (json-response (edit-response-body body)))
                      {:status 405 :headers {"Content-Type" "text/plain"} :body "POST only"})
     "/api/version" (json-response
                     (json/generate-string
@@ -237,8 +263,39 @@
          :body "not found"}))
     (static-response uri)))
 
+(defn- request-line [req]
+  (str (some-> (:request-method req) name str/upper-case) " " (:uri req)))
+
+(defn guard
+  "Wrap a ring handler so an uncaught exception becomes a crash report on
+  disk plus a 500 JSON error (with a non-null message, which the browser
+  reads as failure), and every rejected request (status >= 400) lands in
+  the debug log."
+  [h]
+  (fn [req]
+    (try
+      (let [{:keys [status body] :as resp} (h req)]
+        (when (and (some? status) (>= status 400))
+          (log/event! "error" {:request (request-line req) :status status
+                               :body (when (string? body) body)}))
+        resp)
+      (catch Throwable e
+        (log/crash! {:request (request-line req)} e)
+        {:status 500
+         :headers {"Content-Type" "application/json" "Cache-Control" "no-store"}
+         :body (json/generate-string {:error (or (ex-message e) (.getName (class e)))})}))))
+
+(def handler (guard route))
+
+(defn- version
+  "The installed release: the launcher drops a VERSION file into the
+  install dir, which is the server's cwd; a checkout has none."
+  []
+  (let [f (io/file "VERSION")]
+    (if (.isFile f) (str/trim (slurp f)) "dev")))
+
 (defn -main [& args]
-  (let [{:keys [file old-file port error]} (parse-args args)]
+  (let [{:keys [file old-file port debug error]} (parse-args args)]
     (when error
       (println error)
       (System/exit 1))
@@ -253,13 +310,27 @@
              (println (ex-message e))
              (System/exit 1))))
     (reset! files {:old old-file :new file})
-    ;; loopback only — /api/edit can write to disk, so the server must
-    ;; never be reachable from other hosts on the network
-    (srv/run-server handler {:port port :ip "127.0.0.1"})
-    (println (str "simpleviz: serving "
-                  (cond
+    (let [serving (cond
                     old-file (str old-file " → " file " (compare)")
                     (some? (embedded-old file)) (str file " (embedded compare)")
                     :else file)
-                  " at http://localhost:" port))
-    @(promise)))
+          log-path (log/init! {:dir (log/default-dir)
+                               :debug debug
+                               :header (str "simpleviz " (version)
+                                            " (babashka " (System/getProperty "babashka.version")
+                                            ") serving " serving " on port " port)})]
+      (log/install-crash-handler!)
+      (try
+        ;; loopback only — /api/edit can write to disk, so the server must
+        ;; never be reachable from other hosts on the network
+        (srv/run-server handler {:port port :ip "127.0.0.1"})
+        (println (str "simpleviz: serving " serving " at http://localhost:" port))
+        (when log-path (println (str "simpleviz: debug log at " log-path)))
+        @(promise)
+        (catch java.net.BindException _
+          ;; a busy port is a usage problem, not a crash
+          (println (str "port " port " is already in use — pass --port N to pick another"))
+          (System/exit 1))
+        (catch Throwable e
+          (log/crash! {:phase "startup"} e)
+          (System/exit 1))))))

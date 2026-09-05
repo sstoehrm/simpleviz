@@ -20,7 +20,7 @@
                   :diff-cursors {}
                   :edit-target "new" :edit-error nil :editing nil
                   :pick nil :pick-hint nil
-                  :id-entry nil :pending-focus nil
+                  :id-entry nil :pending-focus nil :chord nil
                   :help false :disconnected false
                   :theme (or (js/localStorage.getItem "simpleviz-theme")
                              (if (.-matches (js/window.matchMedia
@@ -30,10 +30,10 @@
 (def last-mtime (atom nil))
 
 (defn- on-select [payload]
-  (swap! state assoc :selected payload :editing nil :id-entry nil))
+  (swap! state assoc :selected payload :editing nil :id-entry nil :chord nil))
 
 (defn- start-pick! [pick hint]
-  (swap! state assoc :pick pick :pick-hint hint))
+  (swap! state assoc :pick pick :pick-hint hint :chord nil))
 
 (defn- cancel-pick! []
   (swap! state assoc :pick nil :pick-hint nil))
@@ -256,61 +256,76 @@
 (def ^:private direction-choices
   [["→" "->"] ["←" "<-"] ["↔" "<->"] ["—" "-"]])
 
+(defn- key-hint
+  "The chord that triggers a toolbar button, shown inside it."
+  [chord]
+  (when (some? chord) [:kbd {:class "key-hint"} chord]))
+
 (defn- direction-btn [tgt current label dir]
   [:button {:key dir :type "button"
             :class (str "dir-btn" (if (= dir current) " active" ""))
             :on-click (fn [e] (.stopPropagation e) (post-edit! [(editor/direction-op tgt dir)]))}
-   label])
+   label (key-hint (editor/chord-for "edge" ["direction" dir]))])
 
-(defn- pick-btn [label pick hint]
-  [:button {:class "action-pick" :type "button"
-            :on-click (fn [e] (.stopPropagation e) (start-pick! pick hint))}
-   label])
+(defn- action-spec
+  "What toolbar action `action` does for selection sel (tgt its op
+  target): a pick mode to start, or an id prompt to open. One table for
+  the buttons and the chords, so both always agree."
+  [sel tgt action]
+  (let [id (:id tgt)]
+    (if (vector? action)
+      (let [[_ end] action]
+        {:label (str "change " end)
+         :pick {:mode "retarget" :edge id :end (editor/retarget-end sel end)}
+         :hint (str "click the new " end " node or box")})
+      (case action
+        "add-edge" {:label "add edge" :pick {:mode "connect" :from id}
+                    :hint "click the target node or box"}
+        "add-to-box" {:label "add to box" :pick {:mode "into-box" :member id}
+                      :hint "click the destination box"}
+        "add-node-member" {:label "add node" :pick {:mode "box-take" :box id :want "node"}
+                           :hint "click a node to add"}
+        "add-box-member" {:label "add box" :pick {:mode "box-take" :box id :want "box"}
+                          :hint "click a box to add"}
+        "remove-node-member" {:label "remove node" :pick {:mode "box-drop" :box id}
+                              :hint "click a node in this box to take it out"}
+        "new-node" {:label "new node" :id-entry "node"}
+        "new-connected-node" {:label "new node" :id-entry "connect"}
+        "new-node-in-box" {:label "new node" :id-entry "inbox"}
+        "new-box" {:label "new box" :id-entry "newbox"}
+        ;; only for a node inside a box: nil hides the button and the chord
+        "remove-from-box" (when-let [parent (get (:parent-of (:graph @state)) (:elk-id sel))]
+                            {:label "remove from box" :post (editor/box-remove-op parent id)})
+        nil))))
 
-(defn- pick-buttons
-  "Extra action-bar buttons that enter pick mode, per selection kind:
-  edge → retarget either endpoint; node → add to a box; box → take a
-  node or another box as a member."
-  [sel tgt]
-  (case (:kind sel)
-    "edge" [(pick-btn "change source"
-                      {:mode "retarget" :edge (:id tgt) :end (editor/retarget-end sel "source")}
-                      "click the new source node or box")
-            (pick-btn "change target"
-                      {:mode "retarget" :edge (:id tgt) :end (editor/retarget-end sel "target")}
-                      "click the new target node or box")]
-    "node" [(pick-btn "add edge"
-                      {:mode "connect" :from (:id tgt)}
-                      "click the target node or box")
-            (pick-btn "add to box"
-                      {:mode "into-box" :member (:id tgt)}
-                      "click the destination box")]
-    "box" [(pick-btn "add edge"
-                     {:mode "connect" :from (:id tgt)}
-                     "click the target node or box")
-           (pick-btn "add node"
-                     {:mode "box-take" :box (:id tgt) :want "node"}
-                     "click a node to add")
-           (pick-btn "add box"
-                     {:mode "box-take" :box (:id tgt) :want "box"}
-                     "click a box to add")]
-    []))
+;; the action-bar buttons per selection kind, in display order
+(def ^:private toolbar-actions
+  {"edge" [["retarget" "source"] ["retarget" "target"]]
+   "node" ["add-edge" "add-to-box" "remove-from-box" "new-connected-node" "new-box"]
+   "box" ["add-edge" "add-node-member" "add-box-member" "remove-node-member"
+          "new-node-in-box" "new-box"]})
 
-(defn- id-entry-btn [label for-kind]
-  [:button {:class "action-pick" :type "button"
-            :on-click (fn [e] (.stopPropagation e) (start-id-entry! for-kind))}
-   label])
+(defn- start-action!
+  "Do what the toolbar button for `action` does."
+  [sel tgt action]
+  (let [{:keys [pick hint id-entry post]} (action-spec sel tgt action)]
+    (cond
+      (some? pick) (start-pick! pick hint)
+      (some? id-entry) (start-id-entry! id-entry)
+      (some? post) (post-edit! post))))
 
-(defn- id-entry-buttons
-  "Extra action-bar buttons that open the id-entry input: a node can
-  add a freshly-created node connected to it; nodes and boxes can be
-  wrapped in a freshly-created box."
-  [sel]
-  (case (:kind sel)
-    "node" [(id-entry-btn "create node" "connect")
-            (id-entry-btn "new box" "newbox")]
-    "box" [(id-entry-btn "new box" "newbox")]
-    []))
+(defn- action-btn
+  "The toolbar button for `action`, or nil when it does not apply to
+  this selection right now."
+  [sel tgt action]
+  (when-let [spec (action-spec sel tgt action)]
+    [:button {:class "action-pick" :type "button"
+              :on-click (fn [e] (.stopPropagation e) (start-action! sel tgt action))}
+     (:label spec)
+     (key-hint (editor/chord-for (:kind sel) action))]))
+
+(defn- action-buttons [sel tgt]
+  (filterv some? (mapv (fn [a] (action-btn sel tgt a)) (get toolbar-actions (:kind sel)))))
 
 (defn- submit-id-entry! [tgt]
   (let [entry (:id-entry @state)
@@ -321,6 +336,8 @@
                       (swap! state assoc :pending-focus (str "n:" text)))
         "newbox" (do (post-edit! (editor/wrap-in-box-ops (:id tgt) text))
                      (swap! state assoc :pending-focus (str "b:" text)))
+        "inbox" (do (post-edit! (editor/add-node-in-box-ops (:id tgt) text))
+                    (swap! state assoc :pending-focus (str "n:" text)))
         "node" (do (post-edit! (editor/add-node-ops text))
                    (swap! state assoc :pending-focus (str "n:" text)))
         nil)
@@ -329,7 +346,7 @@
 (defn- id-entry-row [tgt entry]
   [:div {:class "id-entry"}
    [:input {:class "id-entry-input" :type "text" :value (:text entry)
-            :placeholder (if (= (:for entry) "connect") "new node id" "new box id")
+            :placeholder (if (= (:for entry) "newbox") "new box id" "new node id")
             :on-render (fn [{:keys [node lifecycle]}]
                          (when (= lifecycle "mount") (.focus node)))
             :on-input (fn [e] (swap! state assoc-in [:id-entry :text] (.. e -target -value)))
@@ -347,11 +364,10 @@
              [(into [:div {:class "dir-group"}]
                     (mapv (fn [[label dir]] (direction-btn tgt current label dir))
                           direction-choices))]))
-         (pick-buttons sel tgt)
-         (id-entry-buttons sel)
+         (action-buttons sel tgt)
          [[:button {:class "action-delete" :type "button"
                     :on-click (fn [e] (.stopPropagation e) (delete! tgt))}
-           "Delete"]]
+           "Delete" (key-hint (editor/chord-for (:kind sel) "delete"))]]
          (when-let [entry (:id-entry @state)] [(id-entry-row tgt entry)]))))
 
 (defn- details-view [st]
@@ -404,7 +420,7 @@
      (if (some? sel)
        (action-bar sel (editor/target sel))
        (into [:div {:class "details-actions"}
-              (id-entry-btn "create node" "node")]
+              (action-btn nil nil "new-node")]
              (when-let [entry (:id-entry st)] [(id-entry-row nil entry)])))]))
 
 (defn- banner-view [{:keys [error warnings collapsed edit-error disconnected]}]
@@ -552,7 +568,8 @@
           (cond
             (nil? item) (cancel-pick!)
             (= (:kind item) "collapse-button") nil
-            :else (let [ops (editor/pick-ops pick item)]
+            :else (let [parent (get (:parent-of (:graph @state)) (:id item))
+                        ops (editor/pick-ops pick (assoc item :parent parent))]
                     (when (some? ops)
                       (cancel-pick!)
                       (post-edit! ops))))
@@ -587,6 +604,9 @@
       "When the served file is editable EDN, the floating toolbar at the bottom holds the tools for the current selection: delete, edge direction, and pick modes such as \"add edge\" (click the other element on the canvas; Esc cancels). With nothing selected it creates a standalone node."
       "In the inspector, click a value or its ✎ to edit it inline — Enter commits, Shift+Enter inserts a line break, Escape cancels. × deletes an attribute; the key/value row at the bottom adds one. Ctrl+Z or ⟲ undoes the last edit.")
      (help-section
+      "Keys"
+      "Two-key chords act on the selection, when no text field has focus (the toolbar buttons show them): d d delete · e 1/2/3/4 edge direction → ← ↔ — · c s / c t change an edge's source / target · a e add edge · a b add to box (node) or add a box as member (box) · a n add a node as member (box) · c n new node inside the selected box · n n new node (connected to the selected node) · n b new box around the selection · r r rename the id · r n take a node out of the selected box · r b take the selected node out of its box. Esc cancels a pending chord; ? toggles this help; Ctrl+Z undoes.")
+     (help-section
       "Compare"
       "Serving two files renders one merged diagram: added elements get a green +, modified an amber ~ (select for an old → new list), removed ones stay as red dashed ghosts. Click a legend row to jump through the changes; the old|new toggle picks which file edits apply to.")
      (help-section
@@ -596,8 +616,14 @@
       "Theme"
       "☀ / 🌙 switches between light and dark mode.")]))
 
-(defn- pick-hint-view [st]
-  (when-let [pick (:pick st)]
+(defn- hint-view
+  "The line above the toolbar: the pending chord's completions, else the
+  active pick mode's instruction."
+  [st]
+  (cond
+    (some? (:chord st))
+    [:div {:id "pick-hint"} (editor/chord-hint (:kind (:selected st)) (:chord st)) " — Esc cancels"]
+    (some? (:pick st))
     [:div {:id "pick-hint"} (:pick-hint st) " — Esc cancels"]))
 
 (defn- load-view [st]
@@ -609,7 +635,7 @@
 (defn- app-view [st]
   [:div {:id "root" :class (when (some? (:pick st)) "picking")}
    (banner-view st)
-   (pick-hint-view st)
+   (hint-view st)
    (when (and (nil? (:scene st)) (nil? (:error st)))
      (load-view st))
    (collapsed-view st)
@@ -962,17 +988,65 @@
                "image/png"))))
 
 ;; init
+(defn- typing?
+  "True while a text field has the focus — keys belong to it then."
+  []
+  (let [tag (.-tagName (.-activeElement js/document))]
+    (or (= tag "INPUT") (= tag "TEXTAREA"))))
+
+(defn- run-chord-action!
+  "Do what the toolbar button for `action` would do for selection sel."
+  [sel action]
+  (let [tgt (when (some? sel) (editor/target sel))]
+    (cond
+      (and (vector? action) (= "direction" (first action)))
+      (post-edit! [(editor/direction-op tgt (second action))])
+
+      (= action "delete") (delete! tgt)
+      (= action "rename") (start-editing! ID-FIELD (:id tgt))
+      :else (start-action! sel tgt action))))
+
+(defn- handle-chord-key!
+  "Feed a plain key press into the two-key chords: the first key opens a
+  group (hint shown), the second runs the action for the selection —
+  or nothing, when it does not apply — and either way closes the group.
+  Bare modifier, arrow and other named keys are not second keys."
+  [e]
+  (let [k (.-key e)
+        st @state]
+    (cond
+      (some? (:chord st))
+      (when (= 1 (.-length k))
+        (.preventDefault e)
+        (swap! state assoc :chord nil)
+        (when-let [action (editor/chord-action (:kind (:selected st)) (:chord st) k)]
+          (run-chord-action! (:selected st) action)))
+
+      (and (editor/chord-group? k) (nil? (:pick st)) (some? (:scene st)))
+      (do (.preventDefault e)
+          (swap! state assoc :chord k)))))
+
 (js/window.addEventListener "keydown"
   (fn [e]
     (cond
       (= (.-key e) "Escape") (do (cancel-pick!)
-                                 (swap! state assoc :help false))
+                                 (swap! state assoc :help false :chord nil))
+      ;; a held key must not complete its own chord
+      (.-repeat e) nil
+      (and (= (.-key e) "?") (not (typing?)))
+      (do (.preventDefault e) (toggle-help!))
       (and (or (.-ctrlKey e) (.-metaKey e))
            (= (.toLowerCase (.-key e)) "z")
-           (let [tag (.-tagName (.-activeElement js/document))]
-             (not (or (= tag "INPUT") (= tag "TEXTAREA"))))
+           (not (typing?))
            (current-edit-target-editable? @state))
-      (do (.preventDefault e) (post-edit! [{:op "undo"}])))))
+      (do (.preventDefault e)
+          (swap! state assoc :chord nil)
+          (post-edit! [{:op "undo"}]))
+
+      (and (not (or (.-ctrlKey e) (.-metaKey e) (.-altKey e)))
+           (not (typing?))
+           (current-edit-target-editable? @state))
+      (handle-chord-key! e))))
 (canvas/set-repaint! paint-now!)
 (apply-theme! (:theme @state))
 (add-watch state :render (fn [_ _ _ _] (rerender!)))

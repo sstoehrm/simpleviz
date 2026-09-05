@@ -51,6 +51,18 @@
   [{:op "add-node" :id new-id}
    {:op "add-edge" :from from :to new-id :direction "->"}])
 
+(defn add-node-in-box-ops
+  "Ops to create a new node as a member of box `box-id`."
+  [box-id new-id]
+  [{:op "add-node" :id new-id}
+   {:op "box-add" :box box-id :member new-id}])
+
+(defn box-remove-op
+  "Ops to take `member-id` out of box `box-id` (the server moves it to
+  the enclosing box, if any)."
+  [box-id member-id]
+  [{:op "box-remove" :box box-id :member member-id}])
+
 (defn wrap-in-box-ops
   "Ops to create a new box around the selected node or box; the server
   also moves the member out of its old parent box into the new one."
@@ -70,7 +82,8 @@
   or box is a valid new endpoint;
   {:mode \"into-box\" :member id} — only a box is valid;
   {:mode \"box-take\" :box id :want \"node\"|\"box\"} — only an item of
-  the wanted kind is valid, and not the box itself."
+  the wanted kind is valid, and not the box itself;
+  {:mode \"box-drop\" :box id} — only a node whose :parent is that box."
   [pick item]
   (let [kind (:kind item)]
     (case (:mode pick)
@@ -89,6 +102,9 @@
       "box-take" (if (and (= kind (:want pick))
                           (not= (bare-id item) (:box pick)))
                    [{:op "box-add" :box (:box pick) :member (bare-id item)}]
+                   nil)
+      "box-drop" (if (and (= kind "node") (= (:parent item) (:box pick)))
+                   [{:op "box-remove" :box (:box pick) :member (bare-id item)}]
                    nil)
       nil)))
 
@@ -134,3 +150,65 @@
   seeds from its EDN printed form."
   [v]
   (if (string? v) v (edn-text v)))
+
+;; ---- keyboard chords ----
+
+;; Two-key chords, in the order the hints list them. Each entry maps a
+;; selection kind ("node" "edge" "box", or "none" with nothing selected)
+;; to [action label]; the action is what app.cljs dispatches on, the
+;; label what the pending-chord hint shows.
+(def ^:private chord-table
+  [["d" "d" {"node" ["delete" "delete"] "edge" ["delete" "delete"] "box" ["delete" "delete"]}]
+   ["e" "1" {"edge" [["direction" "->"] "→"]}]
+   ["e" "2" {"edge" [["direction" "<-"] "←"]}]
+   ["e" "3" {"edge" [["direction" "<->"] "↔"]}]
+   ["e" "4" {"edge" [["direction" "-"] "—"]}]
+   ["c" "s" {"edge" [["retarget" "source"] "change source"]}]
+   ["c" "t" {"edge" [["retarget" "target"] "change target"]}]
+   ["c" "n" {"box" ["new-node-in-box" "new node"]}]
+   ["a" "e" {"node" ["add-edge" "add edge"] "box" ["add-edge" "add edge"]}]
+   ["a" "b" {"node" ["add-to-box" "add to box"] "box" ["add-box-member" "add box"]}]
+   ["a" "n" {"box" ["add-node-member" "add node"]}]
+   ["n" "n" {"none" ["new-node" "new node"] "node" ["new-connected-node" "new node"]}]
+   ["n" "b" {"node" ["new-box" "new box"] "box" ["new-box" "new box"]}]
+   ["r" "r" {"node" ["rename" "rename"] "box" ["rename" "rename"]}]
+   ["r" "n" {"box" ["remove-node-member" "remove node"]}]
+   ["r" "b" {"node" ["remove-from-box" "remove from box"]}]])
+
+(defn- kind-key [kind] (if (nil? kind) "none" kind))
+
+(defn chord-group?
+  "True when k opens a chord (is the first key of one)."
+  [k]
+  (some? (some (fn [[g _ _]] (when (= g k) true)) chord-table)))
+
+(defn chord-action
+  "The action for chord `k1 k2` with a selection of `kind` (nil
+  for none), or nil when the chord does not exist or does not apply."
+  [kind k1 k2]
+  (some (fn [[g k kinds]]
+          (when (and (= g k1) (= k k2))
+            (first (get kinds (kind-key kind)))))
+        chord-table))
+
+(defn chord-for
+  "The chord (\"d d\") that triggers `action` for `kind`, for the
+  toolbar's key hints; nil when none does."
+  [kind action]
+  (some (fn [[g k kinds]]
+          (when (= action (first (get kinds (kind-key kind)))) (str g " " k)))
+        chord-table))
+
+(defn chord-hint
+  "What the pending group `g` can complete to for `kind`, e.g.
+  \"c … s change source · t change target\"."
+  [kind g]
+  (let [opts (keep (fn [[g' k kinds]]
+                     (when (= g' g)
+                       (when-let [[_ label] (get kinds (kind-key kind))]
+                         (str k " " label))))
+                   chord-table)]
+    (str g " … "
+         (if (seq opts)
+           (.join (vec opts) " · ")
+           (if (nil? kind) "nothing without a selection" (str "nothing for a" (if (= kind "edge") "n " " ") kind))))))

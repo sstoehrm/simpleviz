@@ -412,3 +412,28 @@
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"both a node and a box"
                         (edit/wrap "{:nodes {:x nil} :boxes {:outer {:components [:x]} :x {:components []}}}"
                                    {:box "w" :member "x"}))))
+
+;; --- box-remove -------------------------------------------------------
+
+(deftest box-remove-from-top-level-box-frees-the-member
+  (is (= "{:nodes {:a nil :b nil} :boxes {:g {:components #{:b}}}}"
+         (edit/box-remove "{:nodes {:a nil :b nil} :boxes {:g {:components #{:a :b}}}}"
+                          {:box "g" :member "a"}))))
+
+(deftest box-remove-from-nested-box-moves-the-member-to-the-parent
+  (is (= "{:nodes {:a nil} :boxes {:outer {:components [:inner :a]} :inner {:components []}}}"
+         (edit/box-remove "{:nodes {:a nil} :boxes {:outer {:components [:inner]} :inner {:components [:a]}}}"
+                          {:box "inner" :member "a"}))))
+
+(deftest box-remove-refusals
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"unknown box"
+                        (edit/box-remove "{:nodes {:a nil} :boxes {}}" {:box "g" :member "a"})))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"not in box"
+                        (edit/box-remove "{:nodes {:a nil} :boxes {:g {:components []}}}"
+                                         {:box "g" :member "a"}))))
+
+(deftest apply-ops-dispatches-box-remove
+  (let [{:keys [text error]} (edit/apply-ops "{:nodes {:a nil} :boxes {:g {:components [:a]}}}"
+                                             [{:op "box-remove" :box "g" :member "a"}])]
+    (is (nil? error))
+    (is (= "{:nodes {:a nil} :boxes {:g {:components []}}}" text))))

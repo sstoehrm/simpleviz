@@ -5,7 +5,9 @@
                                       value->edn-text scalar?
                                       delete-op direction-op pick-ops
                                       add-node-ops add-connected-ops wrap-in-box-ops
-                                      edit-body rename-op blur-text retarget-end]]))
+                                      edit-body rename-op blur-text retarget-end
+                                      chord-action chord-group? chord-for chord-hint
+                                      add-node-in-box-ops box-remove-op]]))
 
 (test "target maps selection payloads to op targets"
   (fn []
@@ -145,3 +147,68 @@
     (assert/ok (nil? (blur-text nil "$id")))
     (assert/ok (nil? (blur-text {:attr "name" :text "x"} "$id")))
     (assert/equal (blur-text {:attr "$id" :text " gw "} "$id") " gw ")))
+
+(test "chord-action resolves a two-key chord for the selection kind"
+  (fn []
+    (assert/equal (chord-action "node" "d" "d") "delete")
+    (assert/equal (chord-action "edge" "d" "d") "delete")
+    (assert/deepEqual (chord-action "edge" "e" "3") ["direction" "<->"])
+    (assert/deepEqual (chord-action "edge" "c" "t") ["retarget" "target"])
+    (assert/equal (chord-action "node" "a" "b") "add-to-box")
+    (assert/equal (chord-action "box" "a" "b") "add-box-member")
+    (assert/equal (chord-action "box" "a" "n") "add-node-member")
+    (assert/equal (chord-action nil "n" "n") "new-node")
+    (assert/equal (chord-action "node" "n" "n") "new-connected-node")
+    (assert/equal (chord-action "box" "n" "b") "new-box")
+    (assert/equal (chord-action "box" "r" "r") "rename")
+    ;; not available for this kind, or no such chord
+    (assert/ok (nil? (chord-action "edge" "a" "e")))
+    (assert/ok (nil? (chord-action "node" "e" "1")))
+    (assert/ok (nil? (chord-action nil "d" "d")))
+    (assert/ok (nil? (chord-action "node" "z" "z")))))
+
+(test "chord-group? knows the first keys"
+  (fn []
+    (assert/ok (chord-group? "d"))
+    (assert/ok (chord-group? "a"))
+    (assert/ok (not (chord-group? "z")))))
+
+(test "chord-for finds the chord behind an action, for the toolbar hints"
+  (fn []
+    (assert/equal (chord-for "node" "delete") "d d")
+    (assert/equal (chord-for "edge" ["direction" "<-"]) "e 2")
+    (assert/equal (chord-for "box" "add-box-member") "a b")
+    (assert/ok (nil? (chord-for "edge" "add-to-box")))))
+
+(test "chord-hint lists the completions of a pending group for the selection"
+  (fn []
+    (assert/equal (chord-hint "edge" "c") "c … s change source · t change target")
+    (assert/equal (chord-hint "box" "a") "a … e add edge · b add box · n add node")
+    (assert/equal (chord-hint nil "n") "n … n new node")
+    (assert/equal (chord-hint "edge" "a") "a … nothing for an edge")))
+
+(test "chords for box membership: remove node, new node in box, remove from box"
+  (fn []
+    (assert/equal (chord-action "box" "r" "n") "remove-node-member")
+    (assert/equal (chord-action "box" "c" "n") "new-node-in-box")
+    (assert/equal (chord-action "node" "r" "b") "remove-from-box")
+    (assert/ok (nil? (chord-action "node" "c" "n")))
+    (assert/equal (chord-for "box" "remove-node-member") "r n")
+    (assert/equal (chord-hint "box" "r") "r … r rename · n remove node")))
+
+(test "pick-ops box-drop accepts only a node whose parent is the box"
+  (fn []
+    (let [pick {:mode "box-drop" :box "g"}]
+      (assert/deepEqual (pick-ops pick {:kind "node" :id "n:a" :parent "g"})
+                        [{:op "box-remove" :box "g" :member "a"}])
+      (assert/ok (nil? (pick-ops pick {:kind "node" :id "n:a" :parent "other"})))
+      (assert/ok (nil? (pick-ops pick {:kind "node" :id "n:a"})))
+      (assert/ok (nil? (pick-ops pick {:kind "box" :id "b:x" :parent "g"}))))))
+
+(test "add-node-in-box-ops and box-remove-op"
+  (fn []
+    (assert/deepEqual (add-node-in-box-ops "g" "n1")
+                      [{:op "add-node" :id "n1"}
+                       {:op "box-add" :box "g" :member "n1"}])
+    (assert/deepEqual (box-remove-op "g" "a")
+                      [{:op "box-remove" :box "g" :member "a"}])))

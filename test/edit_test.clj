@@ -362,3 +362,53 @@
   (is (= "{:nodes {:gw nil :db nil} :edges {[:gw #_:x :db] nil}}"
          (edit/rename "{:nodes {:api nil :db nil} :edges {[:api #_:x :db] nil}}"
                       {:section :nodes :id "api" :to "gw"}))))
+
+;; --- wrap -------------------------------------------------------------
+
+(deftest wrap-top-level-node-creates-a-box-around-it
+  (is (= "{:nodes {:a nil} :edges {} :boxes {:w {:components [:a]}}}"
+         (edit/wrap "{:nodes {:a nil} :edges {} :boxes {}}" {:box "w" :member "a"}))))
+
+(deftest wrap-nested-node-takes-its-place-in-the-parent
+  (is (= "{:nodes {:a nil :b nil} :edges {} :boxes {:outer {:components #{:w :b}} :w {:components [:a]}}}"
+         (edit/wrap "{:nodes {:a nil :b nil} :edges {} :boxes {:outer {:components #{:a :b}}}}"
+                    {:box "w" :member "a"}))))
+
+(deftest wrap-nested-box-keeps-vector-order
+  (is (= "{:nodes {:a nil} :edges {} :boxes {:outer {:components [:x :w :y]} :inner {:components [:a]} :w {:components [:inner]}}}"
+         (edit/wrap "{:nodes {:a nil} :edges {} :boxes {:outer {:components [:x :inner :y]} :inner {:components [:a]}}}"
+                    {:box "w" :member "inner"}))))
+
+(deftest wrap-refusals
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"unknown node or box"
+                        (edit/wrap "{:nodes {:a nil}}" {:box "w" :member "nope"})))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"already exists"
+                        (edit/wrap "{:nodes {:a nil} :boxes {:w nil}}" {:box "w" :member "a"})))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"already exists"
+                        (edit/wrap "{:nodes {:a nil :w nil}}" {:box "w" :member "a"}))))
+
+(deftest apply-ops-dispatches-wrap
+  (let [{:keys [text error]} (edit/apply-ops "{:nodes {:a nil} :boxes {}}"
+                                             [{:op "wrap" :box "w" :member "a"}])]
+    (is (nil? error))
+    (is (clojure.string/includes? text ":w {:components [:a]}"))))
+
+(deftest wrap-member-listed-in-two-boxes-ends-up-only-in-the-new-one
+  (is (= "{:nodes {:a nil} :boxes {:p {:components [:w]} :q {:components []} :w {:components [:a]}}}"
+         (edit/wrap "{:nodes {:a nil} :boxes {:p {:components [:a]} :q {:components [:a]}}}"
+                    {:box "w" :member "a"}))))
+
+(deftest wrap-skips-uneval-forms-in-components
+  (is (= "{:nodes {:a nil :b nil} :boxes {:outer {:components [#_:x :w :b]} :w {:components [:a]}}}"
+         (edit/wrap "{:nodes {:a nil :b nil} :boxes {:outer {:components [#_:x :a :b]}}}"
+                    {:box "w" :member "a"}))))
+
+(deftest wrap-refuses-a-box-id-already-referenced
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"already referenced"
+                        (edit/wrap "{:nodes {:a nil} :boxes {:outer {:components #{:a :w}}}}"
+                                   {:box "w" :member "a"}))))
+
+(deftest wrap-refuses-a-member-name-shared-by-a-node-and-a-box
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"both a node and a box"
+                        (edit/wrap "{:nodes {:x nil} :boxes {:outer {:components [:x]} :x {:components []}}}"
+                                   {:box "w" :member "x"}))))

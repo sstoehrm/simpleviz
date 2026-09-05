@@ -52,10 +52,10 @@
    {:op "add-edge" :from from :to new-id :direction "->"}])
 
 (defn wrap-in-box-ops
-  "Ops to create a new box and put the selected node into it."
-  [node-id box-id]
-  [{:op "add-box" :id box-id}
-   {:op "box-add" :box box-id :member node-id}])
+  "Ops to create a new box around the selected node or box; the server
+  also moves the member out of its old parent box into the new one."
+  [member-id box-id]
+  [{:op "wrap" :box box-id :member member-id}])
 
 (defn edit-body
   "The /api/edit POST body: routes ops to whichever file (\"old\"/\"new\")

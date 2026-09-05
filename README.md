@@ -145,9 +145,11 @@ new node is selected). With a selection it shows that element's tools:
   cancels).
 - **Nodes**: "add edge" (pick the other endpoint), "add to box" (pick the
   destination box), "create node" (a new node connected by an edge, via
-  an id prompt), "new box" (wraps the node in a freshly created box).
-- **Boxes**: "add edge", plus "add node" / "add box" pick modes to take an
-  existing element as a member.
+  an id prompt), "new box" (wraps the node in a freshly created box,
+  which takes the node's place in its parent box).
+- **Boxes**: "add edge", "add node" / "add box" pick modes to take an
+  existing element as a member, and "new box" (wraps this box the same
+  way).
 
 In compare mode, the legend at the top center carries an old|new toggle
 picking which file edits apply to (disabled on a read-only PNG side).

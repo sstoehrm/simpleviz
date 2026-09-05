@@ -90,6 +90,22 @@
                         base)))
                   edges)}))
 
+(defn rename-layout-ids
+  "Copy of an ELK layout result with element id `old` replaced by `new`
+  wherever it appears — node/box ids and edge endpoints — so a renamed
+  element still counts as placed when the layout seeds the next run."
+  [layout old new]
+  (let [swap (fn [id] (if (= id old) new id))
+        walk (fn walk [n]
+               (cond-> (assoc n :id (swap (:id n)))
+                 (some? (:children n)) (assoc :children (mapv walk (:children n)))
+                 (some? (:edges n)) (assoc :edges
+                                           (mapv (fn [e]
+                                                   (assoc e :sources (mapv swap (:sources e))
+                                                          :targets (mapv swap (:targets e))))
+                                                 (:edges n)))))]
+    (walk layout)))
+
 ;; ---- stable relayout: seed ELK with the previous layout ----
 
 ;; ELK layered keeps an existing arrangement when its phases read

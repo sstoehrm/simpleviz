@@ -121,8 +121,11 @@ numbers, keywords, nil) edit as plain text; raw collections (vectors, maps,
 sets) edit as EDN text. The field grows with its content; Enter commits,
 Shift+Enter inserts a line break, Escape cancels; the `×` on each row
 deletes the attribute, and the key/value row at the bottom adds a new one.
-In compare mode, a modified element's old → new changes appear as a card at
-the top of the panel.
+The `id` row at the top renames a node or box: every edge endpoint and box
+membership that referred to the old id follows, the element keeps its place,
+and it stays selected. Edges have no id of their own — change their
+endpoints from the toolbar instead. In compare mode, a modified element's
+old → new changes appear as a card at the top of the panel.
 
 Editing tools live in a floating toolbar at the bottom center of the
 screen. With nothing selected it offers "create node" (type an id — the

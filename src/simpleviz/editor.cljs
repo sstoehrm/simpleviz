@@ -2,11 +2,23 @@
 
 ;; Pure op-payload builders — the DOM-facing code in app.cljs stays thin.
 
-(defn target [sel]
+(defn target
+  "The op target for a selection. An edge is keyed by its pair as written
+  in the file (carried in attrs :nodes): a :<- edge is displayed with
+  source and target swapped, so the displayed pair would miss the key."
+  [sel]
   (case (:kind sel)
-    "edge" {:section "edges" :id [(:source sel) (:target sel)]}
+    "edge" {:section "edges" :id (or (:nodes (:attrs sel)) [(:source sel) (:target sel)])}
     "node" {:section "nodes" :id (.slice (:elk-id sel) 2)}
     "box" {:section "boxes" :id (.slice (:elk-id sel) 2)}))
+
+(defn retarget-end
+  "Which end of the file key the displayed `end` (\"source\"/\"target\")
+  of the selected edge is: the two are swapped for a :<- edge."
+  [sel end]
+  (if (= "<-" (:direction (:attrs sel)))
+    (if (= end "source") "target" "source")
+    end))
 
 (defn set-attr-op [tgt attr value-text scalar?]
   (assoc tgt :op "set-attr" :attr attr :value value-text :fallback scalar?))

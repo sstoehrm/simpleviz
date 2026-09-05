@@ -241,10 +241,10 @@
   [sel tgt]
   (case (:kind sel)
     "edge" [(pick-btn "change source"
-                      {:mode "retarget" :edge (:id tgt) :end "source"}
+                      {:mode "retarget" :edge (:id tgt) :end (editor/retarget-end sel "source")}
                       "click the new source node or box")
             (pick-btn "change target"
-                      {:mode "retarget" :edge (:id tgt) :end "target"}
+                      {:mode "retarget" :edge (:id tgt) :end (editor/retarget-end sel "target")}
                       "click the new target node or box")]
     "node" [(pick-btn "add edge"
                       {:mode "connect" :from (:id tgt)}

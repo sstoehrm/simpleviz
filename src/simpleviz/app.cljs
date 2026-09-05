@@ -164,12 +164,13 @@
    (if (= k (:attr editing))
      [:textarea
       {:value (:text editing) :class "attr-edit" :rows 1
-       :on-render (fn [el lifecycle _]
-                    (autosize! el)
+       ;; reagami >= 0.2.41 passes the hook a single map, not positional args
+       :on-render (fn [{:keys [node lifecycle]}]
+                    (autosize! node)
                     (when (= lifecycle "mount")
-                      (.focus el)
-                      (let [n (.-length (.-value el))]
-                        (.setSelectionRange el n n))))
+                      (.focus node)
+                      (let [n (.-length (.-value node))]
+                        (.setSelectionRange node n n))))
        :on-input (fn [e] (swap! state assoc-in [:editing :text] (.. e -target -value)))
        :on-keydown (fn [e]
                      (cond
@@ -193,11 +194,18 @@
                 :on-click (fn [e] (.stopPropagation e) (post-edit! [(editor/del-attr-op tgt k)]))}
        "×"]])])
 
-(defn- submit-attr-add! [tgt]
+(defn- ^:async submit-attr-add! [tgt]
   (let [key-text (.trim (.-value (js/document.getElementById "attr-add-key")))
         val-text (.-value (js/document.getElementById "attr-add-val"))]
     (when (pos? (.-length key-text))
-      (post-edit! [(editor/set-attr-op tgt key-text val-text true)]))))
+      (js-await (post-edit! [(editor/set-attr-op tgt key-text val-text true)]))
+      ;; the inputs are uncontrolled, so a re-render leaves their text in
+      ;; place — clear them once the attribute landed, ready for the next
+      (when (nil? (:edit-error @state))
+        (when-let [key-el (js/document.getElementById "attr-add-key")]
+          (set! (.-value key-el) "")
+          (set! (.-value (js/document.getElementById "attr-add-val")) "")
+          (.focus key-el))))))
 
 (defn- attr-add-row [tgt]
   [:div {:class "attr-add"}
@@ -287,8 +295,8 @@
   [:div {:class "id-entry"}
    [:input {:class "id-entry-input" :type "text" :value (:text entry)
             :placeholder (if (= (:for entry) "connect") "new node id" "new box id")
-            :on-render (fn [el lifecycle _]
-                         (when (= lifecycle "mount") (.focus el)))
+            :on-render (fn [{:keys [node lifecycle]}]
+                         (when (= lifecycle "mount") (.focus node)))
             :on-input (fn [e] (swap! state assoc-in [:id-entry :text] (.. e -target -value)))
             :on-keydown (fn [e]
                           (case (.-key e)

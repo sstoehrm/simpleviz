@@ -16,6 +16,12 @@ Quickest install (Linux, needs [babashka](https://babashka.org/), curl and tar):
 fetches the latest one. The install lives in `~/.simpleviz` (managed by the
 installer) plus a launcher in `~/.local/bin`.
 
+If something looks fishy, run with `--debug`: the server then writes one log
+per run to `~/.simpleviz/logs/` with every edit it applied and every error
+it returned, plus a header naming the version and the served files. A
+server crash always writes a `crash-<timestamp>.log` there, `--debug` or
+not. Attach those files to a bug report.
+
 Alternatively, run from a tarball by hand:
 
 Grab the latest tarball from the
@@ -27,6 +33,7 @@ the precompiled frontend, so all you need is
     cd simpleviz-vX.Y.Z
     bb serve examples/demo.edn              # default port 7373
     bb serve examples/demo.edn --port 9000  # or -p 9000
+    bb serve examples/demo.edn --debug      # log edits/errors to ~/.simpleviz/logs/
     bb serve examples/big-5k.edn            # 5k-node stress example
     bb serve examples/demo.edn examples/demo-next.edn   # compare two versions
 

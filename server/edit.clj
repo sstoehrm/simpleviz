@@ -242,6 +242,93 @@
              (-> t (remove-edges-touching id)
                  (until-done (fn [t'] (remove-first-component t' id)))))))
 
+(defn- root-loc
+  "The root map's zloc, from any zloc inside the file."
+  [loc]
+  (loop [c loc]
+    (if (nil? (z/up c)) (z/down c) (recur (z/up c)))))
+
+(defn- rename-elems
+  "zloc of a vector/set with every element naming `old` replaced by
+  `new-node`; returns the zloc of the collection itself. Elements that
+  have no sexpr (`#_` uneval forms) are left alone."
+  [coll-loc old new-node]
+  (loop [c (z/down coll-loc) last nil]
+    (if (nil? c)
+      (if (nil? last) coll-loc (z/up last))
+      (let [s (try (z/sexpr c) (catch Exception _ ::skip))
+            c' (if (and (not= ::skip s) (= old (ident->str s))) (z/replace c new-node) c)]
+        (recur (z/right c') c')))))
+
+(defn- rename-in-edge-keys
+  "Root zloc with every [from to] edge key mentioning `old` now naming
+  `new-node` there."
+  [root old new-node]
+  (if-let [sect (sect-val root :edges)]
+    (loop [k (z/down sect) last sect]
+      (if (nil? k)
+        (root-loc last)
+        (let [k' (if (vector? (z/sexpr k)) (rename-elems k old new-node) k)
+              v (z/right k')]
+          (recur (z/right v) v))))
+    root))
+
+(defn- rename-in-box-components
+  "Root zloc with every box :components entry naming `old` now naming
+  `new-node`."
+  [root old new-node]
+  (if-let [sect (sect-val root :boxes)]
+    (loop [k (z/down sect) last sect]
+      (if (nil? k)
+        (root-loc last)
+        (let [v (z/right k)
+              comps (when (map? (z/sexpr v)) (find-val v #(= % :components)))
+              v' (if (and (some? comps) (coll? (z/sexpr comps)))
+                   (z/up (rename-elems comps old new-node))
+                   v)]
+          (recur (z/right v') v'))))
+    root))
+
+(defn- referenced-ids
+  "Every id an edge endpoint or a box membership names — including ones
+  that no node or box defines (the loader tolerates dangling refs)."
+  [data]
+  (into #{}
+        (concat (mapcat (fn [k] (when (vector? k) (map ident->str k)))
+                        (keys (ensure-map-section data :edges)))
+                (mapcat (fn [[_ v]] (map ident->str (:components v)))
+                        (ensure-map-section data :boxes)))))
+
+(defn rename
+  "Give node or box `id` the id `to`: its map key plus every reference —
+  edge endpoints and box memberships — keeping the file's formatting.
+  Nodes, boxes and the references to them share one namespace, so the
+  new id must be unused everywhere; a name that is both a node and a
+  box is ambiguous and refused."
+  [text {:keys [section id to]}]
+  (let [to (str/trim (str to))
+        data (parsed text)]
+    (when (= section :edges) (fail! "edges have no id to rename"))
+    (when (str/blank? to) (fail! "new id is empty"))
+    (when (re-find #"[\r\n]" to) (fail! "an id must be a single line"))
+    (when-not (exists? data section id) (unknown! section id))
+    (when (and (exists? data :nodes id) (exists? data :boxes id))
+      (fail! (str (pr-str id) " is both a node and a box; rename it in the file")))
+    (if (= to id)
+      text
+      (do
+        (when (or (exists? data :nodes to) (exists? data :boxes to))
+          (fail! (str (pr-str to) " already exists")))
+        (when (contains? (referenced-ids data) to)
+          (fail! (str (pr-str to) " is already referenced by an edge or box")))
+        (let [new-node (ident-node to)
+              sect (sect-val (zroot text) section)
+              k (or (find-key sect (entry-pred section id)) (unknown! section id))]
+          (-> (root-loc (z/replace k new-node))
+              (rename-in-edge-keys id new-node)
+              (rename-in-box-components id new-node)
+              z/root-string))))))
+
 (defn- norm-op
   "Browser payload -> internal op: keywordize section/attr, keep ids.
   Attr names are validated against the same ident regex ident-node uses —
@@ -272,6 +359,7 @@
       "retarget-edge" (retarget-edge text o)
       "set-direction" (set-direction text o)
       "delete" (delete text o)
+      "rename" (rename text o)
       (fail! (str "unknown op " (pr-str op-name))))))
 
 (defn apply-ops

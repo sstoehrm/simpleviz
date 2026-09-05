@@ -17,6 +17,12 @@
 (defn delete-op [tgt]
   (assoc tgt :op "delete"))
 
+(defn rename-op
+  "Give the selected node or box the id `to` (whitespace-trimmed); the
+  server rewrites every reference along with the key."
+  [tgt to]
+  (assoc tgt :op "rename" :to (.trim to)))
+
 (defn direction-op [tgt dir]
   {:op "set-direction" :edge (:id tgt) :direction dir})
 
@@ -74,18 +80,18 @@
                    nil)
       nil)))
 
-(defn blur-op
-  "The ops to post on a blur event for attr k, or nil when the blur is a
-  side effect of :editing having already moved on — Escape cleared it,
-  or a successful Enter save already cleared it — rather than the user
-  actually clicking/tabbing away with the field still open. Removing
-  the focused input/textarea from the DOM (which the re-render after
+(defn blur-text
+  "The text to commit on a blur event for field k, or nil when the blur
+  is a side effect of :editing having already moved on — Escape cleared
+  it, or a successful Enter save already cleared it — rather than the
+  user actually clicking/tabbing away with the field still open.
+  Removing the focused textarea from the DOM (which the re-render after
   either of those does) fires a native blur synchronously; without this
   guard that stale blur would re-post with nil/stale text and clobber
   the value that was just saved (or restored) a moment earlier."
-  [editing k tgt scalar?]
+  [editing k]
   (when (= k (:attr editing))
-    [(set-attr-op tgt k (:text editing) scalar?)]))
+    (:text editing)))
 
 (defn scalar?
   "True when v is not a collection (vector or map) — squint sets arrive

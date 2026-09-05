@@ -5,7 +5,7 @@
                                       value->edn-text scalar?
                                       delete-op direction-op pick-ops
                                       add-node-ops add-connected-ops wrap-in-box-ops
-                                      edit-body rename-op blur-text]]))
+                                      edit-body rename-op blur-text retarget-end]]))
 
 (test "target maps selection payloads to op targets"
   (fn []
@@ -15,6 +15,20 @@
                       {:section "boxes" :id "grp"})
     (assert/deepEqual (target {:kind "edge" :source "a" :target "b"})
                       {:section "edges" :id ["a" "b"]})))
+
+(test "target keys an edge by the file's pair order, not the displayed one"
+  (fn []
+    ;; a :<- edge is displayed flipped (source b, target a) but its key in
+    ;; the file is still [a b], which is what the server looks up
+    (assert/deepEqual (target {:kind "edge" :source "b" :target "a"
+                               :attrs {:direction "<-" :nodes ["a" "b"]}})
+                      {:section "edges" :id ["a" "b"]})))
+
+(test "retarget-end names the file-key end behind the displayed one"
+  (fn []
+    (assert/equal (retarget-end {:attrs {:direction "->"}} "source") "source")
+    (assert/equal (retarget-end {:attrs {:direction "<-"}} "source") "target")
+    (assert/equal (retarget-end {:attrs {:direction "<-"}} "target") "source")))
 
 (test "set-attr-op carries EDN text and fallback flag"
   (fn []

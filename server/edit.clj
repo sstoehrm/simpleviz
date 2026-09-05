@@ -198,6 +198,29 @@
         (z/root-string (-> entry (z/append-child :components)
                            (z/append-child [(ident-node member)])))))))
 
+(defn- parent-box
+  "Name of the box whose :components list `id`, nil when none does."
+  [data id]
+  (some (fn [[k _]] (let [b (ident->str k)] (when (contains? (box-components data b) id) b)))
+        (ensure-map-section data :boxes)))
+
+(defn box-remove
+  "Take `member` out of box `box`'s :components. When that box sits in a
+  parent box, the member joins the parent instead of ending up nowhere."
+  [text {:keys [box member]}]
+  (let [data (parsed text)]
+    (when-not (exists? data :boxes box) (unknown! :boxes box))
+    (when-not (contains? (box-components data box) member)
+      (fail! (str "\"" member "\" is not in box \"" box "\"")))
+    (let [comps (find-val (entry-val (zroot text) :boxes box) #(= % :components))
+          hit (loop [c (z/down comps)]
+                (let [x (try (z/sexpr c) (catch Exception _ ::skip))]
+                  (if (and (not= ::skip x) (= member (ident->str x))) c (recur (z/right c)))))
+          text' (z/root-string (z/remove hit))]
+      (if-let [parent (parent-box data box)]
+        (box-add text' {:box parent :member member})
+        text'))))
+
 (defn- remove-entry
   "Remove one map entry (key+value) from a section; nil when absent."
   [text section pred]
@@ -389,6 +412,7 @@
       "add-edge" (add-edge text o)
       "add-box" (add-box text o)
       "box-add" (box-add text o)
+      "box-remove" (box-remove text o)
       "retarget-edge" (retarget-edge text o)
       "set-direction" (set-direction text o)
       "delete" (delete text o)

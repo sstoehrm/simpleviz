@@ -51,6 +51,18 @@
   [{:op "add-node" :id new-id}
    {:op "add-edge" :from from :to new-id :direction "->"}])
 
+(defn add-node-in-box-ops
+  "Ops to create a new node as a member of box `box-id`."
+  [box-id new-id]
+  [{:op "add-node" :id new-id}
+   {:op "box-add" :box box-id :member new-id}])
+
+(defn box-remove-op
+  "Ops to take `member-id` out of box `box-id` (the server moves it to
+  the enclosing box, if any)."
+  [box-id member-id]
+  [{:op "box-remove" :box box-id :member member-id}])
+
 (defn wrap-in-box-ops
   "Ops to create a new box around the selected node or box; the server
   also moves the member out of its old parent box into the new one."
@@ -70,7 +82,8 @@
   or box is a valid new endpoint;
   {:mode \"into-box\" :member id} — only a box is valid;
   {:mode \"box-take\" :box id :want \"node\"|\"box\"} — only an item of
-  the wanted kind is valid, and not the box itself."
+  the wanted kind is valid, and not the box itself;
+  {:mode \"box-drop\" :box id} — only a node whose :parent is that box."
   [pick item]
   (let [kind (:kind item)]
     (case (:mode pick)
@@ -89,6 +102,9 @@
       "box-take" (if (and (= kind (:want pick))
                           (not= (bare-id item) (:box pick)))
                    [{:op "box-add" :box (:box pick) :member (bare-id item)}]
+                   nil)
+      "box-drop" (if (and (= kind "node") (= (:parent item) (:box pick)))
+                   [{:op "box-remove" :box (:box pick) :member (bare-id item)}]
                    nil)
       nil)))
 
@@ -149,12 +165,15 @@
    ["e" "4" {"edge" [["direction" "-"] "—"]}]
    ["c" "s" {"edge" [["retarget" "source"] "change source"]}]
    ["c" "t" {"edge" [["retarget" "target"] "change target"]}]
+   ["c" "n" {"box" ["new-node-in-box" "new node"]}]
    ["a" "e" {"node" ["add-edge" "add edge"] "box" ["add-edge" "add edge"]}]
    ["a" "b" {"node" ["add-to-box" "add to box"] "box" ["add-box-member" "add box"]}]
    ["a" "n" {"box" ["add-node-member" "add node"]}]
    ["n" "n" {"none" ["new-node" "new node"] "node" ["new-connected-node" "new node"]}]
    ["n" "b" {"node" ["new-box" "new box"] "box" ["new-box" "new box"]}]
-   ["r" "r" {"node" ["rename" "rename"] "box" ["rename" "rename"]}]])
+   ["r" "r" {"node" ["rename" "rename"] "box" ["rename" "rename"]}]
+   ["r" "n" {"box" ["remove-node-member" "remove node"]}]
+   ["r" "b" {"node" ["remove-from-box" "remove from box"]}]])
 
 (defn- kind-key [kind] (if (nil? kind) "none" kind))
 

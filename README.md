@@ -163,6 +163,9 @@ pending one:
 | `a e` | node, box | add edge (then click the other endpoint) |
 | `a b` | node / box | add to box / add a box as member (then click it) |
 | `a n` | box | add a node as member (then click it) |
+| `r n` | box | remove node: click a member node, it moves to the enclosing box or out |
+| `c n` | box | new node inside the box (id prompt) |
+| `r b` | node | remove from box: the node moves to the enclosing box or out |
 | `n n` | none / node | new node / new node connected to the selection |
 | `n b` | node, box | new box around the selection |
 | `r r` | node, box | rename the id |

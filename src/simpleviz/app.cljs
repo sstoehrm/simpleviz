@@ -287,33 +287,45 @@
                            :hint "click a node to add"}
         "add-box-member" {:label "add box" :pick {:mode "box-take" :box id :want "box"}
                           :hint "click a box to add"}
+        "remove-node-member" {:label "remove node" :pick {:mode "box-drop" :box id}
+                              :hint "click a node in this box to take it out"}
         "new-node" {:label "new node" :id-entry "node"}
         "new-connected-node" {:label "new node" :id-entry "connect"}
+        "new-node-in-box" {:label "new node" :id-entry "inbox"}
         "new-box" {:label "new box" :id-entry "newbox"}
+        ;; only for a node inside a box: nil hides the button and the chord
+        "remove-from-box" (when-let [parent (get (:parent-of (:graph @state)) (:elk-id sel))]
+                            {:label "remove from box" :post (editor/box-remove-op parent id)})
         nil))))
 
 ;; the action-bar buttons per selection kind, in display order
 (def ^:private toolbar-actions
   {"edge" [["retarget" "source"] ["retarget" "target"]]
-   "node" ["add-edge" "add-to-box" "new-connected-node" "new-box"]
-   "box" ["add-edge" "add-node-member" "add-box-member" "new-box"]})
+   "node" ["add-edge" "add-to-box" "remove-from-box" "new-connected-node" "new-box"]
+   "box" ["add-edge" "add-node-member" "add-box-member" "remove-node-member"
+          "new-node-in-box" "new-box"]})
 
 (defn- start-action!
   "Do what the toolbar button for `action` does."
   [sel tgt action]
-  (let [{:keys [pick hint id-entry]} (action-spec sel tgt action)]
+  (let [{:keys [pick hint id-entry post]} (action-spec sel tgt action)]
     (cond
       (some? pick) (start-pick! pick hint)
-      (some? id-entry) (start-id-entry! id-entry))))
+      (some? id-entry) (start-id-entry! id-entry)
+      (some? post) (post-edit! post))))
 
-(defn- action-btn [sel tgt action]
-  [:button {:class "action-pick" :type "button"
-            :on-click (fn [e] (.stopPropagation e) (start-action! sel tgt action))}
-   (:label (action-spec sel tgt action))
-   (key-hint (editor/chord-for (:kind sel) action))])
+(defn- action-btn
+  "The toolbar button for `action`, or nil when it does not apply to
+  this selection right now."
+  [sel tgt action]
+  (when-let [spec (action-spec sel tgt action)]
+    [:button {:class "action-pick" :type "button"
+              :on-click (fn [e] (.stopPropagation e) (start-action! sel tgt action))}
+     (:label spec)
+     (key-hint (editor/chord-for (:kind sel) action))]))
 
 (defn- action-buttons [sel tgt]
-  (mapv (fn [a] (action-btn sel tgt a)) (get toolbar-actions (:kind sel))))
+  (filterv some? (mapv (fn [a] (action-btn sel tgt a)) (get toolbar-actions (:kind sel)))))
 
 (defn- submit-id-entry! [tgt]
   (let [entry (:id-entry @state)
@@ -324,6 +336,8 @@
                       (swap! state assoc :pending-focus (str "n:" text)))
         "newbox" (do (post-edit! (editor/wrap-in-box-ops (:id tgt) text))
                      (swap! state assoc :pending-focus (str "b:" text)))
+        "inbox" (do (post-edit! (editor/add-node-in-box-ops (:id tgt) text))
+                    (swap! state assoc :pending-focus (str "n:" text)))
         "node" (do (post-edit! (editor/add-node-ops text))
                    (swap! state assoc :pending-focus (str "n:" text)))
         nil)
@@ -332,7 +346,7 @@
 (defn- id-entry-row [tgt entry]
   [:div {:class "id-entry"}
    [:input {:class "id-entry-input" :type "text" :value (:text entry)
-            :placeholder (if (= (:for entry) "connect") "new node id" "new box id")
+            :placeholder (if (= (:for entry) "newbox") "new box id" "new node id")
             :on-render (fn [{:keys [node lifecycle]}]
                          (when (= lifecycle "mount") (.focus node)))
             :on-input (fn [e] (swap! state assoc-in [:id-entry :text] (.. e -target -value)))
@@ -554,7 +568,8 @@
           (cond
             (nil? item) (cancel-pick!)
             (= (:kind item) "collapse-button") nil
-            :else (let [ops (editor/pick-ops pick item)]
+            :else (let [parent (get (:parent-of (:graph @state)) (:id item))
+                        ops (editor/pick-ops pick (assoc item :parent parent))]
                     (when (some? ops)
                       (cancel-pick!)
                       (post-edit! ops))))
@@ -590,7 +605,7 @@
       "In the inspector, click a value or its ✎ to edit it inline — Enter commits, Shift+Enter inserts a line break, Escape cancels. × deletes an attribute; the key/value row at the bottom adds one. Ctrl+Z or ⟲ undoes the last edit.")
      (help-section
       "Keys"
-      "Two-key chords act on the selection, when no text field has focus (the toolbar buttons show them): d d delete · e 1/2/3/4 edge direction → ← ↔ — · c s / c t change an edge's source / target · a e add edge · a b add to box (node) or add a box as member (box) · a n add a node as member (box) · n n new node (connected to the selected node) · n b new box around the selection · r r rename the id. Esc cancels a pending chord; ? toggles this help; Ctrl+Z undoes.")
+      "Two-key chords act on the selection, when no text field has focus (the toolbar buttons show them): d d delete · e 1/2/3/4 edge direction → ← ↔ — · c s / c t change an edge's source / target · a e add edge · a b add to box (node) or add a box as member (box) · a n add a node as member (box) · c n new node inside the selected box · n n new node (connected to the selected node) · n b new box around the selection · r r rename the id · r n take a node out of the selected box · r b take the selected node out of its box. Esc cancels a pending chord; ? toggles this help; Ctrl+Z undoes.")
      (help-section
       "Compare"
       "Serving two files renders one merged diagram: added elements get a green +, modified an amber ~ (select for an old → new list), removed ones stay as red dashed ghosts. Click a legend row to jump through the changes; the old|new toggle picks which file edits apply to.")

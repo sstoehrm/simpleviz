@@ -261,3 +261,7 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
                                    letter-spacing: .05em; text-transform: uppercase;
                                    color: var(--diff-modified); margin-top: 8px; }
 #details .details-changes dt { margin-top: 8px; }
+
+/* keyboard chord shown inside a toolbar button */
+.key-hint { margin-left: 6px; font-family: ui-monospace, monospace; font-size: 9.5px;
+            opacity: .55; letter-spacing: .04em; }

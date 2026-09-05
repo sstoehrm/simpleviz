@@ -134,3 +134,62 @@
   seeds from its EDN printed form."
   [v]
   (if (string? v) v (edn-text v)))
+
+;; ---- keyboard chords ----
+
+;; Two-key chords, in the order the hints list them. Each entry maps a
+;; selection kind ("node" "edge" "box", or "none" with nothing selected)
+;; to [action label]; the action is what app.cljs dispatches on, the
+;; label what the pending-chord hint shows.
+(def ^:private chord-table
+  [["d" "d" {"node" ["delete" "delete"] "edge" ["delete" "delete"] "box" ["delete" "delete"]}]
+   ["e" "1" {"edge" [["direction" "->"] "→"]}]
+   ["e" "2" {"edge" [["direction" "<-"] "←"]}]
+   ["e" "3" {"edge" [["direction" "<->"] "↔"]}]
+   ["e" "4" {"edge" [["direction" "-"] "—"]}]
+   ["c" "s" {"edge" [["retarget" "source"] "change source"]}]
+   ["c" "t" {"edge" [["retarget" "target"] "change target"]}]
+   ["a" "e" {"node" ["add-edge" "add edge"] "box" ["add-edge" "add edge"]}]
+   ["a" "b" {"node" ["add-to-box" "add to box"] "box" ["add-box-member" "add box"]}]
+   ["a" "n" {"box" ["add-node-member" "add node"]}]
+   ["n" "n" {"none" ["new-node" "new node"] "node" ["new-connected-node" "new node"]}]
+   ["n" "b" {"node" ["new-box" "new box"] "box" ["new-box" "new box"]}]
+   ["r" "r" {"node" ["rename" "rename"] "box" ["rename" "rename"]}]])
+
+(defn- kind-key [kind] (if (nil? kind) "none" kind))
+
+(defn chord-group?
+  "True when k opens a chord (is the first key of one)."
+  [k]
+  (some? (some (fn [[g _ _]] (when (= g k) true)) chord-table)))
+
+(defn chord-action
+  "The action for chord `k1 k2` with a selection of `kind` (nil
+  for none), or nil when the chord does not exist or does not apply."
+  [kind k1 k2]
+  (some (fn [[g k kinds]]
+          (when (and (= g k1) (= k k2))
+            (first (get kinds (kind-key kind)))))
+        chord-table))
+
+(defn chord-for
+  "The chord (\"d d\") that triggers `action` for `kind`, for the
+  toolbar's key hints; nil when none does."
+  [kind action]
+  (some (fn [[g k kinds]]
+          (when (= action (first (get kinds (kind-key kind)))) (str g " " k)))
+        chord-table))
+
+(defn chord-hint
+  "What the pending group `g` can complete to for `kind`, e.g.
+  \"c … s change source · t change target\"."
+  [kind g]
+  (let [opts (keep (fn [[g' k kinds]]
+                     (when (= g' g)
+                       (when-let [[_ label] (get kinds (kind-key kind))]
+                         (str k " " label))))
+                   chord-table)]
+    (str g " … "
+         (if (seq opts)
+           (.join (vec opts) " · ")
+           (if (nil? kind) "nothing without a selection" (str "nothing for a" (if (= kind "edge") "n " " ") kind))))))

@@ -205,10 +205,11 @@
     (when-let [k (find-key sect pred)]
       (z/root-string (remove-pair k)))))
 
-(defn- remove-first-component
-  "Remove the first occurrence of member-id from any box's :components;
-  nil when no box contains it."
-  [text member-id]
+(defn- edit-first-component
+  "Apply f (a zloc -> zloc edit) to the first occurrence of member-id in
+  any box's :components; nil when no box contains it. Elements with no
+  sexpr (`#_` uneval forms) are skipped."
+  [text member-id f]
   (when-let [sect (sect-val (zroot text) :boxes)]
     (loop [k (z/down sect)]
       (when (some? k)
@@ -217,10 +218,19 @@
               hit (when (and (some? comps) (coll? (z/sexpr comps)))
                     (loop [c (z/down comps)]
                       (when (some? c)
-                        (if (= member-id (ident->str (z/sexpr c))) c (recur (z/right c))))))]
+                        (let [x (try (z/sexpr c) (catch Exception _ ::skip))]
+                          (if (and (not= ::skip x) (= member-id (ident->str x)))
+                            c
+                            (recur (z/right c)))))))]
           (if (some? hit)
-            (z/root-string (z/remove hit))
+            (z/root-string (f hit))
             (recur (z/right v))))))))
+
+(defn- remove-first-component
+  "Remove the first occurrence of member-id from any box's :components;
+  nil when no box contains it."
+  [text member-id]
+  (edit-first-component text member-id z/remove))
 
 (defn- until-done [text f]
   (if-let [t (f text)] (recur t f) text))
@@ -329,6 +339,29 @@
               (rename-in-box-components id new-node)
               z/root-string))))))
 
+(defn wrap
+  "Create box `box` around node or box `member`: the new box holds the
+  member as its only component and, when the member sat in a parent
+  box, takes the member's place there; any further membership of the
+  member (the loader honours only the first) is dropped — so the member
+  is in exactly one box afterwards. The new id must be unused anywhere,
+  like a rename target."
+  [text {:keys [box member]}]
+  (let [data (parsed text)]
+    (when-not (or (exists? data :nodes member) (exists? data :boxes member))
+      (fail! (str "unknown node or box " (pr-str member))))
+    (when (and (exists? data :nodes member) (exists? data :boxes member))
+      (fail! (str (pr-str member) " is both a node and a box; rename one in the file")))
+    (when (or (exists? data :nodes box) (exists? data :boxes box))
+      (fail! (str (pr-str box) " already exists")))
+    (when (contains? (referenced-ids data) box)
+      (fail! (str (pr-str box) " is already referenced by an edge or box")))
+    (let [new-node (ident-node box)]
+      (-> (or (edit-first-component text member #(z/replace % new-node)) text)
+          (until-done (fn [t] (remove-first-component t member)))
+          (add-box {:id box})
+          (box-add {:box box :member member})))))
+
 (defn- norm-op
   "Browser payload -> internal op: keywordize section/attr, keep ids.
   Attr names are validated against the same ident regex ident-node uses —
@@ -360,6 +393,7 @@
       "set-direction" (set-direction text o)
       "delete" (delete text o)
       "rename" (rename text o)
+      "wrap" (wrap text o)
       (fail! (str "unknown op " (pr-str op-name))))))
 
 (defn apply-ops

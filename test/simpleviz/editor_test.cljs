@@ -112,9 +112,9 @@
     (assert/deepEqual (add-connected-ops "api" "db")
                       [{:op "add-node" :id "db"}
                        {:op "add-edge" :from "api" :to "db" :direction "->"}])
+    ;; one atomic server op: the member leaves its old parent for the new box
     (assert/deepEqual (wrap-in-box-ops "api" "backend")
-                      [{:op "add-box" :id "backend"}
-                       {:op "box-add" :box "backend" :member "api"}])))
+                      [{:op "wrap" :box "backend" :member "api"}])))
 
 (test "edit-body routes ops to the chosen file"
   (fn []

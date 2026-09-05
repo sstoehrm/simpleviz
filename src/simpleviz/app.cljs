@@ -302,13 +302,14 @@
    label])
 
 (defn- id-entry-buttons
-  "Extra action-bar buttons that open the id-entry input — node only:
-  add a freshly-created node connected to this one, or wrap this node
-  in a freshly-created box."
+  "Extra action-bar buttons that open the id-entry input: a node can
+  add a freshly-created node connected to it; nodes and boxes can be
+  wrapped in a freshly-created box."
   [sel]
-  (if (= (:kind sel) "node")
-    [(id-entry-btn "create node" "connect")
-     (id-entry-btn "new box" "newbox")]
+  (case (:kind sel)
+    "node" [(id-entry-btn "create node" "connect")
+            (id-entry-btn "new box" "newbox")]
+    "box" [(id-entry-btn "new box" "newbox")]
     []))
 
 (defn- submit-id-entry! [tgt]
@@ -318,7 +319,8 @@
       (case (:for entry)
         "connect" (do (post-edit! (editor/add-connected-ops (:id tgt) text))
                       (swap! state assoc :pending-focus (str "n:" text)))
-        "newbox" (post-edit! (editor/wrap-in-box-ops (:id tgt) text))
+        "newbox" (do (post-edit! (editor/wrap-in-box-ops (:id tgt) text))
+                     (swap! state assoc :pending-focus (str "b:" text)))
         "node" (do (post-edit! (editor/add-node-ops text))
                    (swap! state assoc :pending-focus (str "n:" text)))
         nil)

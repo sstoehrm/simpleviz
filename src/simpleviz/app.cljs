@@ -2,7 +2,8 @@
   (:require ["reagami" :refer [render]]
             [simpleviz.colors :as colors]
             [simpleviz.format :as format]
-            [simpleviz.transform :refer [to-elk elk-fingerprint layout-positions seed-layout seedable?]]
+            [simpleviz.transform :refer [to-elk elk-fingerprint layout-positions seed-layout seedable?
+                                         rename-layout-ids]]
             [simpleviz.prune :refer [collapse-boxes collapse-scene]]
             [simpleviz.scene :as scene]
             [simpleviz.hit :as hit]
@@ -159,40 +160,72 @@
   (set! (.. el -style -height) "auto")
   (set! (.. el -style -height) (str (.-scrollHeight el) "px")))
 
+(declare rename!)
+
+(defn- edit-field
+  "The inline textarea for the :editing field k: Enter commits its text
+  through commit!, Shift+Enter inserts a line break (never for a
+  single-line field), Escape cancels, and blur commits only while this
+  field is still the one being edited (see editor/blur-text)."
+  [k editing commit! single-line?]
+  [:textarea
+   {:value (:text editing) :class "attr-edit" :rows 1
+    ;; reagami >= 0.2.41 passes the hook a single map, not positional args
+    :on-render (fn [{:keys [node lifecycle]}]
+                 (autosize! node)
+                 (when (= lifecycle "mount")
+                   (.focus node)
+                   (let [n (.-length (.-value node))]
+                     (.setSelectionRange node n n))))
+    :on-input (fn [e] (swap! state assoc-in [:editing :text] (.. e -target -value)))
+    :on-keydown (fn [e]
+                  (cond
+                    (and (= (.-key e) "Enter") (or single-line? (not (.-shiftKey e))))
+                    (do (.preventDefault e)
+                        (commit! (:text (:editing @state))))
+
+                    (= (.-key e) "Escape")
+                    (swap! state assoc :editing nil)))
+    :on-blur (fn [_] (when-let [text (editor/blur-text (:editing @state) k)]
+                      (commit! text)))}])
+
+(defn- start-editing! [k text]
+  (swap! state assoc :editing {:attr k :text text}))
+
 (defn- attr-edit-row [tgt k v scalar editing]
   [:dd {:key (str "d" k) :class "attr-row"}
    (if (= k (:attr editing))
-     [:textarea
-      {:value (:text editing) :class "attr-edit" :rows 1
-       ;; reagami >= 0.2.41 passes the hook a single map, not positional args
-       :on-render (fn [{:keys [node lifecycle]}]
-                    (autosize! node)
-                    (when (= lifecycle "mount")
-                      (.focus node)
-                      (let [n (.-length (.-value node))]
-                        (.setSelectionRange node n n))))
-       :on-input (fn [e] (swap! state assoc-in [:editing :text] (.. e -target -value)))
-       :on-keydown (fn [e]
-                     (cond
-                       ;; Enter commits; Shift+Enter is the line break
-                       (and (= (.-key e) "Enter") (not (.-shiftKey e)))
-                       (do (.preventDefault e)
-                           (post-edit! [(editor/set-attr-op tgt k (:text (:editing @state)) scalar)]))
-
-                       (= (.-key e) "Escape")
-                       (swap! state assoc :editing nil)))
-       :on-blur (fn [_] (when-let [ops (editor/blur-op (:editing @state) k tgt scalar)]
-                         (post-edit! ops)))}]
-     [:span {:on-click (fn [_] (swap! state assoc :editing {:attr k :text (editor/value->edn-text v)}))}
+     (edit-field k editing
+                 (fn [text] (post-edit! [(editor/set-attr-op tgt k text scalar)]))
+                 false)
+     [:span {:on-click (fn [_] (start-editing! k (editor/value->edn-text v)))}
       [:span {:class "attr-val"} (format/value->hiccup v)]
       [:button {:class "attr-btn" :type "button" :title "Edit value"
                 :on-click (fn [e]
                             (.stopPropagation e)
-                            (swap! state assoc :editing {:attr k :text (editor/value->edn-text v)}))}
+                            (start-editing! k (editor/value->edn-text v)))}
        "✎"]
       [:button {:class "attr-btn attr-del" :type "button" :title "Delete attribute"
                 :on-click (fn [e] (.stopPropagation e) (post-edit! [(editor/del-attr-op tgt k)]))}
        "×"]])])
+
+;; :editing key of the id row — `$` is outside the attribute-name
+;; alphabet, so no real attribute can collide with it
+(def ^:private ID-FIELD "$id")
+
+(defn- id-edit-row
+  "The selected node's or box's id, editable inline like a value but
+  single-line and without delete; a commit renames the element."
+  [sel tgt editing]
+  (let [id (:id tgt)]
+    [:dd {:key "d$id" :class "attr-row"}
+     (if (= ID-FIELD (:attr editing))
+       (edit-field ID-FIELD editing (fn [text] (rename! sel tgt text)) true)
+       [:span {:on-click (fn [_] (start-editing! ID-FIELD id))}
+        [:span {:class "attr-val"} id]
+        [:button {:class "attr-btn" :type "button" :title "Rename (updates every reference)"
+                  :on-click (fn [e] (.stopPropagation e) (start-editing! ID-FIELD id))}
+         "✎"]])]))
 
 (defn- ^:async submit-attr-add! [tgt]
   (let [key-text (.trim (.-value (js/document.getElementById "attr-add-key")))
@@ -284,10 +317,10 @@
     (when (pos? (.-length text))
       (case (:for entry)
         "connect" (do (post-edit! (editor/add-connected-ops (:id tgt) text))
-                      (swap! state assoc :pending-focus text))
+                      (swap! state assoc :pending-focus (str "n:" text)))
         "newbox" (post-edit! (editor/wrap-in-box-ops (:id tgt) text))
         "node" (do (post-edit! (editor/add-node-ops text))
-                   (swap! state assoc :pending-focus text))
+                   (swap! state assoc :pending-focus (str "n:" text)))
         nil)
       (swap! state assoc :id-entry nil))))
 
@@ -345,12 +378,18 @@
                           (str (fmt-val (:old v)) " → " (fmt-val (:new v)))]])
                       (js/Object.entries (:changed sel))))])
      (into [:dl]
-           (mapcat (fn [[k v]]
-                     [[:dt {:key (str "t" k)} k]
-                      (if editable
-                        (attr-edit-row tgt k v (editor/scalar? v) editing)
-                        [:dd {:key (str "d" k)} (format/value->hiccup v)])])
-                   (visible-attrs sel)))
+           (concat
+            (when (not= (:kind sel) "edge")
+              [[:dt {:key "t$id"} "id"]
+               (if editable
+                 (id-edit-row sel tgt editing)
+                 [:dd {:key "d$id"} (.slice (:elk-id sel) 2)])])
+            (mapcat (fn [[k v]]
+                      [[:dt {:key (str "t" k)} k]
+                       (if editable
+                         (attr-edit-row tgt k v (editor/scalar? v) editing)
+                         [:dd {:key (str "d" k)} (format/value->hiccup v)])])
+                    (visible-attrs sel))))
      (when editable (attr-add-row tgt))]))
 
 (defn- selection-toolbar
@@ -613,15 +652,14 @@
 
 (defn- apply-pending-focus!
   "When an add-node flow is in flight, select the freshly created node
-  once its scene item lands — found by its scene id `n:<pending>`. The
+  once its scene item lands — :pending-focus holds its scene id. The
   view is deliberately not panned: the seeded relayout puts the node
   beside its source, and a jump would undo the arrangement staying
   put. Always clears :pending-focus, found or not: the edit may have
   failed, and either way this is a one-shot request."
   [sc]
   (when-let [pending (:pending-focus @state)]
-    (let [want (str "n:" pending)
-          item (some (fn [it] (when (= (:id it) want) it)) (:items sc))]
+    (let [item (some (fn [it] (when (= (:id it) pending) it)) (:items sc))]
       (when (some? item)
         (on-select (item->payload item))))
     (swap! state assoc :pending-focus nil)))
@@ -788,6 +826,64 @@
       (swap! state assoc :edit-error (:error out) :pending-focus nil)
       (do (swap! state assoc :edit-error nil :editing nil)
           (js-await (tick))))))
+
+(defn- rename-cache-key
+  "Cache key k with collapsed box `old` called `new`, unchanged otherwise."
+  [k old new]
+  (let [names (if (= k "") [] (.split k "|"))]
+    (if (some (fn [n] (= n old)) names)
+      (cache-key (mapv (fn [n] (if (= n old) new n)) names))
+      k)))
+
+(defn- rename-cached-layouts!
+  "Every cached layout now calls element `old` `new`, so the seeded
+  relayout after a rename finds it placed instead of treating it as new.
+  For a box, `box-names` [old-name new-name] also re-keys the entries
+  of collapsed sets that contain it."
+  [old new box-names]
+  (doseq [k (js/Array.from (.keys layout-cache))]
+    (let [e (.get layout-cache k)
+          e' (if (some? (:layout e))
+               (assoc e :layout (rename-layout-ids (:layout e) old new))
+               e)
+          k' (if-let [[o n] box-names] (rename-cache-key k o n) k)]
+      (when (not= k k') (.delete layout-cache k))
+      (.set layout-cache k' e'))))
+
+(defn- rename-collapsed! [old new]
+  (swap! state update :collapsed-boxes
+         (fn [s] (if (contains? s old) (-> s (disj old) (conj new)) s))))
+
+(defn- ^:async rename!
+  "Rename the selected node or box to `to`: keep its place in the layout
+  and re-select it under the new id once the reload lands. An empty or
+  unchanged id just closes the field. The client-side bookkeeping is
+  done up front (the reload runs inside post-edit!) and rolled back when
+  the edit fails or the request never returns."
+  [sel tgt to]
+  (let [to (.trim to)
+        old-id (:id tgt)
+        old-elk (:elk-id sel)
+        new-elk (str (.slice old-elk 0 2) to)
+        box? (= (:kind sel) "box")]
+    (if (or (= to "") (= to old-id))
+      (swap! state assoc :editing nil)
+      (do
+        ;; one-shot: close the field now, so the blur the re-render fires
+        ;; cannot post a second rename while this one is in flight
+        (swap! state assoc :editing nil :pending-focus new-elk)
+        (rename-cached-layouts! old-elk new-elk (when box? [old-id to]))
+        (when box? (rename-collapsed! old-id to))
+        (let [ok? (try
+                    (js-await (post-edit! [(editor/rename-op tgt to)]))
+                    (nil? (:edit-error @state))
+                    (catch :default _ false))]
+          (when-not ok?
+            (rename-cached-layouts! new-elk old-elk (when box? [to old-id]))
+            (when box? (rename-collapsed! to old-id))
+            (swap! state assoc :pending-focus nil)
+            ;; reopen with the rejected text so it can be corrected
+            (start-editing! ID-FIELD to)))))))
 
 (defn- ^:async delete! [tgt]
   (js-await (post-edit! [(editor/delete-op tgt)]))

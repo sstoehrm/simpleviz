@@ -1,6 +1,9 @@
 (ns server-test
   (:require [clojure.test :refer [deftest is]]
             [cheshire.core :as json]
+            [babashka.cli]
+            [babashka.fs]
+            [log]
             [serve]))
 
 (deftest graph-json-serves-normalized-graph
@@ -22,12 +25,12 @@
     (is (string? (get out "error")))))
 
 (deftest parse-args-uses-default-port
-  (is (= {:file "g.edn" :port 7373} (serve/parse-args ["g.edn"]))))
+  (is (= {:file "g.edn" :port 7373 :debug false} (serve/parse-args ["g.edn"]))))
 
 (deftest parse-args-accepts-port-flag-and-alias
-  (is (= {:file "g.edn" :port 9000} (serve/parse-args ["g.edn" "--port" "9000"])))
-  (is (= {:file "g.edn" :port 9000} (serve/parse-args ["g.edn" "-p" "9000"])))
-  (is (= {:file "g.edn" :port 9000} (serve/parse-args ["--port" "9000" "g.edn"]))))
+  (is (= {:file "g.edn" :port 9000 :debug false} (serve/parse-args ["g.edn" "--port" "9000"])))
+  (is (= {:file "g.edn" :port 9000 :debug false} (serve/parse-args ["g.edn" "-p" "9000"])))
+  (is (= {:file "g.edn" :port 9000 :debug false} (serve/parse-args ["--port" "9000" "g.edn"]))))
 
 (deftest parse-args-rejects-bad-input
   (is (contains? (serve/parse-args []) :error))
@@ -36,9 +39,9 @@
   (is (contains? (serve/parse-args ["g.edn" "--port" "70000"]) :error)))
 
 (deftest parse-args-two-files-enables-compare
-  (is (= {:old-file "a.edn" :file "b.edn" :port 7373}
+  (is (= {:old-file "a.edn" :file "b.edn" :port 7373 :debug false}
          (serve/parse-args ["a.edn" "b.edn"])))
-  (is (= {:old-file "a.edn" :file "b.edn" :port 9000}
+  (is (= {:old-file "a.edn" :file "b.edn" :port 9000 :debug false}
          (serve/parse-args ["a.edn" "b.edn" "-p" "9000"]))))
 
 (deftest parse-args-rejects-three-files
@@ -331,3 +334,71 @@
       (is (contains? (get g "nodes") "api"))
       (is (= 1 (count (get g "edges")))))
     (is (clojure.string/includes? (slurp p) ";; a comment"))))
+
+;; --- --debug flag, crash guard, edit log ------------------------------
+
+(deftest parse-args-accepts-debug-flag
+  (is (= {:file "g.edn" :port 7373 :debug true} (serve/parse-args ["g.edn" "--debug"])))
+  (is (= {:file "g.edn" :port 9000 :debug true} (serve/parse-args ["--debug" "g.edn" "-p" "9000"])))
+  (is (= {:old-file "a.edn" :file "b.edn" :port 7373 :debug true}
+         (serve/parse-args ["a.edn" "b.edn" "--debug"]))))
+
+(defn- with-log-dir* [f]
+  (let [d (str (babashka.fs/create-temp-dir {:prefix "serve-test-log"}))]
+    (log/clear!)
+    (try (f d) (finally (log/clear!) (babashka.fs/delete-tree d)))))
+
+(deftest guard-turns-uncaught-exception-into-500-and-crash-report
+  (with-log-dir*
+    (fn [d]
+      (log/init! {:dir d :debug false :header "hdr"})
+      (let [h (serve/guard (fn [_] (throw (ex-info "kaboom" {}))))
+            resp (h {:request-method :get :uri "/api/graph"})]
+        (is (= 500 (:status resp)))
+        (is (= "kaboom" (get (json/parse-string (:body resp)) "error")))
+        (let [[report] (map str (babashka.fs/glob d "crash-*.log"))]
+          (is (some? report))
+          (is (re-find #"GET /api/graph" (slurp report)))
+          (is (re-find #"kaboom" (slurp report))))))))
+
+(deftest guard-passes-normal-responses-through
+  (is (= {:status 200 :body "ok"} ((serve/guard (fn [_] {:status 200 :body "ok"})) {:uri "/"}))))
+
+(deftest edit-request-is-logged-with-ops-and-result
+  (with-log-dir*
+    (fn [d]
+      (let [run (log/init! {:dir d :debug true :header "hdr"})
+            g (java.io.File/createTempFile "serve-test" ".edn")]
+        (.deleteOnExit g)
+        (spit g "{:nodes {:a {:name \"A\"} :b {:name \"B\"}} :edges {} :boxes {}}")
+        (reset! serve/files {:old nil :new (str g)})
+        (serve/handler {:request-method :post :uri "/api/edit"
+                        :headers {"content-type" "application/json"}
+                        :body (java.io.ByteArrayInputStream.
+                               (.getBytes (json/generate-string
+                                           {:file "new"
+                                            :ops [{:op "delete" :section "nodes" :id "b"}]})))})
+        (let [line (->> (slurp run) clojure.string/split-lines (filter #(re-find #" edit " %)) first)]
+          (is (some? line))
+          (is (re-find #"\"op\":\"delete\"" line))
+          (is (re-find #"\"result\":\{\"ok\":true\}" line)))))))
+
+(deftest guard-names-the-exception-class-when-it-has-no-message
+  (with-log-dir*
+    (fn [d]
+      (log/init! {:dir d :debug false :header "hdr"})
+      (let [resp ((serve/guard (fn [_] (throw (NullPointerException.)))) {:uri "/x"})]
+        (is (= "java.lang.NullPointerException"
+               (get (json/parse-string (:body resp)) "error")))))))
+
+(deftest guard-logs-rejected-requests-as-errors
+  (with-log-dir*
+    (fn [d]
+      (let [run (log/init! {:dir d :debug true :header "hdr"})]
+        ((serve/guard (fn [_] {:status 415 :body "unsupported media type"}))
+         {:request-method :post :uri "/api/edit"})
+        (is (re-find #" error .*\"status\":415" (slurp run)))))))
+
+(deftest cli-spec-treats-debug-as-a-bare-flag
+  (is (= {:args ["g.edn"] :opts {:debug true}}
+         (babashka.cli/parse-args ["--debug" "g.edn"] serve/cli-spec))))

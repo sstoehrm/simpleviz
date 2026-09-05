@@ -283,3 +283,82 @@
   (is (= {:error "unknown section \"bogus\""}
          (edit/apply-ops small-file [{:op "set-attr" :section "bogus" :id "a"
                                        :attr "x" :value "1" :fallback false}]))))
+
+;; --- rename -----------------------------------------------------------
+
+(def rename-file
+  (str "{:nodes {:api {:name \"API\" ;; keep me\n"
+       "               :type \"svc\"}\n"
+       "         :db nil}\n"
+       " :edges {[:api :db] {:direction :->}\n"
+       "         [:db :zone] {:direction :-}}\n"
+       " :boxes {:zone {:components #{:api :inner}}\n"
+       "         :inner {:components [:db]}}}"))
+
+(deftest rename-node-rewrites-key-and-every-reference
+  (is (= (str "{:nodes {:gateway {:name \"API\" ;; keep me\n"
+              "               :type \"svc\"}\n"
+              "         :db nil}\n"
+              " :edges {[:gateway :db] {:direction :->}\n"
+              "         [:db :zone] {:direction :-}}\n"
+              " :boxes {:zone {:components #{:gateway :inner}}\n"
+              "         :inner {:components [:db]}}}")
+         (edit/rename rename-file {:section :nodes :id "api" :to "gateway"}))))
+
+(deftest rename-box-rewrites-key-edge-endpoints-and-membership
+  (is (= (str "{:nodes {:api {:name \"API\" ;; keep me\n"
+              "               :type \"svc\"}\n"
+              "         :db nil}\n"
+              " :edges {[:api :db] {:direction :->}\n"
+              "         [:db :zone] {:direction :-}}\n"
+              " :boxes {:zone {:components #{:api :core}}\n"
+              "         :core {:components [:db]}}}")
+         (edit/rename rename-file {:section :boxes :id "inner" :to "core"}))))
+
+(deftest rename-to-non-keyword-id-writes-strings
+  (let [out (edit/rename rename-file {:section :nodes :id "db" :to "my db"})]
+    (is (clojure.string/includes? out "\"my db\" nil"))
+    (is (clojure.string/includes? out "[:api \"my db\"]"))
+    (is (clojure.string/includes? out "[\"my db\" :zone]"))
+    (is (clojure.string/includes? out "{:components [\"my db\"]}"))))
+
+(deftest rename-refusals
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"unknown node"
+                        (edit/rename rename-file {:section :nodes :id "nope" :to "x"})))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"already exists"
+                        (edit/rename rename-file {:section :nodes :id "api" :to "zone"})))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"already exists"
+                        (edit/rename rename-file {:section :boxes :id "inner" :to "db"})))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"empty"
+                        (edit/rename rename-file {:section :nodes :id "api" :to "  "})))
+  (is (= rename-file (edit/rename rename-file {:section :nodes :id "api" :to "api"}))))
+
+(deftest apply-ops-dispatches-rename
+  (let [{:keys [text error]} (edit/apply-ops rename-file
+                                             [{:op "rename" :section "nodes" :id "api" :to "gw"}])]
+    (is (nil? error))
+    (is (clojure.string/includes? text "[:gw :db]"))))
+
+(deftest rename-refuses-an-id-already-referenced-elsewhere
+  ;; a dangling edge endpoint or membership naming the new id would turn
+  ;; into a duplicate key and leave the file unparseable
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"already"
+                        (edit/rename "{:nodes {:api nil :db nil} :edges {[:api :db] nil [:gw :db] nil}}"
+                                     {:section :nodes :id "api" :to "gw"})))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"already"
+                        (edit/rename "{:nodes {:api nil} :boxes {:z {:components #{:api :gw}}}}"
+                                     {:section :nodes :id "api" :to "gw"}))))
+
+(deftest rename-refuses-a-name-shared-by-a-node-and-a-box
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"both a node and a box"
+                        (edit/rename "{:nodes {:x nil} :edges {} :boxes {:x {:components []}}}"
+                                     {:section :boxes :id "x" :to "y"}))))
+
+(deftest rename-refuses-multi-line-ids
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"single line"
+                        (edit/rename rename-file {:section :nodes :id "api" :to "gate\nway"}))))
+
+(deftest rename-skips-uneval-forms-inside-references
+  (is (= "{:nodes {:gw nil :db nil} :edges {[:gw #_:x :db] nil}}"
+         (edit/rename "{:nodes {:api nil :db nil} :edges {[:api #_:x :db] nil}}"
+                      {:section :nodes :id "api" :to "gw"}))))

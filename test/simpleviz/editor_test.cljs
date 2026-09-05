@@ -2,10 +2,10 @@
   (:require ["node:test" :refer [test]]
             ["node:assert/strict$default" :as assert]
             [simpleviz.editor :refer [target set-attr-op del-attr-op
-                                      value->edn-text scalar? blur-op
+                                      value->edn-text scalar?
                                       delete-op direction-op pick-ops
                                       add-node-ops add-connected-ops wrap-in-box-ops
-                                      edit-body retarget-end]]))
+                                      edit-body rename-op blur-text retarget-end]]))
 
 (test "target maps selection payloads to op targets"
   (fn []
@@ -65,21 +65,8 @@
     (assert/equal (scalar? [1 2]) false)
     (assert/equal (scalar? {:a 1}) false)))
 
-(test "blur-op is nil when nothing is being edited (Escape/Enter already cleared it)"
-  (fn []
-    (assert/ok (nil? (blur-op nil "name" {:section "nodes" :id "web"} true)))))
 
-(test "blur-op is nil when a DIFFERENT attr field is the one being edited"
-  (fn []
-    (assert/ok (nil? (blur-op {:attr "lang" :text "x"} "name"
-                              {:section "nodes" :id "web"} true)))))
 
-(test "blur-op posts set-attr-op when this attr is still the one being edited"
-  (fn []
-    (assert/deepEqual (blur-op {:attr "name" :text "\"X\""} "name"
-                               {:section "nodes" :id "web"} true)
-                      [{:op "set-attr" :section "nodes" :id "web"
-                        :attr "name" :value "\"X\"" :fallback true}])))
 
 (test "delete-op and direction-op shapes"
   (fn []
@@ -147,3 +134,14 @@
                       [{:op "add-edge" :from "api" :to "grp" :direction "->"}])
     (assert/ok (nil? (pick-ops {:mode "connect" :from "api"} {:kind "node" :id "n:api"})))
     (assert/ok (nil? (pick-ops {:mode "connect" :from "api"} {:kind "edge" :id "e0"})))))
+
+(test "rename-op carries the target and the new id"
+  (fn []
+    (assert/deepEqual (rename-op {:section "nodes" :id "web"} "  gateway ")
+                      {:section "nodes" :id "web" :op "rename" :to "gateway"})))
+
+(test "blur-text yields the pending text only for the field still being edited"
+  (fn []
+    (assert/ok (nil? (blur-text nil "$id")))
+    (assert/ok (nil? (blur-text {:attr "name" :text "x"} "$id")))
+    (assert/equal (blur-text {:attr "$id" :text " gw "} "$id") " gw ")))

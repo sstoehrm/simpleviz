@@ -1,7 +1,7 @@
 (ns simpleviz.transform-test
   (:require ["node:test" :refer [test]]
             ["node:assert/strict$default" :as assert]
-            [simpleviz.transform :refer [to-elk elk-fingerprint layout-positions seed-layout seedable?]]))
+            [simpleviz.transform :refer [to-elk elk-fingerprint layout-positions seed-layout seedable? rename-layout-ids]]))
 
 (defn node
   ([id] (node id ""))
@@ -307,3 +307,20 @@
       (assert/ok (seedable? (mk ["a" "b" "x"]) pos) "2 of 3 placed")
       (assert/ok (not (seedable? (mk ["a" "x" "y"]) pos)) "1 of 3 placed")
       (assert/ok (not (seedable? (mk []) pos)) "empty graph"))))
+
+(test "rename-layout-ids renames an element everywhere a layout mentions it"
+  (fn []
+    (let [layout {:id "root"
+                  :children [{:id "n:web" :x 0 :y 0 :width 10 :height 10}
+                             {:id "b:zone" :x 20 :y 0 :width 50 :height 50
+                              :children [{:id "n:api" :x 5 :y 5 :width 10 :height 10}]}]
+                  :edges [{:id "e0" :sources ["n:web"] :targets ["n:api"]}
+                          {:id "e1" :sources ["n:api"] :targets ["b:zone"]}]}
+          out (rename-layout-ids layout "n:api" "n:gateway")]
+      (assert/equal (get-in out [:children 1 :children 0 :id]) "n:gateway")
+      (assert/equal (get-in out [:children 1 :children 0 :x]) 5)
+      (assert/deepEqual (get-in out [:edges 0 :targets]) ["n:gateway"])
+      (assert/deepEqual (get-in out [:edges 1 :sources]) ["n:gateway"])
+      (assert/equal (get-in out [:children 0 :id]) "n:web")
+      ;; the input is left alone
+      (assert/equal (get-in layout [:children 1 :children 0 :id]) "n:api"))))

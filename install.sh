@@ -87,8 +87,9 @@ MIN_BB="1.3.0"
 
 usage() {
   cat <<USAGE
-usage: simpleviz <graph.edn> [new.edn]   serve a graph (two files: compare old -> new)
+usage: simpleviz <graph.edn> [new.edn] [--debug]   serve a graph (two files: compare old -> new)
                                          exported PNGs work in place of EDN files
+                                         --debug logs edits and errors to $SIMPLEVIZ_HOME/logs/
 
        simpleviz init <graph.edn>        write a starter graph file (won't overwrite)
        simpleviz extract <diagram.png> [out.edn] [--old]   print/extract the embedded EDN
@@ -154,15 +155,21 @@ free_port() {
 }
 
 serve() {
-  local files=() f port pid i
+  local files=() flags=() f port pid i
   [ -d "$SIMPLEVIZ_HOME" ] || die "$SIMPLEVIZ_HOME not found — run install.sh first"
   for f in "$@"; do
-    [ -f "$f" ] || die "file not found: $f"
-    files+=("$(realpath "$f")")
+    case "$f" in
+      --debug) flags+=("$f") ;;
+      *)
+        [ -f "$f" ] || die "file not found: $f"
+        files+=("$(realpath "$f")")
+        ;;
+    esac
   done
+  [ "${#files[@]}" -ge 1 ] && [ "${#files[@]}" -le 2 ] || { usage >&2; exit 1; }
   check_bb
   port=$(free_port) || die "no free port between 7370 and 7379"
-  (cd "$SIMPLEVIZ_HOME" && exec bb serve "${files[@]}" --port "$port") &
+  (cd "$SIMPLEVIZ_HOME" && exec bb serve "${files[@]}" --port "$port" ${flags[@]+"${flags[@]}"}) &
   pid=$!
   trap 'kill "$pid" 2>/dev/null || true' INT TERM
   for i in $(seq 1 100); do
@@ -199,7 +206,6 @@ case "${1:-}" in
     (cd "$SIMPLEVIZ_HOME" && exec bb extract "${args[@]}")
     ;;
   *)
-    [ "$#" -le 2 ] || { usage >&2; exit 1; }
     serve "$@"
     ;;
 esac

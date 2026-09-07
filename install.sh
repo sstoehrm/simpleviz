@@ -148,15 +148,21 @@ update() {
 port_busy() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
 
 clean_all() {
-  local procs line
-  # every server this launcher (or `bb serve` by hand) started: argv is
-  # `bb serve ...`; killing it also ends the launcher shell waiting on it
+  local home procs line pid found=0
+  # the launcher always execs `bb serve ...` from inside SIMPLEVIZ_HOME, so
+  # the cwd tells our servers apart from any other babashka process
+  [ -r /proc/self/cwd ] || die "clean-all needs /proc to inspect processes"
+  home=$(readlink -f "$SIMPLEVIZ_HOME")
   procs=$(pgrep -af "(^|/)bb serve( |$)" || true)
-  [ -n "$procs" ] || { echo "simpleviz: no running servers"; return 0; }
   while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    pid=${line%% *}
+    [ "$(readlink "/proc/$pid/cwd" 2>/dev/null)" = "$home" ] || continue
+    found=1
     echo "killing ${line#* }"
-    kill "${line%% *}" 2>/dev/null || true
+    kill "$pid" 2>/dev/null || true
   done <<<"$procs"
+  [ "$found" -eq 1 ] || echo "simpleviz: no running servers"
 }
 
 free_port() {

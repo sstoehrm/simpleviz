@@ -54,7 +54,7 @@ From a bundle/install/repo directory (repo needs `bb build` once):
 
 With the launcher installed by `install.sh` (files in `~/.simpleviz`, launcher in `~/.local/bin`):
 
-    simpleviz graph.edn              # random free port 7370-7379, prints the URL, opens browser
+    simpleviz graph.edn              # random free port 7370-7469, prints the URL, opens browser
     simpleviz old.edn new.edn        # compare mode
     simpleviz init graph.edn         # write a starter graph file (refuses to overwrite)
     simpleviz update                 # install the latest release if newer

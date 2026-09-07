@@ -94,8 +94,9 @@ usage: simpleviz <graph.edn> [new.edn] [--debug]   serve a graph (two files: com
        simpleviz init <graph.edn>        write a starter graph file (won't overwrite)
        simpleviz extract <diagram.png> [out.edn] [--old]   print/extract the embedded EDN
        simpleviz update                  install the latest release if it is newer
+       simpleviz clean-all               kill every running simpleviz server
        simpleviz --version               print the installed version
-Serves on a random free port between 7370 and 7379.
+Serves on a random free port between 7370 and 7469.
 Try the bundled example: simpleviz "$SIMPLEVIZ_HOME/examples/demo.edn"
 USAGE
 }
@@ -146,9 +147,27 @@ update() {
 
 port_busy() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
 
+clean_all() {
+  local home procs line pid found=0
+  # the launcher always execs `bb serve ...` from inside SIMPLEVIZ_HOME, so
+  # the cwd tells our servers apart from any other babashka process
+  [ -r /proc/self/cwd ] || die "clean-all needs /proc to inspect processes"
+  home=$(readlink -f "$SIMPLEVIZ_HOME")
+  procs=$(pgrep -af "(^|/)bb serve( |$)" || true)
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    pid=${line%% *}
+    [ "$(readlink "/proc/$pid/cwd" 2>/dev/null)" = "$home" ] || continue
+    found=1
+    echo "killing ${line#* }"
+    kill "$pid" 2>/dev/null || true
+  done <<<"$procs"
+  [ "$found" -eq 1 ] || echo "simpleviz: no running servers"
+}
+
 free_port() {
   local p
-  for p in $(shuf -i 7370-7379); do
+  for p in $(shuf -i 7370-7469); do
     port_busy "$p" || { echo "$p"; return 0; }
   done
   return 1
@@ -168,7 +187,7 @@ serve() {
   done
   [ "${#files[@]}" -ge 1 ] && [ "${#files[@]}" -le 2 ] || { usage >&2; exit 1; }
   check_bb
-  port=$(free_port) || die "no free port between 7370 and 7379"
+  port=$(free_port) || die "no free port between 7370 and 7469"
   (cd "$SIMPLEVIZ_HOME" && exec bb serve "${files[@]}" --port "$port" ${flags[@]+"${flags[@]}"}) &
   pid=$!
   trap 'kill "$pid" 2>/dev/null || true' INT TERM
@@ -188,6 +207,7 @@ case "${1:-}" in
   "" | -h | --help) usage ;;
   --version | version) echo "simpleviz $(version)" ;;
   update) update ;;
+  clean-all) clean_all ;;
   init)
     shift
     init_cmd "$@"

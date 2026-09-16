@@ -192,12 +192,23 @@
 (defn- start-editing! [k text]
   (swap! state assoc :editing {:attr k :text text}))
 
-(defn- attr-edit-row [tgt k v scalar editing]
+(defn- commit-attr!
+  "Set attribute k of the selection to text. Setting :name on a node or
+  box also renames it to the id the name derives (editor/derived-id),
+  in the same batch, so a collision rejects both. `reopen?`: on failure
+  reopen the field with the rejected text (inline edits; the add row
+  keeps its own inputs instead)."
+  [sel tgt k text scalar reopen?]
+  (let [op (editor/set-attr-op tgt k text scalar)
+        to (when (= k "name") (editor/derived-id tgt text))]
+    (if (some? to)
+      (rename! sel tgt to (cond-> {:ops [op]} reopen? (assoc :field k :text text)))
+      (post-edit! [op]))))
+
+(defn- attr-edit-row [sel tgt k v scalar editing]
   [:dd {:key (str "d" k) :class "attr-row"}
    (if (= k (:attr editing))
-     (edit-field k editing
-                 (fn [text] (post-edit! [(editor/set-attr-op tgt k text scalar)]))
-                 false)
+     (edit-field k editing (fn [text] (commit-attr! sel tgt k text scalar true)) false)
      [:span {:on-click (fn [_] (start-editing! k (editor/value->edn-text v)))}
       [:span {:class "attr-val"} (format/value->hiccup v)]
       [:button {:class "attr-btn" :type "button" :title "Edit value"
@@ -220,18 +231,18 @@
   (let [id (:id tgt)]
     [:dd {:key "d$id" :class "attr-row"}
      (if (= ID-FIELD (:attr editing))
-       (edit-field ID-FIELD editing (fn [text] (rename! sel tgt text)) true)
+       (edit-field ID-FIELD editing (fn [text] (rename! sel tgt text nil)) true)
        [:span {:on-click (fn [_] (start-editing! ID-FIELD id))}
         [:span {:class "attr-val"} id]
         [:button {:class "attr-btn" :type "button" :title "Rename (updates every reference)"
                   :on-click (fn [e] (.stopPropagation e) (start-editing! ID-FIELD id))}
          "✎"]])]))
 
-(defn- ^:async submit-attr-add! [tgt]
+(defn- ^:async submit-attr-add! [sel tgt]
   (let [key-text (.trim (.-value (js/document.getElementById "attr-add-key")))
         val-text (.-value (js/document.getElementById "attr-add-val"))]
     (when (pos? (.-length key-text))
-      (js-await (post-edit! [(editor/set-attr-op tgt key-text val-text true)]))
+      (js-await (commit-attr! sel tgt key-text val-text true false))
       ;; the inputs are uncontrolled, so a re-render leaves their text in
       ;; place — clear them once the attribute landed, ready for the next
       (when (nil? (:edit-error @state))
@@ -240,7 +251,7 @@
           (set! (.-value (js/document.getElementById "attr-add-val")) "")
           (.focus key-el))))))
 
-(defn- attr-add-row [tgt]
+(defn- attr-add-row [sel tgt]
   [:div {:class "attr-add"}
    [:input {:id "attr-add-key" :class "attr-add-key" :type "text" :placeholder "key"
             :on-keydown (fn [e]
@@ -248,9 +259,9 @@
                             (.focus (js/document.getElementById "attr-add-val"))))}]
    [:input {:id "attr-add-val" :class "attr-add-val" :type "text" :placeholder "value"
             :on-keydown (fn [e]
-                          (when (= (.-key e) "Enter") (submit-attr-add! tgt)))}]
+                          (when (= (.-key e) "Enter") (submit-attr-add! sel tgt)))}]
    [:button {:class "attr-add-btn" :type "button" :title "Add attribute"
-             :on-click (fn [e] (.stopPropagation e) (submit-attr-add! tgt))}
+             :on-click (fn [e] (.stopPropagation e) (submit-attr-add! sel tgt))}
     "+"]])
 
 (def ^:private direction-choices
@@ -405,10 +416,10 @@
             (mapcat (fn [[k v]]
                       [[:dt {:key (str "t" k)} k]
                        (if editable
-                         (attr-edit-row tgt k v (editor/scalar? v) editing)
+                         (attr-edit-row sel tgt k v (editor/scalar? v) editing)
                          [:dd {:key (str "d" k)} (format/value->hiccup v)])])
                     (visible-attrs sel))))
-     (when editable (attr-add-row tgt))]))
+     (when editable (attr-add-row sel tgt))]))
 
 (defn- selection-toolbar
   "Floating bottom-center toolbar: the selection's edit tools, or — with
@@ -887,8 +898,13 @@
   and re-select it under the new id once the reload lands. An empty or
   unchanged id just closes the field. The client-side bookkeeping is
   done up front (the reload runs inside post-edit!) and rolled back when
-  the edit fails or the request never returns."
-  [sel tgt to]
+  the edit fails or the request never returns.
+  `with` (or nil) rides another edit along: its :ops go into the same
+  batch ahead of the rename, and on failure the field it came from
+  (:field, with :text — omit to reopen nothing) reopens instead of the
+  id field. Nothing reopens when the selection moved on meanwhile: the
+  field would land on the other element seeded with this one's text."
+  [sel tgt to with]
   (let [to (.trim to)
         old-id (:id tgt)
         old-elk (:elk-id sel)
@@ -903,7 +919,7 @@
         (rename-cached-layouts! old-elk new-elk (when box? [old-id to]))
         (when box? (rename-collapsed! old-id to))
         (let [ok? (try
-                    (js-await (post-edit! [(editor/rename-op tgt to)]))
+                    (js-await (post-edit! (conj (vec (:ops with)) (editor/rename-op tgt to))))
                     (nil? (:edit-error @state))
                     (catch :default _ false))]
           (when-not ok?
@@ -911,7 +927,10 @@
             (when box? (rename-collapsed! to old-id))
             (swap! state assoc :pending-focus nil)
             ;; reopen with the rejected text so it can be corrected
-            (start-editing! ID-FIELD to)))))))
+            (when (= old-elk (:elk-id (:selected @state)))
+              (cond
+                (nil? with) (start-editing! ID-FIELD to)
+                (some? (:field with)) (start-editing! (:field with) (:text with))))))))))
 
 (defn- ^:async delete! [tgt]
   (js-await (post-edit! [(editor/delete-op tgt)]))

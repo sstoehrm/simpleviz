@@ -35,6 +35,28 @@
   [tgt to]
   (assoc tgt :op "rename" :to (.trim to)))
 
+(defn name->id
+  "The id a display name suggests: lowercased, every run of characters
+  the server would not accept in a keyword id (its ident alphabet is
+  letters, digits and *+!_'?<>=./-) collapsed to one dash — as is any
+  run of dashes that results — and no dash at either end. Empty when
+  nothing legal is left."
+  [nm]
+  (-> (.toLowerCase (str nm))
+      (.replace (js/RegExp. "[^a-z0-9*+!_'?<>=./-]+" "g") "-")
+      (.replace (js/RegExp. "-{2,}" "g") "-")
+      (.replace (js/RegExp. "^-+|-+$" "g") "")))
+
+(defn derived-id
+  "The id a name edit on `tgt` should rename the element to, or nil
+  when no rename should ride along: the target is an edge (no id of
+  its own), the name yields no legal id, or it already is the id."
+  [tgt name-text]
+  (when (not= "edges" (:section tgt))
+    (let [id (name->id name-text)]
+      (when (and (not= id "") (not= id (:id tgt)))
+        id))))
+
 (defn direction-op [tgt dir]
   {:op "set-direction" :edge (:id tgt) :direction dir})
 

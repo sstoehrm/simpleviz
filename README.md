@@ -130,8 +130,14 @@ Shift+Enter inserts a line break, Escape cancels; the `×` on each row
 deletes the attribute, and the key/value row at the bottom adds a new one.
 The `id` row at the top renames a node or box: every edge endpoint and box
 membership that referred to the old id follows, the element keeps its place,
-and it stays selected. Edges have no id of their own — change their
-endpoints from the toolbar instead. In compare mode, a modified element's
+and it stays selected. Editing a node's or box's `name` renames it the same
+way, to the id the name derives: lowercased, every run of characters that
+cannot appear in a keyword id (anything but letters, digits and
+`*+!_'?<>=./-`) turned into one `-`, no `-` at either end, so "Web Server
+(v2)" becomes `web-server-v2`. Adding a `name` does the same. If that id is
+already taken the whole edit is rejected, name included; a name with nothing
+usable in it leaves the id alone. Edges have no id of their own — change
+their endpoints from the toolbar instead. In compare mode, a modified element's
 old → new changes appear as a card at the top of the panel.
 
 Editing tools live in a floating toolbar at the bottom center of the

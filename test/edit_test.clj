@@ -437,3 +437,19 @@
                                              [{:op "box-remove" :box "g" :member "a"}])]
     (is (nil? error))
     (is (= "{:nodes {:a nil} :boxes {:g {:components []}}}" text))))
+
+(deftest name-edit-with-rename-lands-in-one-batch
+  ;; the inspector posts set-attr name + rename together when a name edit
+  ;; derives a new id; a collision must leave the name untouched as well
+  (let [{:keys [text error]} (edit/apply-ops nodes-file
+                                             [{:op "set-attr" :section "nodes" :id "web"
+                                               :attr "name" :value "Web Server" :fallback true}
+                                              {:op "rename" :section "nodes" :id "web" :to "web-server"}])]
+    (is (nil? error))
+    (is (clojure.string/includes? text ":web-server {:name \"Web Server\""))
+    (is (clojure.string/includes? text "[:web-server :api]")))
+  (is (= {:error "\"api\" already exists"}
+         (edit/apply-ops nodes-file
+                         [{:op "set-attr" :section "nodes" :id "web"
+                           :attr "name" :value "Api" :fallback true}
+                          {:op "rename" :section "nodes" :id "web" :to "api"}]))))

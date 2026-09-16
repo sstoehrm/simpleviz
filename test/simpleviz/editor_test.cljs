@@ -8,7 +8,7 @@
                                       edit-body rename-op blur-text retarget-end
                                       chord-action chord-group? chord-for chord-hint
                                       add-node-in-box-ops box-remove-op
-                                      name->id derived-id]]))
+                                      name->id derived-id named-edge-ops creation-ops parse-entry]]))
 
 (test "target maps selection payloads to op targets"
   (fn []
@@ -110,24 +110,96 @@
                             {:kind "collapse-button" :box-id "b:grp"})
                   nil)))
 
-(test "add-connected-ops and wrap-in-box-ops"
+(test "add-connected-ops and wrap-in-box-ops name the new element"
   (fn []
-    (assert/deepEqual (add-connected-ops "api" "db")
+    (assert/deepEqual (add-connected-ops "api" "db" "DB")
                       [{:op "add-node" :id "db"}
+                       {:op "set-attr" :section "nodes" :id "db" :attr "name" :value "\"DB\"" :fallback false}
                        {:op "add-edge" :from "api" :to "db" :direction "->"}])
     ;; one atomic server op: the member leaves its old parent for the new box
-    (assert/deepEqual (wrap-in-box-ops "api" "backend")
-                      [{:op "wrap" :box "backend" :member "api"}])))
+    (assert/deepEqual (wrap-in-box-ops "api" "backend" "Backend")
+                      [{:op "wrap" :box "backend" :member "api"}
+                       {:op "set-attr" :section "boxes" :id "backend" :attr "name" :value "\"Backend\"" :fallback false}])))
 
 (test "edit-body routes ops to the chosen file"
   (fn []
     (assert/deepEqual (edit-body "old" [{:op "undo"}])
                       {:file "old" :ops [{:op "undo"}]})))
 
-(test "add-node-ops creates a single free-standing add-node op"
+(test "add-node-ops creates a free-standing node and names it"
   (fn []
-    (assert/deepEqual (add-node-ops "cache")
-                      [{:op "add-node" :id "cache"}])))
+    (assert/deepEqual (add-node-ops "cache" "Cache")
+                      [{:op "add-node" :id "cache"}
+                       {:op "set-attr" :section "nodes" :id "cache" :attr "name" :value "\"Cache\"" :fallback false}])))
+
+(test "creation-ops: what the toolbar prompt submits, or nil to keep it open"
+  (fn []
+    (let [node (creation-ops {:for "node" :text " Web Server "} nil)]
+      (assert/deepEqual node {:ops (add-node-ops "web-server" "Web Server") :focus "n:web-server"}))
+    ;; a numeric-looking name is still text
+    (assert/deepEqual (:ops (creation-ops {:for "node" :text "2024"} nil))
+                      [{:op "add-node" :id "2024"}
+                       {:op "set-attr" :section "nodes" :id "2024" :attr "name" :value "\"2024\"" :fallback false}])
+    (assert/deepEqual (creation-ops {:for "connect" :text "DB"} {:section "nodes" :id "api"})
+                      {:ops (add-connected-ops "api" "db" "DB") :focus "n:db"})
+    (assert/deepEqual (creation-ops {:for "inbox" :text "DB"} {:section "boxes" :id "grp"})
+                      {:ops (add-node-in-box-ops "grp" "db" "DB") :focus "n:db"})
+    (assert/deepEqual (creation-ops {:for "newbox" :text "Back end"} {:section "nodes" :id "api"})
+                      {:ops (wrap-in-box-ops "api" "back-end" "Back end") :focus "b:back-end"})
+    ;; nothing usable in the name: the prompt stays open
+    (assert/ok (nil? (creation-ops {:for "node" :text "((("} nil)))
+    (assert/ok (nil? (creation-ops {:for "connect" :text ""} {:section "nodes" :id "api"})))
+    ;; an edge prompt carries the pick's ops; an empty name creates it unnamed
+    (let [edge [{:op "add-edge" :from "api" :to "db" :direction "->"}]]
+      (assert/deepEqual (creation-ops {:for "edge" :ops edge :text "Calls"} {:section "nodes" :id "api"})
+                        {:ops (named-edge-ops edge "Calls") :focus nil})
+      (assert/deepEqual (creation-ops {:for "edge" :ops edge :text ""} nil)
+                        {:ops edge :focus nil}))))
+
+(test "parse-entry splits a prompt into name and type at the first ::"
+  (fn []
+    (assert/deepEqual (parse-entry "Web Server") {:name "Web Server" :type nil})
+    (assert/deepEqual (parse-entry " Web Server :: service ") {:name "Web Server" :type "service"})
+    (assert/deepEqual (parse-entry "a::b::c") {:name "a" :type "b::c"})
+    ;; an empty type is no type; an empty name is still no name
+    (assert/deepEqual (parse-entry "Web::") {:name "Web" :type nil})
+    (assert/deepEqual (parse-entry "::service") {:name "" :type "service"})))
+
+(test "creation-ops with name::type also sets the type"
+  (fn []
+    (assert/deepEqual (creation-ops {:for "node" :text "Web Server::frontend"} nil)
+                      {:ops [{:op "add-node" :id "web-server"}
+                             {:op "set-attr" :section "nodes" :id "web-server" :attr "name" :value "\"Web Server\"" :fallback false}
+                             {:op "set-attr" :section "nodes" :id "web-server" :attr "type" :value "\"frontend\"" :fallback false}]
+                       :focus "n:web-server"})
+    (assert/deepEqual (:ops (creation-ops {:for "newbox" :text "Backend :: zone"} {:section "nodes" :id "api"}))
+                      [{:op "wrap" :box "backend" :member "api"}
+                       {:op "set-attr" :section "boxes" :id "backend" :attr "name" :value "\"Backend\"" :fallback false}
+                       {:op "set-attr" :section "boxes" :id "backend" :attr "type" :value "\"zone\"" :fallback false}])
+    (assert/deepEqual (:ops (creation-ops {:for "inbox" :text "DB::database"} {:section "boxes" :id "grp"}))
+                      [{:op "add-node" :id "db"}
+                       {:op "set-attr" :section "nodes" :id "db" :attr "name" :value "\"DB\"" :fallback false}
+                       {:op "box-add" :box "grp" :member "db"}
+                       {:op "set-attr" :section "nodes" :id "db" :attr "type" :value "\"database\"" :fallback false}])
+    ;; a type alone does not make a node: no name, no id
+    (assert/ok (nil? (creation-ops {:for "node" :text "::service"} nil)))
+    ;; an edge may carry only a type
+    (let [edge [{:op "add-edge" :from "api" :to "db" :direction "->"}]]
+      (assert/deepEqual (:ops (creation-ops {:for "edge" :ops edge :text "Calls::http"} nil))
+                        [{:op "add-edge" :from "api" :to "db" :direction "->"}
+                         {:op "set-attr" :section "edges" :id ["api" "db"] :attr "name" :value "\"Calls\"" :fallback false}
+                         {:op "set-attr" :section "edges" :id ["api" "db"] :attr "type" :value "\"http\"" :fallback false}])
+      (assert/deepEqual (:ops (creation-ops {:for "edge" :ops edge :text "::http"} nil))
+                        [{:op "add-edge" :from "api" :to "db" :direction "->"}
+                         {:op "set-attr" :section "edges" :id ["api" "db"] :attr "type" :value "\"http\"" :fallback false}]))))
+
+(test "named-edge-ops appends the edge name to an add-edge op, unless blank"
+  (fn []
+    (let [edge [{:op "add-edge" :from "api" :to "db" :direction "->"}]]
+      (assert/deepEqual (named-edge-ops edge "Calls")
+                        [{:op "add-edge" :from "api" :to "db" :direction "->"}
+                         {:op "set-attr" :section "edges" :id ["api" "db"] :attr "name" :value "\"Calls\"" :fallback false}])
+      (assert/deepEqual (named-edge-ops edge "  ") edge))))
 
 (test "pick-ops connect mode wires an edge to a node or box, never itself"
   (fn []
@@ -232,8 +304,9 @@
 
 (test "add-node-in-box-ops and box-remove-op"
   (fn []
-    (assert/deepEqual (add-node-in-box-ops "g" "n1")
+    (assert/deepEqual (add-node-in-box-ops "g" "n1" "N1")
                       [{:op "add-node" :id "n1"}
+                       {:op "set-attr" :section "nodes" :id "n1" :attr "name" :value "\"N1\"" :fallback false}
                        {:op "box-add" :box "g" :member "n1"}])
     (assert/deepEqual (box-remove-op "g" "a")
                       [{:op "box-remove" :box "g" :member "a"}])))

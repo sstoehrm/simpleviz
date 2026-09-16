@@ -141,21 +141,27 @@ their endpoints from the toolbar instead. In compare mode, a modified element's
 old → new changes appear as a card at the top of the panel.
 
 Editing tools live in a floating toolbar at the bottom center of the
-screen. With nothing selected it offers "new node" (type an id — the
-new node is selected). With a selection it shows that element's tools:
+screen. With nothing selected it offers "new node" (type a name — its id
+is derived from it as described above, and the new node is selected; a name
+with nothing usable in it keeps the prompt open). Every creation prompt also
+takes `name::type`: the part after the first `::` becomes the element's
+`type`, so `Web Server::frontend` creates `web-server` with name "Web
+Server" and type "frontend". With a selection it shows that element's tools:
 
 - **Every element**: Delete — removing a node or box also removes edges
   touching it and clears its membership in a parent box.
 - **Edges**: a direction row (→ ← ↔ —) plus "change source" / "change
   target" pick modes (click the new node or box on the canvas; Esc
   cancels).
-- **Nodes**: "add edge" (pick the other endpoint), "add to box" (pick the
-  destination box), "new node" (a new node connected by an edge, via
-  an id prompt), "new box" (wraps the node in a freshly created box,
-  which takes the node's place in its parent box).
+- **Nodes**: "add edge" (pick the other endpoint, then type the edge's
+  name — Enter on an empty prompt leaves it unnamed), "add to box" (pick
+  the destination box), "new node" (a new node connected by an edge, via
+  a name prompt), "new box" (wraps the node in a freshly created box,
+  which takes the node's place in its parent box; a name prompt too).
 - **Boxes**: "add edge", "add node" / "add box" pick modes to take an
-  existing element as a member, and "new box" (wraps this box the same
-  way).
+  existing element as a member, "remove node" (pick a member to take out),
+  "new node" (a new node inside the box, via a name prompt), and "new box"
+  (wraps this box the same way).
 
 Every toolbar action also has a two-key chord, shown inside its button;
 chords work whenever no text field has the focus, and Esc cancels a
@@ -166,11 +172,11 @@ pending one:
 | `d d` | any | delete |
 | `e 1` `e 2` `e 3` `e 4` | edge | direction → ← ↔ — |
 | `c s` / `c t` | edge | change source / target (then click the new endpoint) |
-| `a e` | node, box | add edge (then click the other endpoint) |
+| `a e` | node, box | add edge (then click the other endpoint and name it) |
 | `a b` | node / box | add to box / add a box as member (then click it) |
 | `a n` | box | add a node as member (then click it) |
 | `r n` | box | remove node: click a member node, it moves to the enclosing box or out |
-| `c n` | box | new node inside the box (id prompt) |
+| `c n` | box | new node inside the box (name prompt) |
 | `r b` | node | remove from box: the node moves to the enclosing box or out |
 | `n n` | none / node | new node / new node connected to the selection |
 | `n b` | node, box | new box around the selection |

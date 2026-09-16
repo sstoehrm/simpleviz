@@ -62,22 +62,57 @@
 
 (defn- bare-id [item] (.slice (:id item) 2))
 
+(defn- text-attr-op
+  "The set-attr op giving the new element `id` of `section` the text
+  attribute `attr`. The value goes as an EDN string literal (no scalar
+  fallback), so \"2024\" or \"nil\" stay text."
+  [section id attr value]
+  (set-attr-op {:section section :id id} attr (pr-str value) false))
+
+(defn- name-op [section id nm] (text-attr-op section id "name" nm))
+
+(defn parse-entry
+  "The creation prompt's text split at the first `::` into the name and
+  the type, both trimmed: {:name .. :type ..}, :type nil when there is
+  none (or it is empty)."
+  [text]
+  (let [text (str text)
+        i (.indexOf text "::")
+        [nm tp] (if (neg? i) [text ""] [(.slice text 0 i) (.slice text (+ i 2))])
+        tp (.trim tp)]
+    {:name (.trim nm) :type (if (= tp "") nil tp)}))
+
 (defn add-node-ops
-  "Ops to create a new free-standing node (no selection required)."
-  [new-id]
-  [{:op "add-node" :id new-id}])
+  "Ops to create a new free-standing node (no selection required) named
+  `nm`; the caller derives `new-id` from the name (name->id)."
+  [new-id nm]
+  [{:op "add-node" :id new-id}
+   (name-op "nodes" new-id nm)])
 
 (defn add-connected-ops
-  "Ops to create a new node and wire an edge from the selected node to it."
-  [from new-id]
+  "Ops to create a new node named `nm` and wire an edge from the
+  selected node to it."
+  [from new-id nm]
   [{:op "add-node" :id new-id}
+   (name-op "nodes" new-id nm)
    {:op "add-edge" :from from :to new-id :direction "->"}])
 
 (defn add-node-in-box-ops
-  "Ops to create a new node as a member of box `box-id`."
-  [box-id new-id]
+  "Ops to create a new node named `nm` as a member of box `box-id`."
+  [box-id new-id nm]
   [{:op "add-node" :id new-id}
+   (name-op "nodes" new-id nm)
    {:op "box-add" :box box-id :member new-id}])
+
+(defn named-edge-ops
+  "The add-edge ops of a connect pick with a set-attr naming the new
+  edge `nm` appended; unchanged when the name is blank."
+  [ops nm]
+  (let [nm (.trim (str nm))
+        {:keys [from to]} (first ops)]
+    (if (= nm "")
+      ops
+      (conj (vec ops) (name-op "edges" [from to] nm)))))
 
 (defn box-remove-op
   "Ops to take `member-id` out of box `box-id` (the server moves it to
@@ -85,11 +120,43 @@
   [box-id member-id]
   [{:op "box-remove" :box box-id :member member-id}])
 
+(defn- with-type
+  "ops with a set-attr :type appended for element `id` of `section`
+  when the prompt named a type."
+  [ops section id tp]
+  (if (nil? tp) ops (conj (vec ops) (text-attr-op section id "type" tp))))
+
+(defn creation-ops
+  "What the toolbar's creation prompt `entry` ({:for kind :text text},
+  an edge prompt also carrying the pick's :ops) submits for the
+  selection target tgt: {:ops [...] :focus scene-id} — :focus the new
+  element to select once it lands (nil for an edge). The text is
+  `name` or `name::type` (parse-entry); the id is derived from the
+  name (name->id); nil when the name yields none, so the prompt stays
+  open. An edge is created unnamed on an empty name."
+  [entry tgt]
+  (let [{nm :name tp :type} (parse-entry (:text entry))
+        id (name->id nm)
+        from (:id tgt)]
+    (if (= (:for entry) "edge")
+      (let [ops (:ops entry)
+            {:keys [from to]} (first ops)]
+        {:ops (with-type (named-edge-ops ops nm) "edges" [from to] tp) :focus nil})
+      (when (not= id "")
+        (case (:for entry)
+          "connect" {:ops (with-type (add-connected-ops from id nm) "nodes" id tp) :focus (str "n:" id)}
+          "newbox" {:ops (with-type (wrap-in-box-ops from id nm) "boxes" id tp) :focus (str "b:" id)}
+          "inbox" {:ops (with-type (add-node-in-box-ops from id nm) "nodes" id tp) :focus (str "n:" id)}
+          "node" {:ops (with-type (add-node-ops id nm) "nodes" id tp) :focus (str "n:" id)}
+          nil)))))
+
 (defn wrap-in-box-ops
-  "Ops to create a new box around the selected node or box; the server
-  also moves the member out of its old parent box into the new one."
-  [member-id box-id]
-  [{:op "wrap" :box box-id :member member-id}])
+  "Ops to create a new box named `nm` around the selected node or box;
+  the server also moves the member out of its old parent box into the
+  new one."
+  [member-id box-id nm]
+  [{:op "wrap" :box box-id :member member-id}
+   (name-op "boxes" box-id nm)])
 
 (defn edit-body
   "The /api/edit POST body: routes ops to whichever file (\"old\"/\"new\")

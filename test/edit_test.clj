@@ -453,3 +453,24 @@
                          [{:op "set-attr" :section "nodes" :id "web"
                            :attr "name" :value "Api" :fallback true}
                           {:op "rename" :section "nodes" :id "web" :to "api"}]))))
+
+(deftest creation-batches-name-the-new-element
+  ;; the toolbar prompts create node, box and edge together with a :name
+  (let [{:keys [text error]} (edit/apply-ops small-file
+                                             [{:op "add-node" :id "web-server"}
+                                              {:op "set-attr" :section "nodes" :id "web-server"
+                                               :attr "name" :value "\"Web Server\"" :fallback false}])]
+    (is (nil? error))
+    (is (clojure.string/includes? text ":web-server {:name \"Web Server\"}")))
+  (let [{:keys [text error]} (edit/apply-ops small-file
+                                             [{:op "wrap" :box "backend" :member "a"}
+                                              {:op "set-attr" :section "boxes" :id "backend"
+                                               :attr "name" :value "\"Backend\"" :fallback false}])]
+    (is (nil? error))
+    (is (clojure.string/includes? text ":backend {:components [:a] :name \"Backend\"}")))
+  (let [{:keys [text error]} (edit/apply-ops tri-file
+                                             [{:op "add-edge" :from "a" :to "c" :direction "->"}
+                                              {:op "set-attr" :section "edges" :id ["a" "c"]
+                                               :attr "name" :value "\"Calls\"" :fallback false}])]
+    (is (nil? error))
+    (is (clojure.string/includes? text "[:a :c] {:direction :-> :name \"Calls\"}"))))

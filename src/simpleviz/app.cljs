@@ -280,7 +280,7 @@
 
 (defn- action-spec
   "What toolbar action `action` does for selection sel (tgt its op
-  target): a pick mode to start, or an id prompt to open. One table for
+  target): a pick mode to start, or a name prompt to open. One table for
   the buttons and the chords, so both always agree."
   [sel tgt action]
   (let [id (:id tgt)]
@@ -338,26 +338,21 @@
 (defn- action-buttons [sel tgt]
   (filterv some? (mapv (fn [a] (action-btn sel tgt a)) (get toolbar-actions (:kind sel)))))
 
-(defn- submit-id-entry! [tgt]
-  (let [entry (:id-entry @state)
-        text (.trim (:text entry))]
-    (when (pos? (.-length text))
-      (case (:for entry)
-        "connect" (do (post-edit! (editor/add-connected-ops (:id tgt) text))
-                      (swap! state assoc :pending-focus (str "n:" text)))
-        "newbox" (do (post-edit! (editor/wrap-in-box-ops (:id tgt) text))
-                     (swap! state assoc :pending-focus (str "b:" text)))
-        "inbox" (do (post-edit! (editor/add-node-in-box-ops (:id tgt) text))
-                    (swap! state assoc :pending-focus (str "n:" text)))
-        "node" (do (post-edit! (editor/add-node-ops text))
-                   (swap! state assoc :pending-focus (str "n:" text)))
-        nil)
-      (swap! state assoc :id-entry nil))))
+(defn- submit-id-entry!
+  "Create what the open prompt is for (editor/creation-ops); a name that
+  yields no id keeps the prompt open."
+  [tgt]
+  (when-let [{:keys [ops focus]} (editor/creation-ops (:id-entry @state) tgt)]
+    (post-edit! ops)
+    (swap! state assoc :pending-focus focus :id-entry nil)))
 
 (defn- id-entry-row [tgt entry]
   [:div {:class "id-entry"}
    [:input {:class "id-entry-input" :type "text" :value (:text entry)
-            :placeholder (if (= (:for entry) "newbox") "new box id" "new node id")
+            :placeholder (case (:for entry)
+                           "newbox" "new box name, or name::type"
+                           "edge" "new edge name, or name::type (optional)"
+                           "new node name, or name::type")
             :on-render (fn [{:keys [node lifecycle]}]
                          (when (= lifecycle "mount") (.focus node)))
             :on-input (fn [e] (swap! state assoc-in [:id-entry :text] (.. e -target -value)))
@@ -583,7 +578,10 @@
                         ops (editor/pick-ops pick (assoc item :parent parent))]
                     (when (some? ops)
                       (cancel-pick!)
-                      (post-edit! ops))))
+                      ;; a new edge is named first: the prompt posts the ops
+                      (if (= (:mode pick) "connect")
+                        (swap! state assoc :id-entry {:for "edge" :ops ops :text ""})
+                        (post-edit! ops)))))
           (if (= (:kind item) "collapse-button")
             (toggle-collapse! (.slice (:box-id item) 2))
             (on-select (when (some? item) (item->payload item)))))))}])
@@ -612,7 +610,7 @@
       "Drag to pan, scroll to zoom. Hover an element to see its id in the EDN file; click it to inspect its attributes. The − in a box header collapses the box to a single node — the panel on the left lists collapsed boxes and re-expands them.")
      (help-section
       "Edit"
-      "When the served file is editable EDN, the floating toolbar at the bottom holds the tools for the current selection: delete, edge direction, and pick modes such as \"add edge\" (click the other element on the canvas; Esc cancels). With nothing selected it creates a standalone node."
+      "When the served file is editable EDN, the floating toolbar at the bottom holds the tools for the current selection: delete, edge direction, and pick modes such as \"add edge\" (click the other element on the canvas, then name the edge; Esc cancels). New nodes and boxes are created by name: the prompt types a name, and the id is derived from it — lowercased, illegal characters turned into dashes; name::type also sets the type. With nothing selected it creates a standalone node."
       "In the inspector, click a value or its ✎ to edit it inline — Enter commits, Shift+Enter inserts a line break, Escape cancels. × deletes an attribute; the key/value row at the bottom adds one. Ctrl+Z or ⟲ undoes the last edit.")
      (help-section
       "Keys"
@@ -629,13 +627,15 @@
 
 (defn- hint-view
   "The line above the toolbar: the pending chord's completions, else the
-  active pick mode's instruction."
+  active pick mode's instruction, else the open edge-name prompt's."
   [st]
   (cond
     (some? (:chord st))
     [:div {:id "pick-hint"} (editor/chord-hint (:kind (:selected st)) (:chord st)) " — Esc cancels"]
     (some? (:pick st))
-    [:div {:id "pick-hint"} (:pick-hint st) " — Esc cancels"]))
+    [:div {:id "pick-hint"} (:pick-hint st) " — Esc cancels"]
+    (= "edge" (:for (:id-entry st)))
+    [:div {:id "pick-hint"} "name the new edge — Enter creates it, Esc cancels"]))
 
 (defn- load-view [st]
   [:div {:id "loadscreen"}

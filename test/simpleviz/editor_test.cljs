@@ -7,7 +7,8 @@
                                       add-node-ops add-connected-ops wrap-in-box-ops
                                       edit-body rename-op blur-text retarget-end
                                       chord-action chord-group? chord-for chord-hint
-                                      add-node-in-box-ops box-remove-op]]))
+                                      add-node-in-box-ops box-remove-op
+                                      name->id derived-id]]))
 
 (test "target maps selection payloads to op targets"
   (fn []
@@ -141,6 +142,30 @@
   (fn []
     (assert/deepEqual (rename-op {:section "nodes" :id "web"} "  gateway ")
                       {:section "nodes" :id "web" :op "rename" :to "gateway"})))
+
+(test "name->id lowercases and dashes out illegal id characters"
+  (fn []
+    (assert/equal (name->id "Web Server") "web-server")
+    (assert/equal (name->id "  Web   Server (v2) ") "web-server-v2")
+    ;; characters the server accepts in a keyword survive untouched
+    (assert/equal (name->id "api.v1/Users?") "api.v1/users?")
+    ;; a legal dash next to generated ones still collapses to one
+    (assert/equal (name->id "API - Gateway") "api-gateway")
+    (assert/equal (name->id "Web -- Server") "web-server")
+    (assert/equal (name->id "Ünïcode ünd Umlaute") "n-code-nd-umlaute")
+    (assert/equal (name->id "(((") "")
+    (assert/equal (name->id "") "")))
+
+(test "derived-id is the id a name edit should rename to, or nil"
+  (fn []
+    (assert/equal (derived-id {:section "nodes" :id "web"} "Web Server") "web-server")
+    (assert/equal (derived-id {:section "boxes" :id "grp"} "Backend") "backend")
+    ;; already that id: nothing to rename
+    (assert/ok (nil? (derived-id {:section "nodes" :id "web-server"} "Web Server")))
+    ;; nothing legal left in the name: keep the id
+    (assert/ok (nil? (derived-id {:section "nodes" :id "web"} "(((")))
+    ;; edges have no id
+    (assert/ok (nil? (derived-id {:section "edges" :id ["a" "b"]} "Calls")))))
 
 (test "blur-text yields the pending text only for the field still being edited"
   (fn []

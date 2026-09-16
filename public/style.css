@@ -128,7 +128,7 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
 .dir-btn.active { background: var(--accent); color: #fff; }
 .id-entry { flex-basis: 100%; margin-top: 4px; }
 .id-entry-input { width: 100%; }
-#details .attr-add { display: flex; gap: 6px; margin-top: 16px;
+#details .attr-add { display: flex; gap: 6px; align-items: flex-start; margin-top: 16px;
                      padding-top: 12px; border-top: 1px solid var(--panel-divider); }
 #details .attr-add-key { width: 38%; }
 #details .attr-add-val { flex: 1; min-width: 0; }

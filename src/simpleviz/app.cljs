@@ -248,7 +248,9 @@
       (when (nil? (:edit-error @state))
         (when-let [key-el (js/document.getElementById "attr-add-key")]
           (set! (.-value key-el) "")
-          (set! (.-value (js/document.getElementById "attr-add-val")) "")
+          (let [val-el (js/document.getElementById "attr-add-val")]
+            (set! (.-value val-el) "")
+            (autosize! val-el))
           (.focus key-el))))))
 
 (defn- attr-add-row [sel tgt]
@@ -257,9 +259,16 @@
             :on-keydown (fn [e]
                           (when (= (.-key e) "Enter")
                             (.focus (js/document.getElementById "attr-add-val"))))}]
-   [:input {:id "attr-add-val" :class "attr-add-val" :type "text" :placeholder "value"
-            :on-keydown (fn [e]
-                          (when (= (.-key e) "Enter") (submit-attr-add! sel tgt)))}]
+   ;; a textarea sized like the inline edit field, so a long or
+   ;; multi-line value grows with its content instead of scrolling
+   ;; inside one line; Shift+Enter inserts a line break
+   [:textarea {:id "attr-add-val" :class "attr-edit attr-add-val" :rows 1 :placeholder "value"
+               :on-render (fn [{:keys [node]}] (autosize! node))
+               :on-input (fn [e] (autosize! (.-target e)))
+               :on-keydown (fn [e]
+                             (when (and (= (.-key e) "Enter") (not (.-shiftKey e)))
+                               (.preventDefault e)
+                               (submit-attr-add! sel tgt)))}]
    [:button {:class "attr-add-btn" :type "button" :title "Add attribute"
              :on-click (fn [e] (.stopPropagation e) (submit-attr-add! sel tgt))}
     "+"]])

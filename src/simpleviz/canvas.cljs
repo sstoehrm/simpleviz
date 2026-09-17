@@ -54,6 +54,13 @@
        (reset! dirty false)
        (when-let [cb @repaint-cb] (cb))))))
 
+(defn refit-next!
+  "Forget that the view was fitted, so the next fit-view-once! fits
+  again — for showing a different graph, not for a live reload of the
+  same one (where keeping the user's pan/zoom is right)."
+  []
+  (assoc! view :initialized false))
+
 (defn fit-view-once! [scene]
   (when-not (:initialized view)
     (assoc! view :initialized true)

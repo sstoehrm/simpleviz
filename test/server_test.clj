@@ -426,7 +426,33 @@
   ;; a directory is not a file: extension check runs first, so a
   ;; directory named "sub" (no .edn/.png extension) fails there
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"not an .edn or .png"
-                        (serve/resolve-path refs-root "sub"))))
+                        (serve/resolve-path refs-root "sub")))
+  ;; a file with no dot at all in its name has no extension to match —
+  ;; refused the same way as a wrong extension, not treated as a
+  ;; directory-style special case
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"not an .edn or .png"
+                        (serve/resolve-path refs-root "edn"))))
+
+(deftest resolve-path-refuses-a-symlink-that-escapes-the-root
+  (let [tmp (str (babashka.fs/create-temp-dir {:prefix "simpleviz-symlink-test"}))
+        root (java.io.File. tmp "root")
+        outside (java.io.File. tmp "outside")
+        secret (java.io.File. outside "secret.edn")]
+    (try
+      (.mkdirs root)
+      (.mkdirs outside)
+      (spit secret "{}")
+      (try
+        (java.nio.file.Files/createSymbolicLink
+         (.toPath (java.io.File. root "link.edn"))
+         (java.nio.file.Paths/get "../outside/secret.edn" (make-array String 0))
+         (make-array java.nio.file.attribute.FileAttribute 0))
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"leaves the served folder"
+                              (serve/resolve-path root "link.edn")))
+        (catch Exception _
+          ;; symlink creation unsupported on this filesystem — skip, don't fail
+          (is true)))
+      (finally (babashka.fs/delete-tree tmp)))))
 
 ;; --- ?file= parameter and edit :path (Task 2) -------------------------
 

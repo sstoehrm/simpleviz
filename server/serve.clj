@@ -36,7 +36,9 @@
       (throw (ex-info (str "absolute path refused: " rel) {})))
     (let [root-c (.getCanonicalFile (io/file root))
           f (.getCanonicalFile (io/file root-c rel))
-          ext (last (str/split (.getName f) #"\."))]
+          nm (.getName f)
+          dot (str/last-index-of nm ".")
+          ext (when (some? dot) (str/lower-case (subs nm (inc dot))))]
       (when-not (str/starts-with? (.getPath f) (str (.getPath root-c) java.io.File/separator))
         (throw (ex-info (str rel " leaves the served folder") {})))
       (when-not (contains? ref-extensions ext)

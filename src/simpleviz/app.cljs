@@ -561,7 +561,7 @@
   once a ref has been followed (or the page loaded with a trail)."
   [st]
   (let [trail (:trail (:nav st))]
-    (when (seq trail)
+    (when (and (seq trail) (nil? (:compare (:graph st))))
       (into [:div {:id "trail"}]
             (concat
              (apply concat
@@ -813,8 +813,8 @@
 
                              :else (js-await (.layout elk elk-graph)))
                 sc (scene/build-scene {:layout layout :graph g :colors cmap})]
-            (canvas/fit-view-once! sc)
             (when (= gen @graph-gen)
+              (canvas/fit-view-once! sc)
               (when (> (.-size layout-cache) 16) (.clear layout-cache))
               (.set layout-cache ck {:fingerprint fp :colors cmap
                                      :layout layout :scene sc})
@@ -904,12 +904,14 @@
   selection, edits in progress, collapsed boxes, cached layouts, the
   graph itself — and load the file the URL now names."
   []
+  (swap! graph-gen inc)
   (swap! state assoc :nav (editor/parse-nav js/location.search)
          :nav-error nil :error nil :graph nil :scene nil :layout nil
          :selected nil :editing nil :edit-error nil :pick nil :pick-hint nil
          :chord nil :id-entry nil :pending-focus nil :collapsed-boxes #{})
   (.clear layout-cache)
   (reset! last-mtime nil)
+  (canvas/refit-next!)
   (js-await (tick)))
 
 (defn- ^:async navigate!

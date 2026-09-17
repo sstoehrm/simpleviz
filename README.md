@@ -171,7 +171,8 @@ at the top center lists the files followed, and clicking one goes back
 there (the browser's back button works too). Refs may use `..` but never
 leave the folder of the file the server was started with, and must point
 at an `.edn` or exported `.png`; anything else shows an error. Following
-is not available in compare mode.
+is not available in compare mode. A PNG-served graph cannot follow refs
+either (the toolbar is read-only there).
 
 Every toolbar action also has a two-key chord, shown inside its button;
 chords work whenever no text field has the focus, and Esc cancels a

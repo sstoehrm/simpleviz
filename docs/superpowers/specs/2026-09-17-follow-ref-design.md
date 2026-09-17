@@ -57,8 +57,8 @@ Example (`root.edn` and `sub/api.edn` in the same served folder):
     embedded EDN of a PNG); a refused path is a 404 like today.
   - `POST /api/edit` body may carry `"path": <rel>`; when present, ops
     (including `undo`) apply to that file. `"file"` keeps its meaning
-    (`"old"`/`"new"`) and must be `"new"` when `path` is given. Undo stacks
-    are already keyed by absolute path, so each file has its own.
+    (`"old"`/`"new"`). Undo stacks are already keyed by absolute path,
+    so each file has its own.
   - In compare mode, or with an embedded-old PNG root, any `file`/`path`
     parameter is refused with an error (`"refs are not available in
     compare mode"`).

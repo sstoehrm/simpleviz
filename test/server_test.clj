@@ -427,3 +427,85 @@
   ;; directory named "sub" (no .edn/.png extension) fails there
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"not an .edn or .png"
                         (serve/resolve-path refs-root "sub"))))
+
+;; --- ?file= parameter and edit :path (Task 2) -------------------------
+
+(defn- refs-mode!
+  "Serve the refs fixture tree in single-file mode."
+  []
+  (reset! serve/files {:old nil :new "test/fixtures/refs/root.edn"})
+  (reset! serve/root-dir refs-root)
+  (reset! serve/undo-stacks {}))
+
+(deftest api-graph-file-param-serves-a-file-below-the-root
+  (refs-mode!)
+  (let [root (json/parse-string (:body (serve/handler {:uri "/api/graph"})))
+        sub (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "file=sub%2Fapi.edn"})))]
+    (is (= "root.edn" (get root "path")))
+    (is (= "API" (get-in root ["nodes" "api" "name"])))
+    (is (= "sub/api.edn" (get sub "path")))
+    (is (= "api.edn" (get sub "file")))
+    (is (= "Handler" (get-in sub ["nodes" "handler" "attrs" "name"])))
+    (is (true? (get sub "editable")))))
+
+(deftest api-graph-file-param-refusals-are-error-payloads
+  (refs-mode!)
+  (let [escape (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "file=..%2Fembedded.png"})))
+        missing (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "file=sub%2Fnope.edn"})))
+        txt (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "file=notes.txt"})))]
+    (is (clojure.string/includes? (get escape "error") "leaves the served folder"))
+    (is (clojure.string/includes? (get missing "error") "no such file"))
+    (is (clojure.string/includes? (get txt "error") "not an .edn or .png"))))
+
+(deftest api-graph-file-param-refused-in-compare-mode
+  (reset! serve/files {:old "examples/demo.edn" :new "examples/demo-next.edn"})
+  (reset! serve/root-dir (.getCanonicalFile (java.io.File. "examples")))
+  (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "file=demo.edn"})))]
+    (is (= "refs are not available in compare mode" (get out "error")))))
+
+(deftest api-version-file-param
+  (refs-mode!)
+  (let [sub (java.io.File. "test/fixtures/refs/sub/api.edn")
+        ok (json/parse-string (:body (serve/handler {:uri "/api/version" :query-string "file=sub%2Fapi.edn"})))
+        bad (json/parse-string (:body (serve/handler {:uri "/api/version" :query-string "file=..%2Fembedded.png"})))]
+    (is (= (.lastModified sub) (get ok "mtime")))
+    (is (= 0 (get bad "mtime")))))
+
+(deftest api-source-file-param
+  (refs-mode!)
+  (is (= (slurp "test/fixtures/refs/sub/deep/db.edn")
+         (:body (serve/handler {:uri "/api/source" :query-string "file=sub%2Fdeep%2Fdb.edn"}))))
+  (is (= 404 (:status (serve/handler {:uri "/api/source" :query-string "file=..%2Fembedded.png"})))))
+
+(deftest api-edit-path-edits-that-file-with-its-own-undo
+  ;; copy the tree so the edit does not touch the fixture
+  (let [dir (.toFile (java.nio.file.Files/createTempDirectory "refs" (make-array java.nio.file.attribute.FileAttribute 0)))
+        root (java.io.File. dir "root.edn")
+        sub (java.io.File. dir "sub/api.edn")]
+    (.mkdirs (.getParentFile sub))
+    (spit root "{:nodes {:api {:ref \"sub/api.edn\"}}}")
+    (spit sub "{:nodes {:handler nil}}")
+    (reset! serve/files {:old nil :new (.getPath root)})
+    (reset! serve/root-dir (.getCanonicalFile dir))
+    (reset! serve/undo-stacks {})
+    (let [resp (serve/handler (edit-req {:file "new" :path "sub/api.edn" :ops [{:op "add-node" :id "b"}]}))]
+      (is (true? (get (json/parse-string (:body resp)) "ok")))
+      (is (clojure.string/includes? (slurp sub) ":b nil"))
+      (is (= "{:nodes {:api {:ref \"sub/api.edn\"}}}" (slurp root))))
+    ;; undo on the sub file only
+    (serve/handler (edit-req {:file "new" :path "sub/api.edn" :ops [{:op "undo"}]}))
+    (is (= "{:nodes {:handler nil}}" (slurp sub)))
+    ;; the root has nothing to undo
+    (is (= "nothing to undo"
+           (get (json/parse-string (:body (serve/handler (edit-req {:file "new" :ops [{:op "undo"}]})))) "error")))
+    ;; an escaping path is refused before anything is written
+    (is (clojure.string/includes?
+         (get (json/parse-string (:body (serve/handler (edit-req {:file "new" :path "../x.edn" :ops [{:op "add-node" :id "c"}]})))) "error")
+         "leaves the served folder"))))
+
+(deftest api-edit-path-refused-in-compare-mode
+  (let [p (temp-edn "{:nodes {:a nil}}")]
+    (reset! serve/files {:old p :new p})
+    (reset! serve/root-dir (.getParentFile (.getCanonicalFile (java.io.File. p))))
+    (let [resp (serve/handler (edit-req {:file "new" :path (.getName (java.io.File. p)) :ops [{:op "add-node" :id "b"}]}))]
+      (is (= "refs are not available in compare mode" (get (json/parse-string (:body resp)) "error"))))))

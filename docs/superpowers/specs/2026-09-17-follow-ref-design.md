@@ -34,7 +34,8 @@ Example (`root.edn` and `sub/api.edn` in the same served folder):
   is disabled.
 - **`resolve-path`** — `(resolve-path root-dir rel)` returns the canonical
   `java.io.File` for the root-relative path `rel`, or throws an
-  `ex-info` with `{:edit-error true}`-style data and a message when:
+  `ex-info` whose message names the problem (the routes catch it and
+  fold the message into their error payload) when:
   `rel` is absolute; the canonical result is not below `root-dir`
   (checked on the canonical path, so symlinks escaping the root are
   refused too); the extension is not `.edn`/`.png`; the file does not
@@ -48,9 +49,12 @@ Example (`root.edn` and `sub/api.edn` in the same served folder):
     stays the basename. A `resolve-path` failure is returned as
     `{"error": msg}` in the payload, like a parse error, so the page shows
     it in the banner.
-  - `GET /api/version?file=<rel>` returns that file's mtime.
+  - `GET /api/version?file=<rel>` returns that file's mtime. A refused
+    path reports `{"mtime": 0}`: a constant, so the page reloads once
+    (and shows the graph route's error) rather than polling in a loop or
+    flagging the server as disconnected.
   - `GET /api/source?file=<rel>` returns that file's EDN text (or the
-    embedded EDN of a PNG).
+    embedded EDN of a PNG); a refused path is a 404 like today.
   - `POST /api/edit` body may carry `"path": <rel>`; when present, ops
     (including `undo`) apply to that file. `"file"` keeps its meaning
     (`"old"`/`"new"`) and must be `"new"` when `path` is given. Undo stacks

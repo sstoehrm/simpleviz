@@ -1,0 +1,4 @@
+{:nodes {:api {:name "API" :ref "sub/api.edn"}
+         :web {:name "Web"}}
+ :edges {[:web :api] {:direction :-> :ref "sub/api.edn"}}
+ :boxes {:backend {:name "Backend" :components #{:api} :ref "sub/api.edn"}}}

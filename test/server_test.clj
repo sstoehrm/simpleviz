@@ -402,3 +402,28 @@
 (deftest cli-spec-treats-debug-as-a-bare-flag
   (is (= {:args ["g.edn"] :opts {:debug true}}
          (babashka.cli/parse-args ["--debug" "g.edn"] serve/cli-spec))))
+
+(def refs-root (.getCanonicalFile (java.io.File. "test/fixtures/refs")))
+
+(deftest resolve-path-accepts-files-below-the-root
+  (is (= (.getCanonicalFile (java.io.File. "test/fixtures/refs/root.edn"))
+         (serve/resolve-path refs-root "root.edn")))
+  (is (= (.getCanonicalFile (java.io.File. "test/fixtures/refs/sub/api.edn"))
+         (serve/resolve-path refs-root "sub/api.edn")))
+  ;; .. is fine while the result stays below the root
+  (is (= (.getCanonicalFile (java.io.File. "test/fixtures/refs/root.edn"))
+         (serve/resolve-path refs-root "sub/../root.edn"))))
+
+(deftest resolve-path-refuses-escapes-absolutes-types-and-missing
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"leaves the served folder"
+                        (serve/resolve-path refs-root "../embedded.png")))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"absolute"
+                        (serve/resolve-path refs-root (.getPath (java.io.File. refs-root "root.edn")))))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"not an .edn or .png"
+                        (serve/resolve-path refs-root "notes.txt")))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"no such file"
+                        (serve/resolve-path refs-root "sub/missing.edn")))
+  ;; a directory is not a file: extension check runs first, so a
+  ;; directory named "sub" (no .edn/.png extension) fails there
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"not an .edn or .png"
+                        (serve/resolve-path refs-root "sub"))))

@@ -1,0 +1,4 @@
+{:nodes {:handler {:name "Handler" :ref "deep/db.edn"}
+         :escape {:name "Escape" :ref "../../secret.edn"}
+         :up {:name "Up" :ref "../root.edn"}
+         :txt {:name "Text" :ref "../notes.txt"}}}

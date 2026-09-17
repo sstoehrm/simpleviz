@@ -20,6 +20,31 @@
 
 (def undo-stacks (atom {})) ; path -> [text ...] newest last, capped
 
+(def root-dir (atom nil)) ; canonical File of the served folder (single-file mode)
+
+(def ^:private ref-extensions #{"edn" "png"})
+
+(defn resolve-path
+  "The canonical file for the root-relative path `rel` under `root`.
+  Refuses (ex-info, message names the problem) an absolute path, a
+  result outside `root` after canonicalization (so `..` and symlinks
+  cannot escape), an extension other than .edn/.png, and anything that
+  is not an existing regular file."
+  [root rel]
+  (let [rel (str rel)]
+    (when (.isAbsolute (io/file rel))
+      (throw (ex-info (str "absolute path refused: " rel) {})))
+    (let [root-c (.getCanonicalFile (io/file root))
+          f (.getCanonicalFile (io/file root-c rel))
+          ext (last (str/split (.getName f) #"\."))]
+      (when-not (str/starts-with? (.getPath f) (str (.getPath root-c) java.io.File/separator))
+        (throw (ex-info (str rel " leaves the served folder") {})))
+      (when-not (contains? ref-extensions ext)
+        (throw (ex-info (str rel " is not an .edn or .png file") {})))
+      (when-not (.isFile f)
+        (throw (ex-info (str "no such file: " rel) {})))
+      f)))
+
 (defn- push-undo! [path text]
   (swap! undo-stacks update path (fn [st] (vec (take-last 100 (conj (or st []) text))))))
 
@@ -310,6 +335,7 @@
              (println (ex-message e))
              (System/exit 1))))
     (reset! files {:old old-file :new file})
+    (reset! root-dir (.getParentFile (.getCanonicalFile (io/file file))))
     (let [serving (cond
                     old-file (str old-file " → " file " (compare)")
                     (some? (embedded-old file)) (str file " (embedded compare)")

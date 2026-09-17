@@ -168,3 +168,7 @@ Example (`root.edn` and `sub/api.edn` in the same served folder):
   its `:ref` strings but they dangle when served from elsewhere.
 - Creating or editing refs through a dedicated UI; they are ordinary
   attributes in the inspector.
+
+## TODO
+
+- Fold the follow-ref components (URL state, trail bar, follow action, resolver, server file parameter) into the project concept graph (blend:deduce) — skipped at spec approval on 2026-09-17.

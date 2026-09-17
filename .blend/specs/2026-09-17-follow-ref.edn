@@ -1,0 +1,23 @@
+{:nodes {:url       {:name "URL state"        :type "page"   :note "?file=<root-relative>&trail=a.edn,b.edn — reload, bookmark, back"}
+         :trail     {:name "Trail bar"        :type "page"   :note "top center; one crumb per visited file; click = go back there"}
+         :follow    {:name "follow ref (f r)" :type "page"   :note "toolbar button + chord; only when the selection has a string :ref, single-file mode"}
+         :resolve   {:name "resolve-ref"      :type "pure"   :note "(current-path, ref) → root-relative path, nil if it escapes the root folder"}
+         :reload    {:name "reload! / tick"   :type "page"   :note "fetch /api/graph?file= and poll /api/version?file="}
+         :route     {:name "route"            :type "server" :note "file param on /api/graph /api/version /api/source; :path in /api/edit body"}
+         :sandbox   {:name "resolve-path"     :type "server" :note "root-dir + relative → canonical file below root-dir, .edn/.png, else error"}
+         :undo      {:name "undo-stacks"      :type "server" :note "already keyed by file path"}
+         :root      {:name "root.edn"         :type "file"   :note ":nodes {:api {:ref \"sub/api.edn\"}}"}
+         :sub       {:name "sub/api.edn"      :type "file"}}
+ :edges {[:follow :resolve]  {:direction :-> :name "current path + :ref"}
+         [:resolve :url]     {:direction :-> :name "pushState file, trail+current"}
+         [:trail :url]       {:direction :-> :name "click crumb: file=crumb, trail truncated"}
+         [:url :reload]      {:direction :-> :name "read on load + popstate"}
+         [:reload :route]    {:direction :-> :name "GET ?file=" :type "http"}
+         [:route :sandbox]   {:direction :-> :name "validate every request"}
+         [:sandbox :root]    {:direction :-> :name "read / spit"}
+         [:sandbox :sub]     {:direction :-> :name "read / spit"}
+         [:route :undo]      {:direction :-> :name "edit with :path"}
+         [:root :sub]        {:direction :-> :name ":ref \"sub/api.edn\"" :type "ref"}}
+ :boxes {:browser {:name "Browser page (app.cljs / editor.cljs)" :type "zone" :components #{:url :trail :follow :resolve :reload}}
+         :server  {:name "Server (serve.clj)" :type "zone" :components #{:route :sandbox :undo}}
+         :disk    {:name "Served folder (root-dir)" :type "zone" :components #{:root :sub}}}}

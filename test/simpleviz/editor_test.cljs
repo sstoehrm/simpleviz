@@ -8,7 +8,8 @@
                                       edit-body rename-op blur-text retarget-end
                                       chord-action chord-group? chord-for chord-hint
                                       add-node-in-box-ops box-remove-op
-                                      name->id derived-id named-edge-ops creation-ops parse-entry]]))
+                                      name->id derived-id named-edge-ops creation-ops parse-entry
+                                      resolve-ref parse-nav nav-query follow-url crumb-url ref-of]]))
 
 (test "target maps selection payloads to op targets"
   (fn []
@@ -310,3 +311,55 @@
                        {:op "box-add" :box "g" :member "n1"}])
     (assert/deepEqual (box-remove-op "g" "a")
                       [{:op "box-remove" :box "g" :member "a"}])))
+
+(test "resolve-ref joins a ref onto the directory of the current file"
+  (fn []
+    (assert/equal (resolve-ref "root.edn" "sub/api.edn") "sub/api.edn")
+    (assert/equal (resolve-ref "sub/api.edn" "deep/db.edn") "sub/deep/db.edn")
+    (assert/equal (resolve-ref "sub/api.edn" "../root.edn") "root.edn")
+    (assert/equal (resolve-ref "sub/deep/db.edn" "../../root.edn") "root.edn")
+    (assert/equal (resolve-ref "root.edn" "./sub//api.edn") "sub/api.edn")
+    ;; climbing above the root, absolute and empty refs resolve to nothing
+    (assert/ok (nil? (resolve-ref "root.edn" "../x.edn")))
+    (assert/ok (nil? (resolve-ref "sub/api.edn" "../../x.edn")))
+    (assert/ok (nil? (resolve-ref "root.edn" "/etc/passwd")))
+    (assert/ok (nil? (resolve-ref "root.edn" "C:/x.edn")))
+    (assert/ok (nil? (resolve-ref "root.edn" "  ")))
+    (assert/ok (nil? (resolve-ref "root.edn" nil)))))
+
+(test "nav-query and parse-nav round-trip file and trail, commas included"
+  (fn []
+    (assert/equal (nav-query nil []) "")
+    (assert/equal (nav-query "sub/api.edn" []) "?file=sub%2Fapi.edn")
+    (assert/deepEqual (parse-nav "") {:file nil :trail []})
+    (assert/deepEqual (parse-nav "?file=sub%2Fapi.edn") {:file "sub/api.edn" :trail []})
+    (let [q (nav-query "sub/deep/db.edn" ["root.edn" "a,b.edn"])]
+      (assert/deepEqual (parse-nav q) {:file "sub/deep/db.edn" :trail ["root.edn" "a,b.edn"]}))))
+
+(test "follow-url appends the current file to the trail; crumb-url truncates it"
+  (fn []
+    (assert/deepEqual (parse-nav (follow-url "root.edn" [] "sub/api.edn"))
+                      {:file "sub/api.edn" :trail ["root.edn"]})
+    (assert/deepEqual (parse-nav (follow-url "sub/api.edn" ["root.edn"] "sub/deep/db.edn"))
+                      {:file "sub/deep/db.edn" :trail ["root.edn" "sub/api.edn"]})
+    (assert/deepEqual (parse-nav (crumb-url ["root.edn" "sub/api.edn"] 0))
+                      {:file "root.edn" :trail []})
+    (assert/deepEqual (parse-nav (crumb-url ["root.edn" "sub/api.edn"] 1))
+                      {:file "sub/api.edn" :trail ["root.edn"]})))
+
+(test "ref-of yields the selection's string :ref, else nil"
+  (fn []
+    (assert/equal (ref-of {:kind "node" :attrs {:ref "sub/api.edn"}}) "sub/api.edn")
+    (assert/ok (nil? (ref-of {:kind "node" :attrs {:ref "  "}})))
+    (assert/ok (nil? (ref-of {:kind "node" :attrs {:ref 3}})))
+    (assert/ok (nil? (ref-of {:kind "node" :attrs {}})))
+    (assert/ok (nil? (ref-of {:kind "edge"})))))
+
+(test "chord f r follows a ref for every selection kind"
+  (fn []
+    (assert/ok (chord-group? "f"))
+    (assert/equal (chord-action "node" "f" "r") "follow-ref")
+    (assert/equal (chord-action "edge" "f" "r") "follow-ref")
+    (assert/equal (chord-action "box" "f" "r") "follow-ref")
+    (assert/ok (nil? (chord-action nil "f" "r")))
+    (assert/equal (chord-for "node" "follow-ref") "f r")))

@@ -49,7 +49,8 @@ graphs (500+ nodes) open with all top-level boxes collapsed.
 
     {:nodes {:api {:name "API"           ; display name (defaults to the key)
                    :type "service"       ; free-form; colors the name, shown as (type)
-                   :lang "clojure"}      ; any other attr: inspector panel only
+                   :lang "clojure"       ; any other attr: inspector panel only
+                   :ref "sub/api.edn"}   ; another graph file, relative to this one — "follow ref" opens it
              :web {:type "frontend"}
              :db  {:type "database"}}
      :edges {[:web :api]                 ; key: endpoints (nodes or boxes), order defines left/right;
@@ -163,6 +164,15 @@ Server" and type "frontend". With a selection it shows that element's tools:
   "new node" (a new node inside the box, via a name prompt), and "new box"
   (wraps this box the same way).
 
+**Following refs.** A `:ref` attribute on a node, box or edge names
+another graph file by a path relative to the file it is in. With such an
+element selected, "follow ref" (`f r`) opens that graph in place; a trail
+at the top center lists the files followed, and clicking one goes back
+there (the browser's back button works too). Refs may use `..` but never
+leave the folder of the file the server was started with, and must point
+at an `.edn` or exported `.png`; anything else shows an error. Following
+is not available in compare mode.
+
 Every toolbar action also has a two-key chord, shown inside its button;
 chords work whenever no text field has the focus, and Esc cancels a
 pending one:
@@ -181,6 +191,7 @@ pending one:
 | `n n` | none / node | new node / new node connected to the selection |
 | `n b` | node, box | new box around the selection |
 | `r r` | node, box | rename the id |
+| `f r` | node, edge, box | follow the element's `:ref` (opens that graph) |
 | `?` | any | toggle the help panel |
 
 In compare mode, the legend at the top center carries an old|new toggle

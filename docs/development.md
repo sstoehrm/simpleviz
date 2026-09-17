@@ -38,6 +38,14 @@ against the compiled output).
 Large example graphs can be generated with
 `bb dev/gen-example.clj 10000 big.edn`.
 
+The API serves one root file (or a compare pair). In single-file mode the
+routes `/api/graph`, `/api/version` and `/api/source` take `?file=<path>`
+and `/api/edit` a `"path"` in its body, a path relative to the root file's
+folder; `serve/resolve-path` refuses anything above that folder, non
+`.edn`/`.png` targets and missing files. The page keeps the shown file and
+the trail of followed refs in its query string (`?file=..&trail=..`, see
+`editor/parse-nav`).
+
 ## CI and releases
 
 CI (`bb test`) runs on every push to main and every pull request

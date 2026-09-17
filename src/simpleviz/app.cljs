@@ -555,6 +555,29 @@
        (legend-row st "removed" "−" "dl-removed" (get stops "removed"))
        (edit-target-row st (:graph st))])))
 
+(defn- trail-view
+  "The files followed to reach the one shown, root first, each a
+  button back to it; the current file last as plain text. Shown only
+  once a ref has been followed (or the page loaded with a trail)."
+  [st]
+  (let [trail (:trail (:nav st))]
+    (when (seq trail)
+      (into [:div {:id "trail"}]
+            (concat
+             (apply concat
+                    (map-indexed
+                     (fn [i f]
+                       [[:button {:class "trail-crumb" :type "button" :key (str "c" i)
+                                  :title (str "back to " f)
+                                  :on-click (fn [e]
+                                              (.stopPropagation e)
+                                              (navigate! (editor/crumb-url trail i)))}
+                         f]
+                        [:span {:class "trail-sep" :key (str "s" i)} "›"]])
+                     trail))
+             [[:span {:class "trail-current" :key "cur"}
+               (or (:path (:graph st)) (:file (:nav st)))]])))))
+
 (defn- update-hover!
   "Set/clear the canvas title attribute to the hovered element's id —
   the native tooltip reveals what to reference in the EDN file. Direct
@@ -677,6 +700,7 @@
      (load-view st))
    (collapsed-view st)
    (when (some? (:graph st)) (legend-view st))
+   (trail-view st)
    (when (:layouting st)
      [:div {:id "layouting"} "re-layouting…"])
    (when (some? (:scene st))

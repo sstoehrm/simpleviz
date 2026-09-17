@@ -37,7 +37,7 @@
     (if (some? f) (str "?file=" (js/encodeURIComponent f)) "")))
 
 (defn- on-select [payload]
-  (swap! state assoc :selected payload :editing nil :id-entry nil :chord nil))
+  (swap! state assoc :selected payload :editing nil :id-entry nil :chord nil :nav-error nil))
 
 (defn- start-pick! [pick hint]
   (swap! state assoc :pick pick :pick-hint hint :chord nil))
@@ -51,7 +51,7 @@
 (defn- cancel-id-entry! []
   (swap! state assoc :id-entry nil))
 
-(declare relayout! post-edit! delete! current-edit-target-editable?)
+(declare relayout! post-edit! delete! current-edit-target-editable? follow-ref! navigate!)
 
 ;; layouts per collapsed-set, so expanding (or re-collapsing a seen
 ;; combination) is instant instead of a multi-second ELK run; demoted
@@ -323,23 +323,28 @@
         ;; only for a node inside a box: nil hides the button and the chord
         "remove-from-box" (when-let [parent (get (:parent-of (:graph @state)) (:elk-id sel))]
                             {:label "remove from box" :post (editor/box-remove-op parent id)})
+        ;; only for a selection with a string :ref, in single-file mode
+        "follow-ref" (when-let [r (editor/ref-of sel)]
+                       (when (nil? (:compare (:graph @state)))
+                         {:label "follow ref" :go r}))
         nil))))
 
 ;; the action-bar buttons per selection kind, in display order
 (def ^:private toolbar-actions
-  {"edge" [["retarget" "source"] ["retarget" "target"]]
-   "node" ["add-edge" "add-to-box" "remove-from-box" "new-connected-node" "new-box"]
+  {"edge" [["retarget" "source"] ["retarget" "target"] "follow-ref"]
+   "node" ["add-edge" "add-to-box" "remove-from-box" "new-connected-node" "new-box" "follow-ref"]
    "box" ["add-edge" "add-node-member" "add-box-member" "remove-node-member"
-          "new-node-in-box" "new-box"]})
+          "new-node-in-box" "new-box" "follow-ref"]})
 
 (defn- start-action!
   "Do what the toolbar button for `action` does."
   [sel tgt action]
-  (let [{:keys [pick hint id-entry post]} (action-spec sel tgt action)]
+  (let [{:keys [pick hint id-entry post go]} (action-spec sel tgt action)]
     (cond
       (some? pick) (start-pick! pick hint)
       (some? id-entry) (start-id-entry! id-entry)
-      (some? post) (post-edit! post))))
+      (some? post) (post-edit! post)
+      (some? go) (follow-ref! go))))
 
 (defn- action-btn
   "The toolbar button for `action`, or nil when it does not apply to
@@ -445,7 +450,7 @@
               (action-btn nil nil "new-node")]
              (when-let [entry (:id-entry st)] [(id-entry-row nil entry)])))]))
 
-(defn- banner-view [{:keys [error warnings collapsed edit-error disconnected]}]
+(defn- banner-view [{:keys [error warnings collapsed edit-error disconnected nav-error]}]
   (cond
     disconnected
     [:div {:id "banner" :class "error"}
@@ -455,6 +460,11 @@
     [:div {:id "banner" :class "error"
            :on-click (fn [_] (swap! state assoc :edit-error nil))}
      (str "Edit failed: " edit-error)]
+
+    (some? nav-error)
+    [:div {:id "banner" :class "error"
+           :on-click (fn [_] (swap! state assoc :nav-error nil))}
+     nav-error]
 
     (some? error)
     [:div {:id "banner" :class "error"} error]
@@ -877,6 +887,27 @@
   (.clear layout-cache)
   (reset! last-mtime nil)
   (js-await (tick)))
+
+(defn- ^:async navigate!
+  "Show another graph of the served folder: push its query string
+  onto the browser history (so back returns here) and load it."
+  [query]
+  (js/history.pushState nil "" (str js/location.pathname query))
+  (js-await (load-nav!)))
+
+(defn- follow-ref!
+  "Follow the selection's ref: resolve it against the file shown and
+  navigate there, the current file joining the trail. A ref that
+  climbs above the served folder is refused here with a banner; one
+  the server refuses (missing, wrong type) shows as the graph error
+  after navigating, with the trail intact to go back."
+  [ref]
+  (let [{:keys [trail]} (:nav @state)
+        current (:path (:graph @state))
+        target (editor/resolve-ref current ref)]
+    (if (nil? target)
+      (swap! state assoc :nav-error (str "ref " (pr-str ref) " leaves the served folder"))
+      (navigate! (editor/follow-url current trail target)))))
 
 (js/window.addEventListener "popstate" (fn [_] (load-nav!)))
 

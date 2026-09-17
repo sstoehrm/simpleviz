@@ -104,8 +104,13 @@
                  (do (when (compare-mode?)
                        (throw (ex-info "refs are not available in compare mode" {})))
                      (.getPath (resolve-path @root-dir path)))
-                 (= file "old") old
-                 :else new)]
+                 ;; canonicalize so the undo stack is keyed the same way a
+                 ;; `path`-based edit to the same file would key it — a
+                 ;; page reaching the root graph via ?file=<basename>
+                 ;; through the trail must share one undo stack with a
+                 ;; plain `file "old"/"new"` edit to that same file
+                 (= file "old") (when (some? old) (.getPath (.getCanonicalFile (io/file old))))
+                 :else (.getPath (.getCanonicalFile (io/file new))))]
       (cond
         (nil? path) {:error "no old file in single-file mode"}
         (png/png? path) {:error "PNG sources are read-only"}

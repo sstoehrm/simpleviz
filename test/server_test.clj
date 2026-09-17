@@ -503,6 +503,33 @@
          (get (json/parse-string (:body (serve/handler (edit-req {:file "new" :path "../x.edn" :ops [{:op "add-node" :id "c"}]})))) "error")
          "leaves the served folder"))))
 
+(deftest api-edit-undo-shared-between-file-and-path
+  ;; copy the tree so the edit does not touch the fixture
+  (let [dir (.toFile (java.nio.file.Files/createTempDirectory "refs" (make-array java.nio.file.attribute.FileAttribute 0)))
+        root (java.io.File. dir "root.edn")
+        sub (java.io.File. dir "sub/api.edn")
+        original "{:nodes {:api {:ref \"sub/api.edn\"}}}"]
+    (.mkdirs (.getParentFile sub))
+    (spit root original)
+    (spit sub "{:nodes {:handler nil}}")
+    ;; the raw :new path carries a redundant "." segment so it differs
+    ;; textually from resolve-path's canonical form — reproducing how a
+    ;; non-canonical CLI arg differs from the canonical path a `path`-based
+    ;; edit resolves to
+    (reset! serve/files {:old nil :new (str (.getPath dir) "/./root.edn")})
+    (reset! serve/root-dir (.getCanonicalFile dir))
+    (reset! serve/undo-stacks {})
+    ;; edit via `file`, undo via `path` — one shared undo stack
+    (serve/handler (edit-req {:file "new" :ops [{:op "add-node" :id "b"}]}))
+    (is (clojure.string/includes? (slurp root) ":b nil"))
+    (serve/handler (edit-req {:file "new" :path "root.edn" :ops [{:op "undo"}]}))
+    (is (= original (slurp root)))
+    ;; the reverse direction: edit via `path`, undo via `file`
+    (serve/handler (edit-req {:file "new" :path "root.edn" :ops [{:op "add-node" :id "c"}]}))
+    (is (clojure.string/includes? (slurp root) ":c nil"))
+    (serve/handler (edit-req {:file "new" :ops [{:op "undo"}]}))
+    (is (= original (slurp root)))))
+
 (deftest api-edit-path-refused-in-compare-mode
   (let [p (temp-edn "{:nodes {:a nil}}")]
     (reset! serve/files {:old p :new p})

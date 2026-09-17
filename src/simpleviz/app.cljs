@@ -22,12 +22,19 @@
                   :pick nil :pick-hint nil
                   :id-entry nil :pending-focus nil :chord nil
                   :help false :disconnected false
+                  :nav (editor/parse-nav js/location.search) :nav-error nil
                   :theme (or (js/localStorage.getItem "simpleviz-theme")
                              (if (.-matches (js/window.matchMedia
                                              "(prefers-color-scheme: dark)"))
                                "dark"
                                "light"))}))
 (def last-mtime (atom nil))
+
+(defn- file-query
+  "\"?file=<rel>\" for the graph the page is showing, \"\" for the root."
+  []
+  (let [f (:file (:nav @state))]
+    (if (some? f) (str "?file=" (js/encodeURIComponent f)) "")))
 
 (defn- on-select [payload]
   (swap! state assoc :selected payload :editing nil :id-entry nil :chord nil))
@@ -813,7 +820,7 @@
   (try
     (when (nil? (:scene @state))
       (swap! state assoc :load-stage "loading graph…"))
-    (let [resp (js-await (js/fetch "/api/graph"))
+    (let [resp (js-await (js/fetch (str "/api/graph" (file-query))))
           raw (js-await (.json resp))]
       (if (some? (:error raw))
         (swap! state assoc :error (str "Graph error: " (:error raw)))
@@ -845,7 +852,7 @@
 
 (defn ^:async tick []
   (let [mtime (try
-                (let [resp (js-await (js/fetch "/api/version"))
+                (let [resp (js-await (js/fetch (str "/api/version" (file-query))))
                       v (js-await (.json resp))]
                   (:mtime v))
                 (catch :default _ nil))]
@@ -857,12 +864,30 @@
       (reset! last-mtime mtime)
       (js-await (reload!)))))
 
+(defn- ^:async load-nav!
+  "The URL changed (follow, crumb, browser back): re-read the
+  navigation state, drop everything that belongs to the previous file —
+  selection, edits in progress, collapsed boxes, cached layouts, the
+  graph itself — and load the file the URL now names."
+  []
+  (swap! state assoc :nav (editor/parse-nav js/location.search)
+         :nav-error nil :error nil :graph nil :scene nil :layout nil
+         :selected nil :editing nil :edit-error nil :pick nil :pick-hint nil
+         :chord nil :id-entry nil :pending-focus nil :collapsed-boxes #{})
+  (.clear layout-cache)
+  (reset! last-mtime nil)
+  (js-await (tick)))
+
+(js/window.addEventListener "popstate" (fn [_] (load-nav!)))
+
 (defn- ^:async post-edit! [ops]
   (let [resp (js-await (js/fetch "/api/edit"
                                  {:method "POST"
                                   :headers {"Content-Type" "application/json"}
                                   :body (js/JSON.stringify
-                                         (editor/edit-body (:edit-target @state) ops))}))
+                                         (let [body (editor/edit-body (:edit-target @state) ops)
+                                               f (:file (:nav @state))]
+                                           (if (some? f) (assoc body :path f) body)))}))
         out (js-await (.json resp))]
     (if (some? (:error out))
       ;; a failed edit invalidates any pending-focus jump that was armed
@@ -968,7 +993,7 @@
     (let [resp (js-await (js/fetch (str "/api/source"
                                         (if (some? which)
                                           (str "?which=" which)
-                                          ""))))]
+                                          (file-query)))))]
       (if (.-ok resp) (js-await (.text resp)) nil))
     (catch :default _ nil)))
 

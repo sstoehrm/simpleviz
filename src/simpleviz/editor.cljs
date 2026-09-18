@@ -240,6 +240,71 @@
   [v]
   (if (string? v) v (edn-text v)))
 
+;; ---- refs between graphs ----
+
+(defn resolve-ref
+  "The root-relative path a `ref` on the file `current-path` (itself
+  root-relative) points to, with `.`/`..`/empty segments collapsed;
+  nil when the ref is blank, absolute, or climbs above the root (more
+  `..` than `current-path` has directories)."
+  [current-path ref]
+  (let [ref (.trim (str (if (nil? ref) "" ref)))]
+    (when (and (not= ref "")
+               (not (.startsWith ref "/"))
+               (nil? (re-find (js/RegExp. "^[A-Za-z]:") ref)))
+      (loop [acc (vec (.slice (.split (str current-path) "/") 0 -1))
+             segs (vec (.split ref "/"))]
+        (if (empty? segs)
+          (when (seq acc) (.join acc "/"))
+          (let [seg (first segs)
+                more (vec (rest segs))]
+            (cond
+              (or (= seg "") (= seg ".")) (recur acc more)
+              (= seg "..") (when (seq acc) (recur (pop acc) more))
+              :else (recur (conj acc seg) more))))))))
+
+(defn parse-nav
+  "The page's navigation state from its query string: {:file
+  root-relative path or nil (the root file) :trail [paths visited
+  before it]}. Each trail entry is URL-encoded on its own inside the
+  parameter, so commas in file names survive."
+  [query-string]
+  (let [p (js/URLSearchParams. (str (if (nil? query-string) "" query-string)))
+        file (.get p "file")
+        trail (.get p "trail")]
+    {:file (if (or (nil? file) (= file "")) nil file)
+     :trail (if (or (nil? trail) (= trail ""))
+              []
+              (mapv js/decodeURIComponent (.split trail ",")))}))
+
+(defn nav-query
+  "The query string (\"\" or \"?file=..&trail=..\") for showing `file`
+  (nil = root) with `trail` behind it — the inverse of parse-nav."
+  [file trail]
+  (let [p (js/URLSearchParams.)]
+    (when (some? file) (.set p "file" file))
+    (when (seq trail) (.set p "trail" (.join (mapv js/encodeURIComponent trail) ",")))
+    (let [s (.toString p)]
+      (if (= s "") "" (str "?" s)))))
+
+(defn follow-url
+  "Query string for following a ref from `current-path` to `target`:
+  the current file joins the end of the trail."
+  [current-path trail target]
+  (nav-query target (conj (vec trail) current-path)))
+
+(defn crumb-url
+  "Query string for going back to trail entry i: it becomes the file
+  shown, the entries before it stay the trail."
+  [trail i]
+  (nav-query (nth trail i) (vec (.slice trail 0 i))))
+
+(defn ref-of
+  "The selection's :ref when it is a non-blank string, else nil."
+  [sel]
+  (let [r (:ref (:attrs sel))]
+    (when (and (string? r) (not= (.trim r) "")) r)))
+
 ;; ---- keyboard chords ----
 
 ;; Two-key chords, in the order the hints list them. Each entry maps a
@@ -262,7 +327,8 @@
    ["n" "b" {"node" ["new-box" "new box"] "box" ["new-box" "new box"]}]
    ["r" "r" {"node" ["rename" "rename"] "box" ["rename" "rename"]}]
    ["r" "n" {"box" ["remove-node-member" "remove node"]}]
-   ["r" "b" {"node" ["remove-from-box" "remove from box"]}]])
+   ["r" "b" {"node" ["remove-from-box" "remove from box"]}]
+   ["f" "r" {"node" ["follow-ref" "follow ref"] "edge" ["follow-ref" "follow ref"] "box" ["follow-ref" "follow ref"]}]])
 
 (defn- kind-key [kind] (if (nil? kind) "none" kind))
 

@@ -22,6 +22,7 @@
                   :pick nil :pick-hint nil
                   :id-entry nil :pending-focus nil :chord nil
                   :help false :disconnected false
+                  :nav (editor/parse-nav js/location.search) :nav-error nil
                   :theme (or (js/localStorage.getItem "simpleviz-theme")
                              (if (.-matches (js/window.matchMedia
                                              "(prefers-color-scheme: dark)"))
@@ -29,8 +30,14 @@
                                "light"))}))
 (def last-mtime (atom nil))
 
+(defn- file-query
+  "\"?file=<rel>\" for the graph the page is showing, \"\" for the root."
+  []
+  (let [f (:file (:nav @state))]
+    (if (some? f) (str "?file=" (js/encodeURIComponent f)) "")))
+
 (defn- on-select [payload]
-  (swap! state assoc :selected payload :editing nil :id-entry nil :chord nil))
+  (swap! state assoc :selected payload :editing nil :id-entry nil :chord nil :nav-error nil))
 
 (defn- start-pick! [pick hint]
   (swap! state assoc :pick pick :pick-hint hint :chord nil))
@@ -44,7 +51,7 @@
 (defn- cancel-id-entry! []
   (swap! state assoc :id-entry nil))
 
-(declare relayout! post-edit! delete! current-edit-target-editable?)
+(declare relayout! post-edit! delete! current-edit-target-editable? follow-ref! navigate!)
 
 ;; layouts per collapsed-set, so expanding (or re-collapsing a seen
 ;; combination) is instant instead of a multi-second ELK run; demoted
@@ -316,23 +323,28 @@
         ;; only for a node inside a box: nil hides the button and the chord
         "remove-from-box" (when-let [parent (get (:parent-of (:graph @state)) (:elk-id sel))]
                             {:label "remove from box" :post (editor/box-remove-op parent id)})
+        ;; only for a selection with a string :ref, in single-file mode
+        "follow-ref" (when-let [r (editor/ref-of sel)]
+                       (when (nil? (:compare (:graph @state)))
+                         {:label "follow ref" :go r}))
         nil))))
 
 ;; the action-bar buttons per selection kind, in display order
 (def ^:private toolbar-actions
-  {"edge" [["retarget" "source"] ["retarget" "target"]]
-   "node" ["add-edge" "add-to-box" "remove-from-box" "new-connected-node" "new-box"]
+  {"edge" [["retarget" "source"] ["retarget" "target"] "follow-ref"]
+   "node" ["add-edge" "add-to-box" "remove-from-box" "new-connected-node" "new-box" "follow-ref"]
    "box" ["add-edge" "add-node-member" "add-box-member" "remove-node-member"
-          "new-node-in-box" "new-box"]})
+          "new-node-in-box" "new-box" "follow-ref"]})
 
 (defn- start-action!
   "Do what the toolbar button for `action` does."
   [sel tgt action]
-  (let [{:keys [pick hint id-entry post]} (action-spec sel tgt action)]
+  (let [{:keys [pick hint id-entry post go]} (action-spec sel tgt action)]
     (cond
       (some? pick) (start-pick! pick hint)
       (some? id-entry) (start-id-entry! id-entry)
-      (some? post) (post-edit! post))))
+      (some? post) (post-edit! post)
+      (some? go) (follow-ref! go))))
 
 (defn- action-btn
   "The toolbar button for `action`, or nil when it does not apply to
@@ -438,7 +450,7 @@
               (action-btn nil nil "new-node")]
              (when-let [entry (:id-entry st)] [(id-entry-row nil entry)])))]))
 
-(defn- banner-view [{:keys [error warnings collapsed edit-error disconnected]}]
+(defn- banner-view [{:keys [error warnings collapsed edit-error disconnected nav-error]}]
   (cond
     disconnected
     [:div {:id "banner" :class "error"}
@@ -448,6 +460,11 @@
     [:div {:id "banner" :class "error"
            :on-click (fn [_] (swap! state assoc :edit-error nil))}
      (str "Edit failed: " edit-error)]
+
+    (some? nav-error)
+    [:div {:id "banner" :class "error"
+           :on-click (fn [_] (swap! state assoc :nav-error nil))}
+     nav-error]
 
     (some? error)
     [:div {:id "banner" :class "error"} error]
@@ -538,6 +555,29 @@
        (legend-row st "removed" "−" "dl-removed" (get stops "removed"))
        (edit-target-row st (:graph st))])))
 
+(defn- trail-view
+  "The files followed to reach the one shown, root first, each a
+  button back to it; the current file last as plain text. Shown only
+  once a ref has been followed (or the page loaded with a trail)."
+  [st]
+  (let [trail (:trail (:nav st))]
+    (when (and (seq trail) (nil? (:compare (:graph st))))
+      (into [:div {:id "trail"}]
+            (concat
+             (apply concat
+                    (map-indexed
+                     (fn [i f]
+                       [[:button {:class "trail-crumb" :type "button" :key (str "c" i)
+                                  :title (str "back to " f)
+                                  :on-click (fn [e]
+                                              (.stopPropagation e)
+                                              (navigate! (editor/crumb-url trail i)))}
+                         f]
+                        [:span {:class "trail-sep" :key (str "s" i)} "›"]])
+                     trail))
+             [[:span {:class "trail-current" :key "cur"}
+               (or (:path (:graph st)) (:file (:nav st)))]])))))
+
 (defn- update-hover!
   "Set/clear the canvas title attribute to the hovered element's id —
   the native tooltip reveals what to reference in the EDN file. Direct
@@ -619,11 +659,11 @@
       "Drag to pan, scroll to zoom. Hover an element to see its id in the EDN file; click it to inspect its attributes. The − in a box header collapses the box to a single node — the panel on the left lists collapsed boxes and re-expands them.")
      (help-section
       "Edit"
-      "When the served file is editable EDN, the floating toolbar at the bottom holds the tools for the current selection: delete, edge direction, and pick modes such as \"add edge\" (click the other element on the canvas, then name the edge; Esc cancels). New nodes and boxes are created by name: the prompt types a name, and the id is derived from it — lowercased, illegal characters turned into dashes; name::type also sets the type. With nothing selected it creates a standalone node."
+      "When the served file is editable EDN, the floating toolbar at the bottom holds the tools for the current selection: delete, edge direction, and pick modes such as \"add edge\" (click the other element on the canvas, then name the edge; Esc cancels). New nodes and boxes are created by name: the prompt types a name, and the id is derived from it — lowercased, illegal characters turned into dashes; name::type also sets the type. With nothing selected it creates a standalone node. A :ref attribute naming another graph file (relative path) makes \"follow ref\" open it; the trail at the top leads back."
       "In the inspector, click a value or its ✎ to edit it inline — Enter commits, Shift+Enter inserts a line break, Escape cancels. × deletes an attribute; the key/value row at the bottom adds one. Ctrl+Z or ⟲ undoes the last edit.")
      (help-section
       "Keys"
-      "Two-key chords act on the selection, when no text field has focus (the toolbar buttons show them): d d delete · e 1/2/3/4 edge direction → ← ↔ — · c s / c t change an edge's source / target · a e add edge · a b add to box (node) or add a box as member (box) · a n add a node as member (box) · c n new node inside the selected box · n n new node (connected to the selected node) · n b new box around the selection · r r rename the id · r n take a node out of the selected box · r b take the selected node out of its box. Esc cancels a pending chord; ? toggles this help; Ctrl+Z undoes.")
+      "Two-key chords act on the selection, when no text field has focus (the toolbar buttons show them): d d delete · e 1/2/3/4 edge direction → ← ↔ — · c s / c t change an edge's source / target · a e add edge · a b add to box (node) or add a box as member (box) · a n add a node as member (box) · c n new node inside the selected box · n n new node (connected to the selected node) · n b new box around the selection · r r rename the id · r n take a node out of the selected box · r b take the selected node out of its box · f r follow the selection's :ref. Esc cancels a pending chord; ? toggles this help; Ctrl+Z undoes.")
      (help-section
       "Compare"
       "Serving two files renders one merged diagram: added elements get a green +, modified an amber ~ (select for an old → new list), removed ones stay as red dashed ghosts. Click a legend row to jump through the changes; the old|new toggle picks which file edits apply to.")
@@ -660,6 +700,7 @@
      (load-view st))
    (collapsed-view st)
    (when (some? (:graph st)) (legend-view st))
+   (trail-view st)
    (when (:layouting st)
      [:div {:id "layouting"} "re-layouting…"])
    (when (some? (:scene st))
@@ -772,8 +813,8 @@
 
                              :else (js-await (.layout elk elk-graph)))
                 sc (scene/build-scene {:layout layout :graph g :colors cmap})]
-            (canvas/fit-view-once! sc)
             (when (= gen @graph-gen)
+              (canvas/fit-view-once! sc)
               (when (> (.-size layout-cache) 16) (.clear layout-cache))
               (.set layout-cache ck {:fingerprint fp :colors cmap
                                      :layout layout :scene sc})
@@ -813,7 +854,7 @@
   (try
     (when (nil? (:scene @state))
       (swap! state assoc :load-stage "loading graph…"))
-    (let [resp (js-await (js/fetch "/api/graph"))
+    (let [resp (js-await (js/fetch (str "/api/graph" (file-query))))
           raw (js-await (.json resp))]
       (if (some? (:error raw))
         (swap! state assoc :error (str "Graph error: " (:error raw)))
@@ -845,7 +886,7 @@
 
 (defn ^:async tick []
   (let [mtime (try
-                (let [resp (js-await (js/fetch "/api/version"))
+                (let [resp (js-await (js/fetch (str "/api/version" (file-query))))
                       v (js-await (.json resp))]
                   (:mtime v))
                 (catch :default _ nil))]
@@ -857,12 +898,53 @@
       (reset! last-mtime mtime)
       (js-await (reload!)))))
 
+(defn- ^:async load-nav!
+  "The URL changed (follow, crumb, browser back): re-read the
+  navigation state, drop everything that belongs to the previous file —
+  selection, edits in progress, collapsed boxes, cached layouts, the
+  graph itself — and load the file the URL now names."
+  []
+  (swap! graph-gen inc)
+  (swap! state assoc :nav (editor/parse-nav js/location.search)
+         :nav-error nil :error nil :graph nil :scene nil :layout nil
+         :selected nil :editing nil :edit-error nil :pick nil :pick-hint nil
+         :chord nil :id-entry nil :pending-focus nil :collapsed-boxes #{})
+  (.clear layout-cache)
+  (reset! last-mtime nil)
+  (canvas/refit-next!)
+  (js-await (tick)))
+
+(defn- ^:async navigate!
+  "Show another graph of the served folder: push its query string
+  onto the browser history (so back returns here) and load it."
+  [query]
+  (js/history.pushState nil "" (str js/location.pathname query))
+  (js-await (load-nav!)))
+
+(defn- follow-ref!
+  "Follow the selection's ref: resolve it against the file shown and
+  navigate there, the current file joining the trail. A ref that
+  climbs above the served folder is refused here with a banner; one
+  the server refuses (missing, wrong type) shows as the graph error
+  after navigating, with the trail intact to go back."
+  [ref]
+  (let [{:keys [trail]} (:nav @state)
+        current (:path (:graph @state))
+        target (editor/resolve-ref current ref)]
+    (if (nil? target)
+      (swap! state assoc :nav-error (str "ref " (pr-str ref) " leaves the served folder"))
+      (navigate! (editor/follow-url current trail target)))))
+
+(js/window.addEventListener "popstate" (fn [_] (load-nav!)))
+
 (defn- ^:async post-edit! [ops]
   (let [resp (js-await (js/fetch "/api/edit"
                                  {:method "POST"
                                   :headers {"Content-Type" "application/json"}
                                   :body (js/JSON.stringify
-                                         (editor/edit-body (:edit-target @state) ops))}))
+                                         (let [body (editor/edit-body (:edit-target @state) ops)
+                                               f (:file (:nav @state))]
+                                           (if (some? f) (assoc body :path f) body)))}))
         out (js-await (.json resp))]
     (if (some? (:error out))
       ;; a failed edit invalidates any pending-focus jump that was armed
@@ -968,7 +1050,7 @@
     (let [resp (js-await (js/fetch (str "/api/source"
                                         (if (some? which)
                                           (str "?which=" which)
-                                          ""))))]
+                                          (file-query)))))]
       (if (.-ok resp) (js-await (.text resp)) nil))
     (catch :default _ nil)))
 

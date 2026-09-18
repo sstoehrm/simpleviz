@@ -20,6 +20,33 @@
 
 (def undo-stacks (atom {})) ; path -> [text ...] newest last, capped
 
+(def root-dir (atom nil)) ; canonical File of the served folder (single-file mode)
+
+(def ^:private ref-extensions #{"edn" "png"})
+
+(defn resolve-path
+  "The canonical file for the root-relative path `rel` under `root`.
+  Refuses (ex-info, message names the problem) an absolute path, a
+  result outside `root` after canonicalization (so `..` and symlinks
+  cannot escape), an extension other than .edn/.png, and anything that
+  is not an existing regular file."
+  [root rel]
+  (let [rel (str rel)]
+    (when (.isAbsolute (io/file rel))
+      (throw (ex-info (str "absolute path refused: " rel) {})))
+    (let [root-c (.getCanonicalFile (io/file root))
+          f (.getCanonicalFile (io/file root-c rel))
+          nm (.getName f)
+          dot (str/last-index-of nm ".")
+          ext (when (some? dot) (str/lower-case (subs nm (inc dot))))]
+      (when-not (str/starts-with? (.getPath f) (str (.getPath root-c) java.io.File/separator))
+        (throw (ex-info (str rel " leaves the served folder") {})))
+      (when-not (contains? ref-extensions ext)
+        (throw (ex-info (str rel " is not an .edn or .png file") {})))
+      (when-not (.isFile f)
+        (throw (ex-info (str "no such file: " rel) {})))
+      f)))
+
 (defn- push-undo! [path text]
   (swap! undo-stacks update path (fn [st] (vec (take-last 100 (conj (or st []) text))))))
 
@@ -28,9 +55,64 @@
     (swap! undo-stacks update path pop)
     top))
 
-(defn- edit-response [{:keys [old new]} {:keys [file ops]}]
+(defn- read-source
+  "EDN text of a graph file: simpleviz PNG exports yield their embedded
+  EDN (compare exports yield the new side), everything else its raw
+  contents. Throws with a clear message when a PNG has nothing embedded."
+  [f]
+  (if (png/png? f)
+    (or (png/extract f "simpleviz-edn-new")
+        (png/extract f "simpleviz-edn")
+        (throw (ex-info (str "no embedded simpleviz EDN found in " f) {})))
+    (slurp f)))
+
+(defn- embedded-old
+  "The old-side EDN of a single-file compare export, nil otherwise."
+  [f]
+  (when (png/png? f) (png/extract f "simpleviz-edn-old")))
+
+(defn- query-param
+  "The URL-decoded value of parameter k in a query string, or nil."
+  [query-string k]
+  (when (some? query-string)
+    (some (fn [kv]
+            (let [[name v] (str/split kv #"=" 2)]
+              (when (= name k)
+                (java.net.URLDecoder/decode (or v "") "UTF-8"))))
+          (str/split query-string #"&"))))
+
+(defn- compare-mode?
+  "True when the server shows two sides: two files, or a compare-export
+  PNG as the single file."
+  []
+  (let [{:keys [old new]} @files]
+    (or (some? old) (some? (embedded-old new)))))
+
+(defn- requested-file
+  "The file a request's `file` parameter (root-relative) asks for, as
+  {:file <canonical File> :rel <the parameter>}; nil without the
+  parameter. Throws (message for the error payload) in compare mode or
+  when resolve-path refuses it."
+  [query-string]
+  (when-let [rel (query-param query-string "file")]
+    (when (compare-mode?)
+      (throw (ex-info "refs are not available in compare mode" {})))
+    {:file (resolve-path @root-dir rel) :rel rel}))
+
+(defn- edit-response [{:keys [old new]} {:keys [file ops path]}]
   (try
-    (let [path (if (= file "old") old new)]
+    (let [path (cond
+                 (some? path)
+                 (do (when (compare-mode?)
+                       (throw (ex-info "refs are not available in compare mode" {})))
+                     (.getPath (resolve-path @root-dir path)))
+                 ;; canonicalize so the undo stack is keyed the same way a
+                 ;; `path`-based edit to the same file would key it — a
+                 ;; page reaching the root graph via ?file=<basename>
+                 ;; through the trail must share one undo stack with a
+                 ;; plain `file "old"/"new"` edit to that same file
+                 (= file "old") (when (some? old) (.getPath (.getCanonicalFile (io/file old))))
+                 :else (.getPath (.getCanonicalFile (io/file new))))]
       (cond
         (nil? path) {:error "no old file in single-file mode"}
         (png/png? path) {:error "PNG sources are read-only"}
@@ -57,22 +139,6 @@
        "  a compare-mode export re-opens as the comparison\n"
        "  --debug writes a per-run log of edits and errors to " log/dir-hint
        "\n  (default port " default-port ")"))
-
-(defn- read-source
-  "EDN text of a graph file: simpleviz PNG exports yield their embedded
-  EDN (compare exports yield the new side), everything else its raw
-  contents. Throws with a clear message when a PNG has nothing embedded."
-  [f]
-  (if (png/png? f)
-    (or (png/extract f "simpleviz-edn-new")
-        (png/extract f "simpleviz-edn")
-        (throw (ex-info (str "no embedded simpleviz EDN found in " f) {})))
-    (slurp f)))
-
-(defn- embedded-old
-  "The old-side EDN of a single-file compare export, nil otherwise."
-  [f]
-  (when (png/png? f) (png/extract f "simpleviz-edn-old")))
 
 (def cli-spec {:alias {:p :port} :coerce {:port :long :debug :boolean}})
 
@@ -193,21 +259,31 @@
                  "Cache-Control" "no-store"}
        :body "not found"})))
 
-(defn- graph-response-body []
+(defn- graph-response-body [query-string]
   (let [body (try
-               (let [{:keys [old new]} @files]
-                 (if (some? old)
+               (let [{:keys [old new]} @files
+                     req (requested-file query-string)]
+                 (cond
+                   (some? req)
+                   (let [f (:file req)]
+                     (graph-json (read-source (.getPath f)) (.getName f)
+                                 {:editable (not (png/png? (.getPath f))) :path (:rel req)}))
+
+                   (some? old)
                    (compare-json (read-source old) (read-source new) old new
                                  (.getName (io/file new))
                                  {:editable (not (png/png? new))
                                   :editable-old (not (png/png? old))})
+
+                   :else
                    (if-let [old-s (embedded-old new)]
                      (let [nm (.getName (io/file new))]
                        (compare-json old-s (read-source new)
                                      (str nm " (old)") (str nm " (new)") nm
                                      {:editable false :editable-old false}))
                      (graph-json (read-source new) (.getName (io/file new))
-                                 {:editable (not (png/png? new))}))))
+                                 {:editable (not (png/png? new))
+                                  :path (.getName (io/file new))}))))
                (catch Exception e
                  (json/generate-string {:error (ex-message e)})))]
     ;; graph-json/compare-json fold parse failures into the payload; only
@@ -231,26 +307,34 @@
 
 (defn- route [{:keys [uri query-string request-method body] :as req}]
   (case uri
-    "/api/graph"   (json-response (graph-response-body))
+    "/api/graph"   (json-response (graph-response-body query-string))
     "/api/edit"    (if (= :post request-method)
                      (or (edit-guard req)
                          (json-response (edit-response-body body)))
                      {:status 405 :headers {"Content-Type" "text/plain"} :body "POST only"})
     "/api/version" (json-response
                     (json/generate-string
-                     {:mtime (let [{:keys [old new]} @files
-                                   m (.lastModified (io/file new))]
-                               (if (some? old)
-                                 (str (.lastModified (io/file old)) "-" m)
-                                 m))}))
+                     {:mtime (try
+                               (if-let [req (requested-file query-string)]
+                                 (.lastModified (:file req))
+                                 (let [{:keys [old new]} @files
+                                       m (.lastModified (io/file new))]
+                                   (if (some? old)
+                                     (str (.lastModified (io/file old)) "-" m)
+                                     m)))
+                               ;; a refused file reports a constant: the page
+                               ;; reloads once and shows the graph route's error
+                               (catch Exception _ 0))}))
     "/api/source"
     (let [{:keys [old new]} @files
           which (when (some? query-string)
                   (second (re-find #"(?:^|&)which=(old|new)(?:&|$)" query-string)))
           body (try
-                 (if (= which "old")
-                   (if (some? old) (read-source old) (embedded-old new))
-                   (when (some? new) (read-source new)))
+                 (if-let [req (requested-file query-string)]
+                   (read-source (.getPath (:file req)))
+                   (if (= which "old")
+                     (if (some? old) (read-source old) (embedded-old new))
+                     (when (some? new) (read-source new))))
                  (catch Exception _ nil))]
       (if (some? body)
         {:status 200
@@ -310,6 +394,7 @@
              (println (ex-message e))
              (System/exit 1))))
     (reset! files {:old old-file :new file})
+    (reset! root-dir (.getParentFile (.getCanonicalFile (io/file file))))
     (let [serving (cond
                     old-file (str old-file " → " file " (compare)")
                     (some? (embedded-old file)) (str file " (embedded compare)")

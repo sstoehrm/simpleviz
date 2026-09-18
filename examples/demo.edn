@@ -1,5 +1,6 @@
 {:nodes {:web    {:name "Web UI"   :type "frontend" :framework "htmx" :role [:active]}
-         :api    {:name "API"      :type "service"  :lang "clojure" :replicas 3}
+         :api    {:name "API"      :type "service"  :lang "clojure" :replicas 3
+                  :ref "api/internals.edn"}   ; another graph: select API, "follow ref" (f r)
          :auth   {:name "Auth"     :type "service"}
          :db     {:name "Postgres" :type "database" :version "16"
                   :limits {:cpu "500m" :mem "1Gi"}}

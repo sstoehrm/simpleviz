@@ -1,0 +1,14 @@
+{:nodes {:router   {:name "Router"        :type "component" :lib "reitit"}
+         :handlers {:name "Handlers"      :type "component"}
+         :authc    {:name "Auth client"   :type "component"}
+         :repo     {:name "Repository"    :type "component"}
+         :pool     {:name "Conn pool"     :type "component" :size 10}
+         :overview {:name "Demo overview" :type "external"
+                    :ref "../demo.edn"}}               ; a ref back up: ".." stays below the served folder
+ :edges {[:router :handlers] {:direction :-> :name "dispatch"}
+         [:handlers :authc]  {:direction :-> :name "verify"   :type "grpc"}
+         [:handlers :repo]   {:direction :-> :name "load/save"}
+         [:repo :pool]       {:direction :-> :name "borrow"   :type "jdbc"}
+         [:overview :router] {:direction :-> :name "REST"     :type "http"}}
+ :boxes {:api {:name "API internals" :type "zone"
+               :components #{:router :handlers :authc :repo :pool}}}}

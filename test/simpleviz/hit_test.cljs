@@ -1,7 +1,7 @@
 (ns simpleviz.hit-test
   (:require ["node:test" :refer [test]]
             ["node:assert/strict$default" :as assert]
-            [simpleviz.hit :refer [client->graph hit-test hover-title]]))
+            [simpleviz.hit :refer [client->graph hit-test hover-title hover-tip]]))
 
 (defn scene [items] {:items items :width 500 :height 300})
 
@@ -105,3 +105,22 @@
     (assert/equal (hover-title {:kind "edge" :id "e0" :source "web" :target "api"})
                   "[web api]")
     (assert/ok (nil? (hover-title nil)))))
+
+(test "hover-tip is headed by the display name, which leaves the attrs"
+  (fn []
+    (let [tip (hover-tip {:kind "node" :id "n:web" :name "Web"
+                          :attrs {:name "Web" :type "svc" :state "done"}})]
+      (assert/equal (:title tip) "Web")
+      (assert/deepEqual (:attrs tip) [["type" "svc"] ["state" "done"]]))
+    ;; a node without :name is displayed under its key
+    (assert/equal (:title (hover-tip {:kind "node" :id "n:web" :name "web" :attrs {}})) "web")
+    (assert/ok (nil? (hover-tip nil)))))
+
+(test "hover-tip falls back to the referenceable id for a nameless item"
+  (fn []
+    (assert/equal (:title (hover-tip {:kind "edge" :id "e0" :name "" :source "web" :target "api"
+                                      :attrs {}}))
+                  "[web api]")
+    (let [tip (hover-tip {:kind "collapse-button" :box-id "b:x"})]
+      (assert/equal (:title tip) "x")
+      (assert/deepEqual (:attrs tip) []))))

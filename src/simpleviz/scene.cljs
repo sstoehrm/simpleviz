@@ -1,4 +1,5 @@
-(ns simpleviz.scene)
+(ns simpleviz.scene
+  (:require [simpleviz.editor :refer [ref-of]]))
 
 ;; layout + graph + colors -> flat, back-to-front draw list with absolute
 ;; coordinates: boxes, edges, edge labels, nodes. Pure data; the canvas
@@ -21,6 +22,14 @@
 (def HIDE-BTN-TOP 7)
 
 (def ^:private BBOX-PAD 10)
+
+;; the :state values a node shows as a corner mark; anything else stays an
+;; ordinary attribute
+(def STATES #{"new" "in-progress" "blocked" "done"})
+
+(defn- node-state [node]
+  (let [s (:state (:attrs node))]
+    (when (contains? STATES s) s)))
 
 (defn- node-color [node colors]
   (if (pos? (.-length (:type node)))
@@ -97,6 +106,8 @@
                              :color (node-color node colors)
                              :name (:name node) :type (:type node)
                              :attrs (:attrs node)
+                             :ref? (some? (ref-of node))
+                             :state (node-state node)
                              :diff (:diff node) :changed (:changed node)}))))))
      layout 0 0)
     (let [edges-by-id (let [m (js/Map.)]

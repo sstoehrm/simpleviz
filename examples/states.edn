@@ -1,0 +1,10 @@
+{:nodes {:api    {:name "API" :type "service" :state :in-progress :ref "api/internals.edn"
+                  :owner "platform" :tags ["core" "public"]}
+         :web    {:name "Web" :type "frontend" :state :done}
+         :db     {:name "DB" :type "database" :state :blocked :note "waiting on migration"}
+         :queue  {:name "Queue" :state :new}
+         :plain  {:name "Plain"}}
+ :edges {[:web :api] {:name "calls" :type "http"}
+         [:api :db] {}
+         [:api :queue] {}}
+ :boxes {:backend {:components #{:api :db :queue} :type "zone"}}}

@@ -71,3 +71,77 @@
                       (when (some? text) (visit! target text)))))))]
       (visit! start (read-rel start))
       @seen)))
+
+(defn valid-suffix? [s]
+  (boolean (and (string? s) (re-matches serve/suffix-re s))))
+
+(defn- root-and-start
+  "[canonical root dir, root-relative name] of a file path."
+  [file]
+  (let [f (.getCanonicalFile (io/file file))]
+    [(.getParentFile f) (.getName f)]))
+
+(defn- read-base [root]
+  (fn [rel] (serve/read-source (.getPath (serve/resolve-path root rel)))))
+
+(defn fork!
+  "Copy `file` and every file in its ref closure to their `suffix`
+  forks. Returns the created paths, in closure order. Throws ex-info
+  naming an existing target (deepest dependency first) before anything
+  is written."
+  [file suffix warn!]
+  (let [[root start] (root-and-start file)
+        rels (closure start (read-base root) warn!)
+        pairs (mapv (fn [rel] [(io/file root rel) (io/file root (serve/fork-name rel suffix))]) rels)]
+    (doseq [[_ to] (reverse pairs)]
+      (when (.exists to)
+        (throw (ex-info (str (.getPath to) " already exists") {}))))
+    (doseq [[from to] pairs]
+      (io/copy from to))
+    (mapv (fn [[_ to]] (.getPath to)) pairs)))
+
+(defn promote!
+  "Walk the closure of `file`, reading each file's `suffix` fork when
+  it exists (else the base), and move every fork found over its base.
+  Returns the promoted base paths; throws ex-info \"nothing to promote\"
+  when no fork was found."
+  [file suffix warn!]
+  (let [[root start] (root-and-start file)
+        fork-file (fn [rel] (io/file root (serve/fork-name rel suffix)))
+        read-rel (fn [rel]
+                   (let [fk (serve/fork-name rel suffix)]
+                     (serve/read-source
+                      (.getPath (serve/resolve-path root (if (.isFile (fork-file rel)) fk rel))))))
+        rels (closure start read-rel warn!)
+        moved (reduce (fn [acc rel]
+                        (let [fk (fork-file rel)
+                              base (io/file root rel)]
+                          (if (.isFile fk)
+                            (do (java.nio.file.Files/move
+                                 (.toPath fk) (.toPath base)
+                                 (into-array java.nio.file.CopyOption
+                                             [java.nio.file.StandardCopyOption/REPLACE_EXISTING]))
+                                (conj acc (.getPath base)))
+                            acc)))
+                      [] rels)]
+    (when (empty? moved)
+      (throw (ex-info "nothing to promote" {})))
+    moved))
+
+(defn -main
+  "bb fork|promote <graph.edn> <suffix> (the task passes the command)."
+  [& [cmd file suffix & extra]]
+  (when (or (not (contains? #{"fork" "promote"} cmd)) (nil? file) (nil? suffix) (seq extra))
+    (println "usage: bb fork|promote <graph.edn> <suffix>")
+    (System/exit 1))
+  (when-not (valid-suffix? suffix)
+    (println (str "invalid suffix: " suffix))
+    (System/exit 1))
+  (try
+    (let [warn! (fn [m] (binding [*out* *err*] (println (str "warning: " m))))
+          paths (if (= cmd "fork") (fork! file suffix warn!) (promote! file suffix warn!))
+          verb (if (= cmd "fork") "created " "promoted ")]
+      (doseq [p paths] (println (str verb p))))
+    (catch Exception e
+      (println (str cmd ": " (ex-message e)))
+      (System/exit 1))))

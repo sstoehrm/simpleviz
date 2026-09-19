@@ -58,3 +58,69 @@
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"^bad\.edn: "
                           (fork/closure "root.edn" (reader root) (fn [_]))))
     (fs/delete-tree root)))
+
+(deftest fork-copies-the-closure-verbatim-and-refuses-existing-targets
+  (let [root (tree! {"root.edn" "{:nodes {:a {:ref \"sub/api.edn\"}}} ; keep me"
+                     "sub/api.edn" "{:nodes {:h {:ref \"deep/db.edn\"}}}"
+                     "sub/deep/db.edn" "{:nodes {:t nil}}"
+                     "unrelated.edn" "{}"})
+        file (.getPath (io/file root "root.edn"))
+        created (fork/fork! file "next" (fn [_]))]
+    (is (= (mapv #(.getPath (io/file root %)) ["root-next.edn" "sub/api-next.edn" "sub/deep/db-next.edn"])
+           created))
+    (is (= (slurp (io/file root "root.edn")) (slurp (io/file root "root-next.edn"))))
+    (is (= (slurp (io/file root "sub/api.edn")) (slurp (io/file root "sub/api-next.edn"))))
+    (is (not (.exists (io/file root "unrelated-next.edn"))))
+    ;; a second fork refuses and writes nothing
+    (spit (io/file root "sub/deep/db-next.edn") "{:nodes {:changed nil}}")
+    (.delete (io/file root "root-next.edn"))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"sub/deep/db-next\.edn already exists"
+                          (fork/fork! file "next" (fn [_]))))
+    (is (not (.exists (io/file root "root-next.edn"))))
+    (fs/delete-tree root)))
+
+(deftest promote-moves-every-fork-in-the-forks-closure
+  (let [root (tree! {"root.edn" "{:nodes {:a {:ref \"sub/api.edn\"}}}"
+                     "root-next.edn" "{:nodes {:a {:ref \"sub/api.edn\"} :n {:ref \"new.edn\"}}}"
+                     "sub/api.edn" "{:nodes {:h nil}}"
+                     "sub/api-next.edn" "{:nodes {:h nil :extra nil}}"
+                     "new-next.edn" "{:nodes {:only-in-fork nil}}"
+                     "other.edn" "{}"
+                     "other-next.edn" "{:nodes {:x nil}}"})
+        file (.getPath (io/file root "root.edn"))
+        moved (fork/promote! file "next" (fn [_]))]
+    (is (= #{(.getPath (io/file root "root.edn"))
+             (.getPath (io/file root "sub/api.edn"))
+             (.getPath (io/file root "new.edn"))}
+           (set moved)))
+    (is (= "{:nodes {:a {:ref \"sub/api.edn\"} :n {:ref \"new.edn\"}}}" (slurp (io/file root "root.edn"))))
+    (is (= "{:nodes {:h nil :extra nil}}" (slurp (io/file root "sub/api.edn"))))
+    (is (= "{:nodes {:only-in-fork nil}}" (slurp (io/file root "new.edn"))))
+    (is (not (.exists (io/file root "root-next.edn"))))
+    (is (not (.exists (io/file root "sub/api-next.edn"))))
+    (is (not (.exists (io/file root "new-next.edn"))))
+    ;; outside the closure: untouched
+    (is (.exists (io/file root "other-next.edn")))
+    (is (= "{}" (slurp (io/file root "other.edn"))))
+    ;; nothing left to promote
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"nothing to promote"
+                          (fork/promote! file "next" (fn [_]))))
+    (fs/delete-tree root)))
+
+(deftest promote-follows-an-unforked-file-through-to-forked-ones
+  (let [root (tree! {"root.edn" "{:nodes {:a {:ref \"mid.edn\"}}}"
+                     "root-next.edn" "{:nodes {:a {:ref \"mid.edn\"}}}"
+                     "mid.edn" "{:nodes {:m {:ref \"leaf.edn\"}}}"
+                     "leaf.edn" "{}"
+                     "leaf-next.edn" "{:nodes {:l nil}}"})
+        moved (fork/promote! (.getPath (io/file root "root.edn")) "next" (fn [_]))]
+    (is (= #{(.getPath (io/file root "root.edn")) (.getPath (io/file root "leaf.edn"))} (set moved)))
+    (is (= "{:nodes {:l nil}}" (slurp (io/file root "leaf.edn"))))
+    (fs/delete-tree root)))
+
+(deftest suffix-validation
+  (is (fork/valid-suffix? "next"))
+  (is (fork/valid-suffix? "v2.1_rc-1"))
+  (is (not (fork/valid-suffix? "a/b")))
+  (is (not (fork/valid-suffix? "")))
+  (is (not (fork/valid-suffix? nil))))

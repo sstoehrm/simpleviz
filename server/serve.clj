@@ -68,7 +68,7 @@
     (swap! undo-stacks update path pop)
     top))
 
-(defn- read-source
+(defn read-source
   "EDN text of a graph file: simpleviz PNG exports yield their embedded
   EDN (compare exports yield the new side), everything else its raw
   contents. Throws with a clear message when a PNG has nothing embedded."

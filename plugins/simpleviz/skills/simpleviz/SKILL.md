@@ -29,7 +29,7 @@ EDN-driven graph visualization: nodes, directed edges, nested grouping boxes; au
 
 Rules that are easy to get wrong:
 - `:nodes` is a MAP keyed by id — not a vector. There is no `:id`, `:label`, or nested `:attrs` key; the display key is `:name`, and every other key in the node map is a free-form attribute shown in the inspector.
-- `:ref "sub/other.edn"` on a node, box or edge links another graph file, relative to the file it is in and never above the folder of the served root file; the viewer's "follow ref" (`f r`) opens it and shows a clickable trail back. Not available in compare mode.
+- `:ref "sub/other.edn"` on a node, box or edge links another graph file, relative to the file it is in and never above the folder of the served root file; the viewer's "follow ref" (`f r`) opens it and shows a clickable trail back. In a suffix comparison it opens the referenced file's own comparison.
 - `:edges` is a map keyed by `[from to]` vectors — not `:from`/`:to` maps. Direction lives in `:direction`; there is no `:bidirectional` (use `:<->`). The same pair cannot appear twice; writing both `[:a :b]` and `[:b :a]` triggers a "same connection" warning.
 - Grouping is `:boxes` with `:components` — there is no `:zones`, `:groups`, or `:children`. Boxes nest by listing another box's id in `:components`. Edge endpoints may be node ids or box ids (never display names); an edge between a box and its own content — or a box and itself — is skipped with a warning.
 - Identifiers may be keywords or strings, interchangeably (`:api` ≡ `"api"`); namespaced keywords keep their namespace (`:backend.server/db` ≡ `"backend.server/db"`). When a name refers to both a node and a box, an edge endpoint resolves to the node (with a warning).
@@ -49,14 +49,19 @@ From a bundle/install/repo directory (repo needs `bb build` once):
 
     bb serve graph.edn               # default port 7373
     bb serve graph.edn --port 9000   # or -p
-    bb serve old.edn new.edn         # compare mode: ONE merged diff view (old → new)
+    bb fork graph.edn next           # graph-next.edn + forks of every referenced file
+    bb serve graph.edn next          # compare mode: graph.edn → graph-next.edn, ONE merged diff view
+    bb promote graph.edn next        # each fork replaces its original
     bb serve diagram.png             # exported PNGs work in place of EDN files (embedded
                                      # source; a compare export re-opens as the comparison)
 
 With the launcher installed by `install.sh` (files in `~/.simpleviz`, launcher in `~/.local/bin`):
 
     simpleviz graph.edn              # random free port 7370-7469, prints the URL, opens browser
-    simpleviz old.edn new.edn        # compare mode
+    simpleviz fork graph.edn next    # fork the graph and its ref closure
+    simpleviz graph.edn next         # compare graph.edn → graph-next.edn (refs follow into
+                                     # the referenced file's own comparison)
+    simpleviz promote graph.edn next # move each fork over its original
     simpleviz init graph.edn         # write a starter graph file (refuses to overwrite)
     simpleviz update                 # install the latest release if newer
     simpleviz --version              # print the installed version
@@ -65,7 +70,7 @@ With the launcher installed by `install.sh` (files in `~/.simpleviz`, launcher i
                                      #  prints the new one, --old the old one;
                                      #  add an out.edn arg to write a file)
 
-There is no `bb diff` or similar — comparing is just passing two files. In compare mode: added elements get a green `+` ring, modified an amber `~` ring (click for attribute-level old → new), removed stay visible as red dashed ghosts; nodes and boxes match by key (renaming a display `:name` is a modification, not remove+add), edges by endpoints. A legend at the top center names both files (basenames) and shows a count per status — each legend row is a button: clicking jumps to that status's next element (selecting it and centering the view, `2/3`-style position, wrap-around). Collapsed boxes hiding changes count as stops.
+There is no `bb diff` or similar — comparing is serving a file with the suffix of its fork (`<name>-<suffix>.<ext>`; `fork` creates it, `promote` folds it back). Two-file compare (`simpleviz old.edn new.edn`) no longer exists. In compare mode: added elements get a green `+` ring, modified an amber `~` ring (click for attribute-level old → new), removed stay visible as red dashed ghosts; nodes and boxes match by key (renaming a display `:name` is a modification, not remove+add), edges by endpoints. A legend at the top center names both files (basenames) and shows a count per status — each legend row is a button: clicking jumps to that status's next element (selecting it and centering the view, `2/3`-style position, wrap-around). Collapsed boxes hiding changes count as stops.
 
 ## Viewer
 

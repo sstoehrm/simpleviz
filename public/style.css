@@ -211,8 +211,11 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
 #loadscreen .load-stage { font-size: 12px; color: var(--text-muted); }
 @keyframes sv-spin { to { transform: rotate(360deg); } }
 
-#diff-legend { position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
-               z-index: 6; min-width: 240px;
+#top-center { position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
+              z-index: 6; display: flex; flex-direction: column; align-items: center; gap: 8px;
+              pointer-events: none; }
+#top-center > * { pointer-events: auto; }
+#diff-legend { min-width: 240px;
                background: var(--panel); border: 1px solid var(--panel-border);
                border-radius: 8px; padding: 8px 12px; font-size: 12px;
                box-shadow: 0 2px 8px var(--shadow); }
@@ -241,8 +244,7 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
                                  color: #fff; }
 #diff-legend .dl-target:disabled { opacity: .4; cursor: not-allowed; }
 
-#trail { position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
-         z-index: 6; max-width: 80vw; display: flex; flex-wrap: wrap;
+#trail { max-width: 80vw; display: flex; flex-wrap: wrap;
          align-items: center; gap: 4px;
          background: var(--panel); border: 1px solid var(--panel-border);
          border-radius: 10px; padding: 5px 10px; font-size: 12px;

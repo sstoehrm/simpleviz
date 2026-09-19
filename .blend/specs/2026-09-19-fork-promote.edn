@@ -1,0 +1,34 @@
+{:nodes {:launcher  {:name "simpleviz launcher" :type "cli"
+                     :note "graph.edn [suffix] | fork | promote"}
+         :bb-serve  {:name "bb serve" :type "task" :args "graph.edn [suffix]"}
+         :bb-fork   {:name "bb fork / bb promote" :type "task"}
+         :fork-ns   {:name "server/fork.clj" :type "server"
+                     :does "ref closure, fork copies, promote moves"}
+         :sides     {:name "sides" :type "server"
+                     :does "rel path -> {:old f :new f}; suffix pairing"}
+         :resolve   {:name "resolve-path" :type "server" :status "existing"}
+         :routes    {:name "/api/graph, version, source, edit" :type "server"
+                     :change "compare per requested file"}
+         :diff      {:name "diff/union" :type "server" :status "existing"}
+         :graph-ns  {:name "graph/normalize" :type "server" :status "existing"}
+         :follow    {:name "follow ref + trail" :type "page"
+                     :change "enabled when payload has :path"}
+         :legend    {:name "compare legend" :type "page"
+                     :change "coexists with trail"}
+         :files     {:name "graph.edn + graph-next.edn (+ ref closure)" :type "disk"}}
+ :edges {[:launcher :bb-serve] {:direction :-> :name "serve"}
+         [:launcher :bb-fork]  {:direction :-> :name "fork / promote"}
+         [:bb-fork :fork-ns]   {:direction :->}
+         [:fork-ns :graph-ns]  {:direction :-> :name "collect :ref"}
+         [:fork-ns :resolve]   {:direction :-> :name "resolve each ref"}
+         [:fork-ns :files]     {:direction :-> :name "copy / mv"}
+         [:bb-serve :routes]   {:direction :-> :name "root + suffix"}
+         [:routes :sides]      {:direction :-> :name "?file=rel"}
+         [:sides :resolve]     {:direction :->}
+         [:sides :files]       {:direction :-> :name "read both sides"}
+         [:routes :diff]       {:direction :-> :name "old vs new"}
+         [:follow :routes]     {:direction :-> :name "?file=&trail="}
+         [:legend :routes]     {:direction :-> :name "edit target old|new"}}
+ :boxes {:cli    {:name "CLI" :type "zone" :components #{:launcher :bb-serve :bb-fork}}
+         :server {:name "Server (bb)" :type "zone" :components #{:fork-ns :sides :resolve :routes :diff :graph-ns}}
+         :page   {:name "Page" :type "zone" :components #{:follow :legend}}}}

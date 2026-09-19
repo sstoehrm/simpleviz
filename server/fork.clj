@@ -131,10 +131,10 @@
   "bb fork|promote <graph.edn> <suffix> (the task passes the command)."
   [& [cmd file suffix & extra]]
   (when (or (not (contains? #{"fork" "promote"} cmd)) (nil? file) (nil? suffix) (seq extra))
-    (println "usage: bb fork|promote <graph.edn> <suffix>")
+    (binding [*out* *err*] (println "usage: bb fork|promote <graph.edn> <suffix>"))
     (System/exit 1))
   (when-not (valid-suffix? suffix)
-    (println (str "invalid suffix: " suffix))
+    (binding [*out* *err*] (println (str "invalid suffix: " suffix)))
     (System/exit 1))
   (try
     (let [warn! (fn [m] (binding [*out* *err*] (println (str "warning: " m))))
@@ -142,5 +142,5 @@
           verb (if (= cmd "fork") "created " "promoted ")]
       (doseq [p paths] (println (str verb p))))
     (catch Exception e
-      (println (str cmd ": " (ex-message e)))
+      (binding [*out* *err*] (println (str cmd ": " (ex-message e))))
       (System/exit 1))))

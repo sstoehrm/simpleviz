@@ -198,9 +198,12 @@ serve() {
           [ -f "$f" ] || die "file not found: $f"
           file=$(realpath "$f")
         elif [ -z "$suffix" ]; then
-          if [ -e "$f" ]; then
-            die "two-file compare was replaced: simpleviz fork $file <suffix>, then simpleviz $file <suffix>"
-          fi
+          case "$f" in
+            *.edn|*.EDN|*.png|*.PNG)
+              die "two-file compare was replaced: simpleviz fork $file <suffix>, then simpleviz $file <suffix>" ;;
+            *[!A-Za-z0-9_.-]*|"")
+              die "invalid suffix: $f" ;;
+          esac
           suffix="$f"
         else
           usage >&2; exit 1

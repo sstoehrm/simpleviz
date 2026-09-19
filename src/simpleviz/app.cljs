@@ -667,7 +667,7 @@
       "Two-key chords act on the selection, when no text field has focus (the toolbar buttons show them): d d delete · e 1/2/3/4 edge direction → ← ↔ — · c s / c t change an edge's source / target · a e add edge · a b add to box (node) or add a box as member (box) · a n add a node as member (box) · c n new node inside the selected box · n n new node (connected to the selected node) · n b new box around the selection · r r rename the id · r n take a node out of the selected box · r b take the selected node out of its box · f r follow the selection's :ref. Esc cancels a pending chord; ? toggles this help; Ctrl+Z undoes.")
      (help-section
       "Compare"
-      "Serving two files renders one merged diagram: added elements get a green +, modified an amber ~ (select for an old → new list), removed ones stay as red dashed ghosts. Click a legend row to jump through the changes; the old|new toggle picks which file edits apply to.")
+      "Serving a file with a suffix (simpleviz graph.edn next) renders it against its fork graph-next.edn as one merged diagram: added elements get a green +, modified an amber ~ (select for an old → new list), removed ones stay as red dashed ghosts. Click a legend row to jump through the changes; the old|new toggle picks which file edits apply to.")
      (help-section
       "Export"
       "⇩ downloads the diagram as a PNG with the source EDN embedded — an exported PNG can be served again, compared, or turned back into EDN with \"simpleviz extract\".")

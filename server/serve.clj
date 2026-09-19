@@ -101,6 +101,13 @@
   (let [{:keys [root suffix]} @files]
     (and (nil? suffix) (some? (embedded-old root)))))
 
+(defn- root-rel
+  "The root file's name, root-relative: its canonical basename, so a
+  symlinked root (bb serve ~/link.edn -> elsewhere/g.edn) resolves under
+  the real name rather than the raw basename of the served path."
+  []
+  (.getName (.getCanonicalFile (io/file (:root @files)))))
+
 (defn sides
   "The files behind the root-relative path `rel` (nil = the root file)
   as {:old <canonical File or nil> :new <canonical File>}: without a
@@ -108,8 +115,8 @@
   Throws (message for the error payload) when a side is missing or
   resolve-path refuses either."
   [rel]
-  (let [{:keys [root suffix]} @files
-        rel (or rel (.getName (io/file root)))
+  (let [{:keys [suffix]} @files
+        rel (or rel (root-rel))
         root-c @root-dir]
     (if (nil? suffix)
       {:old nil :new (resolve-path root-c rel)}
@@ -302,7 +309,7 @@
                                    (str nm " (old)") (str nm " (new)") nm
                                    {:editable false :editable-old false}))
                    (let [{:keys [old new]} (sides rel)
-                         path (or rel (.getName (io/file root)))
+                         path (or rel (root-rel))
                          new-p (.getPath new)]
                      (if (some? old)
                        (compare-json (read-source (.getPath old)) (read-source new-p)

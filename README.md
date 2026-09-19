@@ -11,6 +11,9 @@ Quickest install (Linux, needs [babashka](https://babashka.org/), curl and tar):
     curl -fsSL https://raw.githubusercontent.com/sstoehrm/simpleviz/main/install.sh | bash
     simpleviz ~/.simpleviz/examples/demo.edn   # or any graph.edn; picks a free port 7370-7469
     simpleviz init my-arch.edn                 # write a starter file to edit
+    simpleviz fork my-arch.edn next            # my-arch-next.edn (+ forks of every referenced file)
+    simpleviz my-arch.edn next                 # compare my-arch.edn → my-arch-next.edn
+    simpleviz promote my-arch.edn next         # make the forks the new originals
 
 `simpleviz --version` prints the installed release; `simpleviz update`
 fetches the latest one. The install lives in `~/.simpleviz` (managed by the
@@ -35,7 +38,7 @@ the precompiled frontend, so all you need is
     bb serve examples/demo.edn --port 9000  # or -p 9000
     bb serve examples/demo.edn --debug      # log edits/errors to ~/.simpleviz/logs/
     bb serve examples/big-5k.edn            # 5k-node stress example
-    bb serve examples/demo.edn examples/demo-next.edn   # compare two versions
+    bb serve examples/demo.edn next             # compare against demo-next.edn
 
 Open http://localhost:7373. Edit the file — the page updates automatically.
 Click nodes, edges, or boxes for their full attributes. Drag to pan, wheel to
@@ -96,27 +99,46 @@ Exported PNGs are also accepted anywhere an EDN file is — the server
 reads the embedded source back out:
 
     simpleviz diagram.png                    # serve the embedded graph
-    simpleviz old.png new.edn                # any mix of PNG and EDN in compare mode
+    simpleviz diagram.png next               # compare against diagram-next.png
     simpleviz compare-export.png             # re-opens as the full comparison
 
 Or extract the EDN explicitly:
 
-    simpleviz extract diagram.png before.edn --old
-    simpleviz extract diagram.png after.edn
-    simpleviz before.edn after.edn
+    simpleviz extract diagram.png graph.edn --old
+    simpleviz extract diagram.png graph-next.edn
+    simpleviz graph.edn next
 
 ## Comparing two versions
 
-Pass two files to compare architectures: `bb serve old.edn new.edn`. Both
-render as ONE merged diagram — added elements get a green `+` ring, modified
-ones an amber `~` ring (click for an attribute-level old → new list), and
-removed ones stay visible as red, dashed, ghosted shapes. Nodes and boxes
-match by key, edges by their endpoints (flipping the pair or changing
-`:direction` counts as modified). Layout follows the new file; removed
-elements keep their old place. A collapsed box hiding any change shows an
-amber dot. The legend at the top center names both files and counts the
-changes per status — click a row to jump through them (selects and centers
-each element, wraps around). Both files live-reload.
+A comparison is a graph against a *fork* of itself, named by a suffix:
+
+    simpleviz fork graph.edn next      # graph-next.edn, plus a fork of every file graph.edn refs
+    simpleviz graph.edn next           # compare graph.edn (old) → graph-next.edn (new)
+    simpleviz promote graph.edn next   # each fork replaces its original
+
+`fork` copies the file and, transitively, every file reachable through
+`:ref` attributes to `<name>-<suffix>.<ext>` siblings (refs inside the
+copies are left as they are). Edit the forks — in the page or by hand —
+and the comparison shows the difference. Following a ref inside a
+comparison opens the referenced file's own comparison against its fork;
+a referenced file without a fork (or a fork without an original) shows an
+error, and the trail leads back. `promote` walks the fork's refs and
+moves every fork it finds over its original; forks outside that closure
+are left alone.
+
+Both files render as ONE merged diagram — added elements get a green `+`
+ring, modified ones an amber `~` ring (click for an attribute-level
+old → new list), and removed ones stay visible as red, dashed, ghosted
+shapes. Nodes and boxes match by key, edges by their endpoints (flipping
+the pair or changing `:direction` counts as modified). Layout follows the
+new file; removed elements keep their old place. A collapsed box hiding
+any change shows an amber dot. The legend at the top center names both
+files and counts the changes per status — click a row to jump through
+them (selects and centers each element, wraps around). Both files
+live-reload.
+
+Try it: `simpleviz ~/.simpleviz/examples/demo.edn next`, then select the
+API node and press `f r`.
 
 ## Editing
 
@@ -170,11 +192,12 @@ element selected, "follow ref" (`f r`) opens that graph in place; a trail
 at the top center lists the files followed, and clicking one goes back
 there (the browser's back button works too). Refs may use `..` but never
 leave the folder of the file the server was started with, and must point
-at an `.edn` or exported `.png`; anything else shows an error. Following
-is not available in compare mode, and a PNG-served graph cannot follow refs
-either (the toolbar is read-only there). Try it on `examples/demo.edn`: the
-API node refs `examples/api/internals.edn`, whose "Demo overview" node refs
-back.
+at an `.edn` or exported `.png`; anything else shows an error. In a suffix
+comparison, following opens the comparison of the target and its fork; an
+embedded-compare PNG cannot follow refs, and a PNG-served graph cannot
+follow refs either (the toolbar is read-only there). Try it on
+`examples/demo.edn`: the API node refs `examples/api/internals.edn`, whose
+"Demo overview" node refs back.
 
 Every toolbar action also has a two-key chord, shown inside its button;
 chords work whenever no text field has the focus, and Esc cancels a

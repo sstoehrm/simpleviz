@@ -11,15 +11,21 @@
                                     {:replace-existing true})
                       (fs/copy-tree "node_modules/squint-cljs" "public/js/vendor/squint-cljs"
                                     {:replace-existing true}))}
-  serve    {:doc "Serve an EDN graph file or exported PNG: bb serve graph.edn|.png [new.edn|.png] [--port N] (two files = compare)"
+  serve    {:doc "Serve an EDN graph file or exported PNG: bb serve graph.edn|.png [suffix] [--port N] (suffix = compare against graph-<suffix>.edn)"
             :requires ([serve])
             :task (apply serve/-main *command-line-args*)}
   extract  {:doc "Extract embedded EDN from an exported PNG: bb extract diagram.png [out.edn] [--old]"
             :requires ([png])
             :task (apply png/-main *command-line-args*)}
+  fork     {:doc "Fork a graph and every file it refs: bb fork graph.edn <suffix> (writes graph-<suffix>.edn ...)"
+            :requires ([fork])
+            :task (apply fork/-main "fork" *command-line-args*)}
+  promote  {:doc "Move each fork over its base file: bb promote graph.edn <suffix>"
+            :requires ([fork])
+            :task (apply fork/-main "promote" *command-line-args*)}
   test:clj {:doc "Run Clojure server tests"
-            :requires ([clojure.test :as t] [server-test] [graph-test] [diff-test] [docs-test] [png-test] [edit-test] [log-test])
-            :task (let [{:keys [fail error]} (t/run-tests 'graph-test 'server-test 'diff-test 'docs-test 'png-test 'edit-test 'log-test)]
+            :requires ([clojure.test :as t] [server-test] [graph-test] [diff-test] [docs-test] [png-test] [edit-test] [log-test] [fork-test] [launcher-test])
+            :task (let [{:keys [fail error]} (t/run-tests 'graph-test 'server-test 'diff-test 'docs-test 'png-test 'edit-test 'log-test 'fork-test 'launcher-test)]
                     (when (pos? (+ fail error)) (System/exit 1)))}
   test:js  {:doc "Run JS unit tests (compiled squint output)"
             :requires ([babashka.fs :as fs])
@@ -43,12 +49,18 @@
                         ;; standalone bb.edn: serving only, deps taken from this file
                         release-bb {:paths ["server"]
                                     :deps (:deps (edn/read-string (slurp "bb.edn")))
-                                    :tasks (quote {serve {:doc "Serve an EDN graph file or exported PNG: bb serve graph.edn|.png [new.edn|.png] [--port N]"
+                                    :tasks (quote {serve {:doc "Serve an EDN graph file or exported PNG: bb serve graph.edn|.png [suffix] [--port N] (suffix = compare against graph-<suffix>.edn)"
                                                           :requires ([serve])
                                                           :task (apply serve/-main *command-line-args*)}
                                                    extract {:doc "Extract embedded EDN from an exported PNG: bb extract diagram.png [out.edn] [--old]"
                                                             :requires ([png])
-                                                            :task (apply png/-main *command-line-args*)}})}]
+                                                            :task (apply png/-main *command-line-args*)}
+                                                   fork {:doc "Fork a graph and every file it refs: bb fork graph.edn <suffix> (writes graph-<suffix>.edn ...)"
+                                                         :requires ([fork])
+                                                         :task (apply fork/-main "fork" *command-line-args*)}
+                                                   promote {:doc "Move each fork over its base file: bb promote graph.edn <suffix>"
+                                                            :requires ([fork])
+                                                            :task (apply fork/-main "promote" *command-line-args*)}})}]
                     (fs/delete-tree dir)
                     (fs/create-dirs dir)
                     (doseq [p ["public" "server" "examples"]]
@@ -61,7 +73,7 @@
                           (binding [*print-namespace-maps* false] (pr-str release-bb)))
                     (shell {:dir "dist"} "tar" "czf" (str bundle-name ".tar.gz") bundle-name)
                     (println (str "created dist/" bundle-name ".tar.gz")))}
-  dev      {:doc "Compile, watch and serve: bb dev [graph.edn [new.edn]] [--port N]"
+  dev      {:doc "Compile, watch and serve: bb dev [graph.edn [suffix]] [--port N]"
             :requires ([babashka.cli :as cli] [babashka.process :as p] [serve])
             :task (do (run 'build)
                       (p/process ["npx" "squint" "watch"] {:inherit true})

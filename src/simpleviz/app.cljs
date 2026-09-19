@@ -323,9 +323,10 @@
         ;; only for a node inside a box: nil hides the button and the chord
         "remove-from-box" (when-let [parent (get (:parent-of (:graph @state)) (:elk-id sel))]
                             {:label "remove from box" :post (editor/box-remove-op parent id)})
-        ;; only for a selection with a string :ref, in single-file mode
+        ;; only for a selection with a string :ref, when the server can
+        ;; navigate (single-file or suffix compare: the payload has :path)
         "follow-ref" (when-let [r (editor/ref-of sel)]
-                       (when (nil? (:compare (:graph @state)))
+                       (when (some? (:path (:graph @state)))
                          {:label "follow ref" :go r}))
         nil))))
 
@@ -561,7 +562,7 @@
   once a ref has been followed (or the page loaded with a trail)."
   [st]
   (let [trail (:trail (:nav st))]
-    (when (and (seq trail) (nil? (:compare (:graph st))))
+    (when (and (seq trail) (some? (:path (:graph st))))
       (into [:div {:id "trail"}]
             (concat
              (apply concat
@@ -659,14 +660,14 @@
       "Drag to pan, scroll to zoom. Hover an element to see its id in the EDN file; click it to inspect its attributes. The − in a box header collapses the box to a single node — the panel on the left lists collapsed boxes and re-expands them.")
      (help-section
       "Edit"
-      "When the served file is editable EDN, the floating toolbar at the bottom holds the tools for the current selection: delete, edge direction, and pick modes such as \"add edge\" (click the other element on the canvas, then name the edge; Esc cancels). New nodes and boxes are created by name: the prompt types a name, and the id is derived from it — lowercased, illegal characters turned into dashes; name::type also sets the type. With nothing selected it creates a standalone node. A :ref attribute naming another graph file (relative path) makes \"follow ref\" open it; the trail at the top leads back."
+      "When the served file is editable EDN, the floating toolbar at the bottom holds the tools for the current selection: delete, edge direction, and pick modes such as \"add edge\" (click the other element on the canvas, then name the edge; Esc cancels). New nodes and boxes are created by name: the prompt types a name, and the id is derived from it — lowercased, illegal characters turned into dashes; name::type also sets the type. With nothing selected it creates a standalone node. A :ref attribute naming another graph file (relative path) makes \"follow ref\" open it — in a suffix comparison (simpleviz graph.edn next) it opens that file's own comparison; the trail at the top leads back."
       "In the inspector, click a value or its ✎ to edit it inline — Enter commits, Shift+Enter inserts a line break, Escape cancels. × deletes an attribute; the key/value row at the bottom adds one. Ctrl+Z or ⟲ undoes the last edit.")
      (help-section
       "Keys"
       "Two-key chords act on the selection, when no text field has focus (the toolbar buttons show them): d d delete · e 1/2/3/4 edge direction → ← ↔ — · c s / c t change an edge's source / target · a e add edge · a b add to box (node) or add a box as member (box) · a n add a node as member (box) · c n new node inside the selected box · n n new node (connected to the selected node) · n b new box around the selection · r r rename the id · r n take a node out of the selected box · r b take the selected node out of its box · f r follow the selection's :ref. Esc cancels a pending chord; ? toggles this help; Ctrl+Z undoes.")
      (help-section
       "Compare"
-      "Serving two files renders one merged diagram: added elements get a green +, modified an amber ~ (select for an old → new list), removed ones stay as red dashed ghosts. Click a legend row to jump through the changes; the old|new toggle picks which file edits apply to.")
+      "Serving a file with a suffix (simpleviz graph.edn next) renders it against its fork graph-next.edn as one merged diagram: added elements get a green +, modified an amber ~ (select for an old → new list), removed ones stay as red dashed ghosts. Click a legend row to jump through the changes; the old|new toggle picks which file edits apply to.")
      (help-section
       "Export"
       "⇩ downloads the diagram as a PNG with the source EDN embedded — an exported PNG can be served again, compared, or turned back into EDN with \"simpleviz extract\".")
@@ -699,8 +700,9 @@
    (when (and (nil? (:scene st)) (nil? (:error st)))
      (load-view st))
    (collapsed-view st)
-   (when (some? (:graph st)) (legend-view st))
-   (trail-view st)
+   [:div {:id "top-center"}
+    (trail-view st)
+    (when (some? (:graph st)) (legend-view st))]
    (when (:layouting st)
      [:div {:id "layouting"} "re-layouting…"])
    (when (some? (:scene st))
@@ -1047,10 +1049,10 @@
   any failure — a failed fetch degrades the export to metadata-less."
   [which]
   (try
-    (let [resp (js-await (js/fetch (str "/api/source"
-                                        (if (some? which)
-                                          (str "?which=" which)
-                                          (file-query)))))]
+    (let [fq (file-query)
+          resp (js-await (js/fetch (str "/api/source" fq
+                                        (when (some? which)
+                                          (str (if (= fq "") "?" "&") "which=" which)))))]
       (if (.-ok resp) (js-await (.text resp)) nil))
     (catch :default _ nil)))
 

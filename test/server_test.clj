@@ -6,6 +6,15 @@
             [log]
             [serve]))
 
+(defn- serve!
+  "Point the server at `path` (single-file, or compare against its
+  `suffix` fork) the way -main does, with a fresh undo stack."
+  ([path] (serve! path nil))
+  ([path suffix]
+   (reset! serve/files {:root path :suffix suffix})
+   (reset! serve/root-dir (.getParentFile (.getCanonicalFile (java.io.File. path))))
+   (reset! serve/undo-stacks {})))
+
 (deftest graph-json-serves-normalized-graph
   (let [out (json/parse-string
              (serve/graph-json
@@ -25,12 +34,12 @@
     (is (string? (get out "error")))))
 
 (deftest parse-args-uses-default-port
-  (is (= {:file "g.edn" :port 7373 :debug false} (serve/parse-args ["g.edn"]))))
+  (is (= {:file "g.edn" :suffix nil :port 7373 :debug false} (serve/parse-args ["g.edn"]))))
 
 (deftest parse-args-accepts-port-flag-and-alias
-  (is (= {:file "g.edn" :port 9000 :debug false} (serve/parse-args ["g.edn" "--port" "9000"])))
-  (is (= {:file "g.edn" :port 9000 :debug false} (serve/parse-args ["g.edn" "-p" "9000"])))
-  (is (= {:file "g.edn" :port 9000 :debug false} (serve/parse-args ["--port" "9000" "g.edn"]))))
+  (is (= {:file "g.edn" :suffix nil :port 9000 :debug false} (serve/parse-args ["g.edn" "--port" "9000"])))
+  (is (= {:file "g.edn" :suffix nil :port 9000 :debug false} (serve/parse-args ["g.edn" "-p" "9000"])))
+  (is (= {:file "g.edn" :suffix nil :port 9000 :debug false} (serve/parse-args ["--port" "9000" "g.edn"]))))
 
 (deftest parse-args-rejects-bad-input
   (is (contains? (serve/parse-args []) :error))
@@ -38,14 +47,27 @@
   (is (contains? (serve/parse-args ["g.edn" "--port" "0"]) :error))
   (is (contains? (serve/parse-args ["g.edn" "--port" "70000"]) :error)))
 
-(deftest parse-args-two-files-enables-compare
-  (is (= {:old-file "a.edn" :file "b.edn" :port 7373 :debug false}
-         (serve/parse-args ["a.edn" "b.edn"])))
-  (is (= {:old-file "a.edn" :file "b.edn" :port 9000 :debug false}
-         (serve/parse-args ["a.edn" "b.edn" "-p" "9000"]))))
+(deftest parse-args-suffix-enables-compare
+  (is (= {:file "a.edn" :suffix "next" :port 7373 :debug false}
+         (serve/parse-args ["a.edn" "next"])))
+  (is (= {:file "a.edn" :suffix "v2" :port 9000 :debug false}
+         (serve/parse-args ["a.edn" "v2" "--port" "9000"])))
+  (is (= {:file "a.edn" :suffix nil :port 7373 :debug false}
+         (serve/parse-args ["a.edn"]))))
 
-(deftest parse-args-rejects-three-files
-  (is (contains? (serve/parse-args ["a.edn" "b.edn" "c.edn"]) :error)))
+(deftest parse-args-rejects-bad-suffixes
+  (is (clojure.string/includes? (:error (serve/parse-args ["a.edn" "ne/xt"])) "invalid suffix: ne/xt"))
+  (is (clojure.string/includes? (:error (serve/parse-args ["a.edn" "b.edn"])) "two-file compare was replaced"))
+  (is (clojure.string/includes? (:error (serve/parse-args ["a.edn" "b.PNG"])) "two-file compare was replaced")))
+
+(deftest parse-args-rejects-extra-positionals
+  (is (contains? (serve/parse-args ["a.edn" "next" "extra"]) :error)))
+
+(deftest fork-name-puts-the-suffix-before-the-extension
+  (is (= "demo-next.edn" (serve/fork-name "demo.edn" "next")))
+  (is (= "api/internals-next.edn" (serve/fork-name "api/internals.edn" "next")))
+  (is (= "examples/x-v2.png" (serve/fork-name "examples/x.png" "v2")))
+  (is (= "a.b/noext-next" (serve/fork-name "a.b/noext" "next"))))
 
 (deftest compare-json-diffs-two-graphs
   (let [out (json/parse-string
@@ -82,7 +104,7 @@
     (is (= "new.edn" (get out "file")))))
 
 (deftest api-source-serves-raw-text
-  (reset! serve/files {:old nil :new "examples/demo.edn"})
+  (serve! "examples/demo.edn")
   (let [resp (serve/handler {:uri "/api/source"})]
     (is (= 200 (:status resp)))
     (is (= (slurp "examples/demo.edn") (:body resp)))
@@ -90,35 +112,13 @@
          (get-in resp [:headers "Content-Type"]) "text/plain"))))
 
 (deftest api-source-compare-selects-files
-  (reset! serve/files {:old "examples/demo.edn" :new "examples/demo-next.edn"})
+  (serve! "examples/demo.edn" "next")
   (is (= (slurp "examples/demo.edn")
          (:body (serve/handler {:uri "/api/source" :query-string "which=old"}))))
   (is (= (slurp "examples/demo-next.edn")
          (:body (serve/handler {:uri "/api/source" :query-string "which=new"}))))
   (is (= (slurp "examples/demo-next.edn")
          (:body (serve/handler {:uri "/api/source"})))))
-
-(deftest api-source-old-without-compare-404s
-  (reset! serve/files {:old nil :new "examples/demo.edn"})
-  (is (= 404 (:status (serve/handler {:uri "/api/source" :query-string "which=old"})))))
-
-(deftest api-source-deleted-file-404s-instead-of-500
-  ;; A file that vanished between serve-startup and the request (e.g.
-  ;; deleted mid-serve) must not slurp-throw a raw exception message
-  ;; (incl. the absolute path) back to the client as a 500.
-  (reset! serve/files {:old nil :new "test/fixtures/does-not-exist.edn"})
-  (let [resp (serve/handler {:uri "/api/source"})]
-    (is (= 404 (:status resp)))
-    (is (= "not found" (:body resp)))))
-
-(deftest api-source-which-regex-is-anchored
-  ;; A substring match like "awhich=old" must not be treated as
-  ;; which=old — it should fall through to the default (single-file
-  ;; mode: :new, unaffected by :old since it's nil here).
-  (reset! serve/files {:old nil :new "examples/demo.edn"})
-  (let [resp (serve/handler {:uri "/api/source" :query-string "awhich=old"})]
-    (is (= 200 (:status resp)))
-    (is (= (slurp "examples/demo.edn") (:body resp)))))
 
 ;; --- Serving PNGs with embedded EDN (issue #46) ----------------------
 ;;
@@ -138,59 +138,6 @@
         data (concat kw-b [0 0 0 0 0] txt-b)]
     (concat (be32* (count data)) (map int "iTXt") data [0 0 0 0])))
 
-(defn- temp-png* [chunks]
-  (let [f (java.io.File/createTempFile "serve-test" ".png")]
-    (.deleteOnExit f)
-    (with-open [os (clojure.java.io/output-stream f)]
-      (.write os (byte-array (map unchecked-byte
-                                  (concat [137 80 78 71 13 10 26 10]
-                                          (apply concat chunks))))))
-    (.getPath f)))
-
-(deftest api-graph-serves-png-embedded-edn
-  (reset! serve/files {:old nil :new "test/fixtures/embedded.png"})
-  (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph"})))]
-    (is (contains? (get out "nodes") "a"))
-    (is (= "embedded.png" (get out "file")))
-    (is (not (contains? out "compare")))))
-
-(deftest api-graph-auto-compares-a-compare-export-png
-  (let [f (temp-png* [(itxt* "simpleviz-edn-old" "{:nodes {:a {}}}")
-                      (itxt* "simpleviz-edn-new" "{:nodes {:a {} :b {}}}")])]
-    (reset! serve/files {:old nil :new f})
-    (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph"})))]
-      (is (= "added" (get-in out ["nodes" "b" "diff"])))
-      (is (contains? out "compare")))))
-
-(deftest api-graph-two-file-compare-accepts-png-sides
-  (let [f (temp-png* [(itxt* "simpleviz-edn-new" "{:nodes {:a {}}}")])]
-    (reset! serve/files {:old f :new "examples/demo.edn"})
-    (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph"})))]
-      (is (contains? out "compare"))
-      (is (= "added" (get-in out ["nodes" "web" "diff"]))))))
-
-(deftest api-graph-png-without-edn-is-a-clear-error
-  (reset! serve/files {:old nil :new "test/fixtures/plain-1x1.png"})
-  (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph"})))]
-    (is (clojure.string/includes? (get out "error" "") "no embedded simpleviz EDN"))))
-
-(deftest api-source-serves-png-embedded-edn
-  (reset! serve/files {:old nil :new "test/fixtures/embedded.png"})
-  (let [resp (serve/handler {:uri "/api/source"})]
-    (is (= 200 (:status resp)))
-    (is (= "{:nodes {:a {}}}" (:body resp)))))
-
-(deftest api-source-compare-png-selects-sides
-  (let [f (temp-png* [(itxt* "simpleviz-edn-old" "{:nodes {:old {}}}")
-                      (itxt* "simpleviz-edn-new" "{:nodes {:new {}}}")])]
-    (reset! serve/files {:old nil :new f})
-    (is (= "{:nodes {:old {}}}"
-           (:body (serve/handler {:uri "/api/source" :query-string "which=old"}))))
-    (is (= "{:nodes {:new {}}}"
-           (:body (serve/handler {:uri "/api/source"}))))))
-
-;; --- /api/edit: undo stack + editable flags (Task 6) ------------------
-
 (defn- edit-req
   "A POST /api/edit request map. Defaults to a same-origin-shaped request
   (JSON content-type, port matching serve/default-port) so existing tests
@@ -209,9 +156,140 @@
   (let [f (java.io.File/createTempFile "edit-test" ".edn")]
     (.deleteOnExit f) (spit f text) (.getPath f)))
 
+(defn- png-bytes* [chunks]
+  (byte-array (map unchecked-byte (concat [137 80 78 71 13 10 26 10] (apply concat chunks)))))
+
+(defn- temp-png* [chunks]
+  (let [f (java.io.File/createTempFile "serve-test" ".png")]
+    (.deleteOnExit f)
+    (with-open [os (clojure.java.io/output-stream f)] (.write os (png-bytes* chunks)))
+    (.getPath f)))
+
+(defn- temp-dir* []
+  (.toFile (java.nio.file.Files/createTempDirectory "serve-test" (make-array java.nio.file.attribute.FileAttribute 0))))
+
+(defn- with-temp-dir*
+  "Call (f dir) with a fresh temp dir (java.io.File), deleting the tree
+  afterwards regardless of outcome."
+  [f]
+  (let [dir (temp-dir*)]
+    (try (f dir)
+         (finally (babashka.fs/delete-tree (.toPath dir))))))
+
+(defn- write! [dir rel content]
+  (let [f (java.io.File. dir rel)]
+    (.mkdirs (.getParentFile f))
+    (if (bytes? content)
+      (with-open [os (clojure.java.io/output-stream f)] (.write os content))
+      (spit f content))
+    (.getPath f)))
+
+(deftest api-graph-suffix-compare-accepts-png-sides
+  (with-temp-dir*
+    (fn [dir]
+      (let [p (write! dir "x.png" (png-bytes* [(itxt* "simpleviz-edn-new" "{:nodes {:a {}}}")]))]
+        (write! dir "x-next.png" (png-bytes* [(itxt* "simpleviz-edn" "{:nodes {:a {} :b {}}}")]))
+        (serve! p "next")
+        (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph"})))]
+          (is (contains? out "compare"))
+          (is (= "added" (get-in out ["nodes" "b" "diff"])))
+          (is (false? (get out "editable")))
+          (is (false? (get out "editable-old"))))))))
+
+(deftest api-graph-compare-mode-carries-editable-flags
+  (with-temp-dir*
+    (fn [dir]
+      (let [p (write! dir "g.edn" "{:nodes {:a nil}}")]
+        (write! dir "g-next.edn" "{:nodes {:a nil :b nil}}")
+        (serve! p "next")
+        (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph"})))]
+          (is (true? (get out "editable")))
+          (is (true? (get out "editable-old")))
+          (is (= "g.edn" (get out "path")))
+          (is (= {"old" "g.edn" "new" "g-next.edn"} (get out "compare"))))))))
+
+(deftest api-edit-refuses-png-in-old-slot
+  (with-temp-dir*
+    (fn [dir]
+      (let [p (write! dir "x.png" (png-bytes* [(itxt* "simpleviz-edn" "{:nodes {:a {}}}")]))]
+        (write! dir "x-next.png" (png-bytes* [(itxt* "simpleviz-edn" "{:nodes {:a {}}}")]))
+        (serve! p "next")
+        (is (= "PNG sources are read-only"
+               (get (json/parse-string (:body (serve/handler (edit-req {:file "old" :ops []})))) "error")))))))
+
+(deftest api-graph-file-param-refused-in-embedded-compare
+  (let [f (temp-png* [(itxt* "simpleviz-edn-old" "{:nodes {:a {}}}")
+                      (itxt* "simpleviz-edn-new" "{:nodes {:a {} :b {}}}")])]
+    (serve! f)
+    (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "file=x.edn"})))]
+      (is (= "refs are not available in an embedded compare" (get out "error"))))
+    (is (= 0 (get (json/parse-string (:body (serve/handler {:uri "/api/version" :query-string "file=x.edn"}))) "mtime")))
+    (is (= 404 (:status (serve/handler {:uri "/api/source" :query-string "file=x.edn"}))))
+    (is (= "refs are not available in an embedded compare"
+           (get (json/parse-string (:body (serve/handler (edit-req {:file "new" :path "x.edn" :ops []})))) "error")))))
+
+(deftest api-source-old-without-compare-404s
+  (serve! "examples/demo.edn")
+  (is (= 404 (:status (serve/handler {:uri "/api/source" :query-string "which=old"})))))
+
+(deftest api-source-deleted-file-404s-instead-of-500
+  ;; A file that vanished between serve-startup and the request (e.g.
+  ;; deleted mid-serve) must not slurp-throw a raw exception message
+  ;; (incl. the absolute path) back to the client as a 500.
+  (serve! "test/fixtures/does-not-exist.edn")
+  (let [resp (serve/handler {:uri "/api/source"})]
+    (is (= 404 (:status resp)))
+    (is (= "not found" (:body resp)))))
+
+(deftest api-source-which-regex-is-anchored
+  ;; A substring match like "awhich=old" must not be treated as
+  ;; which=old — it should fall through to the default (single-file
+  ;; mode: :new, unaffected by :old since it's nil here).
+  (serve! "examples/demo.edn")
+  (let [resp (serve/handler {:uri "/api/source" :query-string "awhich=old"})]
+    (is (= 200 (:status resp)))
+    (is (= (slurp "examples/demo.edn") (:body resp)))))
+
+(deftest api-graph-serves-png-embedded-edn
+  (serve! "test/fixtures/embedded.png")
+  (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph"})))]
+    (is (contains? (get out "nodes") "a"))
+    (is (= "embedded.png" (get out "file")))
+    (is (not (contains? out "compare")))))
+
+(deftest api-graph-auto-compares-a-compare-export-png
+  (let [f (temp-png* [(itxt* "simpleviz-edn-old" "{:nodes {:a {}}}")
+                      (itxt* "simpleviz-edn-new" "{:nodes {:a {} :b {}}}")])]
+    (serve! f)
+    (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph"})))]
+      (is (= "added" (get-in out ["nodes" "b" "diff"])))
+      (is (contains? out "compare")))))
+
+(deftest api-graph-png-without-edn-is-a-clear-error
+  (serve! "test/fixtures/plain-1x1.png")
+  (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph"})))]
+    (is (clojure.string/includes? (get out "error" "") "no embedded simpleviz EDN"))))
+
+(deftest api-source-serves-png-embedded-edn
+  (serve! "test/fixtures/embedded.png")
+  (let [resp (serve/handler {:uri "/api/source"})]
+    (is (= 200 (:status resp)))
+    (is (= "{:nodes {:a {}}}" (:body resp)))))
+
+(deftest api-source-compare-png-selects-sides
+  (let [f (temp-png* [(itxt* "simpleviz-edn-old" "{:nodes {:old {}}}")
+                      (itxt* "simpleviz-edn-new" "{:nodes {:new {}}}")])]
+    (serve! f)
+    (is (= "{:nodes {:old {}}}"
+           (:body (serve/handler {:uri "/api/source" :query-string "which=old"}))))
+    (is (= "{:nodes {:new {}}}"
+           (:body (serve/handler {:uri "/api/source"}))))))
+
+;; --- /api/edit: undo stack + editable flags (Task 6) ------------------
+
 (deftest api-edit-applies-and-writes
   (let [p (temp-edn "{:nodes {:a nil}}")]
-    (reset! serve/files {:old nil :new p})
+    (serve! p)
     (reset! serve/undo-stacks {})
     (let [resp (serve/handler (edit-req {:file "new" :ops [{:op "add-node" :id "b"}]}))]
       (is (= 200 (:status resp)))
@@ -220,7 +298,7 @@
 
 (deftest api-edit-error-leaves-file-untouched
   (let [p (temp-edn "{:nodes {:a nil}}")]
-    (reset! serve/files {:old nil :new p})
+    (serve! p)
     (reset! serve/undo-stacks {})
     (let [resp (serve/handler (edit-req {:file "new" :ops [{:op "add-node" :id "a"}]}))]
       (is (clojure.string/includes? (get (json/parse-string (:body resp)) "error") "already exists"))
@@ -229,7 +307,7 @@
 
 (deftest api-edit-undo-restores
   (let [p (temp-edn "{:nodes {:a nil}}")]
-    (reset! serve/files {:old nil :new p})
+    (serve! p)
     (reset! serve/undo-stacks {})
     (serve/handler (edit-req {:file "new" :ops [{:op "add-node" :id "b"}]}))
     (serve/handler (edit-req {:file "new" :ops [{:op "undo"}]}))
@@ -238,54 +316,35 @@
       (is (= "nothing to undo" (get (json/parse-string (:body resp)) "error"))))))
 
 (deftest api-edit-refuses-png-and-missing-old
-  (reset! serve/files {:old nil :new "test/fixtures/embedded.png"})
+  (serve! "test/fixtures/embedded.png")
   (is (= "PNG sources are read-only"
          (get (json/parse-string (:body (serve/handler (edit-req {:file "new" :ops []})))) "error")))
   (let [p (temp-edn "{:nodes {:a nil}}")]
-    (reset! serve/files {:old nil :new p})
+    (serve! p)
     (is (clojure.string/includes?
          (get (json/parse-string (:body (serve/handler (edit-req {:file "old" :ops []})))) "error")
          "no old file"))))
 
 (deftest api-graph-carries-editable-flags
   (let [p (temp-edn "{:nodes {:a nil}}")]
-    (reset! serve/files {:old nil :new p})
+    (serve! p)
     (is (true? (get (json/parse-string (:body (serve/handler {:uri "/api/graph"}))) "editable"))))
-  (reset! serve/files {:old nil :new "test/fixtures/embedded.png"})
+  (serve! "test/fixtures/embedded.png")
   (is (false? (get (json/parse-string (:body (serve/handler {:uri "/api/graph"}))) "editable"))))
-
-(deftest api-graph-compare-mode-carries-editable-flags
-  (let [old-p (temp-edn "{:nodes {:a nil}}")
-        new-p (temp-edn "{:nodes {:a nil :b nil}}")]
-    (reset! serve/files {:old old-p :new new-p})
-    (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph"})))]
-      (is (true? (get out "editable")))
-      (is (true? (get out "editable-old")))))
-  (reset! serve/files {:old "test/fixtures/embedded.png" :new (temp-edn "{:nodes {:a nil}}")})
-  (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph"})))]
-    (is (true? (get out "editable")))
-    (is (false? (get out "editable-old")))))
 
 (deftest api-graph-embedded-compare-png-is-not-editable
   (let [f (temp-png* [(itxt* "simpleviz-edn-old" "{:nodes {:a {}}}")
                       (itxt* "simpleviz-edn-new" "{:nodes {:a {} :b {}}}")])]
-    (reset! serve/files {:old nil :new f})
+    (serve! f)
     (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph"})))]
       (is (false? (get out "editable")))
       (is (false? (get out "editable-old"))))))
-
-(deftest api-edit-refuses-png-in-old-slot
-  (let [p (temp-edn "{:nodes {:a nil}}")]
-    (reset! serve/files {:old "test/fixtures/embedded.png" :new p})
-    (reset! serve/undo-stacks {})
-    (is (= "PNG sources are read-only"
-           (get (json/parse-string (:body (serve/handler (edit-req {:file "old" :ops []})))) "error")))))
 
 ;; --- /api/edit: Origin + Content-Type guard (Task 13) ------------------
 
 (deftest api-edit-rejects-foreign-origin
   (let [p (temp-edn "{:nodes {:a nil}}")]
-    (reset! serve/files {:old nil :new p})
+    (serve! p)
     (reset! serve/undo-stacks {})
     (let [resp (serve/handler
                 (edit-req {:file "new" :ops [{:op "add-node" :id "b"}]}
@@ -299,7 +358,7 @@
 (deftest api-edit-accepts-local-origins
   (let [p (temp-edn "{:nodes {:a nil}}")]
     (doseq [origin ["http://localhost:7373" "http://127.0.0.1:7373"]]
-      (reset! serve/files {:old nil :new p})
+      (serve! p)
       (reset! serve/undo-stacks {})
       (spit p "{:nodes {:a nil}}")
       (let [resp (serve/handler
@@ -310,7 +369,7 @@
 
 (deftest api-edit-rejects-missing-content-type
   (let [p (temp-edn "{:nodes {:a nil}}")]
-    (reset! serve/files {:old nil :new p})
+    (serve! p)
     (reset! serve/undo-stacks {})
     (let [resp (serve/handler
                 (edit-req {:file "new" :ops [{:op "add-node" :id "b"}]}
@@ -325,7 +384,7 @@
 
 (deftest e2e-edit-roundtrip
   (let [p (temp-edn "{:nodes {:web {:name \"Web\"}} ;; a comment\n :edges {}}")]
-    (reset! serve/files {:old nil :new p})
+    (serve! p)
     (reset! serve/undo-stacks {})
     (serve/handler (edit-req {:file "new"
                               :ops [{:op "add-node" :id "api"}
@@ -338,10 +397,10 @@
 ;; --- --debug flag, crash guard, edit log ------------------------------
 
 (deftest parse-args-accepts-debug-flag
-  (is (= {:file "g.edn" :port 7373 :debug true} (serve/parse-args ["g.edn" "--debug"])))
-  (is (= {:file "g.edn" :port 9000 :debug true} (serve/parse-args ["--debug" "g.edn" "-p" "9000"])))
-  (is (= {:old-file "a.edn" :file "b.edn" :port 7373 :debug true}
-         (serve/parse-args ["a.edn" "b.edn" "--debug"]))))
+  (is (= {:file "g.edn" :suffix nil :port 7373 :debug true} (serve/parse-args ["g.edn" "--debug"])))
+  (is (= {:file "g.edn" :suffix nil :port 9000 :debug true} (serve/parse-args ["--debug" "g.edn" "-p" "9000"])))
+  (is (= {:file "a.edn" :suffix "next" :port 7373 :debug true}
+         (serve/parse-args ["a.edn" "next" "--debug"]))))
 
 (defn- with-log-dir* [f]
   (let [d (str (babashka.fs/create-temp-dir {:prefix "serve-test-log"}))]
@@ -371,7 +430,7 @@
             g (java.io.File/createTempFile "serve-test" ".edn")]
         (.deleteOnExit g)
         (spit g "{:nodes {:a {:name \"A\"} :b {:name \"B\"}} :edges {} :boxes {}}")
-        (reset! serve/files {:old nil :new (str g)})
+        (serve! (str g))
         (serve/handler {:request-method :post :uri "/api/edit"
                         :headers {"content-type" "application/json"}
                         :body (java.io.ByteArrayInputStream.
@@ -454,14 +513,41 @@
           (is true)))
       (finally (babashka.fs/delete-tree tmp)))))
 
+(deftest sides-resolves-through-a-symlinked-root-file
+  ;; bb serve ~/link.edn where link.edn symlinks into another dir: the
+  ;; root-relative name must be the canonical (real) basename, not the
+  ;; raw basename of the symlink path, or resolve-path looks for a file
+  ;; that doesn't exist under the real dir.
+  (let [tmp (str (babashka.fs/create-temp-dir {:prefix "simpleviz-root-symlink-test"}))
+        real (java.io.File. tmp "real")
+        elsewhere (java.io.File. tmp "elsewhere")
+        g (java.io.File. real "g.edn")
+        link (java.io.File. elsewhere "link.edn")]
+    (try
+      (.mkdirs real)
+      (.mkdirs elsewhere)
+      (spit g "{:nodes {:a nil}}")
+      (let [created? (try
+                       (java.nio.file.Files/createSymbolicLink
+                        (.toPath link) (.toPath g)
+                        (make-array java.nio.file.attribute.FileAttribute 0))
+                       true
+                       (catch Exception _ false))]
+        (if created?
+          (do
+            (serve! (.getPath link))
+            (is (= "g.edn" (.getName (:new (serve/sides nil)))))
+            (is (= "g.edn" (get (json/parse-string (:body (serve/handler {:uri "/api/graph"}))) "path"))))
+          ;; symlink creation unsupported on this filesystem — skip, don't fail
+          (is true)))
+      (finally (babashka.fs/delete-tree tmp)))))
+
 ;; --- ?file= parameter and edit :path (Task 2) -------------------------
 
 (defn- refs-mode!
   "Serve the refs fixture tree in single-file mode."
   []
-  (reset! serve/files {:old nil :new "test/fixtures/refs/root.edn"})
-  (reset! serve/root-dir refs-root)
-  (reset! serve/undo-stacks {}))
+  (serve! "test/fixtures/refs/root.edn"))
 
 (deftest api-graph-file-param-serves-a-file-below-the-root
   (refs-mode!)
@@ -482,12 +568,6 @@
     (is (clojure.string/includes? (get escape "error") "leaves the served folder"))
     (is (clojure.string/includes? (get missing "error") "no such file"))
     (is (clojure.string/includes? (get txt "error") "not an .edn or .png"))))
-
-(deftest api-graph-file-param-refused-in-compare-mode
-  (reset! serve/files {:old "examples/demo.edn" :new "examples/demo-next.edn"})
-  (reset! serve/root-dir (.getCanonicalFile (java.io.File. "examples")))
-  (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "file=demo.edn"})))]
-    (is (= "refs are not available in compare mode" (get out "error")))))
 
 (deftest api-version-file-param
   (refs-mode!)
@@ -511,9 +591,7 @@
     (.mkdirs (.getParentFile sub))
     (spit root "{:nodes {:api {:ref \"sub/api.edn\"}}}")
     (spit sub "{:nodes {:handler nil}}")
-    (reset! serve/files {:old nil :new (.getPath root)})
-    (reset! serve/root-dir (.getCanonicalFile dir))
-    (reset! serve/undo-stacks {})
+    (serve! (.getPath root))
     (let [resp (serve/handler (edit-req {:file "new" :path "sub/api.edn" :ops [{:op "add-node" :id "b"}]}))]
       (is (true? (get (json/parse-string (:body resp)) "ok")))
       (is (clojure.string/includes? (slurp sub) ":b nil"))
@@ -542,9 +620,7 @@
     ;; textually from resolve-path's canonical form — reproducing how a
     ;; non-canonical CLI arg differs from the canonical path a `path`-based
     ;; edit resolves to
-    (reset! serve/files {:old nil :new (str (.getPath dir) "/./root.edn")})
-    (reset! serve/root-dir (.getCanonicalFile dir))
-    (reset! serve/undo-stacks {})
+    (serve! (str (.getPath dir) "/./root.edn"))
     ;; edit via `file`, undo via `path` — one shared undo stack
     (serve/handler (edit-req {:file "new" :ops [{:op "add-node" :id "b"}]}))
     (is (clojure.string/includes? (slurp root) ":b nil"))
@@ -556,9 +632,100 @@
     (serve/handler (edit-req {:file "new" :ops [{:op "undo"}]}))
     (is (= original (slurp root)))))
 
-(deftest api-edit-path-refused-in-compare-mode
-  (let [p (temp-edn "{:nodes {:a nil}}")]
-    (reset! serve/files {:old p :new p})
-    (reset! serve/root-dir (.getParentFile (.getCanonicalFile (java.io.File. p))))
-    (let [resp (serve/handler (edit-req {:file "new" :path (.getName (java.io.File. p)) :ops [{:op "add-node" :id "b"}]}))]
-      (is (= "refs are not available in compare mode" (get (json/parse-string (:body resp)) "error"))))))
+;; --- suffix compare with refs ------------------------------------------
+
+(defn- suffix-tree!
+  "A root with a forked ref target, an unforked one, and a fork-only one,
+  written under `dir`."
+  [dir]
+  (let [p (write! dir "root.edn" "{:nodes {:api {:ref \"sub/api.edn\"} :lone {:ref \"lone.edn\"} :fresh {:ref \"fresh.edn\"}}}")]
+    (write! dir "root-next.edn" "{:nodes {:api {:ref \"sub/api.edn\"} :lone {:ref \"lone.edn\"} :fresh {:ref \"fresh.edn\"} :added nil}}")
+    (write! dir "sub/api.edn" "{:nodes {:h nil}}")
+    (write! dir "sub/api-next.edn" "{:nodes {:h nil :h2 nil}}")
+    (write! dir "lone.edn" "{:nodes {:l nil}}")
+    (write! dir "fresh-next.edn" "{:nodes {:f nil}}")
+    (serve! p "next")
+    dir))
+
+(deftest sides-pairs-a-path-with-its-fork
+  (with-temp-dir*
+    (fn [dir]
+      (suffix-tree! dir)
+      (let [root (serve/sides nil)
+            sub (serve/sides "sub/api.edn")]
+        (is (= "root.edn" (.getName (:old root))))
+        (is (= "root-next.edn" (.getName (:new root))))
+        (is (= "api.edn" (.getName (:old sub))))
+        (is (= "api-next.edn" (.getName (:new sub))))
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"^no lone-next\.edn — create it with: simpleviz fork lone\.edn next$"
+                              (serve/sides "lone.edn")))
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"^no fresh\.edn \(only fresh-next\.edn\)$"
+                              (serve/sides "fresh.edn")))
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"leaves the served folder"
+                              (serve/sides "../x.edn")))
+        (serve! (.getPath (java.io.File. dir "root.edn")))
+        (is (nil? (:old (serve/sides nil))))
+        (is (= "api.edn" (.getName (:new (serve/sides "sub/api.edn")))))))))
+
+(deftest api-graph-file-param-compares-the-pair-in-suffix-mode
+  (with-temp-dir*
+    (fn [dir]
+      (suffix-tree! dir)
+      (let [sub (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "file=sub%2Fapi.edn"})))
+            lone (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "file=lone.edn"})))
+            fresh (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "file=fresh.edn"})))]
+        (is (= {"old" "sub/api.edn" "new" "sub/api-next.edn"} (get sub "compare")))
+        (is (= "sub/api.edn" (get sub "path")))
+        (is (= "api-next.edn" (get sub "file")))
+        (is (= "added" (get-in sub ["nodes" "h2" "diff"])))
+        (is (true? (get sub "editable")))
+        (is (true? (get sub "editable-old")))
+        (is (= "no lone-next.edn — create it with: simpleviz fork lone.edn next" (get lone "error")))
+        (is (= "no fresh.edn (only fresh-next.edn)" (get fresh "error")))))))
+
+(deftest api-version-and-source-per-side-in-suffix-mode
+  (with-temp-dir*
+    (fn [dir]
+      (suffix-tree! dir)
+      (let [old (java.io.File. dir "sub/api.edn")
+            new (java.io.File. dir "sub/api-next.edn")]
+        (is (= (str (.lastModified old) "-" (.lastModified new))
+               (get (json/parse-string (:body (serve/handler {:uri "/api/version" :query-string "file=sub%2Fapi.edn"}))) "mtime")))
+        (is (= 0 (get (json/parse-string (:body (serve/handler {:uri "/api/version" :query-string "file=lone.edn"}))) "mtime")))
+        (is (= (slurp old) (:body (serve/handler {:uri "/api/source" :query-string "file=sub%2Fapi.edn&which=old"}))))
+        (is (= (slurp new) (:body (serve/handler {:uri "/api/source" :query-string "file=sub%2Fapi.edn&which=new"}))))
+        (is (= (slurp new) (:body (serve/handler {:uri "/api/source" :query-string "file=sub%2Fapi.edn"}))))
+        (is (= 404 (:status (serve/handler {:uri "/api/source" :query-string "file=lone.edn"}))))))))
+
+(deftest api-edit-path-and-file-pick-the-side-in-suffix-mode
+  (with-temp-dir*
+    (fn [dir]
+      (suffix-tree! dir)
+      (let [old (java.io.File. dir "sub/api.edn")
+            new (java.io.File. dir "sub/api-next.edn")]
+        (is (true? (get (json/parse-string (:body (serve/handler (edit-req {:file "old" :path "sub/api.edn" :ops [{:op "add-node" :id "o"}]})))) "ok")))
+        (is (true? (get (json/parse-string (:body (serve/handler (edit-req {:file "new" :path "sub/api.edn" :ops [{:op "add-node" :id "n"}]})))) "ok")))
+        (is (clojure.string/includes? (slurp old) ":o nil"))
+        (is (not (clojure.string/includes? (slurp old) ":n nil")))
+        (is (clojure.string/includes? (slurp new) ":n nil"))
+        ;; independent undo stacks
+        (serve/handler (edit-req {:file "old" :path "sub/api.edn" :ops [{:op "undo"}]}))
+        (is (= "{:nodes {:h nil}}" (slurp old)))
+        (is (clojure.string/includes? (slurp new) ":n nil"))
+        ;; a missing side is an error before anything is written
+        (is (= "no lone-next.edn — create it with: simpleviz fork lone.edn next"
+               (get (json/parse-string (:body (serve/handler (edit-req {:file "new" :path "lone.edn" :ops [{:op "add-node" :id "z"}]})))) "error")))
+        (is (= "{:nodes {:l nil}}" (slurp (java.io.File. dir "lone.edn"))))))))
+
+(deftest api-edit-without-path-picks-the-root-sides-in-suffix-mode
+  (with-temp-dir*
+    (fn [dir]
+      (suffix-tree! dir)
+      (let [root (java.io.File. dir "root.edn")
+            root-next (java.io.File. dir "root-next.edn")]
+        (is (true? (get (json/parse-string (:body (serve/handler (edit-req {:file "old" :ops [{:op "add-node" :id "r"}]})))) "ok")))
+        (is (clojure.string/includes? (slurp root) ":r nil"))
+        (is (not (clojure.string/includes? (slurp root-next) ":r nil")))
+        (is (true? (get (json/parse-string (:body (serve/handler (edit-req {:file "new" :ops [{:op "add-node" :id "s"}]})))) "ok")))
+        (is (clojure.string/includes? (slurp root-next) ":s nil"))
+        (is (not (clojure.string/includes? (slurp root) ":s nil")))))))

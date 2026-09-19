@@ -87,17 +87,22 @@ MIN_BB="1.3.0"
 
 usage() {
   cat <<USAGE
-usage: simpleviz <graph.edn> [new.edn] [--debug]   serve a graph (two files: compare old -> new)
+usage: simpleviz <graph.edn> [<suffix>] [--debug]   serve a graph; with a suffix, compare it
+                                         against its fork graph-<suffix>.edn (refs follow
+                                         into the same comparison of each referenced file)
                                          exported PNGs work in place of EDN files
                                          --debug logs edits and errors to $SIMPLEVIZ_HOME/logs/
 
+       simpleviz fork <graph.edn> <suffix>     copy the graph and every file it refs to
+                                               <name>-<suffix>.edn siblings
+       simpleviz promote <graph.edn> <suffix>  move each fork over its original file
        simpleviz init <graph.edn>        write a starter graph file (won't overwrite)
        simpleviz extract <diagram.png> [out.edn] [--old]   print/extract the embedded EDN
        simpleviz update                  install the latest release if it is newer
        simpleviz clean-all               kill every running simpleviz server
        simpleviz --version               print the installed version
 Serves on a random free port between 7370 and 7469.
-Try the bundled example: simpleviz "$SIMPLEVIZ_HOME/examples/demo.edn"
+Try the bundled example: simpleviz "$SIMPLEVIZ_HOME/examples/demo.edn" next
 USAGE
 }
 
@@ -173,22 +178,47 @@ free_port() {
   return 1
 }
 
+fork_name() { # <path> <suffix> -> <dir>/<stem>-<suffix>.<ext>
+  local f="$1" s="$2" dir base
+  dir=$(dirname "$f"); base=$(basename "$f")
+  case "$base" in
+    *.*) echo "$dir/${base%.*}-$s.${base##*.}" ;;
+    *)   echo "$dir/$base-$s" ;;
+  esac
+}
+
 serve() {
-  local files=() flags=() f port pid i
+  local file="" suffix="" flags=() f fork port pid i
   [ -d "$SIMPLEVIZ_HOME" ] || die "$SIMPLEVIZ_HOME not found — run install.sh first"
   for f in "$@"; do
     case "$f" in
       --debug) flags+=("$f") ;;
       *)
-        [ -f "$f" ] || die "file not found: $f"
-        files+=("$(realpath "$f")")
+        if [ -z "$file" ]; then
+          [ -f "$f" ] || die "file not found: $f"
+          file=$(realpath "$f")
+        elif [ -z "$suffix" ]; then
+          case "$f" in
+            *.edn|*.EDN|*.png|*.PNG)
+              die "two-file compare was replaced: simpleviz fork $file <suffix>, then simpleviz $file <suffix>" ;;
+            *[!A-Za-z0-9_.-]*|"")
+              die "invalid suffix: $f" ;;
+          esac
+          suffix="$f"
+        else
+          usage >&2; exit 1
+        fi
         ;;
     esac
   done
-  [ "${#files[@]}" -ge 1 ] && [ "${#files[@]}" -le 2 ] || { usage >&2; exit 1; }
+  [ -n "$file" ] || { usage >&2; exit 1; }
+  if [ -n "$suffix" ]; then
+    fork=$(fork_name "$file" "$suffix")
+    [ -f "$fork" ] || die "$fork not found — create it with: simpleviz fork $file $suffix"
+  fi
   check_bb
   port=$(free_port) || die "no free port between 7370 and 7469"
-  (cd "$SIMPLEVIZ_HOME" && exec bb serve "${files[@]}" --port "$port" ${flags[@]+"${flags[@]}"}) &
+  (cd "$SIMPLEVIZ_HOME" && exec bb serve "$file" ${suffix:+"$suffix"} --port "$port" ${flags[@]+"${flags[@]}"}) &
   pid=$!
   trap 'kill "$pid" 2>/dev/null || true' INT TERM
   for i in $(seq 1 100); do
@@ -211,6 +241,15 @@ case "${1:-}" in
   init)
     shift
     init_cmd "$@"
+    ;;
+  fork | promote)
+    cmd="$1"; shift
+    [ "$#" -eq 2 ] || { usage >&2; exit 1; }
+    [ -f "$1" ] || die "file not found: $1"
+    check_bb
+    [ -d "$SIMPLEVIZ_HOME" ] || die "$SIMPLEVIZ_HOME not found — run install.sh first"
+    file=$(realpath "$1")
+    (cd "$SIMPLEVIZ_HOME" && exec bb "$cmd" "$file" "$2")
     ;;
   extract)
     shift

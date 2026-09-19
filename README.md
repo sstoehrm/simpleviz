@@ -53,7 +53,9 @@ graphs (500+ nodes) open with all top-level boxes collapsed.
     {:nodes {:api {:name "API"           ; display name (defaults to the key)
                    :type "service"       ; free-form; colors the name, shown as (type)
                    :lang "clojure"       ; any other attr: inspector panel only
-                   :ref "sub/api.edn"}   ; another graph file, relative to this one — "follow ref" opens it
+                   :ref "sub/api.edn"    ; another graph file, relative to this one — "follow ref" opens it;
+                                         ; the node gets a double border
+                   :state :in-progress}  ; :new | :in-progress | :blocked | :done — a mark on the node's corner
              :web {:type "frontend"}
              :db  {:type "database"}}
      :edges {[:web :api]                 ; key: endpoints (nodes or boxes), order defines left/right;
@@ -185,6 +187,13 @@ Server" and type "frontend". With a selection it shows that element's tools:
   existing element as a member, "remove node" (pick a member to take out),
   "new node" (a new node inside the box, via a name prompt), and "new box"
   (wraps this box the same way).
+
+**Node marks.** A node with a `:ref` is drawn with a double border. A
+node's `:state` — `:new`, `:in-progress`, `:blocked` or `:done` — shows as
+a mark on its top-right corner: grey disc, blue half disc, red square,
+green disc with a check. Any other `:state` value is an ordinary
+attribute. Hovering a node, edge or box shows a tooltip with its name and
+attributes, without opening the inspector.
 
 **Following refs.** A `:ref` attribute on a node, box or edge names
 another graph file by a path relative to the file it is in. With such an

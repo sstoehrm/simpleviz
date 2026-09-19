@@ -30,6 +30,7 @@ EDN-driven graph visualization: nodes, directed edges, nested grouping boxes; au
 Rules that are easy to get wrong:
 - `:nodes` is a MAP keyed by id — not a vector. There is no `:id`, `:label`, or nested `:attrs` key; the display key is `:name`, and every other key in the node map is a free-form attribute shown in the inspector.
 - `:ref "sub/other.edn"` on a node, box or edge links another graph file, relative to the file it is in and never above the folder of the served root file; the viewer's "follow ref" (`f r`) opens it and shows a clickable trail back. In a suffix comparison it opens the referenced file's own comparison.
+- `:state` on a node — `:new`, `:in-progress`, `:blocked` or `:done` — draws a mark on the node's corner (grey disc, blue half disc, red square, green check); use it to show progress on a plan or spec figure. Any other value is an ordinary attribute. A node with a `:ref` is drawn with a double border.
 - `:edges` is a map keyed by `[from to]` vectors — not `:from`/`:to` maps. Direction lives in `:direction`; there is no `:bidirectional` (use `:<->`). The same pair cannot appear twice; writing both `[:a :b]` and `[:b :a]` triggers a "same connection" warning.
 - Grouping is `:boxes` with `:components` — there is no `:zones`, `:groups`, or `:children`. Boxes nest by listing another box's id in `:components`. Edge endpoints may be node ids or box ids (never display names); an edge between a box and its own content — or a box and itself — is skipped with a warning.
 - Identifiers may be keywords or strings, interchangeably (`:api` ≡ `"api"`); namespaced keywords keep their namespace (`:backend.server/db` ≡ `"backend.server/db"`). When a name refers to both a node and a box, an edge endpoint resolves to the node (with a warning).
@@ -74,7 +75,7 @@ There is no `bb diff` or similar — comparing is serving a file with the suffix
 
 ## Viewer
 
-Click any node/edge/box for its full attributes. Hovering shows the id to reference in the EDN file as a tooltip — nodes/boxes their bare id, edges their `[from to]` key. Drag pans, wheel zooms. Boxes collapse/expand via the `−` button in their header (a collapsed box showing an amber dot hides changes in compare mode). Theme toggle top-right. Saving the file live-reloads the page (~1s); the tab title names the served file (or `old → new` in compare mode). The ⇩ button exports the whole diagram as a PNG with the source EDN embedded as metadata (recoverable via simpleviz extract, or serve the PNG directly).
+Click any node/edge/box for its full attributes. Hovering shows a tooltip with the element's name and its attributes (an unnamed edge is headed by its `[from to]` key). Drag pans, wheel zooms. Boxes collapse/expand via the `−` button in their header (a collapsed box showing an amber dot hides changes in compare mode). Theme toggle top-right. Saving the file live-reloads the page (~1s); the tab title names the served file (or `old → new` in compare mode). The ⇩ button exports the whole diagram as a PNG with the source EDN embedded as metadata (recoverable via simpleviz extract, or serve the PNG directly).
 
 ## Editing (in the browser)
 

@@ -241,3 +241,23 @@
           [box] (filterv (fn [it] (= (:kind it) "box"))
                          (:items (build-scene {:layout l :graph g :colors colors})))]
       (assert/equal (:name box) "Fancy Label"))))
+
+(defn- node-with [attrs]
+  (let [g (assoc-in graph [:nodes "b"] {:id "b" :name "b" :type "" :attrs attrs})
+        sc (build-scene {:layout layout :graph g :colors colors})]
+    (first (filterv (fn [it] (= (:id it) "n:b")) (:items sc)))))
+
+(test "a node with a non-blank string :ref is flagged :ref?"
+  (fn []
+    (assert/equal (:ref? (node-with {:ref "sub/api.edn"})) true)
+    (assert/equal (:ref? (node-with {:ref "  "})) false)
+    (assert/equal (:ref? (node-with {:ref 3})) false)
+    (assert/equal (:ref? (node-with {})) false)))
+
+(test "a node carries its :state only when it is a known one"
+  (fn []
+    (doseq [s ["new" "in-progress" "blocked" "done"]]
+      (assert/equal (:state (node-with {:state s})) s))
+    (assert/ok (nil? (:state (node-with {:state "paused"}))))
+    (assert/ok (nil? (:state (node-with {:state 3}))))
+    (assert/ok (nil? (:state (node-with {}))))))

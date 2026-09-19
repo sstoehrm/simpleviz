@@ -144,17 +144,6 @@
                         [:span {:class "cp-plus"} "+"]]))
                    (vec (sort (js/Array.from collapsed)))))])))
 
-;; attrs already represented visually (endpoints/arrow on the canvas,
-;; membership by containment) stay out of the inspector
-(def ^:private hidden-attrs
-  {"edge" #{"nodes" "direction"}
-   "box" #{"components"}})
-
-(defn- visible-attrs [sel]
-  (let [hidden (get hidden-attrs (:kind sel))]
-    (filterv (fn [[k _]] (not (and (some? hidden) (.has hidden k))))
-             (js/Object.entries (:attrs sel)))))
-
 (defn- fmt-val [v]
   (cond (nil? v) "—"
         (string? v) v
@@ -435,7 +424,7 @@
                        (if editable
                          (attr-edit-row sel tgt k v (editor/scalar? v) editing)
                          [:dd {:key (str "d" k)} (format/value->hiccup v)])])
-                    (visible-attrs sel))))
+                    (format/visible-attrs sel))))
      (when editable (attr-add-row sel tgt))]))
 
 (defn- selection-toolbar
@@ -579,31 +568,66 @@
              [[:span {:class "trail-current" :key "cur"}
                (or (:path (:graph st)) (:file (:nav st)))]])))))
 
+(def ^:private tooltip-el (js/document.getElementById "tooltip"))
+;; the item the tooltip currently shows — its content is re-rendered only
+;; when the pointer crosses onto another item, not on every move
+(def ^:private tooltip-item (atom nil))
+
+(defn- hide-tooltip! []
+  (reset! tooltip-item nil)
+  (set! (.-hidden tooltip-el) true))
+
+(defn- tooltip-view [tip]
+  [:div
+   [:div {:class "tip-title"} (:title tip)]
+   (when (pos? (.-length (:attrs tip)))
+     (into [:dl]
+           (mapcat (fn [[k v]]
+                     [[:dt {:key (str "t" k)} k]
+                      [:dd {:key (str "d" k)} (format/value->hiccup v)]])
+                   (:attrs tip))))])
+
+(defn- place-tooltip!
+  "Below-right of the pointer, flipped to the other side where it would
+  leave the viewport."
+  [cx cy]
+  (let [w (.-offsetWidth tooltip-el)
+        h (.-offsetHeight tooltip-el)
+        x (if (> (+ cx 14 w) js/window.innerWidth) (- cx 14 w) (+ cx 14))
+        y (if (> (+ cy 14 h) js/window.innerHeight) (- cy 14 h) (+ cy 14))]
+    (set! (.-left (.-style tooltip-el)) (str (js/Math.max 0 x) "px"))
+    (set! (.-top (.-style tooltip-el)) (str (js/Math.max 0 y) "px"))))
+
 (defn- update-hover!
-  "Set/clear the canvas title attribute to the hovered element's id —
-  the native tooltip reveals what to reference in the EDN file. Direct
-  DOM attribute write: no state, no re-render."
-  [el mx my]
+  "Show the hovered element's name and attrs in the tooltip. Direct DOM
+  writes: no state, no re-render of the app."
+  [mx my cx cy]
   (let [p (hit/client->graph canvas/view mx my)
         s (:scene @state)
         item (when (some? s)
                (hit/hit-test s p (/ 8 (:k canvas/view)) (:k canvas/view)))
-        t (hit/hover-title item)]
-    (if (some? t)
-      (.setAttribute el "title" t)
-      (.removeAttribute el "title"))))
+        tip (hit/hover-tip item)]
+    (if (some? tip)
+      (do (when-not (identical? item @tooltip-item)
+            (reset! tooltip-item item)
+            (render tooltip-el (tooltip-view tip)))
+          (set! (.-hidden tooltip-el) false)
+          (place-tooltip! cx cy))
+      (hide-tooltip!))))
 
 (defn- canvas-view []
   [:canvas
    {:id "canvas" :key "the-canvas"
     :on-pointermove
     (fn [e]
-      (let [el (.-currentTarget e)
-            rect (.getBoundingClientRect el)]
-        (update-hover! el (- (.-clientX e) (.-left rect))
-                       (- (.-clientY e) (.-top rect)))))
-    :on-pointerleave
-    (fn [e] (.removeAttribute (.-currentTarget e) "title"))
+      ;; a held button is a pan or a click in progress — no tooltip then
+      (if (pos? (.-buttons e))
+        (hide-tooltip!)
+        (let [rect (.getBoundingClientRect (.-currentTarget e))]
+          (update-hover! (- (.-clientX e) (.-left rect))
+                         (- (.-clientY e) (.-top rect))
+                         (.-clientX e) (.-clientY e)))))
+    :on-pointerleave (fn [_] (hide-tooltip!))
     :on-click
     (fn [e]
       ;; drag-ending clicks never arrive here: pointer capture (acquired
@@ -657,7 +681,7 @@
      [:h2 "How to use"]
      (help-section
       "Navigate"
-      "Drag to pan, scroll to zoom. Hover an element to see its id in the EDN file; click it to inspect its attributes. The − in a box header collapses the box to a single node — the panel on the left lists collapsed boxes and re-expands them.")
+      "Drag to pan, scroll to zoom. Hover an element to see its name and attributes; click it to inspect and edit them. A double border marks a node with a :ref; the mark on a node's corner is its :state — grey disc new, blue half disc in-progress, red square blocked, green check done. The − in a box header collapses the box to a single node — the panel on the left lists collapsed boxes and re-expands them.")
      (help-section
       "Edit"
       "When the served file is editable EDN, the floating toolbar at the bottom holds the tools for the current selection: delete, edge direction, and pick modes such as \"add edge\" (click the other element on the canvas, then name the edge; Esc cancels). New nodes and boxes are created by name: the prompt types a name, and the id is derived from it — lowercased, illegal characters turned into dashes; name::type also sets the type. With nothing selected it creates a standalone node. A :ref attribute naming another graph file (relative path) makes \"follow ref\" open it — in a suffix comparison (simpleviz graph.edn next) it opens that file's own comparison; the trail at the top leads back."

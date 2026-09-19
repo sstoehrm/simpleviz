@@ -21,11 +21,13 @@
   {"light" {:dark? false :bg "#fafafa" :node-fill "#fff" :node-stroke "#ddd"
             :edge "#555" :arrow "#555" :sub "#888" :label "#444"
             :btn-fill "#ffffffcc"
-            :diff-added "#0ca30c" :diff-modified "#b45309" :diff-removed "#d03b3b"}
+            :diff-added "#0ca30c" :diff-modified "#b45309" :diff-removed "#d03b3b"
+            :state {"new" "#6b7280" "in-progress" "#2563eb" "blocked" "#d03b3b" "done" "#0ca30c"}}
    "dark" {:dark? true :bg "#111827" :node-fill "#1f2937" :node-stroke "#4b5563"
            :edge "#9ca3af" :arrow "#9ca3af" :sub "#9ca3af" :label "#d1d5db"
            :btn-fill "#1f2937cc"
-           :diff-added "#22c55e" :diff-modified "#fab219" :diff-removed "#f87171"}})
+           :diff-added "#22c55e" :diff-modified "#fab219" :diff-removed "#f87171"
+           :state {"new" "#9ca3af" "in-progress" "#60a5fa" "blocked" "#f87171" "done" "#22c55e"}}})
 
 (def ^:private palette (atom (get palettes "light")))
 
@@ -192,6 +194,43 @@
     (draw-diff-ring ctx item 12 text?))
   (when removed? (set! (.-globalAlpha ctx) 1))))
 
+(def ^:private STATE-R 5)
+
+(defn- draw-state-mark
+  "The node's :state as a mark centred on its top-right corner. Shape
+  carries the state as well as color: new = disc, in-progress = half
+  disc, blocked = square, done = disc with a check."
+  [ctx item]
+  (let [s (:state item)
+        c (get (:state @palette) s)
+        cx (+ (:x item) (:w item))
+        cy (:y item)
+        r STATE-R]
+    ;; node-fill backing, so the node border and edges don't show through
+    (.beginPath ctx)
+    (if (= s "blocked")
+      (.rect ctx (- cx r) (- cy r) (* 2 r) (* 2 r))
+      (.arc ctx cx cy r 0 (* 2 js/Math.PI)))
+    (set! (.-fillStyle ctx) (if (= s "in-progress") (:node-fill @palette) c))
+    (.fill ctx)
+    (set! (.-strokeStyle ctx) c)
+    (set! (.-lineWidth ctx) 1.5)
+    (.stroke ctx)
+    (case s
+      "in-progress" (do (.beginPath ctx)
+                        (.moveTo ctx cx cy)
+                        (.arc ctx cx cy r (* -0.5 js/Math.PI) (* 0.5 js/Math.PI))
+                        (.closePath ctx)
+                        (set! (.-fillStyle ctx) c)
+                        (.fill ctx))
+      "done" (do (.beginPath ctx)
+                 (.moveTo ctx (- cx 2.5) cy)
+                 (.lineTo ctx (- cx 0.5) (+ cy 2))
+                 (.lineTo ctx (+ cx 2.5) (- cy 2))
+                 (set! (.-strokeStyle ctx) (:node-fill @palette))
+                 (.stroke ctx))
+      nil)))
+
 (defn- draw-node [ctx item sel? text?]
   (let [removed? (= (:diff item) "removed")]
     (when removed? (set! (.-globalAlpha ctx) 0.45))
@@ -201,6 +240,14 @@
     (set! (.-strokeStyle ctx) (if sel? ACCENT (:node-stroke @palette)))
     (set! (.-lineWidth ctx) (if sel? 2 1))
     (.stroke ctx)
+    ;; a :ref node reads as a container: a second border inside the first
+    (when (:ref? item)
+      (rounded-rect ctx (+ (:x item) 3) (+ (:y item) 3) (- (:w item) 6) (- (:h item) 6) 4)
+      (set! (.-strokeStyle ctx) (if sel? ACCENT (:sub @palette)))
+      (set! (.-lineWidth ctx) 1)
+      (.stroke ctx))
+    (when (and text? (some? (:state item)))
+      (draw-state-mark ctx item))
     (when text?
     (set! (.-textAlign ctx) "center")
     (set! (.-font ctx) NODE-FONT)

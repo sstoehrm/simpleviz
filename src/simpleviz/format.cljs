@@ -35,3 +35,17 @@
                            (value->hiccup x)])
                         (js/Object.entries v)))
     :else (str v)))
+
+;; attrs already represented visually (endpoints/arrow on the canvas,
+;; membership by containment) stay out of the inspector and the tooltip
+(def ^:private hidden-attrs
+  {"edge" #{"nodes" "direction"}
+   "box" #{"components"}})
+
+(defn visible-attrs
+  "The [key value] attr pairs to show for a selection or scene item —
+  anything with :kind and :attrs."
+  [sel]
+  (let [hidden (get hidden-attrs (:kind sel))]
+    (filterv (fn [[k _]] (not (and (some? hidden) (.has hidden k))))
+             (js/Object.entries (or (:attrs sel) {})))))

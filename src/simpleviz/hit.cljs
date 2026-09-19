@@ -1,5 +1,6 @@
 (ns simpleviz.hit
-  (:require [simpleviz.scene :as scene]))
+  (:require [simpleviz.scene :as scene]
+            [simpleviz.format :refer [visible-attrs]]))
 
 ;; Pure hit-testing over the scene display list. All coordinates in graph
 ;; space; convert mouse coordinates with client->graph first. No DOM.
@@ -54,6 +55,19 @@
     "collapse-button" (.slice (:box-id item) 2)
     "edge" (str "[" (:source item) " " (:target item) "]")
     nil))
+
+(defn hover-tip
+  "Tooltip model for a hit item: {:title name :attrs [[k v] ..]}, nil for
+  no item. The display name heads it and so leaves the attrs; an item
+  without one (unnamed edge, collapse button) falls back to its
+  hover-title."
+  [item]
+  (let [t (hover-title item)
+        nm (:name item)]
+    (if (some? t)
+      {:title (if (and (string? nm) (pos? (.-length nm))) nm t)
+       :attrs (filterv (fn [[k _]] (not= k "name")) (visible-attrs item))}
+      nil)))
 
 (defn hit-test
   "Returns the hit scene item or nil. Priority: nodes, then edge labels

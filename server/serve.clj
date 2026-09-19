@@ -24,6 +24,19 @@
 
 (def ^:private ref-extensions #{"edn" "png"})
 
+(def suffix-re #"^[A-Za-z0-9_.-]+$")
+
+(defn fork-name
+  "The fork of path `rel` for `suffix`: the suffix goes before the
+  extension (\"a/b.edn\" \"next\" -> \"a/b-next.edn\"); a name without
+  an extension gets \"-suffix\" appended."
+  [rel suffix]
+  (let [dot (str/last-index-of rel ".")
+        slash (or (str/last-index-of rel "/") -1)]
+    (if (and (some? dot) (> dot slash))
+      (str (subs rel 0 dot) "-" suffix (subs rel dot))
+      (str rel "-" suffix))))
+
 (defn resolve-path
   "The canonical file for the root-relative path `rel` under `root`.
   Refuses (ex-info, message names the problem) an absolute path, a
@@ -133,8 +146,10 @@
     (catch Exception e {:error (ex-message e)})))
 
 (def ^:private usage
-  (str "usage: bb serve <graph.edn|export.png> [<new.edn|new.png>] [--port N] [--debug]\n"
-       "  pass two files to compare them: first = old, second = new\n"
+  (str "usage: bb serve <graph.edn|export.png> [<suffix>] [--port N] [--debug]\n"
+       "  with a suffix, graph.edn is compared against its fork graph-<suffix>.edn\n"
+       "  (create the fork with: bb fork graph.edn <suffix>); refs follow into\n"
+       "  the same comparison of the referenced file and its fork\n"
        "  a PNG exported from simpleviz serves its embedded EDN;\n"
        "  a compare-mode export re-opens as the comparison\n"
        "  --debug writes a per-run log of edits and errors to " log/dir-hint
@@ -143,9 +158,8 @@
 (def cli-spec {:alias {:p :port} :coerce {:port :long :debug :boolean}})
 
 (defn parse-args
-  "CLI args -> {:file f :port n :debug b}, {:old-file f1 :file f2 :port n
-  :debug b}, or {:error msg}. Graph files are positional (one = serve,
-  two = compare old -> new); --port / -p overrides the default; --debug
+  "CLI args -> {:file f :suffix s-or-nil :port n :debug b} or {:error msg}.
+  Graph files are positional; --port / -p overrides the default; --debug
   turns on the run log."
   [args]
   (try
@@ -154,14 +168,18 @@
     ;; and may sit anywhere on the line
     (let [debug (boolean (some #{"--debug"} args))
           {:keys [args opts]} (cli/parse-args (remove #{"--debug"} args) cli-spec)
-          [f1 f2 & extra] args
+          [f1 suffix & extra] args
+          suffix (some-> suffix str)
           port (get opts :port default-port)]
       (cond
         (nil? f1) {:error usage}
         (seq extra) {:error usage}
         (not (and (int? port) (<= 1 port 65535))) {:error (str "invalid port: " port)}
-        (some? f2) {:old-file f1 :file f2 :port port :debug debug}
-        :else {:file f1 :port port :debug debug}))
+        (and (some? suffix) (re-find #"(?i)\.(edn|png)$" suffix))
+        {:error (str "two-file compare was replaced: bb fork " f1 " <suffix>, then bb serve " f1 " <suffix>\n" usage)}
+        (and (some? suffix) (nil? (re-matches suffix-re suffix)))
+        {:error (str "invalid suffix: " suffix "\n" usage)}
+        :else {:file f1 :suffix suffix :port port :debug debug}))
     (catch Exception e
       {:error (str "invalid arguments: " (ex-message e) "\n" usage)})))
 

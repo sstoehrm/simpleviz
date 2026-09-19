@@ -25,12 +25,12 @@
     (is (string? (get out "error")))))
 
 (deftest parse-args-uses-default-port
-  (is (= {:file "g.edn" :port 7373 :debug false} (serve/parse-args ["g.edn"]))))
+  (is (= {:file "g.edn" :suffix nil :port 7373 :debug false} (serve/parse-args ["g.edn"]))))
 
 (deftest parse-args-accepts-port-flag-and-alias
-  (is (= {:file "g.edn" :port 9000 :debug false} (serve/parse-args ["g.edn" "--port" "9000"])))
-  (is (= {:file "g.edn" :port 9000 :debug false} (serve/parse-args ["g.edn" "-p" "9000"])))
-  (is (= {:file "g.edn" :port 9000 :debug false} (serve/parse-args ["--port" "9000" "g.edn"]))))
+  (is (= {:file "g.edn" :suffix nil :port 9000 :debug false} (serve/parse-args ["g.edn" "--port" "9000"])))
+  (is (= {:file "g.edn" :suffix nil :port 9000 :debug false} (serve/parse-args ["g.edn" "-p" "9000"])))
+  (is (= {:file "g.edn" :suffix nil :port 9000 :debug false} (serve/parse-args ["--port" "9000" "g.edn"]))))
 
 (deftest parse-args-rejects-bad-input
   (is (contains? (serve/parse-args []) :error))
@@ -38,14 +38,24 @@
   (is (contains? (serve/parse-args ["g.edn" "--port" "0"]) :error))
   (is (contains? (serve/parse-args ["g.edn" "--port" "70000"]) :error)))
 
-(deftest parse-args-two-files-enables-compare
-  (is (= {:old-file "a.edn" :file "b.edn" :port 7373 :debug false}
-         (serve/parse-args ["a.edn" "b.edn"])))
-  (is (= {:old-file "a.edn" :file "b.edn" :port 9000 :debug false}
-         (serve/parse-args ["a.edn" "b.edn" "-p" "9000"]))))
+(deftest parse-args-suffix-enables-compare
+  (is (= {:file "a.edn" :suffix "next" :port 7373 :debug false}
+         (serve/parse-args ["a.edn" "next"])))
+  (is (= {:file "a.edn" :suffix "v2" :port 9000 :debug false}
+         (serve/parse-args ["a.edn" "v2" "--port" "9000"])))
+  (is (= {:file "a.edn" :suffix nil :port 7373 :debug false}
+         (serve/parse-args ["a.edn"]))))
 
-(deftest parse-args-rejects-three-files
-  (is (contains? (serve/parse-args ["a.edn" "b.edn" "c.edn"]) :error)))
+(deftest parse-args-rejects-bad-suffixes
+  (is (clojure.string/includes? (:error (serve/parse-args ["a.edn" "ne/xt"])) "invalid suffix: ne/xt"))
+  (is (clojure.string/includes? (:error (serve/parse-args ["a.edn" "b.edn"])) "two-file compare was replaced"))
+  (is (clojure.string/includes? (:error (serve/parse-args ["a.edn" "b.PNG"])) "two-file compare was replaced")))
+
+(deftest fork-name-puts-the-suffix-before-the-extension
+  (is (= "demo-next.edn" (serve/fork-name "demo.edn" "next")))
+  (is (= "api/internals-next.edn" (serve/fork-name "api/internals.edn" "next")))
+  (is (= "examples/x-v2.png" (serve/fork-name "examples/x.png" "v2")))
+  (is (= "a.b/noext-next" (serve/fork-name "a.b/noext" "next"))))
 
 (deftest compare-json-diffs-two-graphs
   (let [out (json/parse-string
@@ -338,10 +348,10 @@
 ;; --- --debug flag, crash guard, edit log ------------------------------
 
 (deftest parse-args-accepts-debug-flag
-  (is (= {:file "g.edn" :port 7373 :debug true} (serve/parse-args ["g.edn" "--debug"])))
-  (is (= {:file "g.edn" :port 9000 :debug true} (serve/parse-args ["--debug" "g.edn" "-p" "9000"])))
-  (is (= {:old-file "a.edn" :file "b.edn" :port 7373 :debug true}
-         (serve/parse-args ["a.edn" "b.edn" "--debug"]))))
+  (is (= {:file "g.edn" :suffix nil :port 7373 :debug true} (serve/parse-args ["g.edn" "--debug"])))
+  (is (= {:file "g.edn" :suffix nil :port 9000 :debug true} (serve/parse-args ["--debug" "g.edn" "-p" "9000"])))
+  (is (= {:file "a.edn" :suffix "next" :port 7373 :debug true}
+         (serve/parse-args ["a.edn" "next" "--debug"]))))
 
 (defn- with-log-dir* [f]
   (let [d (str (babashka.fs/create-temp-dir {:prefix "serve-test-log"}))]

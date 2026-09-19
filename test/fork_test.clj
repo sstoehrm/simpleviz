@@ -74,9 +74,11 @@
     ;; a second fork refuses and writes nothing
     (spit (io/file root "sub/deep/db-next.edn") "{:nodes {:changed nil}}")
     (.delete (io/file root "root-next.edn"))
+    (.delete (io/file root "sub/api-next.edn"))
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"sub/deep/db-next\.edn already exists"
                           (fork/fork! file "next" (fn [_]))))
     (is (not (.exists (io/file root "root-next.edn"))))
+    (is (not (.exists (io/file root "sub/api-next.edn"))))
     (fs/delete-tree root)))
 
 (deftest promote-moves-every-fork-in-the-forks-closure

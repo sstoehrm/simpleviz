@@ -86,14 +86,13 @@
 
 (defn fork!
   "Copy `file` and every file in its ref closure to their `suffix`
-  forks. Returns the created paths, in closure order. Throws ex-info
-  naming an existing target (deepest dependency first) before anything
-  is written."
+  forks. Returns the created paths. Throws ex-info naming the first
+  existing target before anything is written."
   [file suffix warn!]
   (let [[root start] (root-and-start file)
         rels (closure start (read-base root) warn!)
         pairs (mapv (fn [rel] [(io/file root rel) (io/file root (serve/fork-name rel suffix))]) rels)]
-    (doseq [[_ to] (reverse pairs)]
+    (doseq [[_ to] pairs]
       (when (.exists to)
         (throw (ex-info (str (.getPath to) " already exists") {}))))
     (doseq [[from to] pairs]

@@ -193,3 +193,7 @@ following a ref opens the comparison of the referenced file and its fork.
 - Refs inside an embedded-compare PNG.
 - A UI for creating, listing or discarding forks.
 - Rewriting refs in forks, or forking across roots.
+
+## TODO
+
+- Fold the fork namespace, `sides` pairing and suffix compare into the project concept graph (blend:deduce) — skipped at spec approval on 2026-09-19.

@@ -124,3 +124,18 @@
     (let [tip (hover-tip {:kind "collapse-button" :box-id "b:x"})]
       (assert/equal (:title tip) "x")
       (assert/deepEqual (:attrs tip) []))))
+
+(test "hover-tip leaves out the attrs the canvas already shows, like the inspector"
+  (fn []
+    (assert/deepEqual
+     (:attrs (hover-tip {:kind "edge" :id "e0" :name "" :source "a" :target "b"
+                         :attrs {:nodes ["a" "b"] :direction "->" :type "http"}}))
+     [["type" "http"]])
+    (assert/deepEqual
+     (:attrs (hover-tip {:kind "box" :id "b:g" :name "g"
+                         :attrs {:components ["a"] :type "zone"}}))
+     [["type" "zone"]])
+    ;; the same keys on a node are ordinary attributes
+    (assert/deepEqual
+     (:attrs (hover-tip {:kind "node" :id "n:a" :name "a" :attrs {:components 3}}))
+     [["components" 3]])))

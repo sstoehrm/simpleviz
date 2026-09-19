@@ -1,5 +1,6 @@
 (ns simpleviz.hit
-  (:require [simpleviz.scene :as scene]))
+  (:require [simpleviz.scene :as scene]
+            [simpleviz.format :refer [visible-attrs]]))
 
 ;; Pure hit-testing over the scene display list. All coordinates in graph
 ;; space; convert mouse coordinates with client->graph first. No DOM.
@@ -65,8 +66,7 @@
         nm (:name item)]
     (if (some? t)
       {:title (if (and (string? nm) (pos? (.-length nm))) nm t)
-       :attrs (filterv (fn [[k _]] (not= k "name"))
-                       (js/Object.entries (or (:attrs item) {})))}
+       :attrs (filterv (fn [[k _]] (not= k "name")) (visible-attrs item))}
       nil)))
 
 (defn hit-test

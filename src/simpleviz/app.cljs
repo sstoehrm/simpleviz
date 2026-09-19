@@ -144,17 +144,6 @@
                         [:span {:class "cp-plus"} "+"]]))
                    (vec (sort (js/Array.from collapsed)))))])))
 
-;; attrs already represented visually (endpoints/arrow on the canvas,
-;; membership by containment) stay out of the inspector
-(def ^:private hidden-attrs
-  {"edge" #{"nodes" "direction"}
-   "box" #{"components"}})
-
-(defn- visible-attrs [sel]
-  (let [hidden (get hidden-attrs (:kind sel))]
-    (filterv (fn [[k _]] (not (and (some? hidden) (.has hidden k))))
-             (js/Object.entries (:attrs sel)))))
-
 (defn- fmt-val [v]
   (cond (nil? v) "—"
         (string? v) v
@@ -435,7 +424,7 @@
                        (if editable
                          (attr-edit-row sel tgt k v (editor/scalar? v) editing)
                          [:dd {:key (str "d" k)} (format/value->hiccup v)])])
-                    (visible-attrs sel))))
+                    (format/visible-attrs sel))))
      (when editable (attr-add-row sel tgt))]))
 
 (defn- selection-toolbar

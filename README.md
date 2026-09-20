@@ -252,6 +252,24 @@ The server only binds to loopback and only accepts writes whose `Origin`
 matches its own `localhost`/`127.0.0.1` address, so it trusts your machine's
 browser but rejects cross-origin writes from other sites or hosts.
 
+### Write locks
+
+Tools that write a served file directly (agents, scripts) can coordinate
+through an advisory lock, one per file:
+
+    curl -X POST -H 'Content-Type: application/json' \
+      -d '{"owner":"agent-a","path":"sub/api.edn"}' http://localhost:7373/api/lock
+    curl -X POST -H 'Content-Type: application/json' \
+      -d '{"owner":"agent-a","path":"sub/api.edn"}' http://localhost:7373/api/unlock
+
+`path` is the real file name relative to the served folder (a fork is
+`graph-next.edn`) and defaults to the root file. `/api/lock` answers
+`{"ok":true,"ttl":60}`, or 409 `{"error":"locked by <owner>"}` while
+someone else holds it; asking again as the same owner renews the 60
+seconds, after which a forgotten lock expires. While a file is locked,
+browser edits to it are refused with the same message. The lock is
+advisory: nothing stops a process that writes without asking.
+
 ## Claude Code plugin
 
 This repo doubles as a [Claude Code](https://claude.com/claude-code) plugin

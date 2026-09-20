@@ -3,8 +3,9 @@ node_modules/
 public/js/
 dist/
 
-# editor / LSP tooling caches (config.edn in these dirs stays committable)
-.clj-kondo/.cache/
+# editor / LSP tooling: clj-kondo holds only its cache and imported library
+# configs; an .lsp/config.edn stays committable
+.clj-kondo/
 .lsp/.cache/
 .nrepl-port
 

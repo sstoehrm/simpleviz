@@ -80,3 +80,16 @@ Click any node/edge/box for its full attributes. Hovering shows a tooltip with t
 ## Editing (in the browser)
 
 Map-form files are editable in place. The inspector (right panel) is the data view: click an attribute value or its ✎ to edit inline (scalars as text, collections as raw EDN), `×` deletes an attr, a key/value row at the bottom adds one; in compare mode a modified element's old → new changes show as a card at the top. Editing tools sit in a floating toolbar at the bottom center: with nothing selected, "new node" (name prompt — the id is derived from the name: lowercased, illegal characters to dashes; `name::type` also sets the type; jumps to the new node); with a selection, that element's tools — Delete (cascades — removes touching edges and box membership); edges: direction row and source/target retarget (pick mode: click the new node/box, Esc cancels); nodes: "add edge" (pick the endpoint, then name the edge — empty leaves it unnamed), "add to box", "new node" (new connected node via name prompt), "new box" (name prompt); boxes: "add edge", "add node"/"add box" (pick a member), "new node" (inside the box, name prompt), "new box". Any element with a string `:ref` also offers "follow ref" (`f r`) — in an editable (EDN-served) graph; a PNG target can be reached but not followed from. Editing a node's or box's `name` in the inspector renames its id the same way. In compare mode the top-center legend carries the old|new toggle picking which file edits apply to. Ctrl+Z or the ⟲ button undoes the last edit; the server keeps one undo stack per file, shared by all viewers, capped at 100. Edits rewrite the file on disk, preserving comments and formatting; PNG-served sessions are read-only.
+
+## Concurrent writes (lock before editing a served file)
+
+When a simpleviz server is serving the file and someone else may write it too (another agent, a user editing in the browser), take the server's advisory lock around your write — `$URL` is the address the server printed:
+
+    curl -s -X POST -H 'Content-Type: application/json' -d '{"owner":"<your-id>","path":"sub/api.edn"}' $URL/api/lock
+    # ... write the file ...
+    curl -s -X POST -H 'Content-Type: application/json' -d '{"owner":"<your-id>","path":"sub/api.edn"}' $URL/api/unlock
+
+- `owner` is any string unique to you; `path` is the real file name relative to the served folder (a fork is `graph-next.edn`), default the root file. Locks are per file.
+- `{"ok":true,"ttl":60}` means you hold it; HTTP 409 `{"error":"locked by <owner>"}` means wait a moment and retry — do not write.
+- A lock expires after 60 seconds; repeat the lock call to renew during longer work, and always unlock when done. Re-read the file after getting the lock: it may have changed while you waited.
+- While locked, browser edits to that file are refused ("locked by <owner>"). The lock is advisory — it only protects against writers that ask. No server running means no lock; just write.

@@ -22,6 +22,10 @@
 
 (def root-dir (atom nil)) ; canonical File of the served folder (single-file mode)
 
+(def locks (atom {})) ; canonical path -> {:owner s :expires ms}
+
+(def lock-ttl-ms 60000)
+
 (def ^:private ref-extensions #{"edn" "png"})
 
 (def suffix-re #"^[A-Za-z0-9_.-]+$")
@@ -68,6 +72,43 @@
   (when-let [top (peek (get @undo-stacks path))]
     (swap! undo-stacks update path pop)
     top))
+
+(defn- lock-holder
+  "The owner of the live lock on `path` at `now`, or nil."
+  [path now]
+  (let [{:keys [owner expires]} (get @locks path)]
+    (when (and (some? owner) (< now expires)) owner)))
+
+(defn acquire-lock!
+  "Take or renew the advisory write lock on `path` for `owner` at `now`
+  (ms): granted when the file is free, the lock expired, or `owner`
+  already holds it. One swap! decides, so two racing requests cannot
+  both win."
+  [path owner now]
+  (let [after (swap! locks
+                     (fn [m]
+                       (let [{held :owner :keys [expires]} (get m path)]
+                         (if (and (some? held) (< now expires) (not= held owner))
+                           m
+                           (assoc m path {:owner owner :expires (+ now lock-ttl-ms)})))))
+        holder (:owner (get after path))]
+    (if (= holder owner)
+      {:ok true :ttl (quot lock-ttl-ms 1000)}
+      {:error (str "locked by " holder) :owner holder})))
+
+(defn release-lock!
+  "Drop `owner`'s lock on `path`; releasing a free file is fine, someone
+  else's live lock is refused."
+  [path owner now]
+  (let [after (swap! locks
+                     (fn [m]
+                       (let [{held :owner :keys [expires]} (get m path)]
+                         (if (and (some? held) (< now expires) (not= held owner))
+                           m
+                           (dissoc m path)))))]
+    (if-let [holder (:owner (get after path))]
+      {:error (str "locked by " holder) :owner holder}
+      {:ok true})))
 
 (defn read-source
   "EDN text of a graph file: simpleviz PNG exports yield their embedded
@@ -147,10 +188,13 @@
       (throw (ex-info "refs are not available in an embedded compare" {})))
     (let [{:keys [old new]} (sides path)
           target (if (= file "old") old new)
-          path (some-> target .getPath)]
+          path (some-> target .getPath)
+          ;; the browser owns no lock, so any live one blocks it
+          holder (some-> path (lock-holder (System/currentTimeMillis)))]
       (cond
         (nil? path) {:error "no old file in single-file mode"}
         (png/png? path) {:error "PNG sources are read-only"}
+        (some? holder) {:error (str "locked by " holder)}
         (= "undo" (:op (first ops)))
         (if-let [prev (pop-undo! path)]
           (do (spit path prev) {:ok true})
@@ -267,7 +311,8 @@
   (and (some? ct) (str/starts-with? (str/lower-case ct) "application/json")))
 
 (defn- edit-guard
-  "HTTP-level rejection response for a write to /api/edit, or nil when the
+  "HTTP-level rejection response for a write (/api/edit, /api/lock,
+  /api/unlock), or nil when the
   request may proceed: 403 on a foreign Origin (cross-origin write
   attempt), 415 when Content-Type isn't application/json."
   [{:keys [headers server-port]}]
@@ -340,13 +385,36 @@
     (log/event! "edit" {:file (:file parsed) :ops (:ops parsed) :result out})
     (json/generate-string out)))
 
-(defn- route [{:keys [uri query-string request-method body] :as req}]
+(defn- lock-response
+  "Apply lock-fn (acquire-lock! / release-lock!) to the request's
+  {owner, path}: `path` is the real file name, root-relative (default:
+  the root file) and may not exist yet. 400 on a bad request, 409 when
+  someone else holds the lock."
+  [lock-fn body-stream]
+  (let [[status out]
+        (try
+          (let [{:keys [owner path]} (json/parse-string (slurp body-stream) true)]
+            (when-not (and (string? owner) (seq owner))
+              (throw (ex-info "owner must be a non-empty string" {})))
+            (let [f (resolve-path @root-dir (or path (root-rel)) false)
+                  out (lock-fn (.getPath f) owner (System/currentTimeMillis))]
+              [(if (:error out) 409 200) out]))
+          (catch Exception e [400 {:error (ex-message e)}]))]
+    (assoc (json-response (json/generate-string out)) :status status)))
+
+(defn- post-only
+  "The response of (f) for a guarded POST; 405 for any other method."
+  [{:keys [request-method] :as req} f]
+  (if (= :post request-method)
+    (or (edit-guard req) (f))
+    {:status 405 :headers {"Content-Type" "text/plain"} :body "POST only"}))
+
+(defn- route [{:keys [uri query-string body] :as req}]
   (case uri
     "/api/graph"   (json-response (graph-response-body query-string))
-    "/api/edit"    (if (= :post request-method)
-                     (or (edit-guard req)
-                         (json-response (edit-response-body body)))
-                     {:status 405 :headers {"Content-Type" "text/plain"} :body "POST only"})
+    "/api/edit"    (post-only req #(json-response (edit-response-body body)))
+    "/api/lock"    (post-only req #(lock-response acquire-lock! body))
+    "/api/unlock"  (post-only req #(lock-response release-lock! body))
     "/api/version" (json-response
                     (json/generate-string
                      {:mtime (try

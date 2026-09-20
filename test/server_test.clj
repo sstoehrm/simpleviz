@@ -13,7 +13,8 @@
   ([path suffix]
    (reset! serve/files {:root path :suffix suffix})
    (reset! serve/root-dir (.getParentFile (.getCanonicalFile (java.io.File. path))))
-   (reset! serve/undo-stacks {})))
+   (reset! serve/undo-stacks {})
+   (reset! serve/locks {})))
 
 (deftest graph-json-serves-normalized-graph
   (let [out (json/parse-string
@@ -729,3 +730,82 @@
         (is (true? (get (json/parse-string (:body (serve/handler (edit-req {:file "new" :ops [{:op "add-node" :id "s"}]})))) "ok")))
         (is (clojure.string/includes? (slurp root-next) ":s nil"))
         (is (not (clojure.string/includes? (slurp root) ":s nil")))))))
+
+;; --- Advisory write locks (/api/lock, /api/unlock) --------------------
+
+(defn- lock-req
+  "A POST to /api/lock or /api/unlock, shaped like edit-req."
+  [uri body]
+  (assoc (edit-req body) :uri uri))
+
+(defn- lock-resp [uri body]
+  (let [resp (serve/handler (lock-req uri body))]
+    [(:status resp) (json/parse-string (:body resp))]))
+
+(deftest api-lock-grants-renews-and-refuses-a-second-owner
+  (with-temp-dir*
+    (fn [dir]
+      (serve! (write! dir "g.edn" "{:nodes {:a nil}}"))
+      (is (= [200 {"ok" true "ttl" 60}] (lock-resp "/api/lock" {:owner "a"})))
+      (is (= [200 {"ok" true "ttl" 60}] (lock-resp "/api/lock" {:owner "a" :path "g.edn"})) "same owner renews")
+      (is (= [409 {"error" "locked by a" "owner" "a"}] (lock-resp "/api/lock" {:owner "b"}))))))
+
+(deftest api-lock-is-per-file
+  (with-temp-dir*
+    (fn [dir]
+      (serve! (write! dir "g.edn" "{:nodes {:a nil}}"))
+      (write! dir "sub/h.edn" "{:nodes {:h nil}}")
+      (is (= 200 (first (lock-resp "/api/lock" {:owner "a"}))))
+      (is (= 200 (first (lock-resp "/api/lock" {:owner "b" :path "sub/h.edn"})))))))
+
+(deftest api-unlock-releases-only-for-the-owner
+  (with-temp-dir*
+    (fn [dir]
+      (serve! (write! dir "g.edn" "{:nodes {:a nil}}"))
+      (is (= [200 {"ok" true}] (lock-resp "/api/unlock" {:owner "a"})) "nothing held is fine")
+      (lock-resp "/api/lock" {:owner "a"})
+      (is (= [409 {"error" "locked by a" "owner" "a"}] (lock-resp "/api/unlock" {:owner "b"})))
+      (is (= [200 {"ok" true}] (lock-resp "/api/unlock" {:owner "a"})))
+      (is (= 200 (first (lock-resp "/api/lock" {:owner "b"})))))))
+
+(deftest expired-lock-can-be-taken-over
+  (is (= {:ok true :ttl 60} (do (reset! serve/locks {}) (serve/acquire-lock! "/x.edn" "a" 1000))))
+  (is (= {:error "locked by a" :owner "a"} (serve/acquire-lock! "/x.edn" "b" (+ 1000 59999))))
+  (is (= {:ok true :ttl 60} (serve/acquire-lock! "/x.edn" "b" (+ 1000 60000)))))
+
+(deftest api-lock-refuses-bad-requests
+  (with-temp-dir*
+    (fn [dir]
+      (serve! (write! dir "g.edn" "{:nodes {:a nil}}"))
+      (is (= [400 {"error" "owner must be a non-empty string"}] (lock-resp "/api/lock" {})))
+      (is (= [400 {"error" "owner must be a non-empty string"}] (lock-resp "/api/lock" {:owner ""})))
+      (is (= [400 {"error" "../x.edn leaves the served folder"}] (lock-resp "/api/lock" {:owner "a" :path "../x.edn"})))
+      (is (= 405 (:status (serve/handler {:uri "/api/lock" :request-method :get}))))
+      (is (= 405 (:status (serve/handler {:uri "/api/unlock" :request-method :get}))))
+      (is (= 403 (:status (serve/handler (assoc-in (lock-req "/api/lock" {:owner "a"})
+                                                   [:headers "origin"] "http://evil.example"))))))))
+
+(deftest api-edit-is-refused-while-the-file-is-locked
+  (with-temp-dir*
+    (fn [dir]
+      (let [p (write! dir "g.edn" "{:nodes {:a nil}}")]
+        (serve! p)
+        (lock-resp "/api/lock" {:owner "agent"})
+        (is (= "locked by agent"
+               (get (json/parse-string (:body (serve/handler (edit-req {:file "new" :ops [{:op "add-node" :id "b"}]})))) "error")))
+        (is (= "locked by agent"
+               (get (json/parse-string (:body (serve/handler (edit-req {:file "new" :ops [{:op "undo"}]})))) "error")))
+        (is (= "{:nodes {:a nil}}" (slurp p)))
+        (lock-resp "/api/unlock" {:owner "agent"})
+        (is (true? (get (json/parse-string (:body (serve/handler (edit-req {:file "new" :ops [{:op "add-node" :id "b"}]})))) "ok")))))))
+
+(deftest api-edit-lock-follows-the-compare-side
+  (with-temp-dir*
+    (fn [dir]
+      (let [p (write! dir "g.edn" "{:nodes {:a nil}}")]
+        (write! dir "g-next.edn" "{:nodes {:a nil}}")
+        (serve! p "next")
+        (lock-resp "/api/lock" {:owner "agent" :path "g-next.edn"})
+        (is (= "locked by agent"
+               (get (json/parse-string (:body (serve/handler (edit-req {:file "new" :ops [{:op "add-node" :id "b"}]})))) "error")))
+        (is (true? (get (json/parse-string (:body (serve/handler (edit-req {:file "old" :ops [{:op "add-node" :id "b"}]})))) "ok")))))))

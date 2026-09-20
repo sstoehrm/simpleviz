@@ -9,7 +9,7 @@
   - Marks the historically completed steps complete, records the successful
     canonical control result, and extends the JSON assertion to parse and name
     check the Claude manifest.
-- `.superpowers/sdd/2026-08-09-codex-plugin-marketplace/final-fix-report.md`
+- `docs/superpowers/reports/2026-08-09-codex-plugin-marketplace-final-fix-report.md`
   - Records this final-fix evidence and self-review.
 
 No product, package, or README file was changed in this fix.

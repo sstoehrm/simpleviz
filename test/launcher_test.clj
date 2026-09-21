@@ -89,3 +89,38 @@
         res (run-launcher script ["fork" "examples/demo.edn"])]
     (is (= 1 (:exit res)))
     (is (str/includes? (:err res) "usage:"))))
+
+(deftest launcher-update-runs-the-new-release-installer-not-the-stored-one
+  ;; a stored installer writes the launcher embedded in *itself*, so
+  ;; re-running it on update would pin the launcher to the old release
+  (let [script (write-launcher!)
+        tmp (fs/create-temp-dir {:prefix "simpleviz-update"})
+        home (fs/path tmp "home")
+        bin (fs/path tmp "bin")
+        marker (fs/path tmp "ran")]
+    (try
+      (fs/create-dirs home)
+      (fs/create-dirs bin)
+      (spit (str (fs/path home "VERSION")) "v0.0.1\n")
+      (spit (str (fs/path home "install.sh")) (str "echo stored >'" marker "'\n"))
+      ;; fake curl: answers the release query and serves a tagged installer
+      (spit (str (fs/path bin "curl"))
+            (str "#!/usr/bin/env bash\n"
+                 "out=\"\"; url=\"\"\n"
+                 "while [ \"$#\" -gt 0 ]; do\n"
+                 "  case \"$1\" in -o) out=\"$2\"; shift ;; -*) ;; *) url=\"$1\" ;; esac; shift\n"
+                 "done\n"
+                 "case \"$url\" in\n"
+                 "  */releases/latest) body='\"tag_name\": \"v9.9.9\"' ;;\n"
+                 "  */v9.9.9/install.sh) body=\"echo tagged >'" marker "'\" ;;\n"
+                 "  *) exit 22 ;;\n"
+                 "esac\n"
+                 "if [ -n \"$out\" ]; then echo \"$body\" >\"$out\"; else echo \"$body\"; fi\n"))
+      (.setExecutable (fs/file (fs/path bin "curl")) true)
+      (let [res (p/shell {:out :string :err :string :continue true
+                          :extra-env {"SIMPLEVIZ_HOME" (str home)
+                                      "PATH" (str bin ":" (System/getenv "PATH"))}}
+                         "bash" script "update")]
+        (is (= 0 (:exit res)) (:err res))
+        (is (= "tagged" (str/trim (slurp (str marker))))))
+      (finally (fs/delete-tree tmp)))))

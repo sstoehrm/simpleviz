@@ -45,12 +45,6 @@ install_files() {
   # scope is gone, so the variable must survive it
   tmp=$(mktemp -d)
   trap 'rm -rf "$tmp"' EXIT
-  # snapshot the running script now, before any download; during
-  # `simpleviz update` the SIMPLEVIZ_HOME directory (and thus
-  # BASH_SOURCE[0]) gets rm -rf'd below, so this must happen first
-  if [ -f "${BASH_SOURCE[0]:-}" ]; then
-    cp "${BASH_SOURCE[0]}" "$tmp/installer-self"
-  fi
   echo "downloading $TARBALL_URL"
   curl -fsSL "$TARBALL_URL" -o "$tmp/bundle.tar.gz"
   tar xzf "$tmp/bundle.tar.gz" -C "$tmp"
@@ -60,18 +54,6 @@ install_files() {
   mkdir -p "$SIMPLEVIZ_HOME"
   cp -R "$dir"/. "$SIMPLEVIZ_HOME"/
   echo "$TAG" >"$SIMPLEVIZ_HOME/VERSION"
-  # keep a copy of this installer for `simpleviz update`; when run via
-  # `curl | bash` there is no file on disk, so fetch it from the repo
-  if [ -f "$tmp/installer-self" ]; then
-    cp "$tmp/installer-self" "$SIMPLEVIZ_HOME/install.sh"
-  else
-    curl -fsSL "https://raw.githubusercontent.com/$REPO/main/install.sh" \
-      -o "$SIMPLEVIZ_HOME/install.sh" \
-      || echo "note: could not store installer copy; 'simpleviz update' will not work" >&2
-  fi
-  if [ -f "$SIMPLEVIZ_HOME/install.sh" ]; then
-    chmod +x "$SIMPLEVIZ_HOME/install.sh"
-  fi
 }
 
 write_launcher() {
@@ -135,18 +117,23 @@ TEMPLATE
 }
 
 update() {
-  local latest
+  local latest installer
   latest=$(curl -fsSL "$API_URL" | grep -m1 '"tag_name"' \
            | sed -E 's/.*: *"([^"]+)".*/\1/') \
     || die "could not query the latest release"
   [ -n "$latest" ] || die "could not read the latest release tag"
   if [ "$latest" = "$(version)" ]; then
     echo "simpleviz $(version) is already up to date"
-  elif [ -f "$SIMPLEVIZ_HOME/install.sh" ]; then
-    echo "updating $(version) -> $latest"
-    SIMPLEVIZ_HOME="$SIMPLEVIZ_HOME" bash "$SIMPLEVIZ_HOME/install.sh"
   else
-    die "no stored installer at $SIMPLEVIZ_HOME/install.sh — re-run install.sh manually"
+    echo "updating $(version) -> $latest"
+    # run the new release's installer, never a stored copy: an installer
+    # writes the launcher embedded in itself, so an old one would keep
+    # reinstalling its old launcher next to the new files
+    installer=$(mktemp)
+    curl -fsSL "https://raw.githubusercontent.com/sstoehrm/simpleviz/$latest/install.sh" \
+      -o "$installer" || { rm -f "$installer"; die "could not download the $latest installer"; }
+    SIMPLEVIZ_HOME="$SIMPLEVIZ_HOME" bash "$installer"
+    rm -f "$installer"
   fi
 }
 

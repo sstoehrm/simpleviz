@@ -5,7 +5,7 @@
                                       value->edn-text scalar?
                                       delete-op direction-op pick-ops
                                       add-node-ops add-connected-ops wrap-in-box-ops
-                                      edit-body rename-op blur-text retarget-end
+                                      edit-body create-body rename-op blur-text retarget-end
                                       chord-action chord-group? chord-for chord-hint
                                       add-node-in-box-ops box-remove-op
                                       name->id derived-id named-edge-ops creation-ops parse-entry
@@ -126,6 +126,11 @@
   (fn []
     (assert/deepEqual (edit-body "old" [{:op "undo"}])
                       {:file "old" :ops [{:op "undo"}]})))
+
+(test "create-body names the followed file and the side being edited"
+  (fn []
+    (assert/deepEqual (create-body "new" "sub/api.edn")
+                      {:file "new" :path "sub/api.edn"})))
 
 (test "add-node-ops creates a free-standing node and names it"
   (fn []

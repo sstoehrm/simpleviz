@@ -684,7 +684,7 @@
       "Drag to pan, scroll to zoom. Hover an element to see its name and attributes; click it to inspect and edit them. A double border marks a node with a :ref; the mark on a node's corner is its :state — grey disc new, blue half disc in-progress, red square blocked, green check done. The − in a box header collapses the box to a single node — the panel on the left lists collapsed boxes and re-expands them.")
      (help-section
       "Edit"
-      "When the served file is editable EDN, the floating toolbar at the bottom holds the tools for the current selection: delete, edge direction, and pick modes such as \"add edge\" (click the other element on the canvas, then name the edge; Esc cancels). New nodes and boxes are created by name: the prompt types a name, and the id is derived from it — lowercased, illegal characters turned into dashes; name::type also sets the type. With nothing selected it creates a standalone node. A :ref attribute naming another graph file (relative path) makes \"follow ref\" open it — in a suffix comparison (simpleviz graph.edn next) it opens that file's own comparison; the trail at the top leads back."
+      "When the served file is editable EDN, the floating toolbar at the bottom holds the tools for the current selection: delete, edge direction, and pick modes such as \"add edge\" (click the other element on the canvas, then name the edge; Esc cancels). New nodes and boxes are created by name: the prompt types a name, and the id is derived from it — lowercased, illegal characters turned into dashes; name::type also sets the type. With nothing selected it creates a standalone node. A :ref attribute naming another graph file (relative path) makes \"follow ref\" open it — in a suffix comparison (simpleviz graph.edn next) it opens that file's own comparison; the trail at the top leads back. Following a ref to an .edn file that does not exist yet creates it as an empty graph — in a comparison the side picked by the old|new toggle."
       "In the inspector, click a value or its ✎ to edit it inline — Enter commits, Shift+Enter inserts a line break, Escape cancels. × deletes an attribute; the key/value row at the bottom adds one. Ctrl+Z or ⟲ undoes the last edit.")
      (help-section
       "Keys"
@@ -947,19 +947,40 @@
   (js/history.pushState nil "" (str js/location.pathname query))
   (js-await (load-nav!)))
 
-(defn- follow-ref!
+(defn- ^:async follow-ref!
   "Follow the selection's ref: resolve it against the file shown and
-  navigate there, the current file joining the trail. A ref that
-  climbs above the served folder is refused here with a banner; one
-  the server refuses (missing, wrong type) shows as the graph error
-  after navigating, with the trail intact to go back."
+  navigate there, the current file joining the trail. While the file
+  being edited is editable, the server is first asked to create the
+  target (an empty graph, with its folders) in case nothing is there
+  yet. A ref that climbs above the served folder is refused here with
+  a banner; one the server refuses (wrong type, missing on a read-only
+  side) shows as the graph error after navigating, with the trail
+  intact to go back — which is also where a failed create ends up.
+  A second follow while the first still waits on the server is dropped,
+  or it would push the same URL onto the history twice."
   [ref]
-  (let [{:keys [trail]} (:nav @state)
-        current (:path (:graph @state))
+  (let [st @state
+        {:keys [trail]} (:nav st)
+        current (:path (:graph st))
         target (editor/resolve-ref current ref)]
-    (if (nil? target)
+    (cond
+      (:following st) nil
+      (nil? target)
       (swap! state assoc :nav-error (str "ref " (pr-str ref) " leaves the served folder"))
-      (navigate! (editor/follow-url current trail target)))))
+      :else
+      (do
+        (swap! state assoc :following true)
+        (try
+          (when (current-edit-target-editable? st)
+            (try
+              (js-await (js/fetch "/api/create"
+                                  {:method "POST"
+                                   :headers {"Content-Type" "application/json"}
+                                   :body (js/JSON.stringify
+                                          (editor/create-body (:edit-target st) target))}))
+              (catch :default _ nil)))
+          (js-await (navigate! (editor/follow-url current trail target)))
+          (finally (swap! state assoc :following false)))))))
 
 (js/window.addEventListener "popstate" (fn [_] (load-nav!)))
 

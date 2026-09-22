@@ -658,10 +658,12 @@
         (is (= "root-next.edn" (.getName (:new root))))
         (is (= "api.edn" (.getName (:old sub))))
         (is (= "api-next.edn" (.getName (:new sub))))
-        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"^no lone-next\.edn — create it with: simpleviz fork lone\.edn next$"
-                              (serve/sides "lone.edn")))
-        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"^no fresh\.edn \(only fresh-next\.edn\)$"
-                              (serve/sides "fresh.edn")))
+        ;; a referenced file may lack one side: both Files come back
+        (is (= ["lone.edn" "lone-next.edn"] (map #(.getName %) ((juxt :old :new) (serve/sides "lone.edn")))))
+        (is (not (.isFile (:new (serve/sides "lone.edn")))))
+        (is (not (.isFile (:old (serve/sides "fresh.edn")))))
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"^no such file: nowhere\.edn$"
+                              (serve/sides "nowhere.edn")))
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"leaves the served folder"
                               (serve/sides "../x.edn")))
         (serve! (.getPath (java.io.File. dir "root.edn")))
@@ -681,8 +683,12 @@
         (is (= "added" (get-in sub ["nodes" "h2" "diff"])))
         (is (true? (get sub "editable")))
         (is (true? (get sub "editable-old")))
-        (is (= "no lone-next.edn — create it with: simpleviz fork lone.edn next" (get lone "error")))
-        (is (= "no fresh.edn (only fresh-next.edn)" (get fresh "error")))))))
+        ;; no fork: the original compared with itself, nothing changed
+        (is (nil? (get lone "error")))
+        (is (= {"old" "lone.edn" "new" "lone-next.edn"} (get lone "compare")))
+        (is (nil? (get-in lone ["nodes" "l" "diff"])))
+        ;; no original: everything in the fork is added
+        (is (= "added" (get-in fresh ["nodes" "f" "diff"])))))))
 
 (deftest api-version-and-source-per-side-in-suffix-mode
   (with-temp-dir*
@@ -692,11 +698,16 @@
             new (java.io.File. dir "sub/api-next.edn")]
         (is (= (str (.lastModified old) "-" (.lastModified new))
                (get (json/parse-string (:body (serve/handler {:uri "/api/version" :query-string "file=sub%2Fapi.edn"}))) "mtime")))
-        (is (= 0 (get (json/parse-string (:body (serve/handler {:uri "/api/version" :query-string "file=lone.edn"}))) "mtime")))
+        (is (= (str (.lastModified (java.io.File. dir "lone.edn")) "-0")
+               (get (json/parse-string (:body (serve/handler {:uri "/api/version" :query-string "file=lone.edn"}))) "mtime")))
+        (is (= 0 (get (json/parse-string (:body (serve/handler {:uri "/api/version" :query-string "file=nowhere.edn"}))) "mtime")))
         (is (= (slurp old) (:body (serve/handler {:uri "/api/source" :query-string "file=sub%2Fapi.edn&which=old"}))))
         (is (= (slurp new) (:body (serve/handler {:uri "/api/source" :query-string "file=sub%2Fapi.edn&which=new"}))))
         (is (= (slurp new) (:body (serve/handler {:uri "/api/source" :query-string "file=sub%2Fapi.edn"}))))
-        (is (= 404 (:status (serve/handler {:uri "/api/source" :query-string "file=lone.edn"}))))))))
+        ;; a missing fork reads as its original, a missing original as empty
+        (is (= "{:nodes {:l nil}}" (:body (serve/handler {:uri "/api/source" :query-string "file=lone.edn"}))))
+        (is (= serve/empty-graph (:body (serve/handler {:uri "/api/source" :query-string "file=fresh.edn&which=old"}))))
+        (is (= 404 (:status (serve/handler {:uri "/api/source" :query-string "file=nowhere.edn"}))))))))
 
 (deftest api-edit-path-and-file-pick-the-side-in-suffix-mode
   (with-temp-dir*
@@ -713,10 +724,86 @@
         (serve/handler (edit-req {:file "old" :path "sub/api.edn" :ops [{:op "undo"}]}))
         (is (= "{:nodes {:h nil}}" (slurp old)))
         (is (clojure.string/includes? (slurp new) ":n nil"))
-        ;; a missing side is an error before anything is written
-        (is (= "no lone-next.edn — create it with: simpleviz fork lone.edn next"
-               (get (json/parse-string (:body (serve/handler (edit-req {:file "new" :path "lone.edn" :ops [{:op "add-node" :id "z"}]})))) "error")))
-        (is (= "{:nodes {:l nil}}" (slurp (java.io.File. dir "lone.edn"))))))))
+        ;; the root keeps the strict check
+        (.delete (java.io.File. dir "root-next.edn"))
+        (is (= "no root-next.edn — create it with: simpleviz fork root.edn next"
+               (get (json/parse-string (:body (serve/handler (edit-req {:file "new" :ops [{:op "add-node" :id "z"}]})))) "error")))))))
+
+(deftest api-edit-creates-the-missing-side-in-suffix-mode
+  (with-temp-dir*
+    (fn [dir]
+      (suffix-tree! dir)
+      ;; new side missing: the fork starts as a copy of the original
+      (is (true? (get (json/parse-string (:body (serve/handler (edit-req {:file "new" :path "lone.edn" :ops [{:op "add-node" :id "z"}]})))) "ok")))
+      (is (= "{:nodes {:l nil}}" (slurp (java.io.File. dir "lone.edn"))))
+      (let [fork (slurp (java.io.File. dir "lone-next.edn"))]
+        (is (clojure.string/includes? fork ":l nil"))
+        (is (clojure.string/includes? fork ":z nil")))
+      ;; old side missing: the original starts empty
+      (is (true? (get (json/parse-string (:body (serve/handler (edit-req {:file "old" :path "fresh.edn" :ops [{:op "add-node" :id "o"}]})))) "ok")))
+      (is (clojure.string/includes? (slurp (java.io.File. dir "fresh.edn")) ":o nil"))
+      (is (= "{:nodes {:f nil}}" (slurp (java.io.File. dir "fresh-next.edn"))))
+      ;; a failed edit creates nothing
+      (write! dir "solo.edn" "{:nodes {:s nil}}")
+      (is (some? (get (json/parse-string (:body (serve/handler (edit-req {:file "new" :path "solo.edn" :ops [{:op "bogus"}]})))) "error")))
+      (is (not (.exists (java.io.File. dir "solo-next.edn")))))))
+
+(defn- create-req [body & [opts]]
+  (assoc (edit-req body opts) :uri "/api/create"))
+
+(defn- create! [body]
+  (json/parse-string (:body (serve/handler (create-req body)))))
+
+(deftest api-create-writes-an-empty-graph-with-its-folders
+  (with-temp-dir*
+    (fn [dir]
+      (serve! (write! dir "root.edn" "{:nodes {:a {:ref \"deep/er/new.edn\"}}}"))
+      (is (= {"ok" true "created" "deep/er/new.edn"} (create! {:path "deep/er/new.edn" :file "new"})))
+      (is (= serve/empty-graph (slurp (java.io.File. dir "deep/er/new.edn"))))
+      ;; the new file is editable right away
+      (is (true? (get (json/parse-string (:body (serve/handler (edit-req {:file "new" :path "deep/er/new.edn" :ops [{:op "add-node" :id "n"}]})))) "ok")))
+      (is (contains? (get (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "file=deep%2Fer%2Fnew.edn"}))) "nodes") "n")))))
+
+(deftest api-create-never-overwrites
+  (with-temp-dir*
+    (fn [dir]
+      (serve! (write! dir "root.edn" "{:nodes {:a nil}}"))
+      (write! dir "there.edn" "{:nodes {:keep nil}}")
+      (is (= {"ok" true "created" nil} (create! {:path "there.edn" :file "new"})))
+      (is (= "{:nodes {:keep nil}}" (slurp (java.io.File. dir "there.edn")))))))
+
+(deftest api-create-refusals
+  (with-temp-dir*
+    (fn [dir]
+      (serve! (write! dir "root.edn" "{:nodes {:a nil}}"))
+      (is (re-find #"leaves the served folder" (get (create! {:path "../x.edn" :file "new"}) "error")))
+      (is (re-find #"not an \.edn or \.png" (get (create! {:path "x.txt" :file "new"}) "error")))
+      (is (= "PNG files cannot be created" (get (create! {:path "x.png" :file "new"}) "error")))
+      (is (= "path required" (get (create! {:file "new"}) "error")))
+      (is (not (.exists (java.io.File. dir "x.png"))))
+      (let [resp (serve/handler (create-req {:path "y.edn" :file "new"} {:headers {"origin" "http://evil.example"}}))]
+        (is (= 403 (:status resp)))
+        (is (not (.exists (java.io.File. dir "y.edn")))))
+      (is (= 405 (:status (serve/handler {:uri "/api/create" :request-method :get})))))))
+
+(deftest api-create-in-suffix-mode-follows-the-edit-side
+  (with-temp-dir*
+    (fn [dir]
+      (suffix-tree! dir)
+      (is (= {"ok" true "created" "a/n-next.edn"} (create! {:path "a/n.edn" :file "new"})))
+      (is (.isFile (java.io.File. dir "a/n-next.edn")))
+      (is (not (.exists (java.io.File. dir "a/n.edn"))))
+      (is (= {"ok" true "created" "a/o.edn"} (create! {:path "a/o.edn" :file "old"})))
+      (is (.isFile (java.io.File. dir "a/o.edn")))
+      (is (not (.exists (java.io.File. dir "a/o-next.edn"))))
+      ;; either side existing means there is nothing to create: an empty
+      ;; fork next to an original would show everything as removed
+      (is (= {"ok" true "created" nil} (create! {:path "lone.edn" :file "new"})))
+      (is (not (.exists (java.io.File. dir "lone-next.edn"))))
+      (is (= {"ok" true "created" nil} (create! {:path "fresh.edn" :file "old"})))
+      (is (not (.exists (java.io.File. dir "fresh.edn"))))
+      ;; both created files open as an unchanged comparison
+      (is (nil? (get (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "file=a%2Fn.edn"}))) "error"))))))
 
 (deftest api-edit-without-path-picks-the-root-sides-in-suffix-mode
   (with-temp-dir*
@@ -809,3 +896,69 @@
         (is (= "locked by agent"
                (get (json/parse-string (:body (serve/handler (edit-req {:file "new" :ops [{:op "add-node" :id "b"}]})))) "error")))
         (is (true? (get (json/parse-string (:body (serve/handler (edit-req {:file "old" :ops [{:op "add-node" :id "b"}]})))) "ok")))))))
+
+(defn- symlink! [dir rel target]
+  (java.nio.file.Files/createSymbolicLink
+   (.toPath (java.io.File. dir rel)) (.toPath (java.io.File. target))
+   (make-array java.nio.file.attribute.FileAttribute 0)))
+
+(deftest a-dangling-symlink-cannot-carry-a-write-out-of-the-served-folder
+  (with-temp-dir*
+    (fn [outer]
+      (let [dir (java.io.File. outer "served")
+            outside (java.io.File. outer "outside")]
+        (.mkdirs outside)
+        (suffix-tree! dir)
+        ;; canonicalization leaves a link with a missing target alone, so
+        ;; containment alone would let these through
+        (symlink! dir "dang.edn" "../outside/evil.edn")
+        (symlink! dir "lone-next.edn" "../outside/evil2.edn")
+        (is (re-find #"symlink" (get (create! {:path "dang.edn" :file "old"}) "error")))
+        (is (re-find #"symlink"
+                     (get (json/parse-string (:body (serve/handler (edit-req {:file "new" :path "lone.edn" :ops [{:op "add-node" :id "z"}]})))) "error")))
+        (is (empty? (.list outside)))))))
+
+(deftest a-missing-png-side-is-read-only
+  (with-temp-dir*
+    (fn [dir]
+      (suffix-tree! dir)
+      (write! dir "pic-next.png" (png-bytes* [(itxt* "simpleviz-edn" "{:nodes {:p nil}}")]))
+      (let [g (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "file=pic.png"})))]
+        (is (nil? (get g "error")))
+        (is (false? (get g "editable-old"))))
+      (is (= "PNG sources are read-only"
+             (get (json/parse-string (:body (serve/handler (edit-req {:file "old" :path "pic.png" :ops [{:op "add-node" :id "z"}]})))) "error")))
+      (is (not (.exists (java.io.File. dir "pic.png")))))))
+
+(deftest undo-does-not-bring-back-a-deleted-file
+  (with-temp-dir*
+    (fn [dir]
+      (suffix-tree! dir)
+      (serve/handler (edit-req {:file "new" :path "lone.edn" :ops [{:op "add-node" :id "z"}]}))
+      (.delete (java.io.File. dir "lone-next.edn"))
+      (is (= "nothing to undo"
+             (get (json/parse-string (:body (serve/handler (edit-req {:file "new" :path "lone.edn" :ops [{:op "undo"}]})))) "error")))
+      (is (not (.exists (java.io.File. dir "lone-next.edn")))))))
+
+(deftest a-failed-edit-to-a-missing-original-creates-nothing
+  (with-temp-dir*
+    (fn [dir]
+      (suffix-tree! dir)
+      (is (some? (get (json/parse-string (:body (serve/handler (edit-req {:file "old" :path "fresh.edn" :ops [{:op "bogus"}]})))) "error")))
+      (is (not (.exists (java.io.File. dir "fresh.edn")))))))
+
+(deftest a-ref-naming-a-fork-is-refused-in-suffix-mode
+  (with-temp-dir*
+    (fn [dir]
+      (suffix-tree! dir)
+      (let [msg "sub/api-next.edn is the fork of sub/api.edn — ref the original"]
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"is the fork of" (serve/sides "sub/api-next.edn")))
+        (is (= msg (get (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "file=sub%2Fapi-next.edn"}))) "error")))
+        (is (= msg (get (create! {:path "sub/api-next.edn" :file "new"}) "error")))
+        (is (not (.exists (java.io.File. dir "sub/api-next-next.edn"))))
+        ;; a name that merely ends in the suffix is fine
+        (write! dir "connext.edn" "{:nodes {:c nil}}")
+        (is (nil? (get (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "file=connext.edn"}))) "error")))
+        ;; without a suffix nothing is a fork
+        (serve! (.getPath (java.io.File. dir "root.edn")))
+        (is (= "api-next.edn" (.getName (:new (serve/sides "sub/api-next.edn")))))))))

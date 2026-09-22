@@ -30,6 +30,10 @@
 
 (def suffix-re #"^[A-Za-z0-9_.-]+$")
 
+(def empty-graph
+  "What a file created by the server holds: map form, so it is editable."
+  "{:nodes {} :edges {} :boxes {}}\n")
+
 (defn fork-name
   "The fork of path `rel` for `suffix`: the suffix goes before the
   extension (\"a/b.edn\" \"next\" -> \"a/b-next.edn\"); a name without
@@ -40,6 +44,19 @@
     (if (and (some? dot) (> dot slash))
       (str (subs rel 0 dot) "-" suffix (subs rel dot))
       (str rel "-" suffix))))
+
+(defn fork-base
+  "The path `rel` is the fork of under `suffix` (\"a/b-next.edn\"
+  \"next\" -> \"a/b.edn\"), or nil when it carries no such suffix."
+  [rel suffix]
+  (let [dot (str/last-index-of rel ".")
+        slash (or (str/last-index-of rel "/") -1)
+        [stem ext] (if (and (some? dot) (> dot slash))
+                     [(subs rel 0 dot) (subs rel dot)]
+                     [rel ""])
+        tail (str "-" suffix)]
+    (when (and (str/ends-with? stem tail) (> (count stem) (count tail)))
+      (str (subs stem 0 (- (count stem) (count tail))) ext))))
 
 (defn resolve-path
   "The canonical file for the root-relative path `rel` under `root`.
@@ -61,6 +78,10 @@
          (throw (ex-info (str rel " leaves the served folder") {})))
        (when-not (contains? ref-extensions ext)
          (throw (ex-info (str rel " is not an .edn or .png file") {})))
+       ;; canonicalization resolves every link but one whose target is
+       ;; missing, and a write through that one lands wherever it points
+       (when (java.nio.file.Files/isSymbolicLink (.toPath f))
+         (throw (ex-info (str rel " is a dangling symlink") {})))
        (when (and must-exist? (not (.isFile f)))
          (throw (ex-info (str "no such file: " rel) {})))
        f))))
@@ -153,8 +174,9 @@
   "The files behind the root-relative path `rel` (nil = the root file)
   as {:old <canonical File or nil> :new <canonical File>}: without a
   suffix only :new; with one, :old is the file and :new its fork.
-  Throws (message for the error payload) when a side is missing or
-  resolve-path refuses either."
+  Below the root one side of a pair may be missing (see side-file);
+  the root itself needs both. Throws (message for the error payload)
+  when resolve-path refuses either side or nothing is there."
   [rel]
   (let [{:keys [suffix]} @files
         rel (or rel (root-rel))
@@ -162,16 +184,46 @@
     (if (nil? suffix)
       {:old nil :new (resolve-path root-c rel)}
       (let [fk (fork-name rel suffix)
+            _ (when-let [base (fork-base rel suffix)]
+                (throw (ex-info (str rel " is the fork of " base " — ref the original") {})))
             ;; escape/extension refusals first, existence checked here so
             ;; the message can name the missing side
             old (resolve-path root-c rel false)
             new (resolve-path root-c fk false)]
         (cond
+          (and (.isFile old) (.isFile new)) {:old old :new new}
+          (not= old (resolve-path root-c (root-rel) false))
+          (if (or (.isFile old) (.isFile new))
+            {:old old :new new}
+            (throw (ex-info (str "no such file: " rel) {})))
           (not (.isFile new))
           (throw (ex-info (str "no " fk " — create it with: simpleviz fork " rel " " suffix) {}))
-          (not (.isFile old))
-          (throw (ex-info (str "no " rel " (only " fk ")") {}))
-          :else {:old old :new new})))))
+          :else
+          (throw (ex-info (str "no " rel " (only " fk ")") {})))))))
+
+(defn- side-file
+  "The file holding what side `which` (\"old\", else new) of `sides`
+  shows, or nil for an empty graph: a missing fork reads as its
+  original — unforked means unchanged, which is also what promote
+  makes of it — and a missing original as empty."
+  [{:keys [old new]} which]
+  (cond
+    (= which "old") (when (and (some? old) (.isFile old)) old)
+    (.isFile new) new
+    (and (some? old) (.isFile old)) old))
+
+(defn- read-only-side?
+  "Is side `which` a PNG — by content, or by name when nothing is there
+  yet, so an edit cannot bring a .png holding EDN text into being."
+  [{:keys [old new] :as sides} which]
+  (let [target (if (= which "old") old new)]
+    (boolean
+     (or (some-> (side-file sides which) .getPath png/png?)
+         (and (not (.isFile target))
+              (str/ends-with? (str/lower-case (.getName target)) ".png"))))))
+
+(defn- side-source [sides which]
+  (if-let [f (side-file sides which)] (read-source (.getPath f)) empty-graph))
 
 (defn- nav-rel
   "The `file` query parameter, or nil; refused (throws) on an embedded
@@ -186,29 +238,68 @@
   (try
     (when (and (some? path) (embedded-compare?))
       (throw (ex-info "refs are not available in an embedded compare" {})))
-    (let [{:keys [old new]} (sides path)
+    (let [{:keys [old new] :as pair} (sides path)
           target (if (= file "old") old new)
           path (some-> target .getPath)
+          ;; a side that is not there yet comes into being with its
+          ;; first successful edit
+          source (when (some? target) (side-file pair file))
           ;; the browser owns no lock, so any live one blocks it
           holder (some-> path (lock-holder (System/currentTimeMillis)))]
       (cond
         (nil? path) {:error "no old file in single-file mode"}
-        (png/png? path) {:error "PNG sources are read-only"}
+        (read-only-side? pair file) {:error "PNG sources are read-only"}
         (some? holder) {:error (str "locked by " holder)}
         (= "undo" (:op (first ops)))
-        (if-let [prev (pop-undo! path)]
+        ;; a file deleted since (promote, by hand) stays deleted
+        (if-let [prev (when (.isFile target) (pop-undo! path))]
           (do (spit path prev) {:ok true})
           {:error "nothing to undo"})
         :else
         ;; snapshot the ORIGINAL text before applying — `before` feeds
         ;; both the patch and the undo stack
-        (let [before (slurp path)
+        (let [before (if (some? source) (slurp source) empty-graph)
               {:keys [text error]} (edit/apply-ops before ops)]
           (if (some? error)
             {:error error}
             (do (push-undo! path before)
                 (spit path text)
                 {:ok true})))))
+    (catch Exception e {:error (ex-message e)})))
+
+(defn- create-response
+  "Create the graph file a followed ref names, with its folders, when
+  nothing is there yet: in a comparison the side being edited (`file`),
+  and only while neither side exists — an empty fork next to an
+  original would show everything as removed. Never overwrites."
+  [{:keys [file path]}]
+  (try
+    (when (embedded-compare?)
+      (throw (ex-info "refs are not available in an embedded compare" {})))
+    (when-not (string? path)
+      (throw (ex-info "path required" {})))
+    (let [{:keys [suffix]} @files
+          _ (when-let [b (and (some? suffix) (fork-base path suffix))]
+              (throw (ex-info (str path " is the fork of " b " — ref the original") {})))
+          base (resolve-path @root-dir path false)
+          fk (when (some? suffix) (fork-name path suffix))
+          fork (when (some? fk) (resolve-path @root-dir fk false))
+          [rel target] (if (and (some? fork) (not= file "old")) [fk fork] [path base])]
+      (cond
+        (str/ends-with? (str/lower-case (.getName base)) ".png")
+        {:error "PNG files cannot be created"}
+        (or (.exists base) (and (some? fork) (.exists fork)))
+        {:ok true :created nil}
+        :else
+        (do (.mkdirs (.getParentFile target))
+            (try
+              ;; CREATE_NEW: a file that appeared since the check is kept
+              (java.nio.file.Files/write (.toPath target) (.getBytes empty-graph "UTF-8")
+                                         (into-array java.nio.file.OpenOption
+                                                     [java.nio.file.StandardOpenOption/CREATE_NEW]))
+              {:ok true :created rel}
+              (catch java.nio.file.FileAlreadyExistsException _
+                {:ok true :created nil})))))
     (catch Exception e {:error (ex-message e)})))
 
 (def ^:private usage
@@ -311,8 +402,8 @@
   (and (some? ct) (str/starts-with? (str/lower-case ct) "application/json")))
 
 (defn- edit-guard
-  "HTTP-level rejection response for a write (/api/edit, /api/lock,
-  /api/unlock), or nil when the
+  "HTTP-level rejection response for a write (/api/edit, /api/create,
+  /api/lock, /api/unlock), or nil when the
   request may proceed: 403 on a foreign Origin (cross-origin write
   attempt), 415 when Content-Type isn't application/json."
   [{:keys [headers server-port]}]
@@ -353,14 +444,14 @@
                      (compare-json (embedded-old root) (read-source root)
                                    (str nm " (old)") (str nm " (new)") nm
                                    {:editable false :editable-old false}))
-                   (let [{:keys [old new]} (sides rel)
+                   (let [{:keys [old new] :as pair} (sides rel)
                          path (or rel (root-rel))
                          new-p (.getPath new)]
                      (if (some? old)
-                       (compare-json (read-source (.getPath old)) (read-source new-p)
+                       (compare-json (side-source pair "old") (side-source pair "new")
                                      path (fork-name path suffix) (.getName new)
-                                     {:editable (not (png/png? new-p))
-                                      :editable-old (not (png/png? (.getPath old)))
+                                     {:editable (not (read-only-side? pair "new"))
+                                      :editable-old (not (read-only-side? pair "old"))
                                       :path path})
                        (graph-json (read-source new-p) (.getName new)
                                    {:editable (not (png/png? new-p)) :path path})))))
@@ -402,6 +493,15 @@
           (catch Exception e [400 {:error (ex-message e)}]))]
     (assoc (json-response (json/generate-string out)) :status status)))
 
+(defn- create-response-body [body-stream]
+  (let [parsed (try (json/parse-string (slurp body-stream) true)
+                    (catch Exception e {:parse-error (ex-message e)}))
+        out (if-let [err (:parse-error parsed)]
+              {:error err}
+              (create-response parsed))]
+    (log/event! "create" {:file (:file parsed) :path (:path parsed) :result out})
+    (json/generate-string out)))
+
 (defn- post-only
   "The response of (f) for a guarded POST; 405 for any other method."
   [{:keys [request-method] :as req} f]
@@ -413,6 +513,7 @@
   (case uri
     "/api/graph"   (json-response (graph-response-body query-string))
     "/api/edit"    (post-only req #(json-response (edit-response-body body)))
+    "/api/create"  (post-only req #(json-response (create-response-body body)))
     "/api/lock"    (post-only req #(lock-response acquire-lock! body))
     "/api/unlock"  (post-only req #(lock-response release-lock! body))
     "/api/version" (json-response
@@ -434,10 +535,9 @@
                        (if (= which "old")
                          (embedded-old (:root @files))
                          (read-source (:root @files))))
-                   (let [{:keys [old new]} (sides (nav-rel query-string))]
-                     (if (= which "old")
-                       (when (some? old) (read-source (.getPath old)))
-                       (read-source (.getPath new)))))
+                   (let [{:keys [old] :as pair} (sides (nav-rel query-string))]
+                     (when (or (not= which "old") (some? old))
+                       (side-source pair which))))
                  (catch Exception _ nil))]
       (if (some? body)
         {:status 200

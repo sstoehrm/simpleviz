@@ -164,6 +164,13 @@
   [file ops]
   {:file file :ops ops})
 
+(defn create-body
+  "The /api/create POST body: the served-folder path a followed ref
+  names and the file (\"old\"/\"new\") being edited, which is the side
+  a comparison creates."
+  [file path]
+  {:file file :path path})
+
 (defn pick-ops
   "Ops for a pick-mode hit, or nil when item isn't a valid target for
   pick (keep picking). pick is one of:

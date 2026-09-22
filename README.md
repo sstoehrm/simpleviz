@@ -124,9 +124,13 @@ A comparison is a graph against a *fork* of itself, named by a suffix:
 `:ref` attributes to `<name>-<suffix>.<ext>` siblings (refs inside the
 copies are left as they are). Edit the forks — in the page or by hand —
 and the comparison shows the difference. Following a ref inside a
-comparison opens the referenced file's own comparison against its fork;
-a referenced file without a fork (or a fork without an original) shows an
-error, and the trail leads back. `promote` walks the fork's refs and
+comparison opens the referenced file's own comparison against its fork.
+A referenced file without a fork shows as unchanged — which is what
+`promote` makes of it — and the first edit to the new side creates the
+fork as a copy of the original; a fork without an original shows
+everything as added, and the first edit to the old side creates the
+original. (The file the server was started with still needs its fork.)
+`promote` walks the fork's refs and
 moves every fork it finds over its original; forks outside that closure
 are left alone.
 
@@ -203,8 +207,14 @@ element selected, "follow ref" (`f r`) opens that graph in place; a trail
 at the top center lists the files followed, and clicking one goes back
 there (the browser's back button works too). Refs may use `..` but never
 leave the folder of the file the server was started with, and must point
-at an `.edn` or exported `.png`; anything else shows an error. In a suffix
-comparison, following opens the comparison of the target and its fork; an
+at an `.edn` or exported `.png`; anything else shows an error. Following
+a ref to an `.edn` file that does not exist yet creates it, folders
+included, as an empty graph ready to edit (not from a read-only PNG
+session); in a suffix comparison only the side the old|new toggle selects
+is created — `new` the fork `<name>-<suffix>.edn`, `old` the plain file.
+A ref must name the original, never a fork (`x-next.edn` while comparing
+with `next` is refused).
+In a suffix comparison, following opens the comparison of the target and its fork; an
 embedded-compare PNG cannot follow refs, and a PNG-served graph cannot
 follow refs either (the toolbar is read-only there). Try it on
 `examples/demo.edn`: the API node refs `examples/api/internals.edn`, whose

@@ -50,7 +50,7 @@
                         bundle-name (str "simpleviz-" version)
                         dir (fs/path "dist" bundle-name)
                         ;; standalone bb.edn: serving only, deps taken from this file
-                        release-bb {:paths ["server"]
+                        release-bb {:paths ["server" "."]
                                     :deps (:deps (edn/read-string (slurp "bb.edn")))
                                     :tasks (quote {serve {:doc "Serve an EDN graph file or exported PNG: bb serve graph.edn|.png [suffix] [--port N] (suffix = compare against graph-<suffix>.edn)"
                                                           :requires ([serve])
@@ -75,6 +75,7 @@
                       (fs/delete f))
                     (doseq [f ["README.md" "LICENSE" "THIRD-PARTY-NOTICES.md"]]
                       (fs/copy f (fs/path dir f)))
+                    (spit (str (fs/path dir "VERSION")) (str version "\n"))
                     (spit (str (fs/path dir "bb.edn"))
                           (binding [*print-namespace-maps* false] (pr-str release-bb)))
                     (shell {:dir "dist"} "tar" "czf" (str bundle-name ".tar.gz") bundle-name)

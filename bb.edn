@@ -27,8 +27,8 @@
             :requires ([fork])
             :task (apply fork/-main "promote" *command-line-args*)}
   test:clj {:doc "Run Clojure server tests"
-            :requires ([clojure.test :as t] [server-test] [graph-test] [diff-test] [docs-test] [png-test] [edit-test] [log-test] [fork-test] [launcher-test] [check-test])
-            :task (let [{:keys [fail error]} (t/run-tests 'graph-test 'server-test 'diff-test 'docs-test 'png-test 'edit-test 'log-test 'fork-test 'launcher-test 'check-test)]
+            :requires ([clojure.test :as t] [server-test] [graph-test] [diff-test] [docs-test] [png-test] [edit-test] [log-test] [fork-test] [launcher-test] [check-test] [cli-test])
+            :task (let [{:keys [fail error]} (t/run-tests 'graph-test 'server-test 'diff-test 'docs-test 'png-test 'edit-test 'log-test 'fork-test 'launcher-test 'check-test 'cli-test)]
                     (when (pos? (+ fail error)) (System/exit 1)))}
   test:js  {:doc "Run JS unit tests (compiled squint output)"
             :requires ([babashka.fs :as fs])

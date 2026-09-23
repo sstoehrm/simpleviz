@@ -2,7 +2,8 @@
   "The data-format examples in the README and the plugin skill must be
   self-contained: normalize accepts them with zero warnings. Guards
   against docs drifting from behavior (issue #29)."
-  (:require [clojure.edn :as edn]
+  (:require [cli]
+            [clojure.edn :as edn]
             [clojure.string :as str]
             [clojure.test :refer [deftest is]]
             [graph]))
@@ -36,19 +37,8 @@
     (is (pos? (count (:edges g))) (str source " example keeps its edges"))
     (is (pos? (count (:boxes g))) (str source " example keeps its boxes"))))
 
-(defn- heredoc-block
-  "Body of the first <<'MARKER' heredoc in the text."
-  [text marker]
-  (->> (str/split-lines text)
-       (drop-while (fn [l] (not (str/includes? l (str "<<'" marker "'")))))
-       (rest)
-       (take-while (fn [l] (not= l marker)))
-       (str/join "\n")))
-
 (deftest init-template-is-functional
-  (assert-example-clean
-   "install.sh init template"
-   (heredoc-block (slurp "install.sh") "TEMPLATE")))
+  (assert-example-clean "cli init template" cli/init-template))
 
 (deftest third-party-notices-cover-vendored-components
   (let [notices (slurp "THIRD-PARTY-NOTICES.md")

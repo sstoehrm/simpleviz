@@ -8,6 +8,8 @@
                     :note "install.sh heredoc, shrinks to a wrapper"}
          :cli      {:name "cli" :type "namespace" :state :new
                     :commands "serve, fork, promote, init, extract, check, demo, --version, --help, --no-open"}
+         :main     {:name "simpleviz.main" :type "namespace" :state :new
+                    :note "jar entry; re-runs bb -cp <jar> -m cli when a caller bb.edn took over the classpath"}
          :serve    {:name "serve" :type "namespace" :state :in-progress
                     :change "start! split out of -main; static files + VERSION from the classpath"}
          :fork     {:name "fork" :type "namespace"}
@@ -19,10 +21,10 @@
          :bundle   {:name "bb bundle" :type "task" :state :in-progress
                     :change "release bb.edn puts the bundle root on the classpath; writes VERSION"}
          :jar      {:name "bb jar" :type "task" :state :new
-                    :change "stages server + resources, bb uberjar -m cli"}
+                    :change "stages server + resources, bb uberjar -m simpleviz.main"}
          :ci       {:name "CI: ci.yml, release.yml" :type "workflow" :state :in-progress}
          :smoke    {:name "bb jar:smoke" :type "task" :state :new
-                    :change "runs the jar through bbin's shim: --version, check, demo --no-open"}
+                    :change "runs the jar through bbin's shim: --version (also under a hostile bb.edn), check, demo --no-open, /vendor 404"}
          :tarball  {:name "simpleviz-vX.tar.gz" :type "artifact"}
          :jarfile  {:name "simpleviz.jar" :type "artifact" :state :new
                     :note "exact name: bbin derives the command name from it"}
@@ -30,7 +32,8 @@
  :edges {[:user :wrapper]     {:direction :-> :name "simpleviz …"}
          [:user :bbin]        {:direction :-> :name "simpleviz …"}
          [:wrapper :cli]      {:direction :-> :name "bb --config ~/.simpleviz/bb.edn -m cli"}
-         [:bbin :cli]         {:direction :-> :name "add-classpath jar, cli/-main"}
+         [:bbin :main]        {:direction :-> :name "add-classpath jar, simpleviz.main/-main"}
+         [:main :cli]         {:direction :-> :name "cli/-main (or bb -cp jar -m cli)"}
          [:cli :serve]        {:direction :-> :name "start! + open browser"}
          [:cli :fork]         {:direction :-> :name "fork / promote"}
          [:cli :png]          {:direction :-> :name "extract"}
@@ -48,7 +51,7 @@
          [:install :wrapper]  {:direction :-> :name "writes"}
          [:bbin :jarfile]     {:direction :-> :name "downloads"}}
  :boxes {:code      {:name "server/ (one CLI, all installs)" :type "code"
-                     :components #{:cli :serve :fork :png :check}}
+                     :components #{:main :cli :serve :fork :png :check}}
          :resources {:name "classpath resources" :type "resources"
                      :components #{:public :examples :version}}
          :release   {:name "Release (CI)" :type "build"

@@ -35,11 +35,14 @@ jobs:
       - name: Build bundle
         run: bb bundle ${{ github.ref_name }}
 
+      - name: Build and smoke-test the jar
+        run: bb jar:smoke ${{ github.ref_name }}
+
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: >
           gh release create "${{ github.ref_name }}"
-          dist/*.tar.gz
+          dist/*.tar.gz dist/simpleviz.jar
           --title "simpleviz ${{ github.ref_name }}"
           --generate-notes

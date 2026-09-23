@@ -6,49 +6,35 @@ that live-reloads while you edit the file.
 
 [![30-second tour: live reload, inspecting, editing in place, comparing a fork, following a ref](docs/assets/demo.gif)](docs/assets/demo.mp4)
 
-## Getting started
+## Install
 
-Quickest install (Linux, needs [babashka](https://babashka.org/), curl and tar):
+Linux, with [babashka](https://babashka.org/), curl and tar:
 
     curl -fsSL https://raw.githubusercontent.com/sstoehrm/simpleviz/main/install.sh | bash
-    simpleviz ~/.simpleviz/examples/demo.edn   # or any graph.edn; picks a free port 7370-7469
-    simpleviz init my-arch.edn                 # write a starter file to edit
-    simpleviz fork my-arch.edn next            # my-arch-next.edn (+ forks of every referenced file)
+
+This installs into `~/.simpleviz` and puts a launcher in `~/.local/bin`.
+`simpleviz update` fetches the latest release.
+
+Without the installer, unpack a tarball from the
+[releases page](https://github.com/sstoehrm/simpleviz/releases) and run
+`bb serve examples/demo.edn` inside it (port 7373; `--port N` changes it).
+
+## Usage
+
+    simpleviz ~/.simpleviz/examples/demo.edn   # serve a graph on a free port 7370-7469
+    simpleviz init my-arch.edn                 # write a starter file
+    simpleviz fork my-arch.edn next            # copy to my-arch-next.edn, plus every file it refs
     simpleviz my-arch.edn next                 # compare my-arch.edn → my-arch-next.edn
     simpleviz promote my-arch.edn next         # make the forks the new originals
 
-`simpleviz --version` prints the installed release; `simpleviz update`
-fetches the latest one. The install lives in `~/.simpleviz` (managed by the
-installer) plus a launcher in `~/.local/bin`.
+`simpleviz --help` lists the rest. Edit the file and the page follows. You
+can also edit in the page: click an element to inspect and change its
+attributes, and use the toolbar at the bottom to add, connect, group and
+delete. ⇩ exports a PNG with the source embedded, which simpleviz serves like
+an EDN file. Press `?` in the page for controls and shortcuts.
 
-If something looks fishy, run with `--debug`: the server then writes one log
-per run to `~/.simpleviz/logs/` with every edit it applied and every error
-it returned, plus a header naming the version and the served files. A
-server crash always writes a `crash-<timestamp>.log` there, `--debug` or
-not. Attach those files to a bug report.
-
-Alternatively, run from a tarball by hand:
-
-Grab the latest tarball from the
-[releases page](https://github.com/sstoehrm/simpleviz/releases) — it contains
-the precompiled frontend, so all you need is
-[babashka](https://babashka.org/) and a browser:
-
-    tar xzf simpleviz-vX.Y.Z.tar.gz
-    cd simpleviz-vX.Y.Z
-    bb serve examples/demo.edn              # default port 7373
-    bb serve examples/demo.edn --port 9000  # or -p 9000
-    bb serve examples/demo.edn --debug      # log edits/errors to ~/.simpleviz/logs/
-    bb serve examples/big-5k.edn            # 5k-node stress example
-    bb serve examples/demo.edn next             # compare against demo-next.edn
-
-Open http://localhost:7373. Edit the file — the page updates automatically.
-Click nodes, edges, or boxes for their full attributes. Drag to pan, wheel to
-zoom. The `−` button in a box header collapses it to a single node; big
-graphs (500+ nodes) open with all top-level boxes collapsed.
-
-(Running from a git clone instead requires a build step — see
-[docs/development.md](https://github.com/sstoehrm/simpleviz/blob/main/docs/development.md).)
+The [guide](https://github.com/sstoehrm/simpleviz/blob/main/docs/guide.md)
+covers comparing, editing, refs between graphs, exporting and write locks.
 
 ## Data format
 
@@ -70,243 +56,31 @@ graphs (500+ nodes) open with all top-level boxes collapsed.
               :type "zone"               ; colors the box (separate palette)
               :components #{:api :db}}}} ; node and/or box ids; boxes nest
 
-Identifiers may be keywords or strings. The pre-v2 vector forms
-(`:edges [{:nodes [..] ..}]`, `:boxes [{:name ".." ..}]`) are still accepted.
-Writing both `[:a :b]` and `[:b :a]` produces a "same connection" warning.
+Identifiers may be keywords or strings. An invalid element is skipped with a
+warning banner instead of breaking the render. The
+[guide](https://github.com/sstoehrm/simpleviz/blob/main/docs/guide.md#data-format)
+has the full rules.
 
-Edge endpoints may be nodes or boxes. An edge between a box and its own
-content — or a box and itself — is skipped with a warning; when a name is
-both a node and a box, the edge gets the node.
+## Claude Code and Codex plugins
 
-Colors are stable: a type keeps its color across restarts and unrelated edits
-(FNV-1a hash into a fixed 255-color table, golden-angle hues, linear probing
-on collision).
+This repo is a plugin marketplace. Its skill teaches the agent the graph
+format and the CLI, so it can write and serve diagrams for you.
 
-Validation runs server-side (via [malli](https://github.com/metosin/malli)):
-invalid references, duplicate box memberships, or containment cycles never
-break rendering — the element is skipped and a warning banner explains it.
-A parse error shows an error banner and keeps the last good render.
-
-## Exporting
-
-The ⇩ button downloads the diagram as a PNG of the whole graph, with the
-source EDN embedded as image metadata — an exported picture is never a
-dead end. An export made in compare mode embeds BOTH input files; other
-exports embed the one served file.
-
-    simpleviz extract diagram.png            # print the embedded EDN
-                                             # (from a compare export: the NEW file)
-    simpleviz extract diagram.png graph.edn  # write it to a file instead (won't overwrite)
-    simpleviz extract diagram.png --old      # from a compare export: the OLD file
-
-Exported PNGs are also accepted anywhere an EDN file is — the server
-reads the embedded source back out:
-
-    simpleviz diagram.png                    # serve the embedded graph
-    simpleviz diagram.png next               # compare against diagram-next.png
-    simpleviz compare-export.png             # re-opens as the full comparison
-
-Or extract the EDN explicitly:
-
-    simpleviz extract diagram.png graph.edn --old
-    simpleviz extract diagram.png graph-next.edn
-    simpleviz graph.edn next
-
-## Comparing two versions
-
-A comparison is a graph against a *fork* of itself, named by a suffix:
-
-    simpleviz fork graph.edn next      # graph-next.edn, plus a fork of every file graph.edn refs
-    simpleviz graph.edn next           # compare graph.edn (old) → graph-next.edn (new)
-    simpleviz promote graph.edn next   # each fork replaces its original
-
-`fork` copies the file and, transitively, every file reachable through
-`:ref` attributes to `<name>-<suffix>.<ext>` siblings (refs inside the
-copies are left as they are). Edit the forks — in the page or by hand —
-and the comparison shows the difference. Following a ref inside a
-comparison opens the referenced file's own comparison against its fork.
-A referenced file without a fork shows as unchanged — which is what
-`promote` makes of it — and the first edit to the new side creates the
-fork as a copy of the original; a fork without an original shows
-everything as added, and the first edit to the old side creates the
-original. (The file the server was started with still needs its fork.)
-`promote` walks the fork's refs and
-moves every fork it finds over its original; forks outside that closure
-are left alone.
-
-Both files render as ONE merged diagram — added elements get a green `+`
-ring, modified ones an amber `~` ring (click for an attribute-level
-old → new list), and removed ones stay visible as red, dashed, ghosted
-shapes. Nodes and boxes match by key, edges by their endpoints (flipping
-the pair or changing `:direction` counts as modified). Layout follows the
-new file; removed elements keep their old place. A collapsed box hiding
-any change shows an amber dot. The legend at the top center names both
-files and counts the changes per status — click a row to jump through
-them (selects and centers each element, wraps around). Both files
-live-reload.
-
-Try it: `simpleviz ~/.simpleviz/examples/demo.edn next`, then select the
-API node and press `f r`.
-
-## Editing
-
-When the served file is map-form EDN — not a read-only PNG — the diagram is
-editable in place.
-
-The inspector (right panel) shows the selected element's data. Click any
-attribute value — or its ✎ button — to edit it inline: scalars (strings,
-numbers, keywords, nil) edit as plain text; raw collections (vectors, maps,
-sets) edit as EDN text. The field grows with its content; Enter commits,
-Shift+Enter inserts a line break, Escape cancels; the `×` on each row
-deletes the attribute, and the key/value row at the bottom adds a new one.
-The `id` row at the top renames a node or box: every edge endpoint and box
-membership that referred to the old id follows, the element keeps its place,
-and it stays selected. Editing a node's or box's `name` renames it the same
-way, to the id the name derives: lowercased, every run of characters that
-cannot appear in a keyword id (anything but letters, digits and
-`*+!_'?<>=./-`) turned into one `-`, no `-` at either end, so "Web Server
-(v2)" becomes `web-server-v2`. Adding a `name` does the same. If that id is
-already taken the whole edit is rejected, name included; a name with nothing
-usable in it leaves the id alone. Edges have no id of their own — change
-their endpoints from the toolbar instead. In compare mode, a modified element's
-old → new changes appear as a card at the top of the panel.
-
-Editing tools live in a floating toolbar at the bottom center of the
-screen. With nothing selected it offers "new node" (type a name — its id
-is derived from it as described above, and the new node is selected; a name
-with nothing usable in it keeps the prompt open). Every creation prompt also
-takes `name::type`: the part after the first `::` becomes the element's
-`type`, so `Web Server::frontend` creates `web-server` with name "Web
-Server" and type "frontend". With a selection it shows that element's tools:
-
-- **Every element**: Delete — removing a node or box also removes edges
-  touching it and clears its membership in a parent box.
-- **Edges**: a direction row (→ ← ↔ —) plus "change source" / "change
-  target" pick modes (click the new node or box on the canvas; Esc
-  cancels).
-- **Nodes**: "add edge" (pick the other endpoint, then type the edge's
-  name — Enter on an empty prompt leaves it unnamed), "add to box" (pick
-  the destination box), "new node" (a new node connected by an edge, via
-  a name prompt), "new box" (wraps the node in a freshly created box,
-  which takes the node's place in its parent box; a name prompt too).
-- **Boxes**: "add edge", "add node" / "add box" pick modes to take an
-  existing element as a member, "remove node" (pick a member to take out),
-  "new node" (a new node inside the box, via a name prompt), and "new box"
-  (wraps this box the same way).
-
-**Node marks.** A node with a `:ref` is drawn with a double border. A
-node's `:state` — `:new`, `:in-progress`, `:blocked` or `:done` — shows as
-a mark on its top-right corner: grey disc, blue half disc, red square,
-green disc with a check. Any other `:state` value is an ordinary
-attribute. Hovering a node, edge or box shows a tooltip with its name and
-attributes, without opening the inspector.
-
-**Following refs.** A `:ref` attribute on a node, box or edge names
-another graph file by a path relative to the file it is in. With such an
-element selected, "follow ref" (`f r`) opens that graph in place; a trail
-at the top center lists the files followed, and clicking one goes back
-there (the browser's back button works too). Refs may use `..` but never
-leave the folder of the file the server was started with, and must point
-at an `.edn` or exported `.png`; anything else shows an error. Following
-a ref to an `.edn` file that does not exist yet creates it, folders
-included, as an empty graph ready to edit (not from a read-only PNG
-session); in a suffix comparison only the side the old|new toggle selects
-is created — `new` the fork `<name>-<suffix>.edn`, `old` the plain file.
-A ref must name the original, never a fork (`x-next.edn` while comparing
-with `next` is refused).
-In a suffix comparison, following opens the comparison of the target and its fork; an
-embedded-compare PNG cannot follow refs, and a PNG-served graph cannot
-follow refs either (the toolbar is read-only there). Try it on
-`examples/demo.edn`: the API node refs `examples/api/internals.edn`, whose
-"Demo overview" node refs back.
-
-Every toolbar action also has a two-key chord, shown inside its button;
-chords work whenever no text field has the focus, and Esc cancels a
-pending one:
-
-| Chord | Selection | Action |
-| --- | --- | --- |
-| `d d` | any | delete |
-| `e 1` `e 2` `e 3` `e 4` | edge | direction → ← ↔ — |
-| `c s` / `c t` | edge | change source / target (then click the new endpoint) |
-| `a e` | node, box | add edge (then click the other endpoint and name it) |
-| `a b` | node / box | add to box / add a box as member (then click it) |
-| `a n` | box | add a node as member (then click it) |
-| `r n` | box | remove node: click a member node, it moves to the enclosing box or out |
-| `c n` | box | new node inside the box (name prompt) |
-| `r b` | node | remove from box: the node moves to the enclosing box or out |
-| `n n` | none / node | new node / new node connected to the selection |
-| `n b` | node, box | new box around the selection |
-| `r r` | node, box | rename the id |
-| `f r` | node, edge, box | follow the element's `:ref` (opens that graph) |
-| `?` | any | toggle the help panel |
-
-In compare mode, the legend at the top center carries an old|new toggle
-picking which file edits apply to (disabled on a read-only PNG side).
-
-After an edit the diagram keeps its arrangement: the relayout is seeded
-with the previous positions, so existing elements stay in their layers and
-order and a new node appears next to the one it connects to. A ⟳ button
-then appears top right; click it for a fresh layout once the arrangement
-drifts from what a clean run would produce.
-
-Ctrl+Z, or the ⟲ button, undoes the last edit. The server keeps one undo
-stack per file, shared by all viewers of that file, capped at 100 entries.
-
-Edits patch the file in place — comments and formatting outside the changed
-value are preserved — and the usual live-reload picks up the change. A
-session serving an exported PNG is always read-only, since there's no
-source file to write back to. Editing requires map-form EDN; pre-v2
-vector-form files (`:edges [..]`, `:boxes [..]`) refuse edits with a clear
-error asking you to convert to map form first.
-
-The server only binds to loopback and only accepts writes whose `Origin`
-matches its own `localhost`/`127.0.0.1` address, so it trusts your machine's
-browser but rejects cross-origin writes from other sites or hosts.
-
-### Write locks
-
-Tools that write a served file directly (agents, scripts) can coordinate
-through an advisory lock, one per file:
-
-    curl -X POST -H 'Content-Type: application/json' \
-      -d '{"owner":"agent-a","path":"sub/api.edn"}' http://localhost:7373/api/lock
-    curl -X POST -H 'Content-Type: application/json' \
-      -d '{"owner":"agent-a","path":"sub/api.edn"}' http://localhost:7373/api/unlock
-
-`path` is the real file name relative to the served folder (a fork is
-`graph-next.edn`) and defaults to the root file. `/api/lock` answers
-`{"ok":true,"ttl":60}`, or 409 `{"error":"locked by <owner>"}` while
-someone else holds it; asking again as the same owner renews the 60
-seconds, after which a forgotten lock expires. While a file is locked,
-browser edits to it are refused with the same message. The lock is
-advisory: nothing stops a process that writes without asking.
-
-## Claude Code plugin
-
-This repo doubles as a [Claude Code](https://claude.com/claude-code) plugin
-marketplace. The plugin teaches Claude the graph EDN format and the CLI, so
-it can author and serve simpleviz diagrams for you:
+Claude Code:
 
     /plugin marketplace add sstoehrm/simpleviz
     /plugin install simpleviz@simpleviz
 
-Claude Code auto-updates marketplace plugins in the background by default.
-To update the skill by hand (e.g. right after a release):
-
-    /plugin marketplace update simpleviz
-    claude plugin update simpleviz@simpleviz
-
-## Codex plugin
-
-The same skill is available to Codex through this repository's plugin
-marketplace:
+Codex:
 
     codex plugin marketplace add sstoehrm/simpleviz
     codex plugin add simpleviz@simpleviz
 
-To update, refresh the marketplace snapshot and re-add (re-adding an
-installed plugin is a clean reinstall from the fresh snapshot):
+## Bug reports
 
-    codex plugin marketplace upgrade
-    codex plugin add simpleviz@simpleviz
+Run with `--debug` to log every edit and error to `~/.simpleviz/logs/`.
+Crashes are logged there even without it. Attach the logs to the report.
+
+## Development
+
+See [docs/development.md](https://github.com/sstoehrm/simpleviz/blob/main/docs/development.md).

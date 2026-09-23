@@ -207,3 +207,9 @@ complete.
 - http-kit serves an `InputStream` body from a `jar:` resource with the
   right content type.
 - `babashka.browse/browse-url` is available in `MIN_BB` (1.3.0).
+
+## Follow-up
+
+- TODO: fold the `cli` namespace, the jar build and the wrapper launcher
+  into the project's concept graph (blend:deduce). Skipped at spec time on
+  2026-09-23.

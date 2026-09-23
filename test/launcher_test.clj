@@ -116,12 +116,17 @@
     (is true "pgrep unavailable — case skipped")
     (let [script (write-launcher!)
           proc (proc-util/start ["bash" script "demo" "--no-open"]
-                                :env {"SIMPLEVIZ_HOME" repo-root})]
+                                :env {"SIMPLEVIZ_HOME" repo-root})
+          demo-dir (atom nil)]
       (try
+        (reset! demo-dir (second (proc-util/await-line proc #"^simpleviz: demo files in (.+)$" 30000)))
+        (is (some? @demo-dir))
         (is (some? (proc-util/await-line proc #"^simpleviz: http://localhost:\d+$" 30000)))
         (let [res (run-launcher script ["clean-all"])]
           (is (= 0 (:exit res)) (:err res))
           (is (str/includes? (:out res) "killing")))
         (is (.waitFor ^Process (:proc proc) 5 java.util.concurrent.TimeUnit/SECONDS)
             "clean-all stopped the server")
-        (finally (p/destroy-tree proc))))))
+        (finally
+          (p/destroy-tree proc)
+          (some-> @demo-dir fs/delete-tree))))))

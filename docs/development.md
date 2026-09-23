@@ -20,7 +20,7 @@ compiled to plain ES modules (no bundler).
     bb promote graph.edn suffix      # move the forks back over their originals
     bb bundle [version]              # build a release tarball into dist/
 
-Passing a suffix serves the file in compare mode against its fork (old → new, see the README's "Comparing two versions"; `server/fork.clj` creates and promotes forks): `server/diff.clj` merges the two
+Passing a suffix serves the file in compare mode against its fork (old → new, see [the guide](guide.md#comparing-two-versions); `server/fork.clj` creates and promotes forks): `server/diff.clj` merges the two
 normalized graphs into one union graph whose elements carry a `:diff`
 status (`added`/`removed`/`modified`, absent = unchanged) and, when
 modified, a `:changed {attr {:old .. :new ..}}` map. The frontend only
@@ -31,7 +31,9 @@ changes section (`app.cljs`). Single-file responses carry no diff keys.
 
 Rendering: HTML5 canvas (HiDPI) fed by a pure scene list; layout by vendored
 [ELK.js](https://github.com/kieler/elkjs) (layered, left-to-right, compound
-boxes, ELK-placed edge labels).
+boxes, ELK-placed edge labels). Type colors come from an FNV-1a hash into a
+fixed 255-color table (golden-angle hues, linear probing on collision), so a
+type keeps its color across restarts and unrelated edits (`colors.cljs`).
 
 Sources in `src/simpleviz/`, tests in `test/simpleviz/` (run by `node --test`
 against the compiled output).

@@ -79,7 +79,7 @@ Relative paths resolve from the working directory. Inside `cli.clj`,
 
 | Invocation | Behavior |
 |---|---|
-| `<graph.edn\|.png> [suffix] [--debug] [--no-open]` | Checks, in order: the file exists (`file not found: <f>`); a second argument ending in `.edn`/`.png` gets the two-file hint; the suffix matches `serve/suffix-re` (`invalid suffix: <s>`); the fork exists (`<fork> not found — create it with: simpleviz fork <file> <suffix>`). Then it picks a random port in 7370–7469 that binds on 127.0.0.1 (retrying on `BindException`), calls `serve/start!`, prints `simpleviz: http://localhost:<port>`, opens it with `babashka.browse/browse-url` unless `--no-open`, and blocks. |
+| `<graph.edn\|.png> [suffix] [--debug] [--no-open]` | Checks, in order: the file exists (`file not found: <f>`); a second argument ending in `.edn`/`.png` gets the two-file hint; the suffix matches `serve/suffix-re` (`invalid suffix: <s>`); the fork exists (`<fork> not found — create it with: simpleviz fork <file> <suffix>`). Then it picks a random port in 7370–7469 that binds on 127.0.0.1 (retrying on `BindException`), calls `serve/start!`, prints `simpleviz: http://localhost:<port>`, opens it with `clojure.java.browse/browse-url` unless `--no-open` (a failure to open is ignored, like the launcher's `xdg-open … || true`), and blocks. |
 | `fork\|promote <graph> <suffix>` | Exactly two arguments, else usage and exit 1. `file not found: <f>` when the graph is missing. Calls the `fork` logic. |
 | `init <file>` | One argument. Refuses an existing file (`<f> already exists`). Writes the starter template (moved from `install.sh`, text unchanged) and prints `created <f> — view it with: simpleviz <f>`. |
 | `extract …` | `png/-main` with the arguments as given. |
@@ -198,15 +198,19 @@ complete.
   but only Linux is tested.
 - Removing `install.sh` or the tarball.
 
-## To verify first (plan task 1)
+## Verified before planning (2026-09-23)
 
-- `bb --config <dir>/bb.edn` resolves `:paths` against `<dir>`, not the
+- `bb --config <dir>/bb.edn` resolves `:paths` against `<dir>`, from any
   working directory.
-- `"."` on the repo classpath doesn't disturb `bb test`, `bb dev` or the
-  squint build.
-- http-kit serves an `InputStream` body from a `jar:` resource with the
-  right content type.
-- `babashka.browse/browse-url` is available in `MIN_BB` (1.3.0).
+- With `"."` on the classpath, `public/…` and `examples/…` resolve as
+  resources. A directory (`public/js`) resolves too, which is why the
+  directory guard is needed.
+- http-kit serves an `InputStream` body from a `jar:` resource.
+- `clojure.java.browse/browse-url` exists in babashka (added long before
+  1.3.0) and throws when no opener is available.
+  `babashka.browse` doesn't exist.
+- `java.util.zip.ZipFile` and `babashka.process/destroy-tree` are
+  available.
 
 ## Follow-up
 

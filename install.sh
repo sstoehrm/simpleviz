@@ -50,6 +50,10 @@ install_files() {
   tar xzf "$tmp/bundle.tar.gz" -C "$tmp"
   dir=$(find "$tmp" -mindepth 1 -maxdepth 1 -type d | head -n1)
   [ -n "$dir" ] || die "unexpected tarball layout (no top-level directory)"
+  # the launcher below execs the release's `cli` namespace; a release
+  # from before it needs the installer it shipped with
+  [ -f "$dir/server/cli.clj" ] \
+    || die "release $TAG predates this installer — install it with its own: curl -fsSL https://raw.githubusercontent.com/$REPO/$TAG/install.sh | bash"
   rm -rf "$SIMPLEVIZ_HOME"
   mkdir -p "$SIMPLEVIZ_HOME"
   cp -R "$dir"/. "$SIMPLEVIZ_HOME"/

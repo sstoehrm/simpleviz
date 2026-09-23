@@ -86,6 +86,7 @@ With the `simpleviz` command, installed by `install.sh` (files in `~/.simpleviz`
                                      #  add an out.edn arg to write a file)
 
 To serve as an agent, run `simpleviz graph.edn --no-open` in the background: it prints `simpleviz: http://localhost:<port>` (that is `$URL`) and keeps running until you stop it.
+An install older than this skill may not know --no-open or demo yet: run simpleviz update.
 
 There is no `bb diff` or similar — comparing is serving a file with the suffix of its fork (`<name>-<suffix>.<ext>`; `fork` creates it, `promote` folds it back). Two-file compare (`simpleviz old.edn new.edn`) no longer exists. In compare mode: added elements get a green `+` ring, modified an amber `~` ring (click for attribute-level old → new), removed stay visible as red dashed ghosts; nodes and boxes match by key (renaming a display `:name` is a modification, not remove+add), edges by endpoints. A legend at the top center names both files (basenames) and shows a count per status — each legend row is a button: clicking jumps to that status's next element (selecting it and centering the view, `2/3`-style position, wrap-around). Collapsed boxes hiding changes count as stops.
 

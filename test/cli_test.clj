@@ -127,7 +127,7 @@
   (doseq [args [["check"] ["check" "a.edn" "b.edn"]]]
     (let [res (run-cli args)]
       (is (= 1 (:exit res)))
-      (is (str/includes? (:err res) "usage:")))))
+      (is (str/starts-with? (:err res) "usage: simpleviz") (:err res)))))
 
 (defn- serve-cli
   "Start the CLI with `args` in `dir` as a background process."
@@ -152,6 +152,11 @@
   (let [res (run-cli [(str proc-util/repo-root "/examples/demo.edn") "a/b"])]
     (is (= 1 (:exit res)))
     (is (str/includes? (:err res) "invalid suffix: a/b"))))
+
+(deftest png-without-embedded-edn-is-refused
+  (let [res (run-cli [(str proc-util/repo-root "/test/fixtures/plain-1x1.png") "--no-open"])]
+    (is (= 1 (:exit res)))
+    (is (str/starts-with? (:err res) "simpleviz: no embedded simpleviz EDN found") (:err res))))
 
 (deftest missing-graph-is-refused
   (let [res (run-cli ["nope.edn"])]

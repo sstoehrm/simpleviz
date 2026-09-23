@@ -18,6 +18,7 @@ compiled to plain ES modules (no bundler).
     bb serve graph.edn [suffix]      # serve only (needs a prior bb build); suffix = compare against graph-<suffix>.edn
     bb fork graph.edn suffix         # fork graph.edn and its ref closure
     bb promote graph.edn suffix      # move the forks back over their originals
+    bb check graph.edn               # print the parse error / validation warnings, exit 1 on any
     bb bundle [version]              # build a release tarball into dist/
 
 Passing a suffix serves the file in compare mode against its fork (old → new, see [the guide](guide.md#comparing-two-versions); `server/fork.clj` creates and promotes forks): `server/diff.clj` merges the two
@@ -42,7 +43,7 @@ Large example graphs can be generated with
 `bb dev/gen-example.clj 10000 big.edn`.
 
 The API serves one root file, alone or paired with its fork. The routes
-`/api/graph`, `/api/version` and `/api/source` take `?file=<path>`
+`/api/graph`, `/api/errors`, `/api/version` and `/api/source` take `?file=<path>`
 and `/api/edit` a `"path"` in its body, a path relative to the root file's
 folder; `serve/resolve-path` refuses anything above that folder, non
 `.edn`/`.png` targets and missing files. The page keeps the shown file and

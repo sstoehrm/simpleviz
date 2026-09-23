@@ -40,9 +40,19 @@ Rules that are easy to get wrong:
 - Pre-v2 vector forms are still accepted: `:edges [{:nodes [:a :b] :direction :->}]` and `:boxes [{:name "backend" :components #{..}}]`.
 - The editor rewrites the served file. Vector-form files refuse edits; convert to map form first.
 
-## Validation is lenient — it never fails fast
+## Validation is lenient — check what you wrote
 
-Unknown node references, duplicate memberships, containment cycles, wrong shapes: the offending element is skipped and a warning banner explains it; everything else still renders. A parse error shows an error banner and keeps the last good render. Do not expect exceptions or refusals to start.
+Unknown node references, duplicate memberships, containment cycles, wrong shapes: the offending element is skipped and a warning banner explains it; everything else still renders. A parse error shows an error banner and keeps the last good render. Nothing fails loudly, so after every write, get the banners' text yourself — no server or browser needed:
+
+    simpleviz check graph.edn        # from a bundle/repo dir: bb check graph.edn
+    # `ok` (exit 0), or `error: ..` / one `warning: ..` line per problem (exit 1)
+
+While a server is serving the file, its `/api/errors` route gives the same report (`$URL` is the address the server printed; `file` is relative to the served root file's folder):
+
+    curl -s $URL/api/errors                      # {"error":null,"warnings":[]} means clean
+    curl -s "$URL/api/errors?file=sub/api.edn"   # a file reached through a :ref
+
+In compare mode `file` names the original, never the fork (`sub/api.edn`, not `sub/api-next.edn` — unlike locks); the report covers both sides, each warning prefixed with the name of the file it is in. Every warning means the picture differs from what the file says: fix it and check again until the report is clean. Check each file you wrote — a `:ref` target is checked on its own.
 
 ## Running
 
@@ -53,6 +63,7 @@ From a bundle/install/repo directory (repo needs `bb build` once):
     bb fork graph.edn next           # graph-next.edn + forks of every referenced file
     bb serve graph.edn next          # compare mode: graph.edn → graph-next.edn, ONE merged diff view
     bb promote graph.edn next        # each fork replaces its original
+    bb check graph.edn               # parse error / validation warnings, exit 1 on any
     bb serve diagram.png             # exported PNGs work in place of EDN files (embedded
                                      # source; a compare export re-opens as the comparison)
 
@@ -64,6 +75,7 @@ With the launcher installed by `install.sh` (files in `~/.simpleviz`, launcher i
                                      # the referenced file's own comparison)
     simpleviz promote graph.edn next # move each fork over its original
     simpleviz init graph.edn         # write a starter graph file (refuses to overwrite)
+    simpleviz check graph.edn        # print what the warning/error banners would say
     simpleviz update                 # install the latest release if newer
     simpleviz --version              # print the installed version
     simpleviz extract diagram.png    # print the EDN embedded in an exported PNG

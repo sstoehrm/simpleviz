@@ -435,7 +435,10 @@
                  "Cache-Control" "no-store"}
        :body "not found"})))
 
-(defn- graph-response-body [query-string]
+(defn- graph-response-body
+  "The /api/graph JSON for the query; a debug run logs its error under
+  `route`, the route that asked for it."
+  [query-string route]
   (let [body (try
                (let [{:keys [root suffix]} @files
                      rel (nav-rel query-string)]
@@ -461,8 +464,16 @@
     ;; a debug run pays for parsing it back to find out
     (when (log/enabled?)
       (when-let [err (get (json/parse-string body) "error")]
-        (log/event! "error" {:route "/api/graph" :error err})))
+        (log/event! "error" {:route route :error err})))
     body))
+
+(defn- errors-response-body
+  "What the page's banners would show for the same query: the graph
+  route's parse error (or nil) and validation warnings, nothing else."
+  [query-string]
+  (let [out (json/parse-string (graph-response-body query-string "/api/errors"))]
+    (json/generate-string {:error (get out "error")
+                           :warnings (get out "warnings" [])})))
 
 (defn- edit-response-body
   "Parse the edit request, apply it, log what was asked and what came of
@@ -511,7 +522,8 @@
 
 (defn- route [{:keys [uri query-string body] :as req}]
   (case uri
-    "/api/graph"   (json-response (graph-response-body query-string))
+    "/api/graph"   (json-response (graph-response-body query-string "/api/graph"))
+    "/api/errors"  (json-response (errors-response-body query-string))
     "/api/edit"    (post-only req #(json-response (edit-response-body body)))
     "/api/create"  (post-only req #(json-response (create-response-body body)))
     "/api/lock"    (post-only req #(lock-response acquire-lock! body))

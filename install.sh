@@ -80,6 +80,8 @@ usage: simpleviz <graph.edn> [<suffix>] [--debug]   serve a graph; with a suffix
        simpleviz promote <graph.edn> <suffix>  move each fork over its original file
        simpleviz init <graph.edn>        write a starter graph file (won't overwrite)
        simpleviz extract <diagram.png> [out.edn] [--old]   print/extract the embedded EDN
+       simpleviz check <graph.edn>       print the parse error or validation warnings
+                                         the page would show; exit 1 if there are any
        simpleviz update                  install the latest release if it is newer
        simpleviz clean-all               kill every running simpleviz server
        simpleviz --version               print the installed version
@@ -237,6 +239,14 @@ case "${1:-}" in
     [ -d "$SIMPLEVIZ_HOME" ] || die "$SIMPLEVIZ_HOME not found — run install.sh first"
     file=$(realpath "$1")
     (cd "$SIMPLEVIZ_HOME" && exec bb "$cmd" "$file" "$2")
+    ;;
+  check)
+    shift
+    [ "$#" -eq 1 ] || { usage >&2; exit 1; }
+    check_bb
+    [ -d "$SIMPLEVIZ_HOME" ] || die "$SIMPLEVIZ_HOME not found — run install.sh first"
+    file=$(realpath -m -- "$1")
+    (cd "$SIMPLEVIZ_HOME" && exec bb check "$file")
     ;;
   extract)
     shift

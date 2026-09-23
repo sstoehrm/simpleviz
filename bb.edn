@@ -17,6 +17,9 @@
   extract  {:doc "Extract embedded EDN from an exported PNG: bb extract diagram.png [out.edn] [--old]"
             :requires ([png])
             :task (apply png/-main *command-line-args*)}
+  check    {:doc "Report a graph's parse error or validation warnings (exit 1 on any): bb check graph.edn|.png"
+            :requires ([check])
+            :task (apply check/-main *command-line-args*)}
   fork     {:doc "Fork a graph and every file it refs: bb fork graph.edn <suffix> (writes graph-<suffix>.edn ...)"
             :requires ([fork])
             :task (apply fork/-main "fork" *command-line-args*)}
@@ -24,8 +27,8 @@
             :requires ([fork])
             :task (apply fork/-main "promote" *command-line-args*)}
   test:clj {:doc "Run Clojure server tests"
-            :requires ([clojure.test :as t] [server-test] [graph-test] [diff-test] [docs-test] [png-test] [edit-test] [log-test] [fork-test] [launcher-test])
-            :task (let [{:keys [fail error]} (t/run-tests 'graph-test 'server-test 'diff-test 'docs-test 'png-test 'edit-test 'log-test 'fork-test 'launcher-test)]
+            :requires ([clojure.test :as t] [server-test] [graph-test] [diff-test] [docs-test] [png-test] [edit-test] [log-test] [fork-test] [launcher-test] [check-test])
+            :task (let [{:keys [fail error]} (t/run-tests 'graph-test 'server-test 'diff-test 'docs-test 'png-test 'edit-test 'log-test 'fork-test 'launcher-test 'check-test)]
                     (when (pos? (+ fail error)) (System/exit 1)))}
   test:js  {:doc "Run JS unit tests (compiled squint output)"
             :requires ([babashka.fs :as fs])
@@ -55,6 +58,9 @@
                                                    extract {:doc "Extract embedded EDN from an exported PNG: bb extract diagram.png [out.edn] [--old]"
                                                             :requires ([png])
                                                             :task (apply png/-main *command-line-args*)}
+                                                   check {:doc "Report a graph's parse error or validation warnings (exit 1 on any): bb check graph.edn|.png"
+                                                          :requires ([check])
+                                                          :task (apply check/-main *command-line-args*)}
                                                    fork {:doc "Fork a graph and every file it refs: bb fork graph.edn <suffix> (writes graph-<suffix>.edn ...)"
                                                          :requires ([fork])
                                                          :task (apply fork/-main "fork" *command-line-args*)}

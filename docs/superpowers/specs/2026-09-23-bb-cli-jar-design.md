@@ -37,7 +37,7 @@ The exceptions are `update` and `clean-all`, which belong to the
     user ──► ~/.local/bin/simpleviz (bash wrapper, from install.sh)
                ├─ update, clean-all: handled in bash
                └─ everything else: exec bb --config ~/.simpleviz/bb.edn -m cli "$@"
-    user ──► ~/.local/bin/simpleviz (bbin shim) ─► add-classpath simpleviz.jar, cli/-main
+    user ──► ~/.local/bin/simpleviz (bbin shim) ─► add-classpath simpleviz.jar, simpleviz.main/-main ─► cli/-main
 
 Both write `~/.local/bin/simpleviz`, so the last install wins. The README
 says to use one or the other.
@@ -119,8 +119,13 @@ launcher.
      `js/simpleviz/*_test.mjs`) → `res/public/`; `examples/` →
      `res/examples/`; the version → `res/VERSION`; `LICENSE` and
      `THIRD-PARTY-NOTICES.md` → `res/`.
-  3. Runs `bb uberjar ../simpleviz.jar -m cli` in the stage, producing
-     `dist/simpleviz.jar` with `Main-Class: cli`.
+  3. Runs `bb uberjar ../simpleviz.jar -m simpleviz.main` in the stage,
+     producing `dist/simpleviz.jar` with `Main-Class: simpleviz.main`.
+     bbin's shim adds the jar to the classpath only after bb has loaded any
+     `bb.edn` in the caller's folder, whose `:paths` would shadow the jar's
+     namespaces and resources, so `simpleviz.main` re-runs the CLI as
+     `bb -cp <jar> -m cli …` when a `bb.edn` was loaded and calls
+     `cli/-main` directly otherwise.
   4. Fails if the jar holds a `META-INF/maven/<group>/<artifact>/` that
      `THIRD-PARTY-NOTICES.md` doesn't mention as `<group>/<artifact>`.
 
@@ -128,9 +133,9 @@ launcher.
   after the part of the URL's file name before the first dot.
 - `bb bundle`: adds `"."` to the release `bb.edn` paths and writes `VERSION`.
 - `bb jar:smoke` (new): builds the jar, then from a temp directory runs it
-  through bbin's http-jar shim (add-classpath, require `cli`, apply
-  `-main`), with no bbin involved:
-  - `--version`
+  through bbin's http-jar shim (add-classpath, require `simpleviz.main`,
+  apply `-main`), with no bbin involved:
+  - `--version`, also from a folder whose `bb.edn` shadows `VERSION` and `cli`
   - `check examples/demo.edn` (examples copied in first)
   - `demo --no-open`: waits for the URL, fetches `/` and `/api/errors`,
     then stops the process

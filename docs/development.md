@@ -41,10 +41,12 @@ type keeps its color across restarts and unrelated edits (`colors.cljs`).
 Every user command lives in `server/cli.clj` (namespace `cli`). The
 install.sh launcher keeps `update` and `clean-all` and runs
 `bb --config ~/.simpleviz/bb.edn -m cli` for the rest; the release jar
-runs `cli/-main` directly. The CLI runs in the caller's folder, so the
-server reads `public/`, `examples/` and `VERSION` from the classpath: the
-repo and the tarball put their root (`"."`) on it, and the jar packs the
-files inside.
+starts in `simpleviz.main` (`server/simpleviz/main.clj`), which calls
+`cli/-main` directly, or re-runs it as `bb -cp <jar> -m cli` when a
+`bb.edn` in the caller's folder would shadow the jar's files. The CLI runs
+in the caller's folder, so the server reads `public/`, `examples/` and
+`VERSION` from the classpath: the repo and the tarball put their root
+(`"."`) on it, and the jar packs the files inside.
 
 Sources in `src/simpleviz/`, tests in `test/simpleviz/` (run by `node --test`
 against the compiled output).

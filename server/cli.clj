@@ -2,9 +2,9 @@
   "The simpleviz command line, shared by every install. The install.sh
   launcher handles `update` and `clean-all` itself and execs this for
   everything else (`bb --config ~/.simpleviz/bb.edn -m cli ...`); the
-  release jar runs it directly (bbin). Paths resolve from the working
-  directory; the frontend, the examples and VERSION are classpath
-  resources."
+  release jar runs it through simpleviz.main (bbin). Paths resolve from
+  the working directory; the frontend, the examples and VERSION are
+  classpath resources."
   (:require [check]
             [clojure.java.browse :as browse]
             [clojure.java.io :as io]

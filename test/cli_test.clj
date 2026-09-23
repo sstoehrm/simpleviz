@@ -7,7 +7,8 @@
             [cli]
             [clojure.string :as str]
             [clojure.test :refer [deftest is]]
-            [proc-util]))
+            [proc-util]
+            [simpleviz.main]))
 
 (defn- run-cli
   "Run the CLI with `args` in `dir` (default: a fresh temp folder);
@@ -24,6 +25,24 @@
 (defn- with-tmp [f]
   (let [tmp (fs/create-temp-dir {:prefix "cli-test"})]
     (try (f tmp) (finally (fs/delete-tree tmp)))))
+
+(deftest main-finds-the-jar-behind-a-resource-url
+  ;; bb's resource URLs keep the path as is; the JVM's are percent-encoded
+  (is (= "/opt/a b/simpleviz.jar"
+         (simpleviz.main/jar-path "jar:file:/opt/a b/simpleviz.jar!/simpleviz/main.clj")))
+  (is (= "/opt/a b/simpleviz.jar"
+         (simpleviz.main/jar-path "jar:file:/opt/a%20b/simpleviz.jar!/simpleviz/main.clj")))
+  (is (nil? (simpleviz.main/jar-path "file:/repo/server/simpleviz/main.clj"))))
+
+(deftest main-in-a-checkout-runs-the-cli-in-place
+  ;; bb.edn loaded, but simpleviz.main is no jar entry: nothing to re-run
+  (let [tmp (fs/create-temp-dir {:prefix "cli-test"})]
+    (try
+      (let [res (p/shell {:dir (str tmp) :out :string :err :string :continue true}
+                         "bb" "--config" (str proc-util/repo-root "/bb.edn") "-m" "simpleviz.main" "--version")]
+        (is (= 0 (:exit res)) (:err res))
+        (is (= "simpleviz dev" (str/trim (:out res)))))
+      (finally (fs/delete-tree tmp)))))
 
 (deftest help-prints-usage
   (doseq [args [[] ["--help"] ["-h"]]]

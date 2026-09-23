@@ -342,6 +342,7 @@ version(s), and exceptions or additional permissions here}."
   look for such a notice.
 
   You may add additional accurate notices of copyright ownership.
+
 ---
 
 # Eclipse Public License - v 1.0 (full text)

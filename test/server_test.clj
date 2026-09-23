@@ -1046,16 +1046,19 @@
 
 (deftest version-comes-from-the-classpath
   ;; the tarball layout: server/ plus the install root on the classpath,
-  ;; VERSION in that root; run from elsewhere so the cwd cannot help
-  (let [home (babashka.fs/create-temp-dir {:prefix "serve-version"})]
+  ;; VERSION in that root; run from an empty folder, so the cwd has no
+  ;; VERSION to help
+  (let [home (babashka.fs/create-temp-dir {:prefix "serve-version"})
+        elsewhere (babashka.fs/path home "elsewhere")]
     (try
+      (babashka.fs/create-dirs elsewhere)
       ;; bb refuses absolute :paths, so the install gets its own server/
       (babashka.fs/copy-tree (str proc-util/repo-root "/server") (babashka.fs/path home "server"))
       (spit (str (babashka.fs/path home "VERSION")) "v1.2.3\n")
       (spit (str (babashka.fs/path home "bb.edn"))
             (pr-str {:paths ["server" "."]
                      :deps (:deps (edn/read-string (slurp "bb.edn")))}))
-      (let [res (p/shell {:out :string :err :string :continue true :dir proc-util/repo-root}
+      (let [res (p/shell {:out :string :err :string :continue true :dir (str elsewhere)}
                          "bb" "--config" (str (babashka.fs/path home "bb.edn"))
                          "-e" "(require 'serve) (println (serve/version))")]
         (is (= "v1.2.3" (str/trim (:out res))) (:err res)))

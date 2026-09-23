@@ -15,8 +15,8 @@ Linux, with [babashka](https://babashka.org/), curl and tar:
 This installs into `~/.simpleviz` and puts a launcher in `~/.local/bin`.
 `simpleviz update` fetches the latest release.
 
-With [bbin](https://github.com/babashka/bbin), on Linux, macOS or Windows,
-the same command installs and updates the release jar:
+With [bbin](https://github.com/babashka/bbin) (tested on Linux), the same
+command installs and updates the release jar:
 
     bbin install https://github.com/sstoehrm/simpleviz/releases/latest/download/simpleviz.jar
 

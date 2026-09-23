@@ -34,7 +34,8 @@ delete. ⇩ exports a PNG with the source embedded, which simpleviz serves like
 an EDN file. Press `?` in the page for controls and shortcuts.
 
 The [guide](https://github.com/sstoehrm/simpleviz/blob/main/docs/guide.md)
-covers comparing, editing, refs between graphs, exporting and write locks.
+covers comparing, editing, refs between graphs, exporting, checking files
+and write locks.
 
 ## Data format
 

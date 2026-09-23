@@ -146,6 +146,20 @@ An exported PNG works anywhere an EDN file does, read-only:
     simpleviz diagram.png next               # compare against diagram-next.png
     simpleviz compare-export.png             # reopen the full comparison
 
+## Checking a file
+
+The page shows a file's problems in banners. To get the same report
+without a browser, for example from a script or an agent:
+
+    simpleviz check graph.edn                           # works without a server
+    curl -s http://localhost:7373/api/errors            # the served file
+    curl -s 'http://localhost:7373/api/errors?file=sub/api.edn'
+
+`check` prints `error: ..` or one `warning: ..` line per warning and exits
+1, or prints `ok`. The route answers `{"error":null,"warnings":[]}` for a
+clean file. In compare mode `file` names the original, not the fork; the
+report covers both sides, and each warning starts with its file's name.
+
 ## Write locks
 
 Agents and scripts that write a served file directly can coordinate through

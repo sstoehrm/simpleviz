@@ -962,3 +962,67 @@
         ;; without a suffix nothing is a fork
         (serve! (.getPath (java.io.File. dir "root.edn")))
         (is (= "api-next.edn" (.getName (:new (serve/sides "sub/api-next.edn")))))))))
+
+(defn- api-errors
+  "GET /api/errors (with an optional query string), parsed."
+  ([] (api-errors nil))
+  ([qs] (json/parse-string (:body (serve/handler {:uri "/api/errors" :query-string qs})))))
+
+(deftest api-errors-clean-file-reports-nothing
+  (with-temp-dir*
+    (fn [dir]
+      (serve! (write! dir "g.edn" "{:nodes {:a {} :b {}} :edges {[:a :b] {}}}"))
+      (is (= {"error" nil "warnings" []} (api-errors))))))
+
+(deftest api-errors-reports-the-validation-warnings-only
+  (with-temp-dir*
+    (fn [dir]
+      (serve! (write! dir "g.edn" "{:nodes {:a {}} :edges {[:a :zz] {}}}"))
+      (let [out (api-errors)]
+        (is (= #{"error" "warnings"} (set (keys out))) "no graph payload")
+        (is (nil? (get out "error")))
+        (is (= 1 (count (get out "warnings"))))
+        (is (clojure.string/includes? (first (get out "warnings")) "zz"))))))
+
+(deftest api-errors-reports-a-parse-error
+  (with-temp-dir*
+    (fn [dir]
+      (serve! (write! dir "g.edn" "{:nodes {:a {}"))
+      (let [out (api-errors)]
+        (is (string? (get out "error")))
+        (is (= [] (get out "warnings")))))))
+
+(deftest api-errors-file-param-checks-a-referenced-file
+  (with-temp-dir*
+    (fn [dir]
+      (serve! (write! dir "g.edn" "{:nodes {:a {:ref \"sub/x.edn\"}}}"))
+      (write! dir "sub/x.edn" "{:boxes {:b {:components #{:missing}}}}")
+      (let [out (api-errors "file=sub%2Fx.edn")]
+        (is (nil? (get out "error")))
+        (is (= 1 (count (get out "warnings"))))
+        (is (clojure.string/includes? (first (get out "warnings")) "missing")))
+      (is (clojure.string/includes? (get (api-errors "file=..%2Fx.edn") "error")
+                                    "leaves the served folder")))))
+
+(deftest api-errors-compare-mode-names-the-file-of-each-warning
+  (with-temp-dir*
+    (fn [dir]
+      (let [p (write! dir "g.edn" "{:nodes {:a {}}}")]
+        (write! dir "g-next.edn" "{:nodes {:a {}} :edges {[:a :zz] {}}}")
+        (serve! p "next")
+        (let [ws (get (api-errors) "warnings")]
+          (is (= 1 (count ws)))
+          (is (clojure.string/starts-with? (first ws) "g-next.edn: ")))))))
+
+(deftest api-errors-parse-error-is-logged-under-its-own-route
+  (with-log-dir*
+    (fn [d]
+      (let [run (log/init! {:dir d :debug true :header "hdr"})
+            g (java.io.File/createTempFile "serve-test" ".edn")]
+        (.deleteOnExit g)
+        (spit g "{:nodes {:a {}")
+        (serve! (str g))
+        (api-errors)
+        (let [line (->> (slurp run) clojure.string/split-lines (filter #(re-find #" error " %)) first)]
+          (is (some? line))
+          (is (re-find #"\"route\":\"/api/errors\"" line) line))))))

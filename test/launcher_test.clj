@@ -124,3 +124,41 @@
         (is (= 0 (:exit res)) (:err res))
         (is (= "tagged" (str/trim (slurp (str marker))))))
       (finally (fs/delete-tree tmp)))))
+
+(deftest launcher-check-exits-0-on-a-clean-graph
+  (let [script (write-launcher!)
+        res (run-launcher script ["check" "examples/demo.edn"])]
+    (is (= 0 (:exit res)) (:out res))
+    (is (= "ok" (str/trim (:out res))))))
+
+(deftest launcher-check-exits-1-and-prints-each-problem
+  (let [script (write-launcher!)
+        tmp (fs/create-temp-dir {:prefix "simpleviz-check"})]
+    (try
+      (spit (str (fs/path tmp "warn.edn")) "{:nodes {:a {}} :edges {[:a :zz] {}} :boxes {:b {:components #{:nope}}}}")
+      (spit (str (fs/path tmp "broken.edn")) "{:nodes {:a {}")
+      (let [res (run-launcher script ["check" "warn.edn"] :dir tmp)]
+        (is (= 1 (:exit res)))
+        (is (= 2 (count (filter #(str/starts-with? % "warning: ") (str/split-lines (:out res))))))
+        (is (str/includes? (:out res) "zz")))
+      (let [res (run-launcher script ["check" "broken.edn"] :dir tmp)]
+        (is (= 1 (:exit res)))
+        (is (str/starts-with? (:out res) "error: ")))
+      (finally (fs/delete-tree tmp)))))
+
+(deftest launcher-check-rejects-wrong-arg-count
+  (let [script (write-launcher!)]
+    (doseq [args [["check"] ["check" "a.edn" "b.edn"]]]
+      (let [res (run-launcher script args)]
+        (is (= 1 (:exit res)))
+        (is (str/includes? (:err res) "usage:"))))))
+
+(deftest launcher-check-takes-a-file-name-starting-with-a-dash
+  (let [script (write-launcher!)
+        tmp (fs/create-temp-dir {:prefix "simpleviz-check"})]
+    (try
+      (spit (str (fs/path tmp "-g.edn")) "{:nodes {:a {}}}")
+      (let [res (run-launcher script ["check" "-g.edn"] :dir tmp)]
+        (is (= 0 (:exit res)) (str (:out res) (:err res)))
+        (is (= "ok" (str/trim (:out res)))))
+      (finally (fs/delete-tree tmp)))))

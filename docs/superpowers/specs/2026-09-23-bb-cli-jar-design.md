@@ -138,7 +138,7 @@ launcher.
   - `--version`, also from a folder whose `bb.edn` shadows `VERSION` and `cli`
   - `check examples/demo.edn` (examples copied in first)
   - `demo --no-open`: waits for the URL, fetches `/` and `/api/errors`,
-    then stops the process
+    checks that the folder `/vendor` answers 404, then stops the process
 - `.github/workflows/ci.yml`: runs `bb jar:smoke` after `bb test`.
 - `.github/workflows/release.yml`: runs `bb jar $tag` after `bb bundle $tag`,
   then `bb jar:smoke`, and uploads `dist/*.tar.gz dist/simpleviz.jar`.

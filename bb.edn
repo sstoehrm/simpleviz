@@ -130,8 +130,8 @@
                     (println (str "created " jar " (" version ")")))}
   jar:smoke {:doc "Build the jar and run it the way bbin's shim does: --version (also beside a bb.edn), check, demo --no-open"
              :depends [jar]
-             :requires ([babashka.fs :as fs] [babashka.process :as p] [cheshire.core :as json]
-                        [clojure.string :as str] [proc-util])
+             :requires ([babashka.fs :as fs] [babashka.http-client :as http] [babashka.process :as p]
+                        [cheshire.core :as json] [clojure.string :as str] [proc-util])
              :task (let [tmp (fs/create-temp-dir {:prefix "simpleviz-jar-smoke"})
                          ;; a caller's folder with a bb.edn whose :paths shadow the jar
                          hostile (fs/create-temp-dir {:prefix "simpleviz-jar-smoke-hostile"})
@@ -179,6 +179,9 @@
                              (let [[_ url] (proc-util/await-line proc (re-pattern "^simpleviz: (http://localhost:\\d+)$") 60000)]
                                (when-not url (fail "demo printed no URL"))
                                (when-not (str/includes? (slurp url) "<html") (fail "no page at " url))
+                               ;; a folder inside the jar is no file to serve
+                               (let [status (:status (http/get (str url "/vendor") {:throw false}))]
+                                 (when-not (= 404 status) (fail "GET /vendor answered " status)))
                                (let [errs (json/parse-string (slurp (str url "/api/errors")))]
                                  (when-not (= {"error" nil "warnings" []} errs)
                                    (fail "demo reports " errs)))

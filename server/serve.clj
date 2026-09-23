@@ -428,7 +428,11 @@
     (when-let [url (io/resource (str "public" path))]
       (case (.getProtocol url)
         "file" (when (.isFile (io/file url)) url)
-        "jar" (when-not (str/ends-with? (str url) "/") url)
+        ;; bb names a folder in a jar with or without the trailing slash,
+        ;; as asked; only a folder answers the name with a slash
+        "jar" (when-not (or (str/ends-with? (str url) "/")
+                            (io/resource (str "public" path "/")))
+                url)
         nil))))
 
 (defn- static-response [uri]

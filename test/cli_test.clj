@@ -3,6 +3,8 @@
   cli ...`) from a temp folder, as the launcher and the jar run it."
   (:require [babashka.fs :as fs]
             [babashka.process :as p]
+            [cheshire.core :as json]
+            [cli]
             [clojure.string :as str]
             [clojure.test :refer [deftest is]]
             [proc-util]))
@@ -107,3 +109,83 @@
     (let [res (run-cli args)]
       (is (= 1 (:exit res)))
       (is (str/includes? (:err res) "usage:")))))
+
+(defn- serve-cli
+  "Start the CLI with `args` in `dir` as a background process."
+  [args dir]
+  (proc-util/start (into ["bb" "--config" (str proc-util/repo-root "/bb.edn") "-m" "cli"] args)
+                   :dir dir))
+
+(def url-line #"^simpleviz: (http://localhost:(\d+))$")
+
+(deftest two-file-form-is-rejected
+  (let [res (run-cli [(str proc-util/repo-root "/examples/demo.edn")
+                      (str proc-util/repo-root "/examples/demo-next.edn")])]
+    (is (= 1 (:exit res)))
+    (is (str/includes? (:err res) "two-file compare was replaced"))))
+
+(deftest missing-fork-names-the-fork
+  (let [res (run-cli [(str proc-util/repo-root "/examples/demo.edn") "nope"])]
+    (is (= 1 (:exit res)))
+    (is (str/includes? (:err res) "demo-nope.edn not found — create it with: simpleviz fork"))))
+
+(deftest invalid-suffix-is-refused
+  (let [res (run-cli [(str proc-util/repo-root "/examples/demo.edn") "a/b"])]
+    (is (= 1 (:exit res)))
+    (is (str/includes? (:err res) "invalid suffix: a/b"))))
+
+(deftest missing-graph-is-refused
+  (let [res (run-cli ["nope.edn"])]
+    (is (= 1 (:exit res)))
+    (is (= "simpleviz: file not found: nope.edn" (str/trim (:err res))))))
+
+(deftest serve-prints-the-url-and-answers-from-the-classpath
+  (with-tmp
+    (fn [tmp]
+      (fs/copy (str proc-util/repo-root "/examples/demo.edn") (fs/path tmp "demo.edn"))
+      (let [proc (serve-cli ["demo.edn" "--no-open"] tmp)]
+        (try
+          (let [[_ url port] (proc-util/await-line proc url-line 30000)]
+            (is (some? url) "printed simpleviz: http://localhost:<port>")
+            (when url
+              (is (<= 7370 (parse-long port) 7469))
+              (is (str/includes? (slurp url) "<html"))
+              (is (= {"error" nil "warnings" []}
+                     (json/parse-string (slurp (str url "/api/errors")))))))
+          (finally (p/destroy-tree proc)))))))
+
+(deftest a-folder-named-like-the-suffix-does-not-hijack-it
+  (with-tmp
+    (fn [tmp]
+      (fs/copy (str proc-util/repo-root "/examples/demo.edn") (fs/path tmp "demo.edn"))
+      (fs/copy (str proc-util/repo-root "/examples/demo-next.edn") (fs/path tmp "demo-next.edn"))
+      (fs/copy-tree (str proc-util/repo-root "/examples/api") (fs/path tmp "api"))
+      (fs/create-dir (fs/path tmp "next"))
+      (let [proc (serve-cli ["demo.edn" "next" "--no-open"] tmp)]
+        (try
+          (is (some? (proc-util/await-line proc url-line 30000)))
+          (finally (p/destroy-tree proc)))))))
+
+(deftest example-files-match-the-examples-folder
+  (let [root (fs/path proc-util/repo-root "examples")]
+    (is (= (set (map #(str (fs/relativize root %))
+                     (filter fs/regular-file? (fs/glob root "**"))))
+           (set cli/example-files)))))
+
+(deftest demo-copies-the-examples-and-serves-the-comparison
+  (with-tmp
+    (fn [tmp]
+      (let [proc (serve-cli ["demo" "--no-open"] tmp)]
+        (try
+          (let [[_ dir] (proc-util/await-line proc #"^simpleviz: demo files in (.+)$" 30000)
+                [_ url] (proc-util/await-line proc url-line 30000)]
+            (is (some? dir))
+            (is (some? url))
+            (when dir
+              (doseq [f cli/example-files]
+                (is (fs/exists? (fs/path dir f)) f)))
+            (when url
+              (is (= {"error" nil "warnings" []}
+                     (json/parse-string (slurp (str url "/api/errors"))))))
+            (when dir (fs/delete-tree dir)))
+          (finally (p/destroy-tree proc)))))))

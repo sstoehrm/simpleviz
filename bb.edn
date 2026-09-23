@@ -138,38 +138,45 @@
                          run (fn [& args]
                                (apply p/shell {:dir (str tmp) :out :string :err :string :continue true}
                                       "bb" shim args))
+                         ;; throws instead of exiting directly, so the finally blocks
+                         ;; below (destroy-tree, delete-tree) run before we exit
                          fail (fn [& msg]
-                                (println (apply str "jar:smoke FAILED: " msg))
-                                (System/exit 1))]
+                                (throw (ex-info (apply str msg) {:smoke true})))]
                      (try
-                       ;; bbin's http-jar template, minus its metadata comments
-                       (spit shim (str "(require '[babashka.classpath :refer [add-classpath]])\n"
-                                       "(add-classpath " (pr-str jar) ")\n"
-                                       "(require '[cli])\n"
-                                       "(apply cli/-main *command-line-args*)\n"))
-                       (with-open [z (java.util.zip.ZipFile. jar)]
-                         (doseq [e ["LICENSE" "THIRD-PARTY-NOTICES.md" "VERSION"
-                                    "public/index.html" "examples/demo.edn" "cli.clj"]]
-                           (when-not (.getEntry z e) (fail "the jar lacks " e))))
-                       (let [{:keys [out err]} (run "--version")]
-                         (when-not (str/starts-with? out "simpleviz ")
-                           (fail "--version printed " (pr-str out) " " err))
-                         (print (str "ok: " out)))
-                       (fs/copy "examples/demo.edn" (fs/path tmp "demo.edn"))
-                       (let [{:keys [exit out err]} (run "check" "demo.edn")]
-                         (when-not (= 0 exit) (fail "check demo.edn: " out err))
-                         (println "ok: check demo.edn"))
-                       (let [proc (p/process {:dir (str tmp) :err :inherit} "bb" shim "demo" "--no-open")]
-                         (try
-                           (let [[_ url] (proc-util/await-line proc (re-pattern "^simpleviz: (http://localhost:\\d+)$") 60000)]
-                             (when-not url (fail "demo printed no URL"))
-                             (when-not (str/includes? (slurp url) "<html") (fail "no page at " url))
-                             (let [errs (json/parse-string (slurp (str url "/api/errors")))]
-                               (when-not (= {"error" nil "warnings" []} errs)
-                                 (fail "demo reports " errs)))
-                             (println (str "ok: demo serves " url)))
-                           (finally (p/destroy-tree proc))))
-                       (finally (fs/delete-tree tmp))))}
+                       (try
+                         ;; bbin's http-jar template, minus its metadata comments
+                         (spit shim (str "(require '[babashka.classpath :refer [add-classpath]])\n"
+                                         "(add-classpath " (pr-str jar) ")\n"
+                                         "(require '[cli])\n"
+                                         "(apply cli/-main *command-line-args*)\n"))
+                         (with-open [z (java.util.zip.ZipFile. jar)]
+                           (doseq [e ["LICENSE" "THIRD-PARTY-NOTICES.md" "VERSION"
+                                      "public/index.html" "examples/demo.edn" "cli.clj"]]
+                             (when-not (.getEntry z e) (fail "the jar lacks " e))))
+                         (let [{:keys [out err]} (run "--version")]
+                           (when-not (str/starts-with? out "simpleviz ")
+                             (fail "--version printed " (pr-str out) " " err))
+                           (print (str "ok: " out)))
+                         (fs/copy "examples/demo.edn" (fs/path tmp "demo.edn"))
+                         (let [{:keys [exit out err]} (run "check" "demo.edn")]
+                           (when-not (= 0 exit) (fail "check demo.edn: " out err))
+                           (println "ok: check demo.edn"))
+                         (let [proc (p/process {:dir (str tmp) :err :inherit} "bb" shim "demo" "--no-open")]
+                           (try
+                             (let [[_ url] (proc-util/await-line proc (re-pattern "^simpleviz: (http://localhost:\\d+)$") 60000)]
+                               (when-not url (fail "demo printed no URL"))
+                               (when-not (str/includes? (slurp url) "<html") (fail "no page at " url))
+                               (let [errs (json/parse-string (slurp (str url "/api/errors")))]
+                                 (when-not (= {"error" nil "warnings" []} errs)
+                                   (fail "demo reports " errs)))
+                               (println (str "ok: demo serves " url)))
+                             (finally (p/destroy-tree proc))))
+                         (finally (fs/delete-tree tmp)))
+                       (catch clojure.lang.ExceptionInfo e
+                         (if (:smoke (ex-data e))
+                           (do (println (str "jar:smoke FAILED: " (ex-message e)))
+                               (System/exit 1))
+                           (throw e)))))}
   dev      {:doc "Compile, watch and serve: bb dev [graph.edn [suffix]] [--port N]"
             :requires ([babashka.cli :as cli] [babashka.process :as p] [serve])
             :task (do (run 'build)

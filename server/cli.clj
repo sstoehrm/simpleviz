@@ -107,12 +107,19 @@
 
 (defn- serve!
   "Start on a free port, print the URL, open a browser unless `no-open`,
-  and block. A startup refusal (missing side, PNG without EDN) exits 1."
+  and block. A startup refusal (missing side, PNG without EDN) exits 1;
+  any other startup failure gets a crash report, like serve/-main gives
+  it, instead of a raw stack trace."
   [opts no-open]
   (let [[port {:keys [served log-path]}]
         (try (start-on-free-port! opts)
              (catch clojure.lang.ExceptionInfo e
-               (if (:startup-check (ex-data e)) (die (ex-message e)) (throw e))))
+               (if (:startup-check (ex-data e))
+                 (die (ex-message e))
+                 (do (log/crash! {:phase "startup"} e) (System/exit 1))))
+             (catch Throwable e
+               (log/crash! {:phase "startup"} e)
+               (System/exit 1)))
         url (str "http://localhost:" port)]
     (println (str "simpleviz: serving " served " at " url))
     (when log-path (println (str "simpleviz: debug log at " log-path)))

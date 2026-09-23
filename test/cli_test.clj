@@ -189,3 +189,20 @@
                      (json/parse-string (slurp (str url "/api/errors"))))))
             (when dir (fs/delete-tree dir)))
           (finally (p/destroy-tree proc)))))))
+
+(deftest a-non-startup-check-failure-writes-a-crash-report
+  (with-tmp
+    (fn [tmp]
+      (let [form (str "(require 'cli 'serve) "
+                      "(with-redefs [serve/start! (fn [_] (throw (RuntimeException. \"boom\")))] "
+                      "  (cli/-main \"" proc-util/repo-root "/examples/demo.edn\" \"--no-open\"))")
+            res (select-keys
+                 (p/shell {:out :string :err :string :continue true
+                          :extra-env {"SIMPLEVIZ_HOME" (str tmp)}}
+                         "bb" "--config" (str proc-util/repo-root "/bb.edn") "-e" form)
+                 [:out :err :exit])
+            logs (fs/glob (fs/path tmp "logs") "crash-*.log")]
+        (is (= 1 (:exit res)) (:err res))
+        (is (= 1 (count logs)) (str logs))
+        (when (= 1 (count logs))
+          (is (str/includes? (slurp (str (first logs))) "boom")))))))

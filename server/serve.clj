@@ -420,16 +420,27 @@
              "Cache-Control" "no-store"}
    :body body})
 
+(defn- static-resource
+  "The classpath resource behind a request path under public/, or nil for
+  a path containing `..`, a directory, or nothing there."
+  [path]
+  (when-not (str/includes? path "..")
+    (when-let [url (io/resource (str "public" path))]
+      (case (.getProtocol url)
+        "file" (when (.isFile (io/file url)) url)
+        "jar" (when-not (str/ends-with? (str url) "/") url)
+        nil))))
+
 (defn- static-response [uri]
   (let [path (if (= uri "/") "/index.html" uri)
-        file (io/file "public" (subs path 1))]
-    (if (and (.isFile file) (not (str/includes? path "..")))
+        url (static-resource path)]
+    (if url
       {:status 200
        :headers {"Content-Type" (get mime-types
-                                     (last (str/split (.getName file) #"\."))
+                                     (last (str/split path #"\."))
                                      "application/octet-stream")
                  "Cache-Control" "no-store"}
-       :body file}
+       :body (io/input-stream url)}
       {:status 404
        :headers {"Content-Type" "text/plain; charset=utf-8"
                  "Cache-Control" "no-store"}
@@ -586,12 +597,46 @@
 
 (def handler (guard route))
 
-(defn- version
-  "The installed release: the launcher drops a VERSION file into the
-  install dir, which is the server's cwd; a checkout has none."
+(defn version
+  "The release this is: the VERSION resource (the install root or the
+  jar), or \"dev\" in a checkout."
   []
-  (let [f (io/file "VERSION")]
-    (if (.isFile f) (str/trim (slurp f)) "dev")))
+  (if-let [r (io/resource "VERSION")]
+    (str/trim (slurp r))
+    "dev"))
+
+(defn start!
+  "Serve `file` — compared with its `suffix` fork when one is given — on
+  127.0.0.1:`port`. Checks that every side resolves and reads first
+  (ex-info with the user-facing message and {:startup-check true}
+  otherwise), opens the run log, then starts http-kit;
+  java.net.BindException passes through when the port is taken.
+  Returns {:served <description> :log-path <path or nil>}."
+  [{:keys [file suffix port debug]}]
+  (reset! files {:root file :suffix suffix})
+  (reset! root-dir (.getParentFile (.getCanonicalFile (io/file file))))
+  ;; resolve both sides once so a missing fork or a PNG without
+  ;; embedded EDN fails at startup with a clear message instead of an
+  ;; empty diagram in the browser
+  (try
+    (let [{:keys [old new]} (sides nil)]
+      (doseq [f (remove nil? [old new])] (read-source (.getPath f))))
+    (catch Exception e
+      (throw (ex-info (or (ex-message e) (.getName (class e))) {:startup-check true}))))
+  (let [served (cond
+                 suffix (str file " → " (fork-name file suffix) " (compare)")
+                 (embedded-compare?) (str file " (embedded compare)")
+                 :else file)
+        log-path (log/init! {:dir (log/default-dir)
+                             :debug debug
+                             :header (str "simpleviz " (version)
+                                          " (babashka " (System/getProperty "babashka.version")
+                                          ") serving " served " on port " port)})]
+    (log/install-crash-handler!)
+    ;; loopback only — /api/edit can write to disk, so the server must
+    ;; never be reachable from other hosts on the network
+    (srv/run-server handler {:port port :ip "127.0.0.1"})
+    {:served served :log-path log-path}))
 
 (defn -main [& args]
   (let [{:keys [file suffix port debug error]} (parse-args args)]
@@ -601,38 +646,20 @@
     (when-not (.isFile (io/file file))
       (println (str "file not found: " file))
       (System/exit 1))
-    (reset! files {:root file :suffix suffix})
-    (reset! root-dir (.getParentFile (.getCanonicalFile (io/file file))))
-    ;; resolve both sides once so a missing fork or a PNG without
-    ;; embedded EDN fails at startup with a clear message instead of an
-    ;; empty diagram in the browser
     (try
-      (let [{:keys [old new]} (sides nil)]
-        (doseq [f (remove nil? [old new])] (read-source (.getPath f))))
-      (catch Exception e
-        (println (ex-message e))
-        (System/exit 1)))
-    (let [serving (cond
-                    suffix (str file " → " (fork-name file suffix) " (compare)")
-                    (embedded-compare?) (str file " (embedded compare)")
-                    :else file)
-          log-path (log/init! {:dir (log/default-dir)
-                               :debug debug
-                               :header (str "simpleviz " (version)
-                                            " (babashka " (System/getProperty "babashka.version")
-                                            ") serving " serving " on port " port)})]
-      (log/install-crash-handler!)
-      (try
-        ;; loopback only — /api/edit can write to disk, so the server must
-        ;; never be reachable from other hosts on the network
-        (srv/run-server handler {:port port :ip "127.0.0.1"})
-        (println (str "simpleviz: serving " serving " at http://localhost:" port))
+      (let [{:keys [served log-path]} (start! {:file file :suffix suffix :port port :debug debug})]
+        (println (str "simpleviz: serving " served " at http://localhost:" port))
         (when log-path (println (str "simpleviz: debug log at " log-path)))
-        @(promise)
-        (catch java.net.BindException _
-          ;; a busy port is a usage problem, not a crash
-          (println (str "port " port " is already in use — pass --port N to pick another"))
-          (System/exit 1))
-        (catch Throwable e
-          (log/crash! {:phase "startup"} e)
-          (System/exit 1))))))
+        @(promise))
+      (catch java.net.BindException _
+        ;; a busy port is a usage problem, not a crash
+        (println (str "port " port " is already in use — pass --port N to pick another"))
+        (System/exit 1))
+      (catch clojure.lang.ExceptionInfo e
+        (if (:startup-check (ex-data e))
+          (println (ex-message e))
+          (log/crash! {:phase "startup"} e))
+        (System/exit 1))
+      (catch Throwable e
+        (log/crash! {:phase "startup"} e)
+        (System/exit 1)))))

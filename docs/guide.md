@@ -219,6 +219,13 @@ without a browser, for example from a script or an agent:
 clean file. In compare mode `file` names the original, not the fork; the
 report covers both sides, and each warning starts with its file's name.
 
+Anything after the root map other than whitespace, commas, comments and `#_`
+discards is an error, because an extra `}` that closes the map early would
+otherwise hide the rest of the file. The message names the line the map
+closes on, where that `}` sits: `content after the end of the graph: its map
+closes at line 1 — check there for an extra }`. Edits to such a file are
+refused until it's fixed.
+
 ## Write locks
 
 Agents and scripts that write a served file directly can coordinate through

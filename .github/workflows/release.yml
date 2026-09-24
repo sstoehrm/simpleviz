@@ -21,7 +21,8 @@ jobs:
       - name: Install babashka
         uses: DeLaGuardo/setup-clojure@13.7.0
         with:
-          bb: latest
+          # the newest babashka the CI matrix tests
+          bb: '1.13.224'
 
       - name: Cache babashka deps
         uses: actions/cache@v6

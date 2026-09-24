@@ -24,11 +24,10 @@
                   :id-entry nil :pending-focus nil :chord nil
                   :help false :export-menu false :disconnected false
                   :nav (editor/parse-nav js/location.search) :nav-error nil
-                  :theme (or (js/localStorage.getItem "simpleviz-theme")
-                             (if (.-matches (js/window.matchMedia
-                                             "(prefers-color-scheme: dark)"))
-                               "dark"
-                               "light"))}))
+                  ;; light or dark for files without :theme, as the OS has it
+                  :theme (if (.-matches (js/window.matchMedia "(prefers-color-scheme: dark)"))
+                           "dark"
+                           "light")}))
 (def last-mtime (atom nil))
 
 (defn- file-query
@@ -688,7 +687,7 @@
       "In the inspector, click a value or its ✎ to edit it inline — Enter commits, Shift+Enter inserts a line break, Escape cancels. × deletes an attribute; the key/value row at the bottom adds one. Ctrl+Z or ↶ undoes the last edit.")
      (help-section
       "Keys"
-      "Two-key chords act on the selection, when no text field has focus (the toolbar buttons show them): d d delete · e 1/2/3/4 edge direction → ← ↔ — · c s / c t change an edge's source / target · a e add edge · a b add to box (node) or add a box as member (box) · a n add a node as member (box) · c n new node inside the selected box · n n new node (connected to the selected node) · n b new box around the selection · r r rename the id · r n take a node out of the selected box · r b take the selected node out of its box · f r follow the selection's :ref. Esc cancels a pending chord; ? toggles this help; Ctrl+Z undoes.")
+      "Two-key chords act on the selection, when no text field has focus (the toolbar buttons show them): d d delete · e 1/2/3/4 edge direction → ← ↔ — · c s / c t change an edge's source / target · a e add edge · a b add to box (node) or add a box as member (box) · a n add a node as member (box) · n n new node (connected to the selected node, or inside the selected box — c n too) · n b new box around the selection · r r rename the id · r n take a node out of the selected box · r b take the selected node out of its box · f r follow the selection's :ref. Esc cancels a pending chord; ? toggles this help; Ctrl+Z undoes.")
      (help-section
       "Compare"
       "Serving a file with a suffix (simpleviz graph.edn next) renders it against its fork graph-next.edn as one merged diagram: added elements get a green +, modified an amber ~ (select for an old → new list), removed ones stay as red dashed ghosts. Click a legend row to jump through the changes; the old|new toggle picks which file edits apply to.")
@@ -697,7 +696,7 @@
       "⇩ opens the export menu: PNG downloads the diagram as an image, SVG as a vector drawing, both with the source EDN embedded. An exported PNG can be served again, compared, or turned back into EDN with \"simpleviz extract\"; simpleviz can't read an SVG back yet.")
      (help-section
       "Theme"
-      "☀ / 🌙 switches between light and dark mode. A graph file can set its own theme instead — :theme :nord, or overrides on one such as {:base :nord :accent \"#b58900\"}; the switch is hidden then. The theme menu at the top sets :theme in the file to one of the twelve built-in themes (↶ undoes it), or removes it; it's disabled for a custom theme map and for read-only files.")]))
+      "A graph without :theme is light or dark, following your system setting. A graph file can set its own theme instead — :theme :nord, or overrides on one such as {:base :nord :accent \"#b58900\"}. The theme menu at the top sets :theme in the file to one of the twelve built-in themes (↶ undoes it), or removes it (default); it's disabled for a custom theme map and for read-only files.")]))
 
 (defn- hint-view
   "The line above the toolbar: the pending chord's completions, else the
@@ -726,7 +725,7 @@
                                    (post-edit! [(editor/set-theme-op (.-value el))] "new")
                                    ;; hand the keys back, so Ctrl+Z undoes the pick
                                    (.blur el)))}
-           (opt "" "no theme (☀/🌙)")]
+           (opt "" "default")]
           (cond-> (mapv (fn [n] (opt n n)) themes/NAMES)
             (= value "custom") (conj (opt "custom" "custom" true))))))
 
@@ -753,7 +752,8 @@
      [:div {:class "em-note"} "Both embed the source EDN."]]))
 
 (defn- app-view [st]
-  [:div {:id "root" :class (when (some? (:pick st)) "picking")}
+  [:div {:id "root" :class (str (when (some? (:pick st)) "picking")
+                                (when (some? (:selected st)) " inspecting"))}
    (banner-view st)
    (hint-view st)
    (when (and (nil? (:scene st)) (nil? (:error st)))
@@ -764,32 +764,34 @@
     (when (some? (:graph st)) (legend-view st))]
    (when (:layouting st)
      [:div {:id "layouting"} "re-layouting…"])
-   (when (some? (:scene st))
-     [:button {:id "export-btn" :type "button" :title "Export…"
-               :aria-haspopup "menu" :aria-expanded (if (:export-menu st) "true" "false")
-               :on-click (fn [e] (.stopPropagation e) (swap! state update :export-menu not))}
-      "⇩"])
-   (when (and (:export-menu st) (some? (:scene st)))
-     (export-menu-view))
-   (when (current-edit-target-editable? st)
-     [:button {:id "undo-btn" :type "button" :title "Undo last edit (Ctrl+Z)"
-               :on-click (fn [e] (.stopPropagation e) (post-edit! [{:op "undo"}]))}
-      "↶"])
-   (when (:seeded (:layout st))
-     [:button {:id "relayout-btn" :type "button"
-               :title "Re-layout: edits kept the old arrangement, run a fresh layout"
-               :on-click (fn [e] (.stopPropagation e) (relayout! true))}
-      "▦"])
-   (when (some? (:graph st)) (theme-menu-view (:graph st)))
-   (when (nil? (:theme (:graph st)))
-     [:button {:id "theme-toggle" :type "button"
-               :title (if (= (:theme st) "dark") "Switch to light mode" "Switch to dark mode")
-               :on-click (fn [e] (.stopPropagation e) (toggle-theme!))}
-      (if (= (:theme st) "dark") "☀" "🌙")])
-   [:button {:id "help-btn" :type "button" :title "Help"
-             :on-click (fn [e] (.stopPropagation e) (toggle-help!))}
-    "?"]
-   (help-view st)
+   ;; one row, so hidden buttons leave no holes; it moves left of the
+   ;; inspector while one is open
+   [:div {:id "top-right"}
+    ;; always there and first, so it never shifts the others; disabled
+    ;; until an edit keeps the old arrangement
+    (let [seeded (boolean (:seeded (:layout st)))]
+      [:button {:id "relayout-btn" :type "button" :disabled (not seeded)
+                :title (if seeded
+                         "Re-layout: edits kept the old arrangement, run a fresh layout"
+                         "Re-layout: the layout is already fresh")
+                :on-click (fn [e] (.stopPropagation e) (relayout! true))}
+       "▦"])
+    (when (some? (:graph st)) (theme-menu-view (:graph st)))
+    (when (current-edit-target-editable? st)
+      [:button {:id "undo-btn" :type "button" :title "Undo last edit (Ctrl+Z)"
+                :on-click (fn [e] (.stopPropagation e) (post-edit! [{:op "undo"}]))}
+       "↶"])
+    (when (some? (:scene st))
+      [:div {:class "export-anchor"}
+       [:button {:id "export-btn" :type "button" :title "Export…"
+                 :aria-haspopup "menu" :aria-expanded (if (:export-menu st) "true" "false")
+                 :on-click (fn [e] (.stopPropagation e) (swap! state update :export-menu not))}
+        "⇩"]
+       (when (:export-menu st) (export-menu-view))])
+    [:button {:id "help-btn" :type "button" :title "Help"
+              :on-click (fn [e] (.stopPropagation e) (toggle-help!))}
+     "?"]
+    (help-view st)]
    (canvas-view)
    (when (and (some? (:scene st)) (current-edit-target-editable? st))
      (selection-toolbar st))
@@ -830,7 +832,7 @@
   demoted cache entry: the file was edited) runs ELK in interactive mode
   seeded with that layout, so layers and ordering survive the edit. The
   result is tagged :seeded — the tag travels with the layout through the
-  cache, reuse and state, and shows the re-layout button. `clean?` runs
+  cache, reuse and state, and enables the re-layout button. `clean?` runs
   a fresh layout instead, dropping the whole cache so every collapsed
   set is laid out fresh when next shown."
   [& [clean?]]
@@ -1124,9 +1126,9 @@
 
 (defn- effective-theme
   "The theme to show for graph g: the file's :theme (resolved by the
-  server), else the light/dark toggle's."
-  [g toggle]
-  (or (:theme g) (get themes/THEMES toggle) (get themes/THEMES :light)))
+  server), else light or dark as the OS has it."
+  [g os-theme]
+  (or (:theme g) (get themes/THEMES os-theme) (get themes/THEMES :light)))
 
 (defn- apply-theme!
   "Paint page and canvas in theme, a complete theme map: the chrome via
@@ -1139,12 +1141,6 @@
       (.setProperty style (str "--" k) (get theme k))))
   (canvas/set-theme! theme)
   (canvas/request-paint!))
-
-(defn- toggle-theme! []
-  (let [t (if (= (:theme @state) "dark") "light" "dark")]
-    (js/localStorage.setItem "simpleviz-theme" t)
-    (apply-theme! (effective-theme (:graph @state) t))
-    (swap! state assoc :theme t)))
 
 (defn- ^:async fetch-source
   "Raw EDN text from /api/source (which = \"old\"|\"new\"|nil), or nil on

@@ -15,6 +15,7 @@
   --diff-added: #0ca30c;
   --diff-modified: #b45309;
   --diff-removed: #d03b3b;
+  --inspector-w: 320px;
 }
 
 * { box-sizing: border-box; }
@@ -45,7 +46,7 @@ body { margin: 0; font-family: system-ui, sans-serif; overflow: hidden;
                   cursor: pointer; }
 #banner.warning.collapsed { max-height: 2.3em; overflow: hidden; }
 
-#details { position: fixed; top: 0; right: 0; bottom: 0; width: 320px;
+#details { position: fixed; top: 0; right: 0; bottom: 0; width: var(--inspector-w);
            overflow: auto; background: var(--panel);
            border-left: 1px solid var(--panel-border);
            padding: 16px; z-index: 5; box-shadow: -2px 0 8px var(--shadow); }
@@ -144,21 +145,19 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
 #collapsed-panel .cp-plus { color: var(--text-dim); font-weight: 600; }
 #collapsed-panel .cp-row:hover .cp-plus { color: var(--accent); }
 
-#theme-toggle { position: fixed; top: 8px; right: 12px; z-index: 4;
-                width: 32px; height: 32px; border-radius: 50%;
-                border: 1px solid var(--panel-border); background: var(--panel);
-                color: var(--text); font-size: 15px; line-height: 1;
-                cursor: pointer; box-shadow: 0 1px 4px var(--shadow); }
-#theme-toggle:hover { border-color: var(--accent); }
+/* the controls at the top right: one row, 8px apart, left of an open inspector */
+#top-right { position: fixed; top: 8px; right: 12px; z-index: 9;
+             display: flex; align-items: center; gap: 8px; pointer-events: none; }
+#root.inspecting #top-right { right: calc(var(--inspector-w) + 12px); }
+#top-right > * { pointer-events: auto; }
 
-#help-btn { position: fixed; top: 8px; right: 52px; z-index: 4;
-            width: 32px; height: 32px; border-radius: 50%;
+#help-btn { width: 32px; height: 32px; border-radius: 50%;
             border: 1px solid var(--panel-border); background: var(--panel);
             color: var(--text); font-size: 15px; line-height: 1;
             cursor: pointer; box-shadow: 0 1px 4px var(--shadow); }
 #help-btn:hover { border-color: var(--accent); }
 
-#help-panel { position: fixed; top: 48px; right: 12px; z-index: 8;
+#help-panel { position: absolute; top: 40px; right: 0; z-index: 8;
               width: 340px; max-height: calc(100vh - 60px); overflow: auto;
               background: var(--panel); border: 1px solid var(--panel-border);
               border-radius: 8px; padding: 12px 16px 14px; font-size: 13px;
@@ -168,19 +167,20 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
                  letter-spacing: .07em; text-transform: uppercase;
                  color: var(--text-dim); }
 #help-panel p { margin: 2px 0 0; line-height: 1.45; }
+#root.inspecting #help-panel { max-width: calc(100vw - var(--inspector-w) - 24px); }
 #help-close { position: absolute; top: 8px; right: 10px; width: 24px; height: 24px;
               border: none; background: none; color: var(--text-muted); font-size: 18px;
               line-height: 1; cursor: pointer; padding: 0; border-radius: 4px; }
 #help-close:hover { background: var(--hover-plain); color: var(--text-strong); }
 
-#export-btn { position: fixed; top: 8px; right: 92px; z-index: 4;
-              width: 32px; height: 32px; border-radius: 50%;
+.export-anchor { position: relative; display: flex; }
+#export-btn { width: 32px; height: 32px; border-radius: 50%;
               border: 1px solid var(--panel-border); background: var(--panel);
               color: var(--text); font-size: 15px; line-height: 1;
               cursor: pointer; box-shadow: 0 1px 4px var(--shadow); }
 #export-btn:hover, #export-btn[aria-expanded="true"] { border-color: var(--accent); }
 /* ⇩'s menu, right-aligned under it; above the help panel should both be open */
-#export-menu { position: fixed; top: 46px; right: 92px; z-index: 9; min-width: 150px;
+#export-menu { position: absolute; top: 38px; right: 0; z-index: 9; min-width: 150px;
                background: var(--panel); border: 1px solid var(--panel-border);
                border-radius: 8px; padding: 4px; font-size: 12.5px; user-select: none;
                box-shadow: 0 2px 8px var(--shadow); }
@@ -212,6 +212,10 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
               z-index: 6; display: flex; flex-direction: column; align-items: center; gap: 8px;
               pointer-events: none; }
 #top-center > * { pointer-events: auto; }
+/* while the inspector is open, center over the canvas left of it */
+#root.inspecting #top-center, #root.inspecting #layouting {
+  left: calc((100% - var(--inspector-w)) / 2); }
+#root.inspecting #trail { max-width: calc(.8 * (100vw - var(--inspector-w))); }
 #diff-legend { min-width: 240px;
                background: var(--panel); border: 1px solid var(--panel-border);
                border-radius: 8px; padding: 8px 12px; font-size: 12px;
@@ -253,21 +257,19 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
 .trail-sep { color: var(--text-dim); }
 .trail-current { color: var(--text-strong); font-weight: 600; padding: 2px 5px; }
 
-#undo-btn { position: fixed; top: 8px; right: 132px; z-index: 4;
-            width: 32px; height: 32px; border-radius: 50%;
+#undo-btn { width: 32px; height: 32px; border-radius: 50%;
             border: 1px solid var(--panel-border); background: var(--panel);
             color: var(--text); font-size: 15px; line-height: 1;
             cursor: pointer; box-shadow: 0 1px 4px var(--shadow); }
 #undo-btn:hover { border-color: var(--accent); }
-#relayout-btn { position: fixed; top: 8px; right: 172px; z-index: 4;
-                width: 32px; height: 32px; border-radius: 50%;
+#relayout-btn { width: 32px; height: 32px; border-radius: 50%;
                 border: 1px solid var(--accent); background: var(--panel);
                 color: var(--text); font-size: 15px; line-height: 1;
                 cursor: pointer; box-shadow: 0 1px 4px var(--shadow); }
-#relayout-btn:hover { background: var(--hover-plain); }
-/* the theme menu, left of the round buttons */
-#theme-select { position: fixed; top: 8px; right: 212px; z-index: 4;
-                height: 32px; max-width: 170px; padding: 0 10px;
+#relayout-btn:hover:not(:disabled) { background: var(--hover-plain); }
+#relayout-btn:disabled { border-color: var(--panel-border); opacity: .55; cursor: not-allowed; }
+/* the theme menu, between ▦ and the other round buttons */
+#theme-select { height: 32px; max-width: 170px; padding: 0 10px;
                 border-radius: 16px; border: 1px solid var(--panel-border);
                 background: var(--panel); color: var(--text); font-size: 12px;
                 cursor: pointer; box-shadow: 0 1px 4px var(--shadow); }

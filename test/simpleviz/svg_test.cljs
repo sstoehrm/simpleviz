@@ -197,6 +197,22 @@
                          "<path d=\"M0 0L10 0\" fill=\"#000\"/>\n"
                          "<path d=\"M0 5L10 5\" fill=\"none\" stroke=\"#000\" stroke-width=\"1\"/>")))))
 
+(test "restore brings back the line dash that was set at save"
+  (fn []
+    (let [r (rec)]
+      (.setLineDash r [5 4])
+      (.save r)
+      (.setLineDash r [2 1])
+      (.beginPath r)
+      (.moveTo r 0 0)
+      (.lineTo r 10 0)
+      (.stroke r)
+      (.restore r)
+      (.stroke r)
+      (assert/equal (svg/markup r)
+                    (str "<path d=\"M0 0L10 0\" fill=\"none\" stroke=\"#000\" stroke-width=\"1\" stroke-dasharray=\"2 1\"/>\n"
+                         "<path d=\"M0 0L10 0\" fill=\"none\" stroke=\"#000\" stroke-width=\"1\" stroke-dasharray=\"5 4\"/>")))))
+
 (test "text whose whitespace SVG would collapse or trim keeps it, as canvas does"
   (fn []
     ;; canvas draws every space and turns a newline or tab into one;
@@ -227,11 +243,9 @@
        (str "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
             "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"120.46\" height=\"80\""
             " viewBox=\"0 0 120.46 80\" stroke-miterlimit=\"10\">\n"
-            "<metadata>\n"
-            "<simpleviz:source xmlns:simpleviz=\"https://github.com/sstoehrm/simpleviz\""
-            " key=\"simpleviz-edn-old\">{:a &quot;]]&gt;&quot;}</simpleviz:source>\n"
-            "<simpleviz:source xmlns:simpleviz=\"https://github.com/sstoehrm/simpleviz\""
-            " key=\"simpleviz-edn-new\">{:b &quot;&lt;x&gt;&quot; :c &quot;&amp;&quot;}</simpleviz:source>\n"
+            "<metadata xmlns:simpleviz=\"https://github.com/sstoehrm/simpleviz\">\n"
+            "<simpleviz:source key=\"simpleviz-edn-old\">{:a &quot;]]&gt;&quot;}</simpleviz:source>\n"
+            "<simpleviz:source key=\"simpleviz-edn-new\">{:b &quot;&lt;x&gt;&quot; :c &quot;&amp;&quot;}</simpleviz:source>\n"
             "</metadata>\n"
             "<rect width=\"120.46\" height=\"80\" fill=\"#fafafa\"/>\n"
             "<path d=\"M1 2L4 2L4 6L1 6Z\" fill=\"#fff\"/>\n"
@@ -241,5 +255,17 @@
   (fn []
     (let [doc (svg/svg-document (rec) {:width 10 :height 10 :background "#111827"
                                         :sources [["simpleviz-edn" "{:nodes {}}"]]})]
-      (assert/ok (.includes doc " key=\"simpleviz-edn\">{:nodes {}}</simpleviz:source>"))
+      (assert/ok (.includes doc "<simpleviz:source key=\"simpleviz-edn\">{:nodes {}}</simpleviz:source>"))
       (assert/ok (.includes doc "<rect width=\"10\" height=\"10\" fill=\"#111827\"/>")))))
+
+(test "svg-document without sources still has its (empty) metadata"
+  (fn []
+    ;; every source fetch failed: the export goes out without EDN
+    (assert/equal (svg/svg-document (rec) {:width 10 :height 20 :background "#fafafa" :sources []})
+                  (str "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                       "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"20\""
+                       " viewBox=\"0 0 10 20\" stroke-miterlimit=\"10\">\n"
+                       "<metadata xmlns:simpleviz=\"https://github.com/sstoehrm/simpleviz\">\n"
+                       "</metadata>\n"
+                       "<rect width=\"10\" height=\"20\" fill=\"#fafafa\"/>\n"
+                       "</svg>\n"))))

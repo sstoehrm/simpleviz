@@ -1163,14 +1163,20 @@
 
 (defn- ^:async export-svg!
   "Download the whole diagram as SVG, the source EDN embedded like the
-  PNG's (see svg/svg-document)."
+  PNG's (see svg/svg-document). A failure shows in the error banner, as
+  the PNG export's does, rather than as an unseen rejected promise."
   []
   (when-let [sc (:scene @state)]
     (let [g (:graph @state)
           nm (export-name g)
+          ;; never throws: a failed fetch only drops that source
           pairs (js-await (export-sources g))]
-      (download-blob! (js/Blob. [(canvas/export-svg sc pairs)] {:type "image/svg+xml"})
-                      nm "svg"))))
+      (try
+        (download-blob! (js/Blob. [(canvas/export-svg sc pairs)] {:type "image/svg+xml"})
+                        nm "svg")
+        (catch :default e
+          (swap! state assoc :error
+                 (str "SVG export failed — " (or (.-message e) (str e)))))))))
 
 ;; init
 (defn- typing?

@@ -145,10 +145,11 @@
       :rect (fn [x y w h]
               (let [m (:m st)
                     p (xf m x y)]
+                ;; Z returns to p, where canvas's new subpath after a
+                ;; rect starts too
                 (move-to! st p)
                 (draw! st (str "L" (pt (xf m (+ x w) y)) "L" (pt (xf m (+ x w) (+ y h)))
-                               "L" (pt (xf m x (+ y h))) "Z"))
-                (assoc! st :cur p)))
+                               "L" (pt (xf m x (+ y h))) "Z"))))
       :roundRect (fn [x y w h radius]
                    ;; canvas shrinks radii that don't fit their side
                    (let [r (js/Math.min radius (/ w 2) (/ h 2))
@@ -232,10 +233,11 @@
 
 (defn svg-document
   "The complete SVG document: width x height user units on a background
-  rect, with each [key text] pair of sources embedded in <metadata> as a
-  simpleviz:source element — keys as the PNG export's iTXt keywords
-  (\"simpleviz-edn\", or \"simpleviz-edn-old\"/\"simpleviz-edn-new\"),
-  the text XML-escaped rather than in CDATA, since EDN may hold \"]]>\".
+  rect, with each [key text] pair of sources embedded in <metadata> (which
+  declares the simpleviz namespace) as a simpleviz:source element — keys
+  as the PNG export's iTXt keywords (\"simpleviz-edn\", or
+  \"simpleviz-edn-old\"/\"simpleviz-edn-new\"), the text XML-escaped
+  rather than in CDATA, since EDN may hold \"]]>\".
   stroke-miterlimit is canvas's default 10, not SVG's 4."
   [rec {:keys [width height background sources]}]
   (let [w (round2 width)
@@ -244,9 +246,9 @@
                      (str "<svg xmlns=\"http://www.w3.org/2000/svg\"" (attrs [["width" w] ["height" h]
                                                                                ["viewBox" (str "0 0 " w " " h)]])
                           " stroke-miterlimit=\"10\">")
-                     "<metadata>"]
+                     (str "<metadata xmlns:simpleviz=\"" NS "\">")]
                     (into (mapv (fn [[k text]]
-                                  (str "<simpleviz:source xmlns:simpleviz=\"" NS "\" key=\"" (esc k) "\">"
+                                  (str "<simpleviz:source key=\"" (esc k) "\">"
                                        (esc text) "</simpleviz:source>"))
                                 sources))
                     (conj "</metadata>"

@@ -10,6 +10,7 @@
   --hover: #f1f5ff;
   --hover-plain: #f0f0f0;
   --accent: #2563eb;
+  --on-accent: #fff;
   --shadow: rgba(0, 0, 0, .06);
   --diff-added: #0ca30c;
   --diff-modified: #b45309;
@@ -29,7 +30,7 @@ body { margin: 0; font-family: system-ui, sans-serif; overflow: hidden;
 #root.picking { cursor: crosshair; }
 
 #pick-hint { position: fixed; bottom: 70px; left: 50%; transform: translateX(-50%);
-             z-index: 8; background: var(--accent); color: #fff; border-radius: 12px;
+             z-index: 8; background: var(--accent); color: var(--on-accent); border-radius: 12px;
              padding: 4px 14px; font-size: 12px; box-shadow: 0 1px 4px var(--shadow); }
 
 #details-close { position: absolute; top: 8px; right: 10px; width: 24px; height: 24px;
@@ -108,7 +109,7 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
            border-right: 1px solid var(--panel-border); }
 .dir-btn:last-child { border-right: none; }
 .dir-btn:hover { background: var(--hover-plain); color: var(--text-strong); }
-.dir-btn.active { background: var(--accent); color: #fff; }
+.dir-btn.active { background: var(--accent); color: var(--on-accent); }
 .id-entry { flex-basis: 100%; margin-top: 4px; }
 .id-entry-input { width: 100%; }
 #details .attr-add { display: flex; gap: 6px; align-items: flex-start; margin-top: 16px;
@@ -237,7 +238,7 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
                           border-radius: 4px; cursor: pointer; }
 #diff-legend .dl-target:hover:not(:disabled) { border-color: var(--accent); }
 #diff-legend .dl-target.active { background: var(--accent); border-color: var(--accent);
-                                 color: #fff; }
+                                 color: var(--on-accent); }
 #diff-legend .dl-target:disabled { opacity: .4; cursor: not-allowed; }
 
 #trail { max-width: 80vw; display: flex; flex-wrap: wrap;

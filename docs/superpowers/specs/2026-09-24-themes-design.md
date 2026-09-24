@@ -19,12 +19,12 @@ Files without `:theme` look and behave exactly as today (the viewer's
     {:theme {:base :nord :bg "#fdf6e3" :accent "#b58900"} ...}  ; overrides on a base
 
 - The name may be a keyword or a string. `:base` defaults to `:light`.
-- Every key a built-in theme defines can be overridden. There are 33,
+- Every key a built-in theme defines can be overridden. There are 34,
   in five groups:
 
 | Group | Keys | Value |
 |---|---|---|
-| chrome (12) | `:bg :panel :panel-border :panel-divider :text :text-strong :text-muted :text-dim :hover :hover-plain :accent :shadow` | color |
+| chrome (13) | `:bg :panel :panel-border :panel-divider :text :text-strong :text-muted :text-dim :hover :hover-plain :accent :on-accent :shadow` | color |
 | painter (7) | `:node-fill :node-stroke :edge :arrow :sub :label :btn-fill` | color |
 | diff (3) | `:diff-added :diff-modified :diff-removed` | color |
 | state (4) | `:state-new :state-in-progress :state-blocked :state-done` | color |
@@ -113,14 +113,14 @@ keywords are strings, so the maps read as string-keyed objects.
 - `KEY-KINDS`: key → `:color` | `:percent` | `:alpha`, in documentation
   order.
 - `CSS-KEYS`: the keys the page mirrors into CSS custom properties (chrome
-  and diff, 15 in all), each as `--<key>`.
-- `THEMES`: name → complete theme map (all 33 keys).
+  and diff, 16 in all), each as `--<key>`.
+- `THEMES`: name → complete theme map (all 34 keys).
 
 ### Server
 
 - `server/graph.clj` `normalize` reads `:theme`, validates it as above,
   and adds `:theme` to its result: the **resolved** map (base merged with
-  valid overrides, all 33 keys), or no key when there is no valid file
+  valid overrides, all 34 keys), or no key when there is no valid file
   theme. The page then needs no merge logic. Validation is plain Clojure:
   a flat key → kind table gives specific messages more simply than a
   malli schema.
@@ -158,7 +158,7 @@ keywords are strings, so the maps read as string-keyed objects.
     `canvas/set-theme!` and requests a paint. It runs at startup (toggle
     theme), after each graph load, and on toggle, always *before* the
     state change that re-renders: rendering is synchronous, and the
-    collapsed-panel dots read the palette. Re-applying is cheap (15
+    collapsed-panel dots read the palette. Re-applying is cheap (16
     properties, 510 table strings), so there is no identity check.
   - The ☀/🌙 button renders only when the payload has no `:theme`.
   - The `?` help panel gains one line on `:theme`.

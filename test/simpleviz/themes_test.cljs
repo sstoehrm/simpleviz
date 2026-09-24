@@ -63,9 +63,9 @@
 
 (test "KEYS and KEY-KINDS agree; CSS-KEYS are theme keys"
   (fn []
-    (assert/equal (count themes/KEYS) 33)
+    (assert/equal (count themes/KEYS) 34)
     (assert/deepEqual (sorted (js/Object.keys themes/KEY-KINDS)) (sorted themes/KEYS))
-    (assert/equal (count themes/CSS-KEYS) 15)
+    (assert/equal (count themes/CSS-KEYS) 16)
     (doseq [k themes/CSS-KEYS]
       (assert/ok (contains? themes/KEY-KINDS k) k))))
 
@@ -88,7 +88,8 @@
         (assert/ok (>= (min-type-contrast (:box-saturation t) (:box-lightness t) (rgb :bg)) 1.8)
                    (str n ": box titles on :bg"))
         (assert/ok (>= (contrast (rgb :text) (rgb :panel)) 4.5) (str n ": :text on :panel"))
-        (assert/ok (>= (contrast (rgb :label) (rgb :bg)) 4.5) (str n ": :label on :bg"))))))
+        (assert/ok (>= (contrast (rgb :label) (rgb :bg)) 4.5) (str n ": :label on :bg"))
+        (assert/ok (>= (contrast (rgb :on-accent) (rgb :accent)) 2.5) (str n ": :on-accent on :accent"))))))
 
 (test "high-contrast type colors reach 4.5:1"
   (fn []

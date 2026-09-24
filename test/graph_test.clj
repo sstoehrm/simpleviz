@@ -399,7 +399,13 @@
 
 (deftest theme-color-forms
   (doseq [c ["#abc" "#abcd" "#aabbcc" "#aabbccdd" "rgb(1, 2, 3)" "rgba(1,2,3,.5)"
-             "hsl(200 50% 40%)" "hsla(200, 50%, 40%, 0.5)"]]
+             "hsl(200 50% 40%)" "hsla(200, 50%, 40%, 0.5)" "rgb(1 2 3 / 50%)"]]
     (is (= [] (:warnings (graph/normalize {:theme {:bg c}}))) c))
-  (doseq [c ["blue" "#ab" "#abcde" "url(x)" "" "rgb(1, 2, 3" 7 nil]]
+  (doseq [c ["blue" "#ab" "#abcde" "url(x)" "" "rgb(1, 2, 3" 7 nil
+             "hsl(210, 50, 40)" "rgb(0 0 0 0.5)" "rgb()" "rgb(foo)"]]
     (is (= 1 (count (:warnings (graph/normalize {:theme {:bg c}})))) (pr-str c))))
+
+(deftest every-built-in-theme-passes-validation
+  (doseq [n themes/NAMES]
+    (is (= [] (:warnings (graph/normalize {:theme (assoc (get themes/THEMES n) :base n)})))
+        (name n))))

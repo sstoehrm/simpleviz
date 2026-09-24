@@ -53,11 +53,13 @@ greys, no box fills), `high-contrast`, `blueprint`, `paper`,
 
 | Group | Keys |
 |---|---|
-| page | `:bg :panel :panel-border :panel-divider :text :text-strong :text-muted :text-dim :hover :hover-plain :accent :shadow` |
+| page | `:bg :panel :panel-border :panel-divider :text :text-strong :text-muted :text-dim :hover :hover-plain :accent :on-accent :shadow` |
 | canvas | `:node-fill :node-stroke :edge :arrow :sub` (the `(type)` line) `:label` (edge labels) `:btn-fill` (box header button) |
 | compare | `:diff-added :diff-modified :diff-removed` |
 | `:state` marks | `:state-new :state-in-progress :state-blocked :state-done` |
 | type colors | `:node-saturation :node-lightness :box-saturation :box-lightness :neutral-node-lightness :neutral-box-lightness` (0–100), `:box-fill-alpha` (0–1) |
+
+(`:on-accent`: text on accent-colored buttons and hints)
 
 Colors are strings: `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`, or
 `rgb()`/`rgba()`/`hsl()`/`hsla()`. Named colors aren't accepted. Each `:type` keeps its hue in every theme: the type-color keys

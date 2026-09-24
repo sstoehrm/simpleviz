@@ -311,8 +311,18 @@
          :else true)))
    edges))
 
+(def ^:private css-number "[+-]?(?:\\d+\\.?\\d*|\\.\\d+)")
+
 (def ^:private color-re
-  #"#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})|(?:rgba?|hsla?)\([^()]*\)")
+  (let [n css-number]
+    (re-pattern
+     (str "#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})"
+          ;; modern space-separated rgb()/hsl(), optional "/ alpha"
+          "|(?:rgba?|hsla?)\\(\\s*" n "(?:%|deg|rad|grad|turn)?(?:\\s+" n "%?){2}(?:\\s*/\\s*" n "%?)?\\s*\\)"
+          ;; legacy comma rgb()/rgba()
+          "|rgba?\\(\\s*" n "%?(?:\\s*,\\s*" n "%?){2}(?:\\s*,\\s*" n "%?)?\\s*\\)"
+          ;; legacy comma hsl()/hsla(): saturation and lightness need %
+          "|hsla?\\(\\s*" n "(?:deg|rad|grad|turn)?\\s*,\\s*" n "%\\s*,\\s*" n "%(?:\\s*,\\s*" n "%?)?\\s*\\)"))))
 
 (def ^:private theme-expectations
   {:color "a color (#hex, rgb(), hsl())"
@@ -323,7 +333,8 @@
   (case kind
     :color (and (string? v) (some? (re-matches color-re v)))
     :percent (and (number? v) (<= 0 v 100))
-    :alpha (and (number? v) (<= 0 v 1))))
+    :alpha (and (number? v) (<= 0 v 1))
+    false))
 
 (defn- theme-name
   "The built-in theme keyword a keyword or string names, else nil."

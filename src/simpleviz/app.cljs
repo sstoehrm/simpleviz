@@ -899,7 +899,11 @@
     (let [resp (js-await (js/fetch (str "/api/graph" (file-query))))
           raw (js-await (.json resp))]
       (if (some? (:error raw))
-        (swap! state assoc :error (str "Graph error: " (:error raw)))
+        (do (when (nil? (:graph @state))
+              ;; no graph to show (a navigation landed on a broken file):
+              ;; back to the toggle's theme, which the now-visible toggle shows
+              (apply-theme! (effective-theme nil (:theme @state))))
+            (swap! state assoc :error (str "Graph error: " (:error raw))))
         (let [g (assoc raw :boxes-by-name
                        (reduce (fn [acc b] (assoc acc (:name b) b)) {} (:boxes raw)))
               first-load? (nil? (:graph @state))]
@@ -1100,7 +1104,7 @@
   "The theme to show for graph g: the file's :theme (resolved by the
   server), else the light/dark toggle's."
   [g toggle]
-  (or (:theme g) (get themes/THEMES toggle)))
+  (or (:theme g) (get themes/THEMES toggle) (get themes/THEMES :light)))
 
 (defn- apply-theme!
   "Paint page and canvas in theme, a complete theme map: the chrome via

@@ -67,7 +67,11 @@ embedded-compare PNG refuses the parameter.
 ## CI and releases
 
 CI (`bb test`, then `bb jar:smoke`) runs on every push to main and every
-pull request (`.github/workflows/ci.yml`).
+pull request (`.github/workflows/ci.yml`), once per babashka version in its
+matrix: only the last two minor releases (currently 1.12 and 1.13), pinned
+to their latest patch. When a new minor release comes out, move the matrix
+up, and raise `MIN_BB` in `install.sh` to the older of the two; the release
+workflow builds with the newer one.
 
 Pushing a `v*` tag runs `bb bundle` and `bb jar:smoke`, then publishes the
 tarball and `simpleviz.jar` as a GitHub release

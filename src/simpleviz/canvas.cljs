@@ -1,5 +1,6 @@
 (ns simpleviz.canvas
   (:require [simpleviz.scene :as scene]
+            [simpleviz.svg :as svg]
             [simpleviz.transform :refer [NODE-FONT SUB-FONT]]))
 
 ;; HiDPI canvas painter + view state + pan/zoom. DOM-only namespace —
@@ -375,10 +376,23 @@
     (paint-items! ctx sc {:x0 0 :y0 0 :x1 w :y1 h} k nil true)
     cnv))
 
+(defn export-svg
+  "SVG document of the WHOLE scene, painted like export-canvas (current
+  theme's background, no selection ring) into an svg/recorder, in graph
+  units rather than pixels. sources are [key text] pairs to embed, as
+  for the PNG."
+  [sc sources]
+  (let [w (js/Math.max 1 (:width sc))
+        h (js/Math.max 1 (:height sc))
+        rec (svg/recorder measure)]
+    (paint-items! rec sc {:x0 0 :y0 0 :x1 w :y1 h} 1 nil true)
+    (svg/svg-document rec {:width w :height h :background (:bg @palette)
+                           :sources sources})))
+
 (defn setup-pan-zoom! [wrap]
   (.addEventListener wrap "wheel"
     (fn [e]
-      (when-not (.closest (.-target e) "#details, #banner, #collapsed-panel, #theme-toggle, #diff-legend, #export-btn")
+      (when-not (.closest (.-target e) "#details, #banner, #collapsed-panel, #theme-toggle, #diff-legend, #export-btn, #export-menu")
         (.preventDefault e)
         (let [factor (if (< (.-deltaY e) 0) 1.1 (/ 1 1.1))
               rect (.getBoundingClientRect wrap)
@@ -393,7 +407,7 @@
   (let [drag (atom nil)]
     (.addEventListener wrap "pointerdown"
       (fn [e]
-        (when-not (.closest (.-target e) "#details, #banner, #collapsed-panel, #theme-toggle, #diff-legend, #export-btn")
+        (when-not (.closest (.-target e) "#details, #banner, #collapsed-panel, #theme-toggle, #diff-legend, #export-btn, #export-menu")
           ;; NO setPointerCapture here: capturing on pointerdown retargets
           ;; the subsequent click to the wrap, so the canvas onclick
           ;; (selection) would never fire for plain clicks.

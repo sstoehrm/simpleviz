@@ -194,7 +194,20 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
               border: 1px solid var(--panel-border); background: var(--panel);
               color: var(--text); font-size: 15px; line-height: 1;
               cursor: pointer; box-shadow: 0 1px 4px var(--shadow); }
-#export-btn:hover { border-color: var(--accent); }
+#export-btn:hover, #export-btn[aria-expanded="true"] { border-color: var(--accent); }
+/* ⇩'s menu, right-aligned under it; above the help panel should both be open */
+#export-menu { position: fixed; top: 46px; right: 92px; z-index: 9; min-width: 150px;
+               background: var(--panel); border: 1px solid var(--panel-border);
+               border-radius: 8px; padding: 4px; font-size: 12.5px; user-select: none;
+               box-shadow: 0 2px 8px var(--shadow); }
+#export-menu .em-item { display: flex; align-items: baseline; gap: 8px; width: 100%;
+                        border: none; background: none; padding: 6px 10px;
+                        border-radius: 6px; font: inherit; font-weight: 600;
+                        color: var(--text); text-align: left; cursor: pointer; }
+#export-menu .em-item:hover, #export-menu .em-item:focus-visible { background: var(--hover-plain); }
+#export-menu .em-hint { font-weight: 400; color: var(--text-muted); }
+#export-menu .em-note { margin-top: 4px; padding: 5px 10px 3px; font-size: 11px;
+                        color: var(--text-dim); border-top: 1px solid var(--panel-divider); }
 
 #layouting { position: fixed; top: 8px; left: 50%; transform: translateX(-50%);
              z-index: 7; background: #1f2937; color: #fff; border-radius: 12px;

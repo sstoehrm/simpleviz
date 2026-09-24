@@ -1,7 +1,8 @@
 (ns diff-test
   (:require [clojure.test :refer [deftest is]]
             [diff]
-            [graph]))
+            [graph]
+            [themes]))
 
 (defn norm [raw] (graph/normalize raw))
 
@@ -191,3 +192,7 @@
     (is (= "modified" (:diff box)))
     (is (= "New Label" (:label box)))
     (is (= {:old "Old Label" :new "New Label"} (get-in box [:changed :name])))))
+
+(deftest union-takes-the-new-sides-theme
+  (is (= (:nord themes/THEMES) (:theme (u {:theme :dracula} {:theme :nord}))))
+  (is (not (contains? (u {:theme :dracula} {}) :theme))))

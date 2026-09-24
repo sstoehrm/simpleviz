@@ -148,15 +148,16 @@
 
 (defn union
   "old-g/new-g are graph/normalize outputs; old-name/new-name label the
-  files in warnings and the frontend legend."
+  files in warnings and the frontend legend. The union carries the new side's :theme."
   [old-g new-g old-name new-name]
   (let [nodes (diff-nodes old-g new-g)
         boxes0 (diff-boxes old-g new-g)
         parent-of (union-parent-of old-g new-g nodes boxes0)]
-    {:nodes nodes
-     :edges (diff-edges old-g new-g)
-     :boxes (with-components boxes0 parent-of)
-     :parent-of parent-of
-     :compare {:old old-name :new new-name}
-     :warnings (into (mapv (fn [w] (str old-name ": " w)) (:warnings old-g))
-                     (mapv (fn [w] (str new-name ": " w)) (:warnings new-g)))}))
+    (cond-> {:nodes nodes
+             :edges (diff-edges old-g new-g)
+             :boxes (with-components boxes0 parent-of)
+             :parent-of parent-of
+             :compare {:old old-name :new new-name}
+             :warnings (into (mapv (fn [w] (str old-name ": " w)) (:warnings old-g))
+                             (mapv (fn [w] (str new-name ": " w)) (:warnings new-g)))}
+      (some? (:theme new-g)) (assoc :theme (:theme new-g)))))

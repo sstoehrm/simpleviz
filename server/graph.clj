@@ -4,7 +4,8 @@
   throws on any input value."
   (:require [clojure.string :as str]
             [malli.core :as m]
-            [malli.error :as me]))
+            [malli.error :as me]
+            [themes]))
 
 (def ^:private EdgeShape
   (m/schema [:map [:nodes [:tuple [:or :string :keyword] [:or :string :keyword]]]]))
@@ -310,6 +311,66 @@
          :else true)))
    edges))
 
+(def ^:private color-re
+  #"#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})|(?:rgba?|hsla?)\([^()]*\)")
+
+(def ^:private theme-expectations
+  {:color "a color (#hex, rgb(), hsl())"
+   :percent "a number from 0 to 100"
+   :alpha "a number from 0 to 1"})
+
+(defn- theme-value-ok? [kind v]
+  (case kind
+    :color (and (string? v) (some? (re-matches color-re v)))
+    :percent (and (number? v) (<= 0 v 100))
+    :alpha (and (number? v) (<= 0 v 1))))
+
+(defn- theme-name
+  "The built-in theme keyword a keyword or string names, else nil."
+  [x]
+  (when (or (keyword? x) (string? x))
+    (let [k (keyword (ident->str x))]
+      (when (contains? themes/THEMES k) k))))
+
+(defn- theme-key
+  "Map keys may be keywords or strings, like identifiers elsewhere."
+  [k]
+  (if (or (keyword? k) (string? k)) (keyword (ident->str k)) k))
+
+(defn- resolve-theme
+  "The file's :theme -> a complete theme map (all themes/KEYS), or nil
+  when there is no valid file theme. One warning per problem: an unknown
+  name or a non-name non-map drops the theme, an unknown :base falls back
+  to light, an unknown key or bad value drops just that key."
+  [v warn!]
+  (cond
+    (nil? v) nil
+
+    (or (keyword? v) (string? v))
+    (or (some->> (theme-name v) (get themes/THEMES))
+        (do (warn! (str ":theme: unknown theme \"" (ident->str v) "\" (built-in: "
+                        (str/join ", " (map name themes/NAMES)) ")"))
+            nil))
+
+    (map? v)
+    (let [entries (sort-by (fn [[k _]] (str k)) (map (fn [[k x]] [(theme-key k) x]) v))
+          b (or (some (fn [[k x]] (when (= k :base) x)) entries) :light)
+          base (or (theme-name b)
+                   (do (warn! (str ":theme: unknown base \"" (ident->str b) "\", using light"))
+                       :light))]
+      (reduce (fn [acc [k x]]
+                (let [kind (get themes/KEY-KINDS k)]
+                  (cond
+                    (= k :base) acc
+                    (nil? kind) (do (warn! (str ":theme: unknown key " (pr-str k) ", ignored")) acc)
+                    (theme-value-ok? kind x) (assoc acc k x)
+                    :else (do (warn! (str ":theme " k ": expected " (theme-expectations kind) ", ignored"))
+                              acc))))
+              (get themes/THEMES base)
+              entries))
+
+    :else (do (warn! ":theme must be a theme name or a map, ignoring it") nil)))
+
 (defn normalize [raw]
   (let [warnings (atom [])
         warn! (fn [msg] (swap! warnings conj msg))
@@ -335,9 +396,11 @@
         edges0 (build-edges edges-in nodes (set (map :name boxes0)) warn!)
         [boxes1 parents1] (resolve-membership boxes0 nodes warn!)
         [boxes parent-of] (break-cycles boxes1 parents1 warn!)
-        edges (drop-containment-edges edges0 parent-of warn!)]
-    {:nodes nodes
-     :edges edges
-     :boxes boxes
-     :parent-of parent-of
-     :warnings @warnings}))
+        edges (drop-containment-edges edges0 parent-of warn!)
+        theme (resolve-theme (:theme raw) warn!)]
+    (cond-> {:nodes nodes
+             :edges edges
+             :boxes boxes
+             :parent-of parent-of
+             :warnings @warnings}
+      (some? theme) (assoc :theme theme))))

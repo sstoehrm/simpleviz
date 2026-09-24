@@ -474,3 +474,11 @@
                                                :attr "name" :value "\"Calls\"" :fallback false}])]
     (is (nil? error))
     (is (clojure.string/includes? text "[:a :c] {:direction :-> :name \"Calls\"}"))))
+
+(deftest edits-keep-a-theme-key
+  (let [themed "{:theme {:base :nord :accent \"#b58900\"} ;; look\n :nodes {:a nil}\n :edges {}}"
+        out (edit/add-node themed {:id "b" :attrs-text nil})
+        data (clojure.edn/read-string out)]
+    (is (clojure.string/includes? out "{:theme {:base :nord :accent \"#b58900\"} ;; look"))
+    (is (= {:base :nord :accent "#b58900"} (:theme data)))
+    (is (contains? (:nodes data) :b))))

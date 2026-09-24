@@ -9,13 +9,32 @@
     (assert/notEqual (colors/fnv1a "service") (colors/fnv1a "database"))
     (assert/ok (>= (colors/fnv1a "service") 0))))
 
-(test "tables have 255 entries"
+(def theme {:node-saturation 65 :node-lightness 38 :box-saturation 45 :box-lightness 55
+            :box-fill-alpha 0.1 :neutral-node-lightness 40 :neutral-box-lightness 65})
+
+(test "tables have 255 entries in the theme's saturation and lightness"
   (fn []
-    (assert/equal (.-length colors/NODE-TABLE) 255)
-    (assert/equal (.-length colors/BOX-TABLE) 255)
-    (assert/match (nth colors/NODE-TABLE 0) (js/RegExp. "^hsl\\("))
-    (assert/match (:border (nth colors/BOX-TABLE 0)) (js/RegExp. "^hsl\\("))
-    (assert/match (:fill (nth colors/BOX-TABLE 0)) (js/RegExp. "/ 0\\.1\\)$"))))
+    (let [t (colors/tables theme)]
+      (assert/equal (.-length (:node t)) 255)
+      (assert/equal (.-length (:box t)) 255)
+      (assert/equal (nth (:node t) 1) "hsl(137.5 65% 38%)")
+      (assert/equal (:border (nth (:box t) 1)) "hsl(137.5 45% 55%)")
+      (assert/equal (:fill (nth (:box t) 1)) "hsl(137.5 45% 55% / 0.1)"))))
+
+(test "neutral colors and box fill alpha follow the theme"
+  (fn []
+    (let [t (colors/tables (assoc theme :neutral-node-lightness 70
+                                  :neutral-box-lightness 50 :box-fill-alpha 0))]
+      (assert/equal (:neutral-node t) "hsl(0 0% 70%)")
+      (assert/deepEqual (:neutral-box t) {:border "hsl(0 0% 50%)" :fill "hsl(0 0% 50% / 0)"})
+      (assert/equal (:fill (nth (:box t) 1)) "hsl(137.5 45% 55% / 0)"))))
+
+(test "a type keeps its hue across themes"
+  (fn []
+    (let [a (colors/tables theme)
+          b (colors/tables (assoc theme :node-saturation 90 :node-lightness 70))]
+      (assert/equal (nth (:node a) 7) "hsl(242.6 65% 38%)")
+      (assert/equal (nth (:node b) 7) "hsl(242.6 90% 70%)"))))
 
 (test "assignment is independent of input order"
   (fn []
@@ -53,7 +72,3 @@
       (let [idx (colors/assign-indices ["alpha" other])]
         (assert/notEqual (get idx "alpha") (get idx other))))))
 
-(test "color-map maps types to table entries"
-  (fn []
-    (let [m (colors/color-map ["svc"] colors/NODE-TABLE)]
-      (assert/match (get m "svc") (js/RegExp. "^hsl\\(")))))

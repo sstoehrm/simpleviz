@@ -3,11 +3,7 @@
             ["node:assert/strict$default" :as assert]
             [simpleviz.scene :as scene :refer [build-scene]]))
 
-(def colors
-  {:node {"svc" "hsl(120 65% 38%)"}
-   :box {"zone" {:border "hsl(1 45% 55%)" :fill "hsl(1 45% 55% / 0.1)"}}
-   :neutral-node "hsl(0 0% 40%)"
-   :neutral-box {:border "hsl(0 0% 65%)" :fill "hsl(0 0% 65% / 0.1)"}})
+(def colors {:node {"svc" 120} :box {"zone" 1}})
 
 (defn gnode [id type] {:id id :name id :type type :attrs {}})
 
@@ -33,23 +29,31 @@
 
 (defn items-of [kind] (filterv (fn [it] (= (:kind it) kind)) (:items (scene))))
 
-(test "nodes get absolute positions and resolved colors"
+(test "nodes get absolute positions and color slots"
   (fn []
     (let [[a] (filterv (fn [it] (= (:id it) "n:a")) (items-of "node"))
           [b] (filterv (fn [it] (= (:id it) "n:b")) (items-of "node"))]
       (assert/equal (:x a) 24)   ; 10 + 14
       (assert/equal (:y a) 60)   ; 20 + 40
-      (assert/equal (:color a) "hsl(120 65% 38%)")
+      (assert/equal (:color-idx a) 120)
       (assert/equal (:x b) 300)
-      (assert/equal (:color b) "hsl(0 0% 40%)"))))
+      (assert/ok (nil? (:color-idx b))))))
 
-(test "boxes carry absolute rect, title-h, and neutral colors when untyped"
+(test "boxes carry absolute rect, title-h, and no color slot when untyped"
   (fn []
     (let [[box] (items-of "box")]
       (assert/equal (:x box) 10)
       (assert/equal (:w box) 200)
       (assert/equal (:title-h box) 28)
-      (assert/equal (:border box) "hsl(0 0% 65%)"))))
+      (assert/ok (nil? (:color-idx box))))))
+
+(test "a typed box carries its type's color slot"
+  (fn []
+    (let [g (assoc-in graph [:boxes-by-name "grp" :type] "zone")
+          [box] (filterv (fn [it] (= (:kind it) "box"))
+                         (:items (build-scene {:layout layout :graph g :colors colors})))]
+      (assert/equal (:color-idx box) 1)
+      (assert/ok (nil? (:border box))))))
 
 (test "edge sections are container-offset with pen-lifts preserved"
   (fn []
@@ -125,7 +129,7 @@
           layout {:width (* n 10) :height 100 :children children :edges ledges}
           g {:nodes nodes :edges gedges :boxes [] :boxes-by-name {} :parent-of {} :warnings []}
           t0 (js/performance.now)
-          sc (build-scene {:layout layout :graph g :colors {:neutral-node "x" :neutral-box {}}})
+          sc (build-scene {:layout layout :graph g :colors {:node {} :box {}}})
           elapsed (- (js/performance.now) t0)]
       (assert/equal (.-length (:items sc)) (* 2 n))
       (assert/ok (< elapsed 2000)

@@ -1,7 +1,7 @@
 (ns simpleviz.scene
   (:require [simpleviz.editor :refer [ref-of]]))
 
-;; layout + graph + colors -> flat, back-to-front draw list with absolute
+;; layout + graph + type-color slots -> flat, back-to-front draw list with absolute
 ;; coordinates: boxes, edges, edge labels, nodes. Pure data; the canvas
 ;; painter draws it and hit-testing walks it. No DOM.
 ;;
@@ -31,15 +31,13 @@
   (let [s (:state (:attrs node))]
     (when (contains? STATES s) s)))
 
-(defn- node-color [node colors]
-  (if (pos? (.-length (:type node)))
-    (get (:node colors) (:type node))
-    (:neutral-node colors)))
-
-(defn- box-colors [box colors]
-  (if (pos? (.-length (:type box)))
-    (get (:box colors) (:type box))
-    (:neutral-box colors)))
+(defn- color-idx
+  "The element's type-color slot from idx-by-type, nil when untyped. The
+  painter looks the color up in the current theme, so a theme change
+  never invalidates a scene."
+  [el idx-by-type]
+  (when (pos? (.-length (:type el)))
+    (get idx-by-type (:type el))))
 
 (defn- section-points [sec]
   (into [(:startPoint sec)]
@@ -81,7 +79,6 @@
                y (+ oy (:y child))]
            (if (.startsWith (:id child) "b:")
              (let [box (get (:boxes-by-name graph) (.slice (:id child) 2))
-                   c (box-colors box colors)
                    ;; genuinely empty (unlike a user-collapsed shell, which
                    ;; also has no components but carries :collapsed): draw
                    ;; collapsed-style, but there is nothing to toggle
@@ -93,7 +90,7 @@
                              :collapsed (or (:collapsed box) empty?)
                              :empty empty?
                              :bbox (rect-bbox x y (:width child) (:height child))
-                             :border (:border c) :fill (:fill c)
+                             :color-idx (color-idx box (:box colors))
                              :name (or (:label box) (:name box)) :type (:type box)
                              :attrs (:attrs box)
                              :diff (:diff box) :changed (:changed box) :diff-inside (:diff-inside box)})
@@ -103,7 +100,7 @@
                (.push nodes {:kind "node" :id (:id child)
                              :x x :y y :w (:width child) :h (:height child)
                              :bbox (rect-bbox x y (:width child) (:height child))
-                             :color (node-color node colors)
+                             :color-idx (color-idx node (:node colors))
                              :name (:name node) :type (:type node)
                              :attrs (:attrs node)
                              :ref? (some? (ref-of node))

@@ -9,7 +9,8 @@
             [simpleviz.hit :as hit]
             [simpleviz.canvas :as canvas]
             [simpleviz.png :as png]
-            [simpleviz.editor :as editor]))
+            [simpleviz.editor :as editor]
+            [themes :as themes]))
 
 (def elk (js/ELK.))
 (def app-el (js/document.getElementById "app"))
@@ -130,10 +131,9 @@
        (into [:div {:class "cp-list"}]
              (mapv (fn [b]
                      (let [box (get (:boxes-by-name (:graph st)) b)
-                           color (if (and (some? box)
-                                          (pos? (.-length (:type box))))
-                                   (:border (get (:box (:colors st)) (:type box)))
-                                   (:border (:neutral-box (:colors st))))]
+                           color (canvas/box-border
+                                  (when (and (some? box) (pos? (.-length (:type box))))
+                                    (get (:box (:colors st)) (:type box))))]
                        [:button {:key b :class "cp-row" :type "button"
                                  :title "Expand this box"
                                  :on-click (fn [e]
@@ -835,13 +835,9 @@
                                   " nodes, " (.-length (:edges g0)) " edges…"))
           (js-await (yield-paint!))
           (let [g (collapse-boxes g0 collapsed)
-                cmap {:node (colors/color-map (mapv (fn [n] (:type n))
-                                                    (js/Object.values (:nodes g0)))
-                                              colors/NODE-TABLE)
-                      :box (colors/color-map (mapv (fn [b] (:type b)) (:boxes g0))
-                                             colors/BOX-TABLE)
-                      :neutral-node colors/NEUTRAL-NODE
-                      :neutral-box colors/NEUTRAL-BOX}
+                cmap {:node (colors/assign-indices (mapv (fn [n] (:type n))
+                                                         (js/Object.values (:nodes g0))))
+                      :box (colors/assign-indices (mapv (fn [b] (:type b)) (:boxes g0)))}
                 elk-graph (to-elk g canvas/measure)
                 fp (elk-fingerprint elk-graph)
                 prev (when (some? hit) (:layout hit))
@@ -1100,14 +1096,14 @@
 
 (defn- apply-theme! [t]
   (set! (.. js/document -documentElement -dataset -theme) t)
-  (canvas/set-theme! t)
+  (canvas/set-theme! (get themes/THEMES t))
   (canvas/request-paint!))
 
 (defn- toggle-theme! []
   (let [t (if (= (:theme @state) "dark") "light" "dark")]
     (js/localStorage.setItem "simpleviz-theme" t)
-    (swap! state assoc :theme t)
-    (apply-theme! t)))
+    (apply-theme! t)
+    (swap! state assoc :theme t)))
 
 (defn- ^:async fetch-source
   "Raw EDN text from /api/source (which = \"old\"|\"new\"|nil), or nil on

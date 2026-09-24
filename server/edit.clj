@@ -34,6 +34,10 @@
 (defn- zroot [text]
   (let [zl (try (z/of-string text) (catch Exception _ (fail! "file does not parse as EDN")))]
     (when-not (map? (z/sexpr zl)) (fail! "root must be a map"))
+    ;; the page shows such a file as an error (serve/parse-graph), so an
+    ;; edit must not land in it; #_ discards after the root are fine
+    (when (some? (loop [r (z/right zl)] (if (and (some? r) (= :uneval (z/tag r))) (recur (z/right r)) r)))
+      (fail! "content after the end of the graph: check for an extra }"))
     zl))
 
 (defn- find-key

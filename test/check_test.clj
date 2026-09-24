@@ -27,6 +27,12 @@
     (is (string? error))
     (is (= [] warnings))))
 
+(deftest check-reports-content-after-the-root-map
+  ;; an extra } used to hide the edges without a word (#92)
+  (let [{:keys [error warnings]} (check/check (temp-graph "{:nodes {:a {} :b {}}}\n :edges {[:a :b] {}}}"))]
+    (is (= "content after the end of the graph: its map closes at line 1 — check there for an extra }" error))
+    (is (= [] warnings))))
+
 (deftest check-reads-the-edn-embedded-in-an-exported-png
   (is (= {:error nil :warnings []} (check/check "test/fixtures/embedded.png"))))
 

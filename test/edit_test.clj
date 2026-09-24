@@ -43,6 +43,16 @@
         (edit/set-attr nodes-file {:section :nodes :id "web" :attr :owner
                                    :value "{:unclosed" :fallback false}))))
 
+(deftest edits-refuse-content-after-the-root-map
+  ;; the page shows such a file as an error (#92), so edits must not land in it
+  (is (thrown-with-msg? Exception #"content after the end of the graph"
+        (edit/set-attr "{:nodes {:a {}}}\n :edges {}" {:section :nodes :id "a" :attr :owner
+                                                      :value "x" :fallback true})))
+  (is (clojure.string/includes?
+       (edit/set-attr "{:nodes {:a {}}}\n; note\n#_ {:b {}}\n" {:section :nodes :id "a" :attr :owner
+                                                                :value "x" :fallback true})
+       ":owner \"x\"")))
+
 (deftest set-attr-on-edge-by-endpoint-pair
   (is (= "{:nodes {:web {:name \"Web\" ;; keep me\n               :type \"frontend\"}\n         :api nil}\n :edges {[:web :api] {:direction :-> :name \"REST\"}}}"
          (edit/set-attr nodes-file {:section :edges :id ["web" "api"] :attr :name

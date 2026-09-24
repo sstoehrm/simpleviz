@@ -3,10 +3,8 @@
   transitively refs to `<stem>-<suffix>.<ext>` siblings, and move such
   forks back over their bases. Forks are byte copies; refs are never
   rewritten, so both sides of a comparison name the same files."
-  (:require [clojure.edn :as edn]
-            [clojure.java.io :as io]
+  (:require [clojure.java.io :as io]
             [clojure.string :as str]
-            [graph]
             [serve]))
 
 (defn resolve-ref
@@ -33,7 +31,7 @@
   "The non-blank string :ref attrs on the nodes, edges and boxes in the
   EDN text of a graph file, distinct. Throws on a parse error."
   [text]
-  (let [g (graph/normalize (edn/read-string text))]
+  (let [g (serve/parse-graph text)]
     (->> (concat (map :attrs (vals (:nodes g)))
                  (map :attrs (:edges g))
                  (map :attrs (:boxes g)))

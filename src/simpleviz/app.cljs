@@ -697,7 +697,7 @@
       "⇩ opens the export menu: PNG downloads the diagram as an image, SVG as a vector drawing, both with the source EDN embedded. An exported PNG can be served again, compared, or turned back into EDN with \"simpleviz extract\"; simpleviz can't read an SVG back yet.")
      (help-section
       "Theme"
-      "☀ / 🌙 switches between light and dark mode.")]))
+      "☀ / 🌙 switches between light and dark mode. A graph file can set its own theme instead — :theme :nord, or overrides on one such as {:base :nord :accent \"#b58900\"}; the switch is hidden then. The guide lists the twelve built-in themes.")]))
 
 (defn- hint-view
   "The line above the toolbar: the pending chord's completions, else the
@@ -761,10 +761,11 @@
                :title "Re-layout: edits kept the old arrangement, run a fresh layout"
                :on-click (fn [e] (.stopPropagation e) (relayout! true))}
       "▦"])
-   [:button {:id "theme-toggle" :type "button"
-             :title (if (= (:theme st) "dark") "Switch to light mode" "Switch to dark mode")
-             :on-click (fn [e] (.stopPropagation e) (toggle-theme!))}
-    (if (= (:theme st) "dark") "☀" "🌙")]
+   (when (nil? (:theme (:graph st)))
+     [:button {:id "theme-toggle" :type "button"
+               :title (if (= (:theme st) "dark") "Switch to light mode" "Switch to dark mode")
+               :on-click (fn [e] (.stopPropagation e) (toggle-theme!))}
+      (if (= (:theme st) "dark") "☀" "🌙")])
    [:button {:id "help-btn" :type "button" :title "Help"
              :on-click (fn [e] (.stopPropagation e) (toggle-help!))}
     "?"]
@@ -905,6 +906,7 @@
           (swap! graph-gen inc)
           (demote-layout-cache!)
           (set! (.-title js/document) (format/tab-title g))
+          (apply-theme! (effective-theme g (:theme @state)))
           (swap! state (fn [st]
                          (assoc st :error nil :graph g :warnings (:warnings g)
                                 :edit-target (resolve-edit-target g (:edit-target st)))))
@@ -1094,15 +1096,28 @@
   (when (nil? (:edit-error @state))
     (on-select nil)))
 
-(defn- apply-theme! [t]
-  (set! (.. js/document -documentElement -dataset -theme) t)
-  (canvas/set-theme! (get themes/THEMES t))
+(defn- effective-theme
+  "The theme to show for graph g: the file's :theme (resolved by the
+  server), else the light/dark toggle's."
+  [g toggle]
+  (or (:theme g) (get themes/THEMES toggle)))
+
+(defn- apply-theme!
+  "Paint page and canvas in theme, a complete theme map: the chrome via
+  CSS custom properties on <html>, the canvas via the painter's palette.
+  Call it before the state change that re-renders — rendering is
+  synchronous and the collapsed-panel dots read the palette."
+  [theme]
+  (let [style (.. js/document -documentElement -style)]
+    (doseq [k themes/CSS-KEYS]
+      (.setProperty style (str "--" k) (get theme k))))
+  (canvas/set-theme! theme)
   (canvas/request-paint!))
 
 (defn- toggle-theme! []
   (let [t (if (= (:theme @state) "dark") "light" "dark")]
     (js/localStorage.setItem "simpleviz-theme" t)
-    (apply-theme! t)
+    (apply-theme! (effective-theme (:graph @state) t))
     (swap! state assoc :theme t)))
 
 (defn- ^:async fetch-source
@@ -1258,7 +1273,7 @@
       (swap! state assoc :export-menu false)))
   true)
 (canvas/set-repaint! paint-now!)
-(apply-theme! (:theme @state))
+(apply-theme! (effective-theme (:graph @state) (:theme @state)))
 (add-watch state :render (fn [_ _ _ _] (rerender!)))
 (canvas/setup-pan-zoom! (js/document.getElementById "canvas-wrap"))
 (rerender!)

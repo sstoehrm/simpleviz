@@ -15,23 +15,6 @@
   --diff-modified: #b45309;
   --diff-removed: #d03b3b;
 }
-[data-theme="dark"] {
-  --bg: #111827;
-  --panel: #1f2937;
-  --panel-border: #374151;
-  --panel-divider: #374151;
-  --text: #d1d5db;
-  --text-strong: #fff;
-  --text-muted: #9ca3af;
-  --text-dim: #6b7280;
-  --hover: #1e3a8a33;
-  --hover-plain: #374151;
-  --accent: #60a5fa;
-  --shadow: rgba(0, 0, 0, .4);
-  --diff-added: #22c55e;
-  --diff-modified: #fab219;
-  --diff-removed: #f87171;
-}
 
 * { box-sizing: border-box; }
 body { margin: 0; font-family: system-ui, sans-serif; overflow: hidden;

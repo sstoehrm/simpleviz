@@ -126,6 +126,26 @@ characters that can't appear in a keyword (anything but letters, digits and
 edit is rejected. A name with no usable characters leaves the id alone.
 Edges have no id; change their endpoints from the toolbar.
 
+**Typed values.** A value typed into the inspector, or into the row that adds
+an attribute, is read as EDN, and only its first value counts. A number,
+`true`, `false`, `nil`, a `:keyword` or a quoted string keeps its type, and
+anything after it is dropped. Text that isn't valid EDN, or that starts with
+a bare word, is saved whole as text. So a value that starts with a number and
+goes on after a space loses the rest, and a comma counts as a space. Quote
+such text to keep it. A value that was a vector or a map edits as EDN, and
+text that doesn't parse is rejected there rather than saved as text. Names
+typed into the creation prompts are always text.
+
+| You type | Saved as |
+| --- | --- |
+| `30` | the number 30 |
+| `30 h` | the number 30; ` h` is dropped |
+| `1,5` | the number 1; write `1.5` |
+| `30h`, `v1.2`, `2024-01-01` | the text as typed |
+| `fast`, `hello world` | the text as typed |
+| `"30 h"` | the text `30 h` |
+| `:fast` | the keyword `:fast` |
+
 **Toolbar.** The toolbar at the bottom shows the tools for the current
 selection, or "new node" when nothing is selected. Creation prompts derive
 the id from the name as above and accept `name::type`, so

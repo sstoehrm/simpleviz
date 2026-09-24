@@ -147,6 +147,11 @@ An exported PNG works anywhere an EDN file does, read-only:
     simpleviz diagram.png next               # compare against diagram-next.png
     simpleviz compare-export.png             # reopen the full comparison
 
+The SVG button next to ⇩ downloads the whole graph as an SVG, which scales
+without blurring and keeps its text as text. It embeds the source EDN too, in
+its `<metadata>`, both files in compare mode. Unlike a PNG, simpleviz can't
+read an SVG back yet: `extract` and serving take PNGs only.
+
 ## Checking a file
 
 The page shows a file's problems in banners. To get the same report

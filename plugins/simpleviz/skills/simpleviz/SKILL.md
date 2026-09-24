@@ -92,7 +92,7 @@ There is no `bb diff` or similar — comparing is serving a file with the suffix
 
 ## Viewer
 
-Click any node/edge/box for its full attributes. Hovering shows a tooltip with the element's name and its attributes (an unnamed edge is headed by its `[from to]` key). Drag pans, wheel zooms. Boxes collapse/expand via the `−` button in their header (a collapsed box showing an amber dot hides changes in compare mode). Theme toggle top-right. Saving the file live-reloads the page (~1s); the tab title names the served file (or `old → new` in compare mode). The ⇩ button exports the whole diagram as a PNG with the source EDN embedded as metadata (recoverable via simpleviz extract, or serve the PNG directly).
+Click any node/edge/box for its full attributes. Hovering shows a tooltip with the element's name and its attributes (an unnamed edge is headed by its `[from to]` key). Drag pans, wheel zooms. Boxes collapse/expand via the `−` button in their header (a collapsed box showing an amber dot hides changes in compare mode). Theme toggle top-right. Saving the file live-reloads the page (~1s); the tab title names the served file (or `old → new` in compare mode). The ⇩ button exports the whole diagram as a PNG with the source EDN embedded as metadata (recoverable via simpleviz extract, or serve the PNG directly). The SVG button beside it exports an SVG with the source EDN embedded in its `<metadata>` — unlike a PNG, simpleviz can't read an SVG back yet (no extract, no serving).
 
 ## Editing (in the browser)
 

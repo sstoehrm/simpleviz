@@ -42,7 +42,8 @@ Without an installer, unpack a tarball from the
 can also edit in the page: click an element to inspect and change its
 attributes, and use the toolbar at the bottom to add, connect, group and
 delete. ⇩ exports a PNG with the source embedded, which simpleviz serves like
-an EDN file. Press `?` in the page for controls and shortcuts.
+an EDN file; SVG exports an SVG that embeds the source too, but simpleviz
+can't read SVGs back yet. Press `?` in the page for controls and shortcuts.
 
 The [guide](https://github.com/sstoehrm/simpleviz/blob/main/docs/guide.md)
 covers comparing, editing, refs between graphs, exporting, checking files

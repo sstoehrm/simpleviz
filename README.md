@@ -8,7 +8,7 @@ that live-reloads while you edit the file.
 
 ## Install
 
-Linux, with [babashka](https://babashka.org/), curl and tar:
+Linux, with [babashka](https://babashka.org/) 1.12 or newer, curl and tar:
 
     curl -fsSL https://raw.githubusercontent.com/sstoehrm/simpleviz/main/install.sh | bash
 
@@ -22,7 +22,8 @@ command installs and updates the release jar:
 
 Both write `~/.local/bin/simpleviz`, so use one or the other.
 `simpleviz clean-all`, which stops every running server, needs the
-install.sh launcher on Linux.
+install.sh launcher on Linux. CI tests only the last two babashka minor
+releases (currently 1.12 and 1.13).
 
 Without an installer, unpack a tarball from the
 [releases page](https://github.com/sstoehrm/simpleviz/releases) and run

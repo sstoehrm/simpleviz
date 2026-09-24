@@ -8,6 +8,12 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # the last two babashka minor releases; the floor is MIN_BB in install.sh
+        bb: ['1.12.218', '1.13.224']
+    name: test (bb ${{ matrix.bb }})
     steps:
       - uses: actions/checkout@v7
 
@@ -19,7 +25,7 @@ jobs:
       - name: Install babashka
         uses: DeLaGuardo/setup-clojure@13.7.0
         with:
-          bb: latest
+          bb: ${{ matrix.bb }}
 
       - name: Cache babashka deps
         uses: actions/cache@v6

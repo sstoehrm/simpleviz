@@ -1,4 +1,4 @@
-{:paths ["server" "test" "."]
+{:paths ["server" "test" "tools" "."]
  :deps {metosin/malli {:mvn/version "0.19.1"}}
  :tasks
  {:init (defn release-version
@@ -35,9 +35,15 @@
   promote  {:doc "Move each fork over its base file: bb promote graph.edn <suffix>"
             :requires ([fork])
             :task (apply fork/-main "promote" *command-line-args*)}
+  release  {:doc "Cut a release from a clean, pushed main: bb release vX.Y.Z (sets the plugin versions, commits, tags, pushes both)"
+            :requires ([release])
+            :task (apply release/-main *command-line-args*)}
+  release:check {:doc "Fail unless both plugin manifests carry the tag's version: bb release:check vX.Y.Z"
+                 :requires ([release])
+                 :task (release/check (first *command-line-args*))}
   test:clj {:doc "Run Clojure server tests"
-            :requires ([clojure.test :as t] [server-test] [graph-test] [diff-test] [docs-test] [png-test] [edit-test] [log-test] [fork-test] [launcher-test] [install-test] [check-test] [cli-test])
-            :task (let [{:keys [fail error]} (t/run-tests 'graph-test 'server-test 'diff-test 'docs-test 'png-test 'edit-test 'log-test 'fork-test 'launcher-test 'install-test 'check-test 'cli-test)]
+            :requires ([clojure.test :as t] [server-test] [graph-test] [diff-test] [docs-test] [png-test] [edit-test] [log-test] [fork-test] [launcher-test] [install-test] [check-test] [cli-test] [release-test])
+            :task (let [{:keys [fail error]} (t/run-tests 'graph-test 'server-test 'diff-test 'docs-test 'png-test 'edit-test 'log-test 'fork-test 'launcher-test 'install-test 'check-test 'cli-test 'release-test)]
                     (when (pos? (+ fail error)) (System/exit 1)))}
   test:js  {:doc "Run JS unit tests (compiled squint output)"
             :requires ([babashka.fs :as fs])

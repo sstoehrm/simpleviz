@@ -150,8 +150,13 @@ An exported PNG works anywhere an EDN file does, read-only:
 
 SVG, the menu's other item, downloads the whole graph as a vector drawing,
 which scales without blurring and keeps its text as text. It embeds the source
-EDN too, in its `<metadata>`, both files in compare mode. Unlike a PNG,
-simpleviz can't read an SVG back yet: `extract` and serving take PNGs only.
+EDN too, in its `<metadata>`, both files in compare mode. Two limits:
+
+- simpleviz can't read an SVG back yet: `extract`, serving and comparing take
+  PNGs only. The embedded EDN is there for when it can.
+- Fonts are referenced, not embedded. Browsers show the SVG exactly like the
+  page; other tools such as Inkscape may substitute a font, so label widths can
+  differ slightly from their boxes.
 
 ## Checking a file
 

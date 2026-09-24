@@ -189,12 +189,15 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
               line-height: 1; cursor: pointer; padding: 0; border-radius: 4px; }
 #help-close:hover { background: var(--hover-plain); color: var(--text-strong); }
 
-#export-btn { position: fixed; top: 8px; right: 92px; z-index: 4;
-              width: 32px; height: 32px; border-radius: 50%;
-              border: 1px solid var(--panel-border); background: var(--panel);
-              color: var(--text); font-size: 15px; line-height: 1;
-              cursor: pointer; box-shadow: 0 1px 4px var(--shadow); }
-#export-btn:hover { border-color: var(--accent); }
+#export-btn, #export-svg-btn { position: fixed; top: 8px; right: 92px; z-index: 4;
+                               width: 32px; height: 32px; border-radius: 50%;
+                               border: 1px solid var(--panel-border); background: var(--panel);
+                               color: var(--text); font-size: 15px; line-height: 1;
+                               cursor: pointer; box-shadow: 0 1px 4px var(--shadow); }
+#export-btn:hover, #export-svg-btn:hover { border-color: var(--accent); }
+/* left of ⇩; the word needs a smaller size to fit the circle */
+#export-svg-btn { right: 132px; padding: 0; font-size: 9px; font-weight: 700;
+                  letter-spacing: .02em; }
 
 #layouting { position: fixed; top: 8px; left: 50%; transform: translateX(-50%);
              z-index: 7; background: #1f2937; color: #fff; border-radius: 12px;
@@ -256,13 +259,13 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
 .trail-sep { color: var(--text-dim); }
 .trail-current { color: var(--text-strong); font-weight: 600; padding: 2px 5px; }
 
-#undo-btn { position: fixed; top: 8px; right: 132px; z-index: 4;
+#undo-btn { position: fixed; top: 8px; right: 172px; z-index: 4;
             width: 32px; height: 32px; border-radius: 50%;
             border: 1px solid var(--panel-border); background: var(--panel);
             color: var(--text); font-size: 15px; line-height: 1;
             cursor: pointer; box-shadow: 0 1px 4px var(--shadow); }
 #undo-btn:hover { border-color: var(--accent); }
-#relayout-btn { position: fixed; top: 8px; right: 172px; z-index: 4;
+#relayout-btn { position: fixed; top: 8px; right: 212px; z-index: 4;
                 width: 32px; height: 32px; border-radius: 50%;
                 border: 1px solid var(--accent); background: var(--panel);
                 color: var(--text); font-size: 15px; line-height: 1;

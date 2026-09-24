@@ -694,7 +694,8 @@
       "Serving a file with a suffix (simpleviz graph.edn next) renders it against its fork graph-next.edn as one merged diagram: added elements get a green +, modified an amber ~ (select for an old → new list), removed ones stay as red dashed ghosts. Click a legend row to jump through the changes; the old|new toggle picks which file edits apply to.")
      (help-section
       "Export"
-      "⇩ downloads the diagram as a PNG with the source EDN embedded — an exported PNG can be served again, compared, or turned back into EDN with \"simpleviz extract\".")
+      "⇩ downloads the diagram as a PNG with the source EDN embedded — an exported PNG can be served again, compared, or turned back into EDN with \"simpleviz extract\"."
+      "SVG downloads it as an SVG, which embeds the source EDN as well but can't be read back by simpleviz yet.")
      (help-section
       "Theme"
       "☀ / 🌙 switches between light and dark mode.")]))
@@ -733,6 +734,10 @@
      [:button {:id "export-btn" :type "button" :title "Export PNG"
                :on-click (fn [e] (.stopPropagation e) (export-png!))}
       "⇩"])
+   (when (some? (:scene st))
+     [:button {:id "export-svg-btn" :type "button" :title "Export SVG"
+               :on-click (fn [e] (.stopPropagation e) (export-svg!))}
+      "SVG"])
    (when (current-edit-target-editable? st)
      [:button {:id "undo-btn" :type "button" :title "Undo last edit (Ctrl+Z)"
                :on-click (fn [e] (.stopPropagation e) (post-edit! [{:op "undo"}]))}
@@ -1101,30 +1106,42 @@
       (if (.-ok resp) (js-await (.text resp)) nil))
     (catch :default _ nil)))
 
+(defn- ^:async export-sources
+  "The [key text] pairs an export embeds: the served EDN, or in compare
+  mode the old and new EDN — each omitted when its fetch fails."
+  [g]
+  (if (some? (:compare g))
+    (let [o (js-await (fetch-source "old"))
+          n (js-await (fetch-source "new"))]
+      (cond-> []
+        (some? o) (conj ["simpleviz-edn-old" o])
+        (some? n) (conj ["simpleviz-edn-new" n])))
+    (let [s (js-await (fetch-source nil))]
+      (if (some? s) [["simpleviz-edn" s]] []))))
+
+(defn- export-name
+  "Download name for an export of g, without extension: the served
+  file's name minus .edn/.png, else \"graph\"."
+  [g]
+  (let [f (:file g)]
+    (if (some? f) (.replace f (js/RegExp. "\\.(edn|png)$") "") "graph")))
+
 (defn- download-blob!
-  "Trigger a browser download of blob as <nm>.png via a throwaway
+  "Trigger a browser download of blob as <nm>.<ext> via a throwaway
   object URL and anchor click."
-  [blob nm]
+  [blob nm ext]
   (let [url (js/URL.createObjectURL blob)
         a (js/document.createElement "a")]
     (set! (.-href a) url)
-    (set! (.-download a) (str nm ".png"))
+    (set! (.-download a) (str nm "." ext))
     (.click a)
     (js/setTimeout (fn [] (js/URL.revokeObjectURL url)) 1000)))
 
 (defn- ^:async export-png! []
   (when-let [sc (:scene @state)]
     (let [g (:graph @state)
-          nm (let [f (:file g)]
-               (if (some? f) (.replace f (js/RegExp. "\\.(edn|png)$") "") "graph"))
-          pairs (if (some? (:compare g))
-                  (let [o (js-await (fetch-source "old"))
-                        n (js-await (fetch-source "new"))]
-                    (cond-> []
-                      (some? o) (conj ["simpleviz-edn-old" o])
-                      (some? n) (conj ["simpleviz-edn-new" n])))
-                  (let [s (js-await (fetch-source nil))]
-                    (if (some? s) [["simpleviz-edn" s]] [])))
+          nm (export-name g)
+          pairs (js-await (export-sources g))
           cnv (canvas/export-canvas sc)]
       (.toBlob cnv
                (fn [blob]
@@ -1133,16 +1150,27 @@
                        (.then
                         (fn [buf]
                           (let [out (png/embed-many (js/Uint8Array. buf) pairs)]
-                            (download-blob! (js/Blob. [out] {:type "image/png"}) nm))))
+                            (download-blob! (js/Blob. [out] {:type "image/png"}) nm "png"))))
                        ;; Embedding metadata failed for some unexpected
                        ;; reason (e.g. embed-many throws) — degrade
                        ;; gracefully to a plain, metadata-less download
                        ;; rather than silently losing the export as an
                        ;; unhandled promise rejection.
-                       (.catch (fn [_] (download-blob! blob nm))))
+                       (.catch (fn [_] (download-blob! blob nm "png"))))
                    (swap! state assoc :error
                           "PNG export failed — the diagram may be too large")))
                "image/png"))))
+
+(defn- ^:async export-svg!
+  "Download the whole diagram as SVG, the source EDN embedded like the
+  PNG's (see svg/svg-document)."
+  []
+  (when-let [sc (:scene @state)]
+    (let [g (:graph @state)
+          nm (export-name g)
+          pairs (js-await (export-sources g))]
+      (download-blob! (js/Blob. [(canvas/export-svg sc pairs)] {:type "image/svg+xml"})
+                      nm "svg"))))
 
 ;; init
 (defn- typing?

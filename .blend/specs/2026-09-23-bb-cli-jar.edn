@@ -1,0 +1,60 @@
+;; Design figure: one babashka CLI, reached by the install.sh launcher or
+;; by bbin through a release jar. Spec: docs/superpowers/specs/2026-09-23-bb-cli-jar-design.md
+{:nodes {:user     {:name "User shell" :type "actor"}
+         :bbin     {:name "bbin shim" :type "external"
+                    :note "optional; bbin install <latest simpleviz.jar url>"}
+         :wrapper  {:name "Launcher (bash)" :type "launcher" :state :in-progress
+                    :owns "update, clean-all (Linux-only)"
+                    :note "install.sh heredoc, shrinks to a wrapper"}
+         :cli      {:name "cli" :type "namespace" :state :new
+                    :commands "serve, fork, promote, init, extract, check, demo, --version, --help, --no-open"}
+         :main     {:name "simpleviz.main" :type "namespace" :state :new
+                    :note "jar entry; re-runs bb -cp <jar> -m cli when a caller bb.edn took over the classpath"}
+         :serve    {:name "serve" :type "namespace" :state :in-progress
+                    :change "start! split out of -main; static files + VERSION from the classpath"}
+         :fork     {:name "fork" :type "namespace"}
+         :png      {:name "png" :type "namespace"}
+         :check    {:name "check" :type "namespace"}
+         :public   {:name "public/" :type "resource" :note "compiled frontend"}
+         :examples {:name "examples/" :type "resource" :note "copied to a temp dir by demo"}
+         :version  {:name "VERSION" :type "resource" :state :new}
+         :bundle   {:name "bb bundle" :type "task" :state :in-progress
+                    :change "release bb.edn puts the bundle root on the classpath; writes VERSION"}
+         :jar      {:name "bb jar" :type "task" :state :new
+                    :change "stages server + resources, bb uberjar -m simpleviz.main"}
+         :ci       {:name "CI: ci.yml, release.yml" :type "workflow" :state :in-progress}
+         :smoke    {:name "bb jar:smoke" :type "task" :state :new
+                    :change "runs the jar through bbin's shim: --version (also under a hostile bb.edn), check, demo --no-open, /vendor 404"}
+         :tarball  {:name "simpleviz-vX.tar.gz" :type "artifact"}
+         :jarfile  {:name "simpleviz.jar" :type "artifact" :state :new
+                    :note "exact name: bbin derives the command name from it"}
+         :install  {:name "install.sh" :type "installer"}}
+ :edges {[:user :wrapper]     {:direction :-> :name "simpleviz …"}
+         [:user :bbin]        {:direction :-> :name "simpleviz …"}
+         [:wrapper :cli]      {:direction :-> :name "bb --config ~/.simpleviz/bb.edn -m cli"}
+         [:bbin :main]        {:direction :-> :name "add-classpath jar, simpleviz.main/-main"}
+         [:main :cli]         {:direction :-> :name "cli/-main (or bb -cp jar -m cli)"}
+         [:cli :serve]        {:direction :-> :name "start! + open browser"}
+         [:cli :fork]         {:direction :-> :name "fork / promote"}
+         [:cli :png]          {:direction :-> :name "extract"}
+         [:cli :check]        {:direction :-> :name "check"}
+         [:cli :examples]     {:direction :-> :name "demo copies"}
+         [:serve :public]     {:direction :-> :name "static files"}
+         [:cli :version]      {:direction :-> :name "--version"}
+         [:ci :bundle]        {:direction :-> :name "runs"}
+         [:ci :jar]           {:direction :-> :name "runs"}
+         [:bundle :tarball]   {:direction :-> :name "builds"}
+         [:jar :jarfile]      {:direction :-> :name "builds"}
+         [:ci :smoke]         {:direction :-> :name "runs"}
+         [:smoke :jarfile]    {:direction :-> :name "exercises"}
+         [:install :tarball]  {:direction :-> :name "downloads"}
+         [:install :wrapper]  {:direction :-> :name "writes"}
+         [:bbin :jarfile]     {:direction :-> :name "downloads"}}
+ :boxes {:code      {:name "server/ (one CLI, all installs)" :type "code"
+                     :components #{:main :cli :serve :fork :png :check}}
+         :resources {:name "classpath resources" :type "resources"
+                     :components #{:public :examples :version}}
+         :release   {:name "Release (CI)" :type "build"
+                     :components #{:ci :bundle :jar :smoke :tarball :jarfile}}
+         :installs  {:name "Install paths" :type "install"
+                     :components #{:install :wrapper :bbin}}}}

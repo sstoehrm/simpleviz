@@ -67,9 +67,11 @@ From a bundle/install/repo directory (repo needs `bb build` once):
     bb serve diagram.png             # exported PNGs work in place of EDN files (embedded
                                      # source; a compare export re-opens as the comparison)
 
-With the launcher installed by `install.sh` (files in `~/.simpleviz`, launcher in `~/.local/bin`):
+With the `simpleviz` command, installed by `install.sh` (files in `~/.simpleviz`, launcher in `~/.local/bin`) or by bbin (`bbin install https://github.com/sstoehrm/simpleviz/releases/latest/download/simpleviz.jar`; there `update` prints the bbin command and `clean-all` is unavailable):
 
     simpleviz graph.edn              # random free port 7370-7469, prints the URL, opens browser
+    simpleviz graph.edn --no-open    # the same without a browser — use this as an agent
+    simpleviz demo                   # copy the bundled examples to a temp folder and serve them
     simpleviz fork graph.edn next    # fork the graph and its ref closure
     simpleviz graph.edn next         # compare graph.edn → graph-next.edn (refs follow into
                                      # the referenced file's own comparison)
@@ -82,6 +84,9 @@ With the launcher installed by `install.sh` (files in `~/.simpleviz`, launcher i
                                      # (compare exports embed BOTH files: default
                                      #  prints the new one, --old the old one;
                                      #  add an out.edn arg to write a file)
+
+To serve as an agent, run `simpleviz graph.edn --no-open` in the background: it prints `simpleviz: http://localhost:<port>` (that is `$URL`) and keeps running until you stop it.
+An install older than this skill may not know --no-open or demo yet: run simpleviz update.
 
 There is no `bb diff` or similar — comparing is serving a file with the suffix of its fork (`<name>-<suffix>.<ext>`; `fork` creates it, `promote` folds it back). Two-file compare (`simpleviz old.edn new.edn`) no longer exists. In compare mode: added elements get a green `+` ring, modified an amber `~` ring (click for attribute-level old → new), removed stay visible as red dashed ghosts; nodes and boxes match by key (renaming a display `:name` is a modification, not remove+add), edges by endpoints. A legend at the top center names both files (basenames) and shows a count per status — each legend row is a button: clicking jumps to that status's next element (selecting it and centering the view, `2/3`-style position, wrap-around). Collapsed boxes hiding changes count as stops.
 

@@ -29,3 +29,6 @@ jobs:
 
       - name: Run tests
         run: bb test
+
+      - name: Smoke-test the release jar
+        run: bb jar:smoke

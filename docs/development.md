@@ -20,6 +20,8 @@ compiled to plain ES modules (no bundler).
     bb promote graph.edn suffix      # move the forks back over their originals
     bb check graph.edn               # print the parse error / validation warnings, exit 1 on any
     bb bundle [version]              # build a release tarball into dist/
+    bb jar [version]                 # build dist/simpleviz.jar, the release jar bbin installs
+    bb jar:smoke [version]           # build the jar and run it like bbin's shim does
 
 Passing a suffix serves the file in compare mode against its fork (old → new, see [the guide](guide.md#comparing-two-versions); `server/fork.clj` creates and promotes forks): `server/diff.clj` merges the two
 normalized graphs into one union graph whose elements carry a `:diff`
@@ -35,6 +37,16 @@ Rendering: HTML5 canvas (HiDPI) fed by a pure scene list; layout by vendored
 boxes, ELK-placed edge labels). Type colors come from an FNV-1a hash into a
 fixed 255-color table (golden-angle hues, linear probing on collision), so a
 type keeps its color across restarts and unrelated edits (`colors.cljs`).
+
+Every user command lives in `server/cli.clj` (namespace `cli`). The
+install.sh launcher keeps `update` and `clean-all` and runs
+`bb --config ~/.simpleviz/bb.edn -m cli` for the rest; the release jar
+starts in `simpleviz.main` (`server/simpleviz/main.clj`), which calls
+`cli/-main` directly, or re-runs it as `bb -cp <jar> -m cli` when a
+`bb.edn` in the caller's folder would shadow the jar's files. The CLI runs
+in the caller's folder, so the server reads `public/`, `examples/` and
+`VERSION` from the classpath: the repo and the tarball put their root
+(`"."`) on it, and the jar packs the files inside.
 
 Sources in `src/simpleviz/`, tests in `test/simpleviz/` (run by `node --test`
 against the compiled output).
@@ -54,11 +66,14 @@ embedded-compare PNG refuses the parameter.
 
 ## CI and releases
 
-CI (`bb test`) runs on every push to main and every pull request
-(`.github/workflows/ci.yml`).
+CI (`bb test`, then `bb jar:smoke`) runs on every push to main and every
+pull request (`.github/workflows/ci.yml`).
 
-Pushing a `v*` tag runs `bb bundle` and publishes the tarball as a GitHub
-release (`.github/workflows/release.yml`). The bundle contains the precompiled
-frontend, the server, the examples, and a serve-only `bb.edn` — end users need
-only babashka. Dependabot keeps the GitHub Actions pins and npm
+Pushing a `v*` tag runs `bb bundle` and `bb jar:smoke`, then publishes the
+tarball and `simpleviz.jar` as a GitHub release
+(`.github/workflows/release.yml`). The tarball contains the precompiled
+frontend, the server, the examples, `VERSION` and a serve-only `bb.edn`;
+the jar holds the same plus the server's dependencies (listed in
+`THIRD-PARTY-NOTICES.md`; `bb jar` fails when one is missing). End users
+need only babashka. Dependabot keeps the GitHub Actions pins and npm
 devDependencies current (weekly).

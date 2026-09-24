@@ -15,19 +15,29 @@ Linux, with [babashka](https://babashka.org/), curl and tar:
 This installs into `~/.simpleviz` and puts a launcher in `~/.local/bin`.
 `simpleviz update` fetches the latest release.
 
-Without the installer, unpack a tarball from the
+With [bbin](https://github.com/babashka/bbin) (tested on Linux), the same
+command installs and updates the release jar:
+
+    bbin install https://github.com/sstoehrm/simpleviz/releases/latest/download/simpleviz.jar
+
+Both write `~/.local/bin/simpleviz`, so use one or the other.
+`simpleviz clean-all`, which stops every running server, needs the
+install.sh launcher on Linux.
+
+Without an installer, unpack a tarball from the
 [releases page](https://github.com/sstoehrm/simpleviz/releases) and run
 `bb serve examples/demo.edn` inside it (port 7373; `--port N` changes it).
 
 ## Usage
 
-    simpleviz ~/.simpleviz/examples/demo.edn   # serve a graph on a free port 7370-7469
+    simpleviz demo                             # copy the examples to a temp folder, serve them
+    simpleviz my-arch.edn                      # serve a graph on a free port 7370-7469
     simpleviz init my-arch.edn                 # write a starter file
     simpleviz fork my-arch.edn next            # copy to my-arch-next.edn, plus every file it refs
     simpleviz my-arch.edn next                 # compare my-arch.edn → my-arch-next.edn
     simpleviz promote my-arch.edn next         # make the forks the new originals
 
-`simpleviz --help` lists the rest. Edit the file and the page follows. You
+`--no-open` prints the URL without opening a browser; `simpleviz --help` lists the rest. Edit the file and the page follows. You
 can also edit in the page: click an element to inspect and change its
 attributes, and use the toolbar at the bottom to add, connect, group and
 delete. ⇩ exports a PNG with the source embedded, which simpleviz serves like

@@ -1,9 +1,13 @@
 (ns server-test
   (:require [clojure.test :refer [deftest is]]
+            [babashka.process :as p]
             [cheshire.core :as json]
+            [clojure.edn :as edn]
+            [clojure.string :as str]
             [babashka.cli]
             [babashka.fs]
             [log]
+            [proc-util]
             [serve]))
 
 (defn- serve!
@@ -1026,3 +1030,45 @@
         (let [line (->> (slurp run) clojure.string/split-lines (filter #(re-find #" error " %)) first)]
           (is (some? line))
           (is (re-find #"\"route\":\"/api/errors\"" line) line))))))
+
+(deftest bb-serve-finds-its-frontend-from-any-working-directory
+  (let [tmp (babashka.fs/create-temp-dir {:prefix "serve-cwd"})
+        port (proc-util/free-port)
+        proc (proc-util/start ["bb" "--config" (str proc-util/repo-root "/bb.edn") "-m" "serve"
+                               (str proc-util/repo-root "/examples/demo.edn") "--port" (str port)]
+                              :dir tmp)]
+    (try
+      (is (some? (proc-util/await-line proc #"^simpleviz: serving " 30000)))
+      (is (str/includes? (slurp (str "http://127.0.0.1:" port "/")) "<html"))
+      (finally
+        (p/destroy-tree proc)
+        (babashka.fs/delete-tree tmp)))))
+
+(deftest version-comes-from-the-classpath
+  ;; the tarball layout: server/ plus the install root on the classpath,
+  ;; VERSION in that root; run from an empty folder, so the cwd has no
+  ;; VERSION to help
+  (let [home (babashka.fs/create-temp-dir {:prefix "serve-version"})
+        elsewhere (babashka.fs/path home "elsewhere")]
+    (try
+      (babashka.fs/create-dirs elsewhere)
+      ;; bb refuses absolute :paths, so the install gets its own server/
+      (babashka.fs/copy-tree (str proc-util/repo-root "/server") (babashka.fs/path home "server"))
+      (spit (str (babashka.fs/path home "VERSION")) "v1.2.3\n")
+      (spit (str (babashka.fs/path home "bb.edn"))
+            (pr-str {:paths ["server" "."]
+                     :deps (:deps (edn/read-string (slurp "bb.edn")))}))
+      (let [res (p/shell {:out :string :err :string :continue true :dir (str elsewhere)}
+                         "bb" "--config" (str (babashka.fs/path home "bb.edn"))
+                         "-e" "(require 'serve) (println (serve/version))")]
+        (is (= "v1.2.3" (str/trim (:out res))) (:err res)))
+      (finally (babashka.fs/delete-tree home)))))
+
+(deftest static-files-refuse-dot-dot-and-directories
+  (is (= 200 (:status (serve/handler {:uri "/style.css"}))))
+  (is (= "text/css; charset=utf-8"
+         (get-in (serve/handler {:uri "/style.css"}) [:headers "Content-Type"])))
+  ;; "." is on the classpath, so public/../bb.edn would resolve without the guard
+  (is (= 404 (:status (serve/handler {:uri "/../bb.edn"}))))
+  (is (= 404 (:status (serve/handler {:uri "/vendor"}))))
+  (is (= 404 (:status (serve/handler {:uri "/vendor/"})))))

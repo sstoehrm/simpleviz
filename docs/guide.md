@@ -57,8 +57,9 @@ creates the fork. A fork without an original shows everything as added, and
 the first edit to its old side creates the original. The file the server
 starts with needs its fork.
 
-Try it: `simpleviz ~/.simpleviz/examples/demo.edn next`, select the API node
-and press `f r`.
+Try it: `simpleviz demo` serves this comparison of the bundled examples;
+select the API node and press `f r`. Add `--no-open` to print the URL
+without opening a browser.
 
 ## Editing
 

@@ -19,6 +19,12 @@
     (is (= "{\n  \"name\": \"simpleviz\",\n  \"version\": \"2.0.0\",\n  \"x\": [\"a\", \"b\"]\n}\n"
            (release/set-version text "2.0.0")))))
 
+(deftest set-version-refuses-to-change-a-nested-version
+  ;; a nested "version" ahead of the top-level one must not be the one rewritten
+  (is (thrown? Exception
+               (release/set-version "{\"name\": \"x\", \"engines\": {\"version\": \"1\"}, \"version\": \"0.1.0\"}"
+                                    "2.0.0"))))
+
 (deftest version-mismatches-name-each-manifest-that-differs-from-the-tag
   (is (= [] (release/version-mismatches {"a.json" "0.19.0" "b.json" "0.19.0"} "v0.19.0")))
   (is (= ["b.json has 0.3.0, the tag says 0.19.0"]
@@ -28,7 +34,7 @@
 
 (deftest release-tags-are-vX-Y-Z
   (is (release/valid-tag? "v0.19.0"))
-  (doseq [bad ["0.19.0" "v0.19" "v0.19.0-rc1" "v01.2.3x" ""]]
+  (doseq [bad ["0.19.0" "v0.19" "v0.19.0-rc1" "v01.2.3x" "v01.2.3" "v1.02.3" ""]]
     (is (not (release/valid-tag? bad)) bad)))
 
 (deftest the-plugin-manifests-carry-one-release-version
@@ -76,11 +82,24 @@
       (is (= "tag" (git-out origin "cat-file" "-t" "v1.2.3")) "an annotated tag")
       (doseq [f [claude codex]]
         (is (= "1.2.3" (get (json/parse-string (git-out origin "show" (str "main:" f))) "version")) f))
+      (let [check (fn [tag] (:exit (sh work "bb" "--config" (str proc-util/repo-root "/bb.edn") "release:check" tag)))]
+        (is (= 0 (check "v1.2.3")))
+        (is (= 1 (check "v1.2.4"))))
       (let [res (release "v1.2.3")]
         (is (= 1 (:exit res)))
         (is (str/includes? (:err res) "v1.2.3 already exists")))
+      ;; origin refuses the push: the tool names what is left locally and how to finish
+      (let [hook (fs/path origin "hooks" "pre-receive")]
+        (spit (str hook) "#!/bin/sh\necho rejected-by-test >&2\nexit 1\n")
+        (.setExecutable (fs/file hook) true)
+        (let [res (release "v1.2.4")]
+          (is (= 1 (:exit res)))
+          (is (str/includes? (:err res) "git push --atomic origin main v1.2.4") (:err res))
+          (is (not (str/includes? (:err res) "Stack trace")) "a message, not a stack trace"))
+        (is (= "" (git-out origin "tag" "--list" "v1.2.4")) "nothing reached origin")
+        (fs/delete hook))
       (spit (str (fs/path work "stray.txt")) "x")
-      (let [res (release "v1.2.4")]
+      (let [res (release "v1.2.5")]
         (is (= 1 (:exit res)))
         (is (str/includes? (:err res) "uncommitted changes")))
       (finally (fs/delete-tree tmp)))))

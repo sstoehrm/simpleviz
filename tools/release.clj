@@ -15,7 +15,7 @@
    "plugins/simpleviz/.codex-plugin/plugin.json"])
 
 (defn valid-tag? [tag]
-  (boolean (re-matches #"v\d+\.\d+\.\d+" (str tag))))
+  (boolean (re-matches #"v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)" (str tag))))
 
 (def ^:private version-re #"\"version\"\s*:\s*\"[^\"]*\"")
 
@@ -24,15 +24,17 @@
   replaced in place, or inserted after the \"name\" line. Everything else
   keeps its formatting."
   [text version]
-  (let [kv (str "\"version\": \"" version "\"")]
-    (if (re-find version-re text)
-      (str/replace-first text version-re kv)
-      (let [out (str/replace-first text #"(?m)^(\s*)(\"name\"\s*:\s*\"[^\"]*\",)$"
-                                   (fn [[_ indent name-line]]
-                                     (str indent name-line "\n" indent kv ",")))]
-        (when (= out text)
-          (throw (ex-info "no \"name\" line to put the version after" {})))
-        out))))
+  (let [kv (str "\"version\": \"" version "\"")
+        out (if (re-find version-re text)
+              (str/replace-first text version-re kv)
+              (str/replace-first text #"(?m)^(\s*)(\"name\"\s*:\s*\"[^\"]*\",)$"
+                                 (fn [[_ indent name-line]]
+                                   (str indent name-line "\n" indent kv ","))))]
+    ;; the text edit keeps the formatting; the parse proves it hit the
+    ;; top-level key (a nested "version" earlier in the file would not)
+    (when-not (= version (get (json/parse-string out) "version"))
+      (throw (ex-info "could not set the top-level \"version\"" {})))
+    out))
 
 (defn manifest-versions
   "{manifest path -> its version, or nil}"
@@ -63,11 +65,16 @@
       (die "cut releases with: bb release " tag))
     (println (str "ok: plugin manifests carry " (subs tag 1)))))
 
-(defn- git [& args]
-  (str/trim (:out (apply p/shell {:out :string} "git" args))))
+(defn- git
+  "Run git; its trimmed stdout, or ex-info {:git true} naming the command
+  and git's own message."
+  [& args]
+  (let [{:keys [exit out err]} (apply p/shell {:out :string :err :string :continue true} "git" args)]
+    (if (zero? exit)
+      (str/trim out)
+      (throw (ex-info (str "git " (str/join " " args) " failed: " (str/trim err)) {:git true})))))
 
-(defn -main
-  "bb release vX.Y.Z — from a clean main that matches origin/main."
+(defn- release!
   [& [tag & extra]]
   (when (or (nil? tag) (seq extra)) (die "usage: bb release vX.Y.Z"))
   (when-not (valid-tag? tag) (die "a release tag looks like v1.2.3, not " tag))
@@ -87,5 +94,18 @@
     (when (seq (git "status" "--porcelain"))
       (git "commit" "--quiet" "-m" (str "release: " tag)))
     (git "tag" "-a" tag "-m" (str "simpleviz " tag))
-    (git "push" "--atomic" "origin" "main" tag)
+    ;; a plain `git push` would leave the tag behind, and only the tag
+    ;; starts the release workflow — so name the one command that finishes
+    (try (git "push" "--atomic" "origin" "main" tag)
+         (catch clojure.lang.ExceptionInfo e
+           (die (ex-message e) "\nrelease: the release commit and " tag
+                " exist locally but not on origin; once that is fixed, finish with:"
+                " git push --atomic origin main " tag)))
     (println (str "pushed main and " tag " — the release workflow builds and publishes it"))))
+
+(defn -main
+  "bb release vX.Y.Z — from a clean main that matches origin/main."
+  [& args]
+  (try (apply release! args)
+       (catch clojure.lang.ExceptionInfo e
+         (if (:git (ex-data e)) (die (ex-message e)) (throw e)))))

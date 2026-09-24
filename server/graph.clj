@@ -408,10 +408,15 @@
         [boxes1 parents1] (resolve-membership boxes0 nodes warn!)
         [boxes parent-of] (break-cycles boxes1 parents1 warn!)
         edges (drop-containment-edges edges0 parent-of warn!)
-        theme (resolve-theme (:theme raw) warn!)]
+        theme (resolve-theme (:theme raw) warn!)
+        ;; the built-in's name when the file names one (the page's theme
+        ;; menu can rewrite that); a :theme map is custom and has none
+        built-in (when (and (some? theme) (not (map? (:theme raw))))
+                   (name (theme-name (:theme raw))))]
     (cond-> {:nodes nodes
              :edges edges
              :boxes boxes
              :parent-of parent-of
              :warnings @warnings}
-      (some? theme) (assoc :theme theme))))
+      (some? theme) (assoc :theme theme)
+      (some? built-in) (assoc :theme-name built-in))))

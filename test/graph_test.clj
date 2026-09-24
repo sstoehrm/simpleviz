@@ -409,3 +409,10 @@
   (doseq [n themes/NAMES]
     (is (= [] (:warnings (graph/normalize {:theme (assoc (get themes/THEMES n) :base n)})))
         (name n))))
+
+(deftest theme-name-marks-a-built-in-named-by-the-file
+  (is (= "nord" (:theme-name (graph/normalize {:theme :nord}))))
+  (is (= "one-dark" (:theme-name (graph/normalize {:theme "one-dark"}))))
+  (is (not (contains? (graph/normalize {:theme {:base :nord}}) :theme-name)))
+  (is (not (contains? (graph/normalize {:theme :neon}) :theme-name)))
+  (is (not (contains? (graph/normalize {}) :theme-name))))

@@ -164,6 +164,31 @@
   [file ops]
   {:file file :ops ops})
 
+(defn theme-menu
+  "The theme menu's state for graph payload g. :value is the built-in the
+  file names, \"custom\" for a :theme map, \"\" for none. The menu writes
+  :theme into the file whose theme is shown (the new side of a
+  comparison), so it's disabled for a custom theme (a name would drop its
+  overrides) and when that file isn't editable."
+  [g]
+  (let [custom? (and (some? (:theme g)) (nil? (:theme-name g)))
+        value (cond custom? "custom"
+                    (some? (:theme-name g)) (:theme-name g)
+                    :else "")]
+    (cond
+      custom? {:value value :disabled true
+               :title "This graph sets a custom theme (a :theme map); change it in the file"}
+      (not (:editable g)) {:value value :disabled true
+                           :title "Read-only: the theme comes from the file"}
+      :else {:value value :disabled false
+             :title "Theme of this graph (sets :theme in the file)"})))
+
+(defn set-theme-op
+  "The edit op setting the file's :theme to built-in `theme`, or removing
+  it for the menu's empty entry."
+  [theme]
+  {:op "set-theme" :theme (if (seq theme) theme nil)})
+
 (defn create-body
   "The /api/create POST body: the served-folder path a followed ref
   names and the file (\"old\"/\"new\") being edited, which is the side

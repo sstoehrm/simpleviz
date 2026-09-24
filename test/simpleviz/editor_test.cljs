@@ -9,7 +9,8 @@
                                       chord-action chord-group? chord-for chord-hint
                                       add-node-in-box-ops box-remove-op
                                       name->id derived-id named-edge-ops creation-ops parse-entry
-                                      resolve-ref parse-nav nav-query follow-url crumb-url ref-of]]))
+                                      resolve-ref parse-nav nav-query follow-url crumb-url ref-of
+                                      theme-menu set-theme-op]]))
 
 (test "target maps selection payloads to op targets"
   (fn []
@@ -368,3 +369,23 @@
     (assert/equal (chord-action "box" "f" "r") "follow-ref")
     (assert/ok (nil? (chord-action nil "f" "r")))
     (assert/equal (chord-for "node" "follow-ref") "f r")))
+
+(test "theme-menu follows the file's theme and whether the page may edit it"
+  (fn []
+    (let [named (theme-menu {:theme {:bg "#000"} :theme-name "nord" :editable true})
+          custom (theme-menu {:theme {:bg "#000"} :editable true})
+          none (theme-menu {:editable true})
+          read-only (theme-menu {:theme {:bg "#000"} :theme-name "nord"})]
+      (assert/equal (:value named) "nord")
+      (assert/equal (:disabled named) false)
+      (assert/equal (:value custom) "custom")
+      (assert/equal (:disabled custom) true)
+      (assert/equal (:value none) "")
+      (assert/equal (:disabled none) false)
+      (assert/equal (:value read-only) "nord")
+      (assert/equal (:disabled read-only) true))))
+
+(test "set-theme-op names a built-in, or removes the theme for the empty entry"
+  (fn []
+    (assert/deepEqual (set-theme-op "nord") {:op "set-theme" :theme "nord"})
+    (assert/deepEqual (set-theme-op "") {:op "set-theme" :theme nil})))

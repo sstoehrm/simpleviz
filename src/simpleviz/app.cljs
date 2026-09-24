@@ -697,7 +697,7 @@
       "⇩ opens the export menu: PNG downloads the diagram as an image, SVG as a vector drawing, both with the source EDN embedded. An exported PNG can be served again, compared, or turned back into EDN with \"simpleviz extract\"; simpleviz can't read an SVG back yet.")
      (help-section
       "Theme"
-      "☀ / 🌙 switches between light and dark mode. A graph file can set its own theme instead — :theme :nord, or overrides on one such as {:base :nord :accent \"#b58900\"}; the switch is hidden then. The guide lists the twelve built-in themes.")]))
+      "☀ / 🌙 switches between light and dark mode. A graph file can set its own theme instead — :theme :nord, or overrides on one such as {:base :nord :accent \"#b58900\"}; the switch is hidden then. The theme menu at the top sets :theme in the file to one of the twelve built-in themes (↶ undoes it), or removes it; it's disabled for a custom theme map and for read-only files.")]))
 
 (defn- hint-view
   "The line above the toolbar: the pending chord's completions, else the
@@ -710,6 +710,25 @@
     [:div {:id "pick-hint"} (:pick-hint st) " — Esc cancels"]
     (= "edge" (:for (:id-entry st)))
     [:div {:id "pick-hint"} "name the new edge — Enter creates it, Esc cancels"]))
+
+(defn- theme-menu-view
+  "The built-in themes as a menu that sets :theme in the file whose theme
+  is shown (see editor/theme-menu). Options carry :selected — reagami
+  sets it as a property, so the menu follows an undo or an outside edit."
+  [g]
+  (let [{:keys [value disabled title]} (editor/theme-menu g)
+        opt (fn [v label & [off]]
+              [:option {:value v :selected (= v value) :disabled (boolean off)} label])]
+    (into [:select {:id "theme-select" :title title :disabled disabled
+                    :on-click (fn [e] (.stopPropagation e))
+                    :on-change (fn [e]
+                                 (let [el (.-target e)]
+                                   (post-edit! [(editor/set-theme-op (.-value el))] "new")
+                                   ;; hand the keys back, so Ctrl+Z undoes the pick
+                                   (.blur el)))}
+           (opt "" "no theme (☀/🌙)")]
+          (cond-> (mapv (fn [n] (opt n n)) themes/NAMES)
+            (= value "custom") (conj (opt "custom" "custom" true))))))
 
 (defn- load-view [st]
   [:div {:id "loadscreen"}
@@ -761,6 +780,7 @@
                :title "Re-layout: edits kept the old arrangement, run a fresh layout"
                :on-click (fn [e] (.stopPropagation e) (relayout! true))}
       "▦"])
+   (when (some? (:graph st)) (theme-menu-view (:graph st)))
    (when (nil? (:theme (:graph st)))
      [:button {:id "theme-toggle" :type "button"
                :title (if (= (:theme st) "dark") "Switch to light mode" "Switch to dark mode")
@@ -1006,12 +1026,14 @@
 
 (js/window.addEventListener "popstate" (fn [_] (load-nav!)))
 
-(defn- ^:async post-edit! [ops]
+(defn- ^:async post-edit!
+  "POST ops to the edit target — or to `file` (\"old\"/\"new\") when given."
+  [ops & [file]]
   (let [resp (js-await (js/fetch "/api/edit"
                                  {:method "POST"
                                   :headers {"Content-Type" "application/json"}
                                   :body (js/JSON.stringify
-                                         (let [body (editor/edit-body (:edit-target @state) ops)
+                                         (let [body (editor/edit-body (or file (:edit-target @state)) ops)
                                                f (:file (:nav @state))]
                                            (if (some? f) (assoc body :path f) body)))}))
         out (js-await (.json resp))]
@@ -1210,10 +1232,11 @@
 
 ;; init
 (defn- typing?
-  "True while a text field has the focus — keys belong to it then."
+  "True while a text field or a menu has the focus — keys belong to it
+  then (a focused menu jumps between options as letters are typed)."
   []
   (let [tag (.-tagName (.-activeElement js/document))]
-    (or (= tag "INPUT") (= tag "TEXTAREA"))))
+    (or (= tag "INPUT") (= tag "TEXTAREA") (= tag "SELECT"))))
 
 (defn- run-chord-action!
   "Do what the toolbar button for `action` would do for selection sel."

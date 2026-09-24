@@ -46,6 +46,13 @@ The file's theme wins over the ☀/🌙 switch, which is hidden while such a
 file is shown, and it carries into PNG and SVG exports. A comparison shows
 the new file's theme. Files without `:theme` follow the switch.
 
+The theme menu at the top of the page sets `:theme` in the file to a
+built-in name, or removes it ("no theme"). It's an edit like any other: it
+rewrites the file, and ↶ undoes it. In a comparison it edits the new file,
+whose theme is shown. The menu is disabled for a custom `:theme` map (a
+name would drop its changes; edit those in the file) and for files the
+page can't edit, such as a served PNG.
+
 Built-in themes: `light` and `dark` (the switch's two), `print` (white,
 greys, no box fills), `high-contrast`, `blueprint`, `paper`,
 `solarized-light`, `solarized-dark`, `nord`, `dracula`, `carbonfox` and

@@ -160,4 +160,5 @@
              :compare {:old old-name :new new-name}
              :warnings (into (mapv (fn [w] (str old-name ": " w)) (:warnings old-g))
                              (mapv (fn [w] (str new-name ": " w)) (:warnings new-g)))}
-      (some? (:theme new-g)) (assoc :theme (:theme new-g)))))
+      (some? (:theme new-g)) (assoc :theme (:theme new-g))
+      (some? (:theme-name new-g)) (assoc :theme-name (:theme-name new-g)))))

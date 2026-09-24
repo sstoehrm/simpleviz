@@ -21,7 +21,7 @@
                   :edit-target "new" :edit-error nil :editing nil
                   :pick nil :pick-hint nil
                   :id-entry nil :pending-focus nil :chord nil
-                  :help false :disconnected false
+                  :help false :export-menu false :disconnected false
                   :nav (editor/parse-nav js/location.search) :nav-error nil
                   :theme (or (js/localStorage.getItem "simpleviz-theme")
                              (if (.-matches (js/window.matchMedia
@@ -685,7 +685,7 @@
      (help-section
       "Edit"
       "When the served file is editable EDN, the floating toolbar at the bottom holds the tools for the current selection: delete, edge direction, and pick modes such as \"add edge\" (click the other element on the canvas, then name the edge; Esc cancels). New nodes and boxes are created by name: the prompt types a name, and the id is derived from it — lowercased, illegal characters turned into dashes; name::type also sets the type. With nothing selected it creates a standalone node. A :ref attribute naming another graph file (relative path) makes \"follow ref\" open it — in a suffix comparison (simpleviz graph.edn next) it opens that file's own comparison; the trail at the top leads back. Following a ref to an .edn file that does not exist yet creates it as an empty graph — in a comparison the side picked by the old|new toggle."
-      "In the inspector, click a value or its ✎ to edit it inline — Enter commits, Shift+Enter inserts a line break, Escape cancels. × deletes an attribute; the key/value row at the bottom adds one. Ctrl+Z or ⟲ undoes the last edit.")
+      "In the inspector, click a value or its ✎ to edit it inline — Enter commits, Shift+Enter inserts a line break, Escape cancels. × deletes an attribute; the key/value row at the bottom adds one. Ctrl+Z or ↶ undoes the last edit.")
      (help-section
       "Keys"
       "Two-key chords act on the selection, when no text field has focus (the toolbar buttons show them): d d delete · e 1/2/3/4 edge direction → ← ↔ — · c s / c t change an edge's source / target · a e add edge · a b add to box (node) or add a box as member (box) · a n add a node as member (box) · c n new node inside the selected box · n n new node (connected to the selected node) · n b new box around the selection · r r rename the id · r n take a node out of the selected box · r b take the selected node out of its box · f r follow the selection's :ref. Esc cancels a pending chord; ? toggles this help; Ctrl+Z undoes.")
@@ -694,8 +694,7 @@
       "Serving a file with a suffix (simpleviz graph.edn next) renders it against its fork graph-next.edn as one merged diagram: added elements get a green +, modified an amber ~ (select for an old → new list), removed ones stay as red dashed ghosts. Click a legend row to jump through the changes; the old|new toggle picks which file edits apply to.")
      (help-section
       "Export"
-      "⇩ downloads the diagram as a PNG with the source EDN embedded — an exported PNG can be served again, compared, or turned back into EDN with \"simpleviz extract\"."
-      "SVG downloads it as an SVG, which embeds the source EDN as well but can't be read back by simpleviz yet.")
+      "⇩ opens the export menu: PNG downloads the diagram as an image, SVG as a vector drawing, both with the source EDN embedded. An exported PNG can be served again, compared, or turned back into EDN with \"simpleviz extract\"; simpleviz can't read an SVG back yet.")
      (help-section
       "Theme"
       "☀ / 🌙 switches between light and dark mode.")]))
@@ -718,6 +717,22 @@
    [:div {:class "load-title"} "simpleviz"]
    [:div {:class "load-stage"} (or (:load-stage st) "loading…")]])
 
+(defn- export-menu-view
+  "The ⇩ button's menu: one item per export format. Choosing one closes
+  it; so do Esc and a press outside it (see the listeners at init)."
+  []
+  (let [item (fn [label hint export!]
+               [:button {:class "em-item" :type "button" :role "menuitem"
+                         :on-click (fn [e]
+                                     (.stopPropagation e)
+                                     (swap! state assoc :export-menu false)
+                                     (export!))}
+                label [:span {:class "em-hint"} hint]])]
+    [:div {:id "export-menu" :role "menu"}
+     (item "PNG" "image" export-png!)
+     (item "SVG" "vector" export-svg!)
+     [:div {:class "em-note"} "Both embed the source EDN."]]))
+
 (defn- app-view [st]
   [:div {:id "root" :class (when (some? (:pick st)) "picking")}
    (banner-view st)
@@ -731,22 +746,21 @@
    (when (:layouting st)
      [:div {:id "layouting"} "re-layouting…"])
    (when (some? (:scene st))
-     [:button {:id "export-btn" :type "button" :title "Export PNG"
-               :on-click (fn [e] (.stopPropagation e) (export-png!))}
+     [:button {:id "export-btn" :type "button" :title "Export…"
+               :aria-haspopup "menu" :aria-expanded (if (:export-menu st) "true" "false")
+               :on-click (fn [e] (.stopPropagation e) (swap! state update :export-menu not))}
       "⇩"])
-   (when (some? (:scene st))
-     [:button {:id "export-svg-btn" :type "button" :title "Export SVG"
-               :on-click (fn [e] (.stopPropagation e) (export-svg!))}
-      "SVG"])
+   (when (and (:export-menu st) (some? (:scene st)))
+     (export-menu-view))
    (when (current-edit-target-editable? st)
      [:button {:id "undo-btn" :type "button" :title "Undo last edit (Ctrl+Z)"
                :on-click (fn [e] (.stopPropagation e) (post-edit! [{:op "undo"}]))}
-      "⟲"])
+      "↶"])
    (when (:seeded (:layout st))
      [:button {:id "relayout-btn" :type "button"
                :title "Re-layout: edits kept the old arrangement, run a fresh layout"
                :on-click (fn [e] (.stopPropagation e) (relayout! true))}
-      "⟳"])
+      "▦"])
    [:button {:id "theme-toggle" :type "button"
              :title (if (= (:theme st) "dark") "Switch to light mode" "Switch to dark mode")
              :on-click (fn [e] (.stopPropagation e) (toggle-theme!))}
@@ -939,7 +953,8 @@
   (swap! state assoc :nav (editor/parse-nav js/location.search)
          :nav-error nil :error nil :graph nil :scene nil :layout nil
          :selected nil :editing nil :edit-error nil :pick nil :pick-hint nil
-         :chord nil :id-entry nil :pending-focus nil :collapsed-boxes #{})
+         :chord nil :id-entry nil :pending-focus nil :collapsed-boxes #{}
+         :export-menu false)
   (.clear layout-cache)
   (reset! last-mtime nil)
   (canvas/refit-next!)
@@ -1221,7 +1236,7 @@
   (fn [e]
     (cond
       (= (.-key e) "Escape") (do (cancel-pick!)
-                                 (swap! state assoc :help false :chord nil))
+                                 (swap! state assoc :help false :chord nil :export-menu false))
       ;; a held key must not complete its own chord
       (.-repeat e) nil
       (and (= (.-key e) "?") (not (typing?)))
@@ -1238,6 +1253,14 @@
            (not (typing?))
            (current-edit-target-editable? @state))
       (handle-chord-key! e))))
+;; a press anywhere outside the export menu closes it — ⇩ itself toggles
+;; it (capture phase, so nothing that stops propagation keeps it open)
+(js/document.addEventListener "pointerdown"
+  (fn [e]
+    (when (and (:export-menu @state)
+               (not (.closest (.-target e) "#export-menu, #export-btn")))
+      (swap! state assoc :export-menu false)))
+  true)
 (canvas/set-repaint! paint-now!)
 (apply-theme! (:theme @state))
 (add-watch state :render (fn [_ _ _ _] (rerender!)))

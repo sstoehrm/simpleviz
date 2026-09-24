@@ -106,7 +106,7 @@ chord or pick.
 
 **Layout and undo.** A relayout after an edit starts from the previous
 positions, so existing elements stay put and a new node appears next to the
-one it connects to. ⟳ (top right) runs a fresh layout. Ctrl+Z or ⟲ undoes
+one it connects to. ▦ (top right) runs a fresh layout. Ctrl+Z or ↶ undoes
 the last edit, from an undo stack per file that all viewers share (100
 entries).
 
@@ -134,8 +134,9 @@ In `examples/demo.edn` the API node refs `api/internals.edn`, whose
 
 ## Exporting
 
-⇩ downloads a PNG of the whole graph with the source EDN embedded. An export
-made in compare mode embeds both files.
+⇩ (top right) opens the export menu. PNG downloads the whole graph as an
+image with the source EDN embedded. An export made in compare mode embeds both
+files.
 
     simpleviz extract diagram.png            # print the embedded EDN (compare export: the new file)
     simpleviz extract diagram.png --old      # compare export: the old file
@@ -147,10 +148,10 @@ An exported PNG works anywhere an EDN file does, read-only:
     simpleviz diagram.png next               # compare against diagram-next.png
     simpleviz compare-export.png             # reopen the full comparison
 
-The SVG button next to ⇩ downloads the whole graph as an SVG, which scales
-without blurring and keeps its text as text. It embeds the source EDN too, in
-its `<metadata>`, both files in compare mode. Unlike a PNG, simpleviz can't
-read an SVG back yet: `extract` and serving take PNGs only.
+SVG, the menu's other item, downloads the whole graph as a vector drawing,
+which scales without blurring and keeps its text as text. It embeds the source
+EDN too, in its `<metadata>`, both files in compare mode. Unlike a PNG,
+simpleviz can't read an SVG back yet: `extract` and serving take PNGs only.
 
 ## Checking a file
 

@@ -51,7 +51,8 @@ and write locks.
 
 ## Data format
 
-    {:nodes {:api {:name "API"           ; display name (defaults to the key)
+    {:theme :light                       ; optional: a built-in theme, or {:base :nord :accent "#b58900"}
+     :nodes {:api {:name "API"           ; display name (defaults to the key)
                    :type "service"       ; free-form; colors the name, shown as (type)
                    :lang "clojure"       ; any other attr: inspector panel only
                    :ref "sub/api.edn"    ; another graph file, relative to this one — "follow ref" opens it;

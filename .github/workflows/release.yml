@@ -30,6 +30,9 @@ jobs:
           path: ~/.m2/repository
           key: bb-deps-${{ hashFiles('bb.edn') }}
 
+      - name: Plugin versions match the tag
+        run: bb release:check ${{ github.ref_name }}
+
       - name: Run tests
         run: bb test
 

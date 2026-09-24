@@ -73,9 +73,19 @@ to their latest patch. When a new minor release comes out, move the matrix
 up, and raise `MIN_BB` in `install.sh` to the older of the two; the release
 workflow builds with the newer one.
 
-Pushing a `v*` tag runs `bb bundle` and `bb jar:smoke`, then publishes the
-tarball and `simpleviz.jar` as a GitHub release
-(`.github/workflows/release.yml`). The tarball contains the precompiled
+Cut a release with `bb release vX.Y.Z` from a clean `main` that matches
+`origin/main`. It writes the version into both plugin manifests
+(`plugins/simpleviz/.claude-plugin/plugin.json` and `.codex-plugin/plugin.json`),
+commits `release: vX.Y.Z`, creates the annotated tag and pushes `main` and
+the tag together. Claude Code updates a plugin only when that version
+changes, so the skill reaches users together with the release it
+documents; skill changes merged in between wait for the next release.
+
+The tag runs `.github/workflows/release.yml`: it first checks that the
+manifests carry the tag's version (`bb release:check vX.Y.Z` — a tag
+pushed by hand without `bb release` fails here), then runs `bb bundle` and
+`bb jar:smoke` and publishes the tarball and `simpleviz.jar` as a GitHub
+release. The tarball contains the precompiled
 frontend, the server, the examples, `VERSION` and a serve-only `bb.edn`;
 the jar holds the same plus the server's dependencies (listed in
 `THIRD-PARTY-NOTICES.md`; `bb jar` fails when one is missing). End users

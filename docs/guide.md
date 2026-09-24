@@ -42,19 +42,19 @@ name of a built-in theme or a map of changes on top of one.
              :accent "#b58900"}
      :nodes {:api {:type "service"}}}
 
-The file's theme wins over the ☀/🌙 switch, which is hidden while such a
-file is shown, and it carries into PNG and SVG exports. A comparison shows
-the new file's theme. Files without `:theme` follow the switch.
+The file's theme carries into PNG and SVG exports. A comparison shows the
+new file's theme. Files without `:theme` are light or dark, following the
+operating system's setting.
 
 The theme menu at the top of the page sets `:theme` in the file to a
-built-in name, or removes it ("no theme"). It's an edit like any other: it
+built-in name, or removes it ("default"). It's an edit like any other: it
 rewrites the file, and ↶ undoes it. In a comparison it edits the new file,
 whose theme is shown. The menu is disabled for a custom `:theme` map (a
 name would drop its changes; edit those in the file) and for files the
 page can't edit, such as a served PNG.
 
-Built-in themes: `light` and `dark` (the switch's two), `print` (white,
-greys, no box fills), `high-contrast`, `blueprint`, `paper`,
+Built-in themes: `light` and `dark` (the two the OS setting picks from),
+`print` (white, greys, no box fills), `high-contrast`, `blueprint`, `paper`,
 `solarized-light`, `solarized-dark`, `nord`, `dracula`, `carbonfox` and
 `one-dark`.
 
@@ -144,8 +144,8 @@ chord or pick.
 | `a n` | box | add a node as member (click it) |
 | `r n` | box | remove node (click a member; it moves to the enclosing box or out) |
 | `r b` | node | remove from box (it moves to the enclosing box or out) |
-| `c n` | box | new node inside the box |
-| `n n` | none / node | new node / new node connected to the selection |
+| `n n` | none / node / box | new node / new node connected to the selection / new node inside the box |
+| `c n` | box | new node inside the box, as `n n` |
 | `n b` | node, box | new box around the selection, in the selection's place |
 | `r r` | node, box | rename the id |
 | `f r` | node, edge, box | follow the `:ref` |
@@ -153,9 +153,9 @@ chord or pick.
 
 **Layout and undo.** A relayout after an edit starts from the previous
 positions, so existing elements stay put and a new node appears next to the
-one it connects to. ▦ (top right) runs a fresh layout. Ctrl+Z or ↶ undoes
-the last edit, from an undo stack per file that all viewers share (100
-entries).
+one it connects to. ▦ (top right) runs a fresh layout; it's disabled while the
+layout is already fresh. Ctrl+Z or ↶ undoes the last edit, from an undo stack
+per file that all viewers share (100 entries).
 
 **Security.** The server binds to loopback only and accepts writes only from
 its own `localhost`/`127.0.0.1` origin.

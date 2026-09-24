@@ -1,0 +1,26 @@
+{:nodes {:file      {:name "graph.edn"         :type "file"   :note "{:theme :nord} or {:theme {:base :nord :accent \"#b58900\"}}"}
+         :themes    {:name "themes.cljc"       :type "shared" :note "NAMES, KEY-KINDS, CSS-KEYS, THEMES (12 × 33 keys); loaded by bb, compiled by squint"}
+         :normalize {:name "graph/normalize"   :type "server" :note "validate :theme leniently, emit the resolved 33-key map as :theme"}
+         :union     {:name "diff/union"        :type "server" :note "compare mode: the new side's :theme"}
+         :check     {:name "check / /api/errors" :type "server" :note "theme warnings arrive through normalize, unchanged"}
+         :app       {:name "app.cljs"          :type "page"   :note "effective theme = payload :theme, else toggle light/dark; hide ☀/🌙 when the file sets one"}
+         :css       {:name "CSS custom props"  :type "page"   :note "apply-theme! sets --bg … --diff-removed on documentElement; :root keeps light defaults"}
+         :colors    {:name "colors/tables"     :type "page"   :note "255 golden-angle hues × the theme's saturation/lightness; assign-indices unchanged"}
+         :scene     {:name "scene"             :type "page"   :note "items carry :color-idx, not color strings — cached scenes survive a theme change"}
+         :canvas    {:name "canvas painter"    :type "page"   :note "palette atom = theme + tables; no ACCENT, no type-color hack"}
+         :export    {:name "PNG / SVG export"  :type "page"   :note "same painter, so exports come out in the theme"}}
+ :edges {[:file :normalize]    {:direction :-> :name "raw :theme"}
+         [:themes :normalize]  {:direction :-> :name "names, key kinds, base maps"}
+         [:normalize :union]   {:direction :-> :name "both sides"}
+         [:normalize :check]   {:direction :-> :name "warnings"}
+         [:normalize :app]     {:direction :-> :name "payload :theme" :type "http"}
+         [:union :app]         {:direction :-> :name "payload :theme (new side)" :type "http"}
+         [:themes :app]        {:direction :-> :name "light/dark for the toggle, CSS-KEYS"}
+         [:app :css]           {:direction :-> :name "setProperty"}
+         [:app :canvas]        {:direction :-> :name "set-theme!"}
+         [:canvas :colors]     {:direction :-> :name "tables on set-theme!"}
+         [:scene :canvas]      {:direction :-> :name ":color-idx"}
+         [:canvas :export]     {:direction :-> :name "paint-items!"}}
+ :boxes {:disk   {:name "Graph file" :type "zone" :components #{:file}}
+         :server {:name "Server (bb)" :type "zone" :components #{:normalize :union :check}}
+         :page   {:name "Page (squint)" :type "zone" :components #{:app :css :colors :scene :canvas :export}}}}

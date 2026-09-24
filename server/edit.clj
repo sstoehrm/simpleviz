@@ -5,7 +5,9 @@
   with {:edit-error true} and a user-facing message."
   (:require [clojure.edn :as edn]
             [clojure.string :as str]
-            [rewrite-clj.zip :as z]))
+            [rewrite-clj.node :as n]
+            [rewrite-clj.zip :as z]
+            [themes]))
 
 (defn- fail! [msg] (throw (ex-info msg {:edit-error true})))
 
@@ -385,6 +387,32 @@
           (add-box {:id box})
           (box-add {:box box :member member})))))
 
+(defn set-theme
+  "Point the top-level :theme at built-in theme `theme` (a name), or
+  remove it when theme is nil or blank. A custom (map) theme is refused
+  either way: a name would drop its overrides."
+  [text {:keys [theme]}]
+  (when-not (or (nil? theme) (string? theme))
+    (fail! (str "theme must be a theme name, got " (pr-str theme))))
+  (let [root (zroot text)
+        kloc (find-key root #(= % :theme))
+        remove? (str/blank? theme)]
+    (when (and (some? kloc) (map? (z/sexpr (z/right kloc))))
+      (fail! "the file sets a custom theme (a :theme map); change it in the file"))
+    (when-not (or remove? (contains? themes/THEMES (keyword theme)))
+      (fail! (str "unknown theme " (pr-str theme))))
+    (cond
+      remove? (if (some? kloc) (z/root-string (remove-pair kloc)) text)
+      (some? kloc) (z/root-string (z/replace (z/right kloc) (keyword theme)))
+      ;; a new key goes on its own line after the others, where it's seen
+      (some? (z/down root))
+      (-> root
+          (z/append-child* (n/newlines 1)) (z/append-child* (n/spaces 1))
+          (z/append-child* (n/keyword-node :theme)) (z/append-child* (n/spaces 1))
+          (z/append-child* (n/keyword-node (keyword theme)))
+          z/root-string)
+      :else (-> root (z/append-child :theme) (z/append-child (keyword theme)) z/root-string))))
+
 (defn- norm-op
   "Browser payload -> internal op: keywordize section/attr, keep ids.
   Attr names are validated against the same ident regex ident-node uses —
@@ -418,6 +446,7 @@
       "delete" (delete text o)
       "rename" (rename text o)
       "wrap" (wrap text o)
+      "set-theme" (set-theme text o)
       (fail! (str "unknown op " (pr-str op-name))))))
 
 (defn apply-ops

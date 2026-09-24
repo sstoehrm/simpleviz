@@ -51,6 +51,7 @@ and write locks.
 
 ## Data format
 
+    ;; optional, top level: :theme — a built-in (:nord, :dracula, …) or {:base :nord :accent "#b58900"}
     {:nodes {:api {:name "API"           ; display name (defaults to the key)
                    :type "service"       ; free-form; colors the name, shown as (type)
                    :lang "clojure"       ; any other attr: inspector panel only

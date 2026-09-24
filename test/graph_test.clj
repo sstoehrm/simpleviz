@@ -1,6 +1,8 @@
 (ns graph-test
-  (:require [clojure.test :refer [deftest is]]
-            [graph]))
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is]]
+            [graph]
+            [themes]))
 
 (defn base []
   {:nodes {"a" {:name "A" :type "svc"} "b" {:name "B"}}
@@ -338,3 +340,79 @@
     (is (= "backend/core" (:name (first (:boxes g)))))
     (is (= ["n:backend.server/database"] (:components (first (:boxes g)))))
     (is (= [] (:warnings g)))))
+
+(deftest theme-absent-adds-no-key
+  (is (not (contains? (graph/normalize {:nodes {"a" {}}}) :theme))))
+
+(deftest theme-by-name-resolves-to-the-built-in
+  (let [g (graph/normalize {:theme :nord})]
+    (is (= (:nord themes/THEMES) (:theme g)))
+    (is (= [] (:warnings g))))
+  (is (= (:nord themes/THEMES) (:theme (graph/normalize {:theme "nord"})))))
+
+(deftest theme-map-overrides-its-base
+  (let [g (graph/normalize {:theme {:base :nord :bg "#fdf6e3" :node-lightness 40}})]
+    (is (= (assoc (:nord themes/THEMES) :bg "#fdf6e3" :node-lightness 40) (:theme g)))
+    (is (= [] (:warnings g)))))
+
+(deftest theme-map-base-defaults-to-light
+  (is (= (assoc (:light themes/THEMES) :accent "rgb(1, 2, 3)")
+         (:theme (graph/normalize {:theme {:accent "rgb(1, 2, 3)"}})))))
+
+(deftest theme-string-keys-work-like-keywords
+  (is (= (assoc (:dracula themes/THEMES) :edge "#123")
+         (:theme (graph/normalize {:theme {"base" "dracula" "edge" "#123"}})))))
+
+(deftest theme-unknown-name-warns-and-is-ignored
+  (let [g (graph/normalize {:theme :neon})]
+    (is (not (contains? g :theme)))
+    (is (= 1 (count (:warnings g))))
+    (is (str/starts-with? (first (:warnings g)) ":theme: unknown theme \"neon\" (built-in: light, dark, print,"))
+    (is (str/includes? (first (:warnings g)) "one-dark)"))))
+
+(deftest theme-wrong-type-warns-and-is-ignored
+  (let [g (graph/normalize {:theme 3})]
+    (is (not (contains? g :theme)))
+    (is (= [":theme must be a theme name or a map, ignoring it"] (:warnings g)))))
+
+(deftest theme-unknown-base-falls-back-to-light
+  (let [g (graph/normalize {:theme {:base :neon :bg "#000"}})]
+    (is (= (assoc (:light themes/THEMES) :bg "#000") (:theme g)))
+    (is (= [":theme: unknown base \"neon\", using light"] (:warnings g)))))
+
+(deftest theme-bad-keys-and-values-are-dropped-one-warning-each
+  (let [g (graph/normalize {:theme {:base :nord
+                                    :glow "#fff"
+                                    :bg "blue"
+                                    :edge 3
+                                    :node-lightness 140
+                                    :box-fill-alpha 2
+                                    :accent "#b58900"}})]
+    (is (= (assoc (:nord themes/THEMES) :accent "#b58900") (:theme g)))
+    (is (= 5 (count (:warnings g))))
+    (is (= #{":theme: unknown key :glow, ignored"
+             ":theme :bg: expected a color (#hex, rgb(), hsl()), ignored"
+             ":theme :edge: expected a color (#hex, rgb(), hsl()), ignored"
+             ":theme :node-lightness: expected a number from 0 to 100, ignored"
+             ":theme :box-fill-alpha: expected a number from 0 to 1, ignored"}
+           (set (:warnings g))))))
+
+(deftest theme-color-forms
+  (doseq [c ["#abc" "#abcd" "#aabbcc" "#aabbccdd" "rgb(1, 2, 3)" "rgba(1,2,3,.5)"
+             "hsl(200 50% 40%)" "hsla(200, 50%, 40%, 0.5)" "rgb(1 2 3 / 50%)"]]
+    (is (= [] (:warnings (graph/normalize {:theme {:bg c}}))) c))
+  (doseq [c ["blue" "#ab" "#abcde" "url(x)" "" "rgb(1, 2, 3" 7 nil
+             "hsl(210, 50, 40)" "rgb(0 0 0 0.5)" "rgb()" "rgb(foo)"]]
+    (is (= 1 (count (:warnings (graph/normalize {:theme {:bg c}})))) (pr-str c))))
+
+(deftest every-built-in-theme-passes-validation
+  (doseq [n themes/NAMES]
+    (is (= [] (:warnings (graph/normalize {:theme (assoc (get themes/THEMES n) :base n)})))
+        (name n))))
+
+(deftest theme-name-marks-a-built-in-named-by-the-file
+  (is (= "nord" (:theme-name (graph/normalize {:theme :nord}))))
+  (is (= "one-dark" (:theme-name (graph/normalize {:theme "one-dark"}))))
+  (is (not (contains? (graph/normalize {:theme {:base :nord}}) :theme-name)))
+  (is (not (contains? (graph/normalize {:theme :neon}) :theme-name)))
+  (is (not (contains? (graph/normalize {}) :theme-name))))

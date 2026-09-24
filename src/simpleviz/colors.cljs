@@ -1,8 +1,9 @@
 (ns simpleviz.colors)
 
-;; Fixed 255-entry color tables. Entry i uses hue i * golden angle, so
+;; Fixed 255-slot hue tables. Slot i uses hue i * golden angle, so
 ;; ADJACENT indices are visually distinct — that makes linear probing on
-;; hash collision a safe "next best" choice.
+;; hash collision a safe "next best" choice. A theme sets the tables'
+;; saturation and lightness only, so a type keeps its hue in every theme.
 
 (def TABLE-SIZE 255)
 (def GOLDEN-ANGLE 137.508)
@@ -18,16 +19,22 @@
 (defn- hue [i]
   (.toFixed (js-mod (* i GOLDEN-ANGLE) 360) 1))
 
-(def NODE-TABLE
-  (mapv (fn [i] (str "hsl(" (hue i) " 65% 38%)")) (range TABLE-SIZE)))
+(defn- hsl
+  ([h s l] (str "hsl(" h " " s "% " l "%)"))
+  ([h s l a] (str "hsl(" h " " s "% " l "% / " a ")")))
 
-(def BOX-TABLE
-  (mapv (fn [i] {:border (str "hsl(" (hue i) " 45% 55%)")
-                 :fill (str "hsl(" (hue i) " 45% 55% / 0.1)")})
-        (range TABLE-SIZE)))
-
-(def NEUTRAL-NODE "hsl(0 0% 40%)")
-(def NEUTRAL-BOX {:border "hsl(0 0% 65%)" :fill "hsl(0 0% 65% / 0.1)"})
+(defn tables
+  "A theme's type colors: :node, 255 name colors; :box, 255
+  {:border :fill}; :neutral-node and :neutral-box for untyped elements."
+  [theme]
+  (let [a (:box-fill-alpha theme)
+        box (fn [h s l] {:border (hsl h s l) :fill (hsl h s l a)})]
+    {:node (mapv (fn [i] (hsl (hue i) (:node-saturation theme) (:node-lightness theme)))
+                 (range TABLE-SIZE))
+     :box (mapv (fn [i] (box (hue i) (:box-saturation theme) (:box-lightness theme)))
+                (range TABLE-SIZE))
+     :neutral-node (hsl 0 0 (:neutral-node-lightness theme))
+     :neutral-box (box 0 0 (:neutral-box-lightness theme))}))
 
 (defn assign-indices [types]
   (let [sorted (sort (js/Array.from
@@ -44,8 +51,3 @@
                           (assoc acc t idx)))))))
             {}
             sorted)))
-
-(defn color-map [types table]
-  (reduce (fn [acc [t i]] (assoc acc t (nth table i)))
-          {}
-          (js/Object.entries (assign-indices types))))

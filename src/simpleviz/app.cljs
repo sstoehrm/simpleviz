@@ -9,7 +9,8 @@
             [simpleviz.hit :as hit]
             [simpleviz.canvas :as canvas]
             [simpleviz.png :as png]
-            [simpleviz.editor :as editor]))
+            [simpleviz.editor :as editor]
+            [themes :as themes]))
 
 (def elk (js/ELK.))
 (def app-el (js/document.getElementById "app"))
@@ -130,10 +131,9 @@
        (into [:div {:class "cp-list"}]
              (mapv (fn [b]
                      (let [box (get (:boxes-by-name (:graph st)) b)
-                           color (if (and (some? box)
-                                          (pos? (.-length (:type box))))
-                                   (:border (get (:box (:colors st)) (:type box)))
-                                   (:border (:neutral-box (:colors st))))]
+                           color (canvas/box-border
+                                  (when (and (some? box) (pos? (.-length (:type box))))
+                                    (get (:box (:colors st)) (:type box))))]
                        [:button {:key b :class "cp-row" :type "button"
                                  :title "Expand this box"
                                  :on-click (fn [e]
@@ -697,7 +697,7 @@
       "⇩ opens the export menu: PNG downloads the diagram as an image, SVG as a vector drawing, both with the source EDN embedded. An exported PNG can be served again, compared, or turned back into EDN with \"simpleviz extract\"; simpleviz can't read an SVG back yet.")
      (help-section
       "Theme"
-      "☀ / 🌙 switches between light and dark mode.")]))
+      "☀ / 🌙 switches between light and dark mode. A graph file can set its own theme instead — :theme :nord, or overrides on one such as {:base :nord :accent \"#b58900\"}; the switch is hidden then. The theme menu at the top sets :theme in the file to one of the twelve built-in themes (↶ undoes it), or removes it; it's disabled for a custom theme map and for read-only files.")]))
 
 (defn- hint-view
   "The line above the toolbar: the pending chord's completions, else the
@@ -710,6 +710,25 @@
     [:div {:id "pick-hint"} (:pick-hint st) " — Esc cancels"]
     (= "edge" (:for (:id-entry st)))
     [:div {:id "pick-hint"} "name the new edge — Enter creates it, Esc cancels"]))
+
+(defn- theme-menu-view
+  "The built-in themes as a menu that sets :theme in the file whose theme
+  is shown (see editor/theme-menu). Options carry :selected — reagami
+  sets it as a property, so the menu follows an undo or an outside edit."
+  [g]
+  (let [{:keys [value disabled title]} (editor/theme-menu g)
+        opt (fn [v label & [off]]
+              [:option {:value v :selected (= v value) :disabled (boolean off)} label])]
+    (into [:select {:id "theme-select" :title title :disabled disabled
+                    :on-click (fn [e] (.stopPropagation e))
+                    :on-change (fn [e]
+                                 (let [el (.-target e)]
+                                   (post-edit! [(editor/set-theme-op (.-value el))] "new")
+                                   ;; hand the keys back, so Ctrl+Z undoes the pick
+                                   (.blur el)))}
+           (opt "" "no theme (☀/🌙)")]
+          (cond-> (mapv (fn [n] (opt n n)) themes/NAMES)
+            (= value "custom") (conj (opt "custom" "custom" true))))))
 
 (defn- load-view [st]
   [:div {:id "loadscreen"}
@@ -761,10 +780,12 @@
                :title "Re-layout: edits kept the old arrangement, run a fresh layout"
                :on-click (fn [e] (.stopPropagation e) (relayout! true))}
       "▦"])
-   [:button {:id "theme-toggle" :type "button"
-             :title (if (= (:theme st) "dark") "Switch to light mode" "Switch to dark mode")
-             :on-click (fn [e] (.stopPropagation e) (toggle-theme!))}
-    (if (= (:theme st) "dark") "☀" "🌙")]
+   (when (some? (:graph st)) (theme-menu-view (:graph st)))
+   (when (nil? (:theme (:graph st)))
+     [:button {:id "theme-toggle" :type "button"
+               :title (if (= (:theme st) "dark") "Switch to light mode" "Switch to dark mode")
+               :on-click (fn [e] (.stopPropagation e) (toggle-theme!))}
+      (if (= (:theme st) "dark") "☀" "🌙")])
    [:button {:id "help-btn" :type "button" :title "Help"
              :on-click (fn [e] (.stopPropagation e) (toggle-help!))}
     "?"]
@@ -835,13 +856,9 @@
                                   " nodes, " (.-length (:edges g0)) " edges…"))
           (js-await (yield-paint!))
           (let [g (collapse-boxes g0 collapsed)
-                cmap {:node (colors/color-map (mapv (fn [n] (:type n))
-                                                    (js/Object.values (:nodes g0)))
-                                              colors/NODE-TABLE)
-                      :box (colors/color-map (mapv (fn [b] (:type b)) (:boxes g0))
-                                             colors/BOX-TABLE)
-                      :neutral-node colors/NEUTRAL-NODE
-                      :neutral-box colors/NEUTRAL-BOX}
+                cmap {:node (colors/assign-indices (mapv (fn [n] (:type n))
+                                                         (js/Object.values (:nodes g0))))
+                      :box (colors/assign-indices (mapv (fn [b] (:type b)) (:boxes g0)))}
                 elk-graph (to-elk g canvas/measure)
                 fp (elk-fingerprint elk-graph)
                 prev (when (some? hit) (:layout hit))
@@ -902,13 +919,18 @@
     (let [resp (js-await (js/fetch (str "/api/graph" (file-query))))
           raw (js-await (.json resp))]
       (if (some? (:error raw))
-        (swap! state assoc :error (str "Graph error: " (:error raw)))
+        (do (when (nil? (:graph @state))
+              ;; no graph to show (a navigation landed on a broken file):
+              ;; back to the toggle's theme, which the now-visible toggle shows
+              (apply-theme! (effective-theme nil (:theme @state))))
+            (swap! state assoc :error (str "Graph error: " (:error raw))))
         (let [g (assoc raw :boxes-by-name
                        (reduce (fn [acc b] (assoc acc (:name b) b)) {} (:boxes raw)))
               first-load? (nil? (:graph @state))]
           (swap! graph-gen inc)
           (demote-layout-cache!)
           (set! (.-title js/document) (format/tab-title g))
+          (apply-theme! (effective-theme g (:theme @state)))
           (swap! state (fn [st]
                          (assoc st :error nil :graph g :warnings (:warnings g)
                                 :edit-target (resolve-edit-target g (:edit-target st)))))
@@ -1004,12 +1026,14 @@
 
 (js/window.addEventListener "popstate" (fn [_] (load-nav!)))
 
-(defn- ^:async post-edit! [ops]
+(defn- ^:async post-edit!
+  "POST ops to the edit target — or to `file` (\"old\"/\"new\") when given."
+  [ops & [file]]
   (let [resp (js-await (js/fetch "/api/edit"
                                  {:method "POST"
                                   :headers {"Content-Type" "application/json"}
                                   :body (js/JSON.stringify
-                                         (let [body (editor/edit-body (:edit-target @state) ops)
+                                         (let [body (editor/edit-body (or file (:edit-target @state)) ops)
                                                f (:file (:nav @state))]
                                            (if (some? f) (assoc body :path f) body)))}))
         out (js-await (.json resp))]
@@ -1098,16 +1122,29 @@
   (when (nil? (:edit-error @state))
     (on-select nil)))
 
-(defn- apply-theme! [t]
-  (set! (.. js/document -documentElement -dataset -theme) t)
-  (canvas/set-theme! t)
+(defn- effective-theme
+  "The theme to show for graph g: the file's :theme (resolved by the
+  server), else the light/dark toggle's."
+  [g toggle]
+  (or (:theme g) (get themes/THEMES toggle) (get themes/THEMES :light)))
+
+(defn- apply-theme!
+  "Paint page and canvas in theme, a complete theme map: the chrome via
+  CSS custom properties on <html>, the canvas via the painter's palette.
+  Call it before the state change that re-renders — rendering is
+  synchronous and the collapsed-panel dots read the palette."
+  [theme]
+  (let [style (.. js/document -documentElement -style)]
+    (doseq [k themes/CSS-KEYS]
+      (.setProperty style (str "--" k) (get theme k))))
+  (canvas/set-theme! theme)
   (canvas/request-paint!))
 
 (defn- toggle-theme! []
   (let [t (if (= (:theme @state) "dark") "light" "dark")]
     (js/localStorage.setItem "simpleviz-theme" t)
-    (swap! state assoc :theme t)
-    (apply-theme! t)))
+    (apply-theme! (effective-theme (:graph @state) t))
+    (swap! state assoc :theme t)))
 
 (defn- ^:async fetch-source
   "Raw EDN text from /api/source (which = \"old\"|\"new\"|nil), or nil on
@@ -1195,10 +1232,11 @@
 
 ;; init
 (defn- typing?
-  "True while a text field has the focus — keys belong to it then."
+  "True while a text field or a menu has the focus — keys belong to it
+  then (a focused menu jumps between options as letters are typed)."
   []
   (let [tag (.-tagName (.-activeElement js/document))]
-    (or (= tag "INPUT") (= tag "TEXTAREA"))))
+    (or (= tag "INPUT") (= tag "TEXTAREA") (= tag "SELECT"))))
 
 (defn- run-chord-action!
   "Do what the toolbar button for `action` would do for selection sel."
@@ -1262,7 +1300,7 @@
       (swap! state assoc :export-menu false)))
   true)
 (canvas/set-repaint! paint-now!)
-(apply-theme! (:theme @state))
+(apply-theme! (effective-theme (:graph @state) (:theme @state)))
 (add-watch state :render (fn [_ _ _ _] (rerender!)))
 (canvas/setup-pan-zoom! (js/document.getElementById "canvas-wrap"))
 (rerender!)

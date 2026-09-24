@@ -474,3 +474,47 @@
                                                :attr "name" :value "\"Calls\"" :fallback false}])]
     (is (nil? error))
     (is (clojure.string/includes? text "[:a :c] {:direction :-> :name \"Calls\"}"))))
+
+(deftest edits-keep-a-theme-key
+  (let [themed "{:theme {:base :nord :accent \"#b58900\"} ;; look\n :nodes {:a nil}\n :edges {}}"
+        out (edit/add-node themed {:id "b" :attrs-text nil})
+        data (clojure.edn/read-string out)]
+    (is (clojure.string/includes? out "{:theme {:base :nord :accent \"#b58900\"} ;; look"))
+    (is (= {:base :nord :accent "#b58900"} (:theme data)))
+    (is (contains? (:nodes data) :b))))
+
+(deftest set-theme-adds-a-theme-key
+  (let [out (edit/set-theme small-file {:theme "nord"})]
+    (is (clojure.string/ends-with? out "}}}\n :theme :nord}"))
+    (is (= :nord (:theme (clojure.edn/read-string out))))
+    (is (= {:a nil} (:nodes (clojure.edn/read-string out))))))
+
+(deftest set-theme-replaces-a-named-theme-keeping-comments
+  (is (= "{:theme :one-dark ;; look\n :nodes {:a nil}\n :edges {}}"
+         (edit/set-theme "{:theme :dracula ;; look\n :nodes {:a nil}\n :edges {}}"
+                         {:theme "one-dark"}))))
+
+(deftest set-theme-without-a-name-removes-the-key
+  (let [out (edit/set-theme "{:theme :nord\n :nodes {:a nil}}" {:theme nil})]
+    (is (not (contains? (clojure.edn/read-string out) :theme)))
+    (is (= {:a nil} (:nodes (clojure.edn/read-string out)))))
+  (is (= small-file (edit/set-theme small-file {:theme nil}))))
+
+(deftest set-theme-refuses-to-overwrite-a-custom-theme
+  (is (thrown-with-msg? Exception #"custom theme"
+        (edit/set-theme "{:theme {:base :nord :bg \"#000\"} :nodes {}}" {:theme "nord"})))
+  (is (thrown-with-msg? Exception #"custom theme"
+        (edit/set-theme "{:theme {:base :nord} :nodes {}}" {:theme nil}))))
+
+(deftest set-theme-refuses-unknown-names
+  (is (thrown-with-msg? Exception #"unknown theme \"neon\""
+        (edit/set-theme small-file {:theme "neon"})))
+  (is (thrown-with-msg? Exception #"theme must be"
+        (edit/set-theme small-file {:theme 3}))))
+
+(deftest set-theme-on-an-empty-map
+  (is (= "{:theme :nord}" (edit/set-theme "{}" {:theme "nord"}))))
+
+(deftest set-theme-is-an-op
+  (is (= :nord (:theme (clojure.edn/read-string
+                        (:text (edit/apply-ops small-file [{:op "set-theme" :theme "nord"}])))))))

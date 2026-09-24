@@ -1072,3 +1072,9 @@
   (is (= 404 (:status (serve/handler {:uri "/../bb.edn"}))))
   (is (= 404 (:status (serve/handler {:uri "/vendor"}))))
   (is (= 404 (:status (serve/handler {:uri "/vendor/"})))))
+
+(deftest graph-json-carries-the-resolved-theme
+  (let [out (json/parse-string (serve/graph-json "{:theme {:base :nord :accent \"#b58900\"} :nodes {:a {}}}"))]
+    (is (= "#2e3440" (get-in out ["theme" "bg"])))
+    (is (= "#b58900" (get-in out ["theme" "accent"])))
+    (is (= 72 (get-in out ["theme" "node-lightness"])))))

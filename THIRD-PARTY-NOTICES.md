@@ -64,6 +64,24 @@ and its dependencies from Maven Central on the user's machine.
 
 ---
 
+## Color palettes (`server/themes.cljc`)
+
+Five built-in themes take their colors from these MIT-licensed palettes
+(license text as for reagami above):
+
+- Solarized (`solarized-light`, `solarized-dark`): Copyright (c) 2011
+  Ethan Schoonover. https://github.com/altercation/solarized
+- Nord (`nord`): Copyright (c) 2016-present Sven Greb.
+  https://github.com/nordtheme/nord
+- Dracula (`dracula`): Copyright (c) 2023 Dracula Theme.
+  https://github.com/dracula/dracula-theme
+- carbonfox from nightfox.nvim (`carbonfox`): Copyright (c) 2021 James
+  Simpson. https://github.com/EdenEast/nightfox.nvim
+- Atom One Dark (`one-dark`): Copyright (c) 2011-2022 GitHub Inc.
+  https://github.com/atom/atom
+
+---
+
 # Eclipse Public License - v 2.0 (full text)
 Eclipse Public License - v 2.0
 

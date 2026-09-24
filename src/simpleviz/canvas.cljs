@@ -1,7 +1,9 @@
 (ns simpleviz.canvas
-  (:require [simpleviz.scene :as scene]
+  (:require [simpleviz.colors :as colors]
+            [simpleviz.scene :as scene]
             [simpleviz.svg :as svg]
-            [simpleviz.transform :refer [NODE-FONT SUB-FONT]]))
+            [simpleviz.transform :refer [NODE-FONT SUB-FONT]]
+            [themes :as themes]))
 
 ;; HiDPI canvas painter + view state + pan/zoom. DOM-only namespace —
 ;; never imported by node tests.
@@ -13,32 +15,36 @@
   (set! (.-font measure-ctx) font)
   (.-width (.measureText measure-ctx text)))
 
-(def ACCENT "#2563eb")
+;; the painter's theme: a complete theme map (server/themes.cljc) plus
+;; its type-color tables, swapped whole by set-theme!
+(defn- with-tables [theme] (assoc theme :tables (colors/tables theme)))
 
-;; painter palette per theme; node/box TYPE colors come from the color
-;; tables — in dark mode node name colors get their lightness raised so
-;; they stay legible on the dark background
-(def ^:private palettes
-  {"light" {:dark? false :bg "#fafafa" :node-fill "#fff" :node-stroke "#ddd"
-            :edge "#555" :arrow "#555" :sub "#888" :label "#444"
-            :btn-fill "#ffffffcc"
-            :diff-added "#0ca30c" :diff-modified "#b45309" :diff-removed "#d03b3b"
-            :state {"new" "#6b7280" "in-progress" "#2563eb" "blocked" "#d03b3b" "done" "#0ca30c"}}
-   "dark" {:dark? true :bg "#111827" :node-fill "#1f2937" :node-stroke "#4b5563"
-           :edge "#9ca3af" :arrow "#9ca3af" :sub "#9ca3af" :label "#d1d5db"
-           :btn-fill "#1f2937cc"
-           :diff-added "#22c55e" :diff-modified "#fab219" :diff-removed "#f87171"
-           :state {"new" "#9ca3af" "in-progress" "#60a5fa" "blocked" "#f87171" "done" "#22c55e"}}})
+(def ^:private palette (atom (with-tables (get themes/THEMES :light))))
 
-(def ^:private palette (atom (get palettes "light")))
+(defn set-theme!
+  "Paint with theme, a complete theme map (every themes/KEYS key)."
+  [theme]
+  (reset! palette (with-tables theme)))
 
-(defn set-theme! [name]
-  (reset! palette (or (get palettes name) (get palettes "light"))))
+(defn- node-color
+  "A node item's name color: its type's slot, or the untyped grey."
+  [item]
+  (let [t (:tables @palette)
+        i (:color-idx item)]
+    (if (some? i) (nth (:node t) i) (:neutral-node t))))
 
-(defn- type-color
-  "Node name color, lightened for dark backgrounds."
-  [c]
-  (if (:dark? @palette) (.replace c "38%)" "72%)") c))
+(defn- box-color
+  "A box item's {:border :fill}: its type's slot, or the untyped grey."
+  [item]
+  (let [t (:tables @palette)
+        i (:color-idx item)]
+    (if (some? i) (nth (:box t) i) (:neutral-box t))))
+
+(defn box-border
+  "The current theme's border color for box type slot idx (nil: untyped)
+  — the collapsed-boxes panel's dots."
+  [idx]
+  (:border (box-color {:color-idx idx})))
 
 ;; Mutated in place (assoc!), outside the state atom so pan/zoom repaints
 ;; without re-rendering the DOM.
@@ -131,12 +137,12 @@
       (.fillText ctx (get diff-glyphs d) (- (:x item) 2) (- (:y item) 6)))))
 
 (defn- draw-box [ctx item sel? text?]
-  (let [removed? (= (:diff item) "removed")]
+  (let [removed? (= (:diff item) "removed") c (box-color item)]
   (when removed? (set! (.-globalAlpha ctx) 0.45))
   (rounded-rect ctx (:x item) (:y item) (:w item) (:h item) 10)
-  (set! (.-fillStyle ctx) (:fill item))
+  (set! (.-fillStyle ctx) (:fill c))
   (.fill ctx)
-  (set! (.-strokeStyle ctx) (if sel? ACCENT (:border item)))
+  (set! (.-strokeStyle ctx) (if sel? (:accent @palette) (:border c)))
   (set! (.-lineWidth ctx) (if sel? 2 1))
   (.stroke ctx)
   (when text?
@@ -146,7 +152,7 @@
     (let [cx (+ (:x item) (/ (- (:w item) (if (:empty item) 0 18)) 2))]
       (set! (.-textAlign ctx) "center")
       (set! (.-font ctx) "bold 13px system-ui, sans-serif")
-      (set! (.-fillStyle ctx) (:border item))
+      (set! (.-fillStyle ctx) (:border c))
       (.fillText ctx (:name item) cx (+ (:y item) 18))
       (when (pos? (.-length (:type item)))
         (set! (.-font ctx) SUB-FONT)
@@ -156,7 +162,7 @@
     (do
       (set! (.-textAlign ctx) "left")
       (set! (.-font ctx) "bold 13px system-ui, sans-serif")
-      (set! (.-fillStyle ctx) (:border item))
+      (set! (.-fillStyle ctx) (:border c))
       (.fillText ctx (:name item) (+ (:x item) 12) (+ (:y item) 20))
       (when (pos? (.-length (:type item)))
         (let [nw (.-width (.measureText ctx (:name item)))
@@ -174,7 +180,7 @@
     (rounded-rect ctx bx by s s 3)
     (set! (.-fillStyle ctx) (:btn-fill @palette))
     (.fill ctx)
-    (set! (.-strokeStyle ctx) (:border item))
+    (set! (.-strokeStyle ctx) (:border c))
     (set! (.-lineWidth ctx) 1)
     (.stroke ctx)
     (.beginPath ctx)
@@ -203,7 +209,8 @@
   disc, blocked = square, done = disc with a check."
   [ctx item]
   (let [s (:state item)
-        c (get (:state @palette) s)
+        ;; state colors are flat keys :state-new … — keywords are strings here
+        c (get @palette (str "state-" s))
         cx (+ (:x item) (:w item))
         cy (:y item)
         r STATE-R]
@@ -238,13 +245,13 @@
     (rounded-rect ctx (:x item) (:y item) (:w item) (:h item) 6)
     (set! (.-fillStyle ctx) (:node-fill @palette))
     (.fill ctx)
-    (set! (.-strokeStyle ctx) (if sel? ACCENT (:node-stroke @palette)))
+    (set! (.-strokeStyle ctx) (if sel? (:accent @palette) (:node-stroke @palette)))
     (set! (.-lineWidth ctx) (if sel? 2 1))
     (.stroke ctx)
     ;; a :ref node reads as a container: a second border inside the first
     (when (:ref? item)
       (rounded-rect ctx (+ (:x item) 3) (+ (:y item) 3) (- (:w item) 6) (- (:h item) 6) 4)
-      (set! (.-strokeStyle ctx) (if sel? ACCENT (:sub @palette)))
+      (set! (.-strokeStyle ctx) (if sel? (:accent @palette) (:sub @palette)))
       (set! (.-lineWidth ctx) 1)
       (.stroke ctx))
     (when (and text? (some? (:state item)))
@@ -252,7 +259,7 @@
     (when text?
     (set! (.-textAlign ctx) "center")
     (set! (.-font ctx) NODE-FONT)
-    (set! (.-fillStyle ctx) (type-color (:color item)))
+    (set! (.-fillStyle ctx) (node-color item))
     (.fillText ctx (:name item) (+ (:x item) (/ (:w item) 2)) (+ (:y item) 19))
     (when (pos? (.-length (:type item)))
       (set! (.-font ctx) SUB-FONT)
@@ -281,7 +288,7 @@
 (defn- draw-edge [ctx item sel? detail?]
   (let [d (:diff item)
         removed? (= d "removed")
-        color (if sel? ACCENT (if (some? d) (diff-color d) (:edge @palette)))
+        color (if sel? (:accent @palette) (if (some? d) (diff-color d) (:edge @palette)))
         arrow-color (if (some? d) (diff-color d) (:arrow @palette))]
     (when removed?
       (set! (.-globalAlpha ctx) 0.45)
@@ -345,6 +352,7 @@
       (set! (.-width canvas-el) pw)
       (set! (.-height canvas-el) ph))
     (.setTransform ctx 1 0 0 1 0 0)
+    (.clearRect ctx 0 0 pw ph)
     (set! (.-fillStyle ctx) (:bg @palette))
     (.fillRect ctx 0 0 pw ph)
     (.setTransform ctx (* dpr (:k view)) 0 0 (* dpr (:k view))
@@ -392,7 +400,7 @@
 (defn setup-pan-zoom! [wrap]
   (.addEventListener wrap "wheel"
     (fn [e]
-      (when-not (.closest (.-target e) "#details, #banner, #collapsed-panel, #theme-toggle, #diff-legend, #export-btn, #export-menu")
+      (when-not (.closest (.-target e) "#details, #banner, #collapsed-panel, #theme-toggle, #theme-select, #diff-legend, #export-btn, #export-menu")
         (.preventDefault e)
         (let [factor (if (< (.-deltaY e) 0) 1.1 (/ 1 1.1))
               rect (.getBoundingClientRect wrap)
@@ -407,7 +415,7 @@
   (let [drag (atom nil)]
     (.addEventListener wrap "pointerdown"
       (fn [e]
-        (when-not (.closest (.-target e) "#details, #banner, #collapsed-panel, #theme-toggle, #diff-legend, #export-btn, #export-menu")
+        (when-not (.closest (.-target e) "#details, #banner, #collapsed-panel, #theme-toggle, #theme-select, #diff-legend, #export-btn, #export-menu")
           ;; NO setPointerCapture here: capturing on pointerdown retargets
           ;; the subsequent click to the wrap, so the canvas onclick
           ;; (selection) would never fire for plain clicks.

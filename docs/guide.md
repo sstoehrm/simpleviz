@@ -15,6 +15,7 @@ The README example shows every attribute simpleviz reads.
   disc with a check. Any other value is an ordinary attribute.
 - `:ref` links the element to another graph file (see
   [Following refs](#following-refs)). A node with a ref gets a double border.
+- `:theme` at the top level sets the graph's colors (see [Themes](#themes)).
 - An edge's key is its endpoints, nodes or boxes, in left/right order.
   Writing both `[:a :b]` and `[:b :a]` warns "same connection". An edge
   between a box and its own content, or a box and itself, is skipped with a
@@ -27,6 +28,52 @@ Invalid references, duplicate box memberships and containment cycles skip the
 element and explain why in a warning banner. A parse error shows an error
 banner and keeps the last good render. Graphs with 500+ nodes open with all
 top-level boxes collapsed.
+
+## Themes
+
+A graph file can set its own colors with a top-level `:theme`: either the
+name of a built-in theme or a map of changes on top of one.
+
+    {:theme :nord
+     :nodes {:api {:type "service"}}}
+
+    {:theme {:base :nord          ; the theme to start from (default :light)
+             :bg "#fdf6e3"        ; then any theme key
+             :accent "#b58900"}
+     :nodes {:api {:type "service"}}}
+
+The file's theme wins over the ☀/🌙 switch, which is hidden while such a
+file is shown, and it carries into PNG and SVG exports. A comparison shows
+the new file's theme. Files without `:theme` follow the switch.
+
+The theme menu at the top of the page sets `:theme` in the file to a
+built-in name, or removes it ("no theme"). It's an edit like any other: it
+rewrites the file, and ↶ undoes it. In a comparison it edits the new file,
+whose theme is shown. The menu is disabled for a custom `:theme` map (a
+name would drop its changes; edit those in the file) and for files the
+page can't edit, such as a served PNG.
+
+Built-in themes: `light` and `dark` (the switch's two), `print` (white,
+greys, no box fills), `high-contrast`, `blueprint`, `paper`,
+`solarized-light`, `solarized-dark`, `nord`, `dracula`, `carbonfox` and
+`one-dark`.
+
+| Group | Keys |
+|---|---|
+| page | `:bg :panel :panel-border :panel-divider :text :text-strong :text-muted :text-dim :hover :hover-plain :accent :on-accent :shadow` |
+| canvas | `:node-fill :node-stroke :edge :arrow :sub` (the `(type)` line) `:label` (edge labels) `:btn-fill` (box header button) |
+| compare | `:diff-added :diff-modified :diff-removed` |
+| `:state` marks | `:state-new :state-in-progress :state-blocked :state-done` |
+| type colors | `:node-saturation :node-lightness :box-saturation :box-lightness :neutral-node-lightness :neutral-box-lightness` (0–100), `:box-fill-alpha` (0–1) |
+
+(`:on-accent`: text on accent-colored buttons and hints)
+
+Colors are strings: `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`, or
+`rgb()`/`rgba()`/`hsl()`/`hsla()`. Named colors aren't accepted. Each `:type` keeps its hue in every theme: the type-color keys
+set only saturation and lightness, and the `neutral` ones the grey of
+untyped nodes and boxes. An unknown theme, key or value is skipped with a
+warning and the rest of the theme applies. Custom colors get no contrast
+check.
 
 ## Comparing two versions
 

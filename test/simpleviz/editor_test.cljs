@@ -300,6 +300,13 @@
     (assert/equal (chord-for "box" "remove-node-member") "r n")
     (assert/equal (chord-hint "box" "r") "r … r rename · n remove node")))
 
+(test "n n on a box is new node inside it, as c n is (#105)"
+  (fn []
+    (assert/equal (chord-action "box" "n" "n") "new-node-in-box")
+    (assert/equal (chord-action "box" "c" "n") "new-node-in-box")
+    (assert/equal (chord-for "box" "new-node-in-box") "n n")
+    (assert/equal (chord-hint "box" "n") "n … n new node · b new box")))
+
 (test "pick-ops box-drop accepts only a node whose parent is the box"
   (fn []
     (let [pick {:mode "box-drop" :box "g"}]

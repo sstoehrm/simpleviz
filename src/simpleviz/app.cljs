@@ -1018,7 +1018,7 @@
       (if (some? (:error raw))
         (do (when (nil? (:graph @state))
               ;; no graph to show (a navigation landed on a broken file):
-              ;; back to the toggle's theme, which the now-visible toggle shows
+              ;; back to your theme (or the OS's), which the menu shows again
               (apply-theme! (effective-theme nil (:theme-pref @state) (:theme @state))))
             (swap! state assoc :error (str "Graph error: " (:error raw)) :dismissed-error nil))
         (let [g (assoc raw :boxes-by-name

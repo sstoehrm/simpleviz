@@ -283,6 +283,17 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
                                    letter-spacing: .05em; text-transform: uppercase;
                                    color: var(--diff-modified); margin-top: 8px; }
 #details .details-changes dt { margin-top: 8px; }
+#details .details-pairs { margin: 8px 0 4px; }
+#details .details-pairs-header { font-weight: 600; font-size: 10.5px; letter-spacing: .07em;
+                                 text-transform: uppercase; color: var(--text-dim); }
+#details .pair-row { display: block; width: 100%; text-align: left; border: none;
+                     background: none; color: var(--accent); cursor: pointer; padding: 3px 6px;
+                     margin: 2px -6px 0; border-radius: 6px; font-size: 12.5px;
+                     font-family: ui-monospace, "Cascadia Mono", monospace; }
+#details button.pair-row:hover { background: var(--hover); }
+#details .pair-row.broken { color: var(--text-dim); cursor: default; }
+#details .pair-problem { font-family: system-ui, sans-serif; font-size: 11.5px;
+                         color: var(--diff-removed); }
 
 /* keyboard chord shown inside a toolbar button */
 .key-hint { margin-left: 6px; font-family: ui-monospace, monospace; font-size: 9.5px;

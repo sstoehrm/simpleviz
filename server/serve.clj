@@ -12,6 +12,7 @@
             [graph]
             [log]
             [org.httpkit.server :as srv]
+            [pairs]
             [png])
   (:import [clojure.lang LineNumberingPushbackReader]
            [java.io StringReader]))
@@ -367,18 +368,83 @@
                           {})))))
     (graph/normalize root)))
 
+(def ^:private graph-cache
+  "canonical path -> {:mtime ms :graph g} or {:mtime ms :error msg}: the
+  files pairs read, parsed once per modification."
+  (atom {}))
+
+(defn- cached-graph
+  "The normalized graph in canonical file f (`rel` names it in
+  messages), parsed once per mtime; throws \"<rel> does not parse\"."
+  [f rel]
+  (let [k (.getPath f)
+        mtime (.lastModified f)
+        hit (get @graph-cache k)
+        entry (if (= mtime (:mtime hit))
+                hit
+                (let [e (try {:mtime mtime :graph (parse-graph (read-source k))}
+                             (catch Exception _ {:mtime mtime :error (str rel " does not parse")}))]
+                  (swap! graph-cache assoc k e)
+                  e))]
+    (if-let [err (:error entry)]
+      (throw (ex-info err {}))
+      (:graph entry))))
+
+(defn- read-rel-graph
+  "The normalized graph of root-relative `rel` under folder `root`, for
+  pairs: throws \"<rel> not found\", resolve-path's refusal, or
+  \"<rel> does not parse\"."
+  [root rel]
+  (let [f (try (resolve-path root rel)
+               (catch Exception e
+                 (throw (ex-info (if (str/starts-with? (str (ex-message e)) "no such file")
+                                   (str rel " not found")
+                                   (ex-message e))
+                                 {}))))]
+    (cached-graph f rel)))
+
+(defn- scan-edn
+  "Root-relative paths of the .edn files under folder `root`: not in a
+  dot-folder or node_modules, not a dotfile, and not a fork of `suffix`."
+  [root suffix]
+  (let [root-p (.toPath (io/file root))]
+    (->> (file-seq (io/file root))
+         (filter (fn [f] (and (.isFile f) (str/ends-with? (str/lower-case (.getName f)) ".edn"))))
+         (map (fn [f] (str/replace (str (.relativize root-p (.toPath f))) java.io.File/separator "/")))
+         (remove (fn [rel] (some (fn [seg] (or (str/starts-with? seg ".") (= seg "node_modules")))
+                                 (str/split rel #"/"))))
+         (remove (fn [rel] (and (some? suffix) (some? (fork-base rel suffix)))))
+         sort)))
+
+(defn pair-context
+  "The pairs/attach ctx for root-relative `rel` under canonical folder
+  `root`: reads through the mtime cache, knows `suffix`'s forks, and —
+  with scan? — the reverse index of every .edn under root (else an
+  empty one, as check has it)."
+  [root rel suffix scan?]
+  (let [read (fn [r] (read-rel-graph root r))]
+    {:path rel
+     :read read
+     :fork-of (fn [r] (when (some? suffix) (fork-base r suffix)))
+     :index (if scan?
+              (pairs/index (keep (fn [r] (try [r (read r)] (catch Exception _ nil)))
+                                 (scan-edn root suffix)))
+              {})}))
+
 (defn graph-json
   "Parse an EDN string, normalize it, return the graph as a JSON string.
   With fname, the payload carries it as :file (the export download
   name). extra-map, when given, is merged into the payload (e.g. the
-  :editable flag). Parse failures return {\"error\": message} instead of
-  throwing."
+  :editable flag); prepare, when given, transforms the normalized graph
+  first (pairs/attach). Parse failures return {\"error\": message}
+  instead of throwing."
   ([s] (graph-json s nil))
   ([s fname] (graph-json s fname nil))
-  ([s fname extra-map]
+  ([s fname extra-map] (graph-json s fname extra-map identity))
+  ([s fname extra-map prepare]
    (try
      (json/generate-string
-      (cond-> (parse-graph s)
+      (cond-> (prepare (parse-graph s))
         (some? fname) (assoc :file fname)
         (some? extra-map) (merge extra-map)))
      (catch Exception e
@@ -387,20 +453,24 @@
 (defn compare-json
   "Parse and normalize two EDN strings, diff them into one union-graph
   JSON string; file-name overrides the export download name (defaults to
-  new-name's basename). A parse failure returns {\"error\": \"<file>: msg\"}."
+  new-name's basename). A parse failure returns {\"error\": \"<file>: msg\"}.
+  prepare, when given, transforms each normalized graph before the diff
+  (pairs/attach)."
   ([old-s new-s old-name new-name]
    (compare-json old-s new-s old-name new-name
                  (.getName (io/file new-name)) nil))
   ([old-s new-s old-name new-name file-name]
    (compare-json old-s new-s old-name new-name file-name nil))
   ([old-s new-s old-name new-name file-name extra-map]
+   (compare-json old-s new-s old-name new-name file-name extra-map identity))
+  ([old-s new-s old-name new-name file-name extra-map prepare]
    (try
      (let [parse (fn [s nm]
                    (try (parse-graph s)
                         (catch Exception e
                           (throw (ex-info (str nm ": " (ex-message e)) {})))))
-           old-g (parse old-s old-name)
-           new-g (parse new-s new-name)]
+           old-g (prepare (parse old-s old-name))
+           new-g (prepare (parse new-s new-name))]
        (json/generate-string
         (cond-> (assoc (diff/union old-g new-g old-name new-name)
                        :file file-name)
@@ -491,15 +561,18 @@
                                    {:editable false :editable-old false}))
                    (let [{:keys [old new] :as pair} (sides rel)
                          path (or rel (root-rel))
-                         new-p (.getPath new)]
+                         new-p (.getPath new)
+                         prepare (fn [g] (pairs/attach g (pair-context @root-dir path suffix true)))]
                      (if (some? old)
                        (compare-json (side-source pair "old") (side-source pair "new")
                                      path (fork-name path suffix) (.getName new)
                                      {:editable (not (read-only-side? pair "new"))
                                       :editable-old (not (read-only-side? pair "old"))
-                                      :path path})
+                                      :path path}
+                                     prepare)
                        (graph-json (read-source new-p) (.getName new)
-                                   {:editable (not (png/png? new-p)) :path path})))))
+                                   {:editable (not (png/png? new-p)) :path path}
+                                   prepare)))))
                (catch Exception e
                  (json/generate-string {:error (ex-message e)})))]
     ;; graph-json/compare-json fold parse failures into the payload; only

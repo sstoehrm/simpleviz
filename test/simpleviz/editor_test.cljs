@@ -9,7 +9,7 @@
                                       chord-action chord-group? chord-for chord-hint
                                       add-node-in-box-ops box-remove-op
                                       name->id derived-id named-edge-ops creation-ops parse-entry
-                                      resolve-ref parse-nav nav-query follow-url crumb-url ref-of
+                                      resolve-ref parse-nav nav-query follow-url crumb-url ref-of banner-visible?
                                       theme-menu set-theme-op top-box-of]]))
 
 (test "target maps selection payloads to op targets"
@@ -424,3 +424,11 @@
       (assert/ok (nil? (top-box-of parent-of "n:free")) "a node in no box")
       (assert/ok (nil? (top-box-of parent-of "b:outer")) "a top-level box has no ancestor")
       (assert/ok (nil? (top-box-of nil "n:api")) "no parent-of at all"))))
+
+(test "a dismissed banner stays hidden until its text changes (#111)"
+  (fn []
+    (assert/equal (banner-visible? "a\nb" nil) true)
+    (assert/equal (banner-visible? "a\nb" "a\nb") false)
+    (assert/equal (banner-visible? "a\nc" "a\nb") true)
+    (assert/equal (banner-visible? "" nil) false)
+    (assert/equal (banner-visible? nil nil) false)))

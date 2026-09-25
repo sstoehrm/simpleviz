@@ -347,6 +347,13 @@
   [trail i]
   (nav-query (nth trail i) (vec (.slice trail 0 i))))
 
+(defn banner-visible?
+  "Show a banner with `text` unless it's empty or the viewer dismissed
+  exactly this text (`dismissed`, nil when nothing was): a dismissed
+  warnings or error banner comes back once its content changes."
+  [text dismissed]
+  (boolean (and (some? text) (not= text "") (not= text dismissed))))
+
 (defn ref-of
   "The selection's :ref when it is a non-blank string, else nil."
   [sel]

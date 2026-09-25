@@ -39,12 +39,25 @@ body { margin: 0; font-family: system-ui, sans-serif; overflow: hidden;
                  line-height: 1; cursor: pointer; padding: 0; border-radius: 4px; }
 #details-close:hover { background: var(--hover-plain); color: var(--text-strong); }
 
-#banner { position: fixed; top: 0; left: 0; right: 0; z-index: 10;
-          padding: 8px 14px; font-size: 13px; white-space: pre-line; }
-#banner.error   { background: #fde8e8; color: #9b1c1c; border-bottom: 1px solid #f8b4b4; }
-#banner.warning { background: #fdf6b2; color: #723b13; border-bottom: 1px solid #fce96a;
+/* the banner and the controls share one bar across the top: the banner
+   takes the room left of the controls, so it never covers them (#111) */
+#top-bar { position: fixed; top: 0; left: 0; right: 0; z-index: 10;
+           display: flex; align-items: flex-start; gap: 12px;
+           padding: 8px 12px 0; pointer-events: none; }
+#root.inspecting #top-bar { right: var(--inspector-w); }
+#banner { flex: 1 1 auto; min-width: 0; display: flex; align-items: flex-start; gap: 8px;
+          padding: 7px 6px 7px 14px; font-size: 13px; white-space: pre-line;
+          border-radius: 8px; box-shadow: 0 1px 4px var(--shadow); pointer-events: auto; }
+#banner .banner-text { flex: 1 1 auto; min-width: 0; }
+#banner.error   { background: #fde8e8; color: #9b1c1c; border: 1px solid #f8b4b4; }
+#banner.dismissible { cursor: pointer; }
+#banner.warning { background: #fdf6b2; color: #723b13; border: 1px solid #fce96a;
                   cursor: pointer; }
 #banner.warning.collapsed { max-height: 2.3em; overflow: hidden; }
+.banner-close { flex: none; border: none; background: none; color: inherit; opacity: .7;
+                font-size: 16px; line-height: 1; width: 22px; height: 22px; padding: 0;
+                border-radius: 4px; cursor: pointer; }
+.banner-close:hover { opacity: 1; background: rgba(0, 0, 0, .08); }
 
 #details { position: fixed; top: 0; right: 0; bottom: 0; width: var(--inspector-w);
            overflow: auto; background: var(--panel);
@@ -146,9 +159,9 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
 #collapsed-panel .cp-row:hover .cp-plus { color: var(--accent); }
 
 /* the controls at the top right: one row, 8px apart, left of an open inspector */
-#top-right { position: fixed; top: 8px; right: 12px; z-index: 9;
+/* in #top-bar: kept on the right even without a banner */
+#top-right { position: relative; margin-left: auto; flex: none;
              display: flex; align-items: center; gap: 8px; pointer-events: none; }
-#root.inspecting #top-right { right: calc(var(--inspector-w) + 12px); }
 #top-right > * { pointer-events: auto; }
 
 #help-btn { width: 32px; height: 32px; border-radius: 50%;

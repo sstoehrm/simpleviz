@@ -15,7 +15,8 @@
 (def elk (js/ELK.))
 (def app-el (js/document.getElementById "app"))
 
-(def state (atom {:error nil :warnings [] :graph nil :layout nil
+(def state (atom {:error nil :notice nil :dismissed-error nil :dismissed-warnings nil
+                  :warnings [] :graph nil :layout nil
                   :colors nil :selected nil :collapsed false
                   :collapsed-boxes #{} :layouting false
                   :diff-cursors {}
@@ -467,32 +468,52 @@
               (action-btn nil nil "new-node")]
              (when-let [entry (:id-entry st)] [(id-entry-row nil entry)])))]))
 
-(defn- banner-view [{:keys [error warnings collapsed edit-error disconnected nav-error]}]
-  (cond
-    disconnected
-    [:div {:id "banner" :class "error"}
-     "Not connected: the simpleviz server is not running. Restart it to resume live reload."]
+(defn- banner-close
+  "The banner's × — dismisses it without the click reaching the banner."
+  [dismiss!]
+  [:button {:class "banner-close" :type "button" :title "Dismiss" :aria-label "Dismiss"
+            :on-click (fn [e] (.stopPropagation e) (dismiss!))}
+   "×"])
 
-    (some? edit-error)
-    [:div {:id "banner" :class "error"
-           :on-click (fn [_] (swap! state assoc :edit-error nil))}
-     (str "Edit failed: " edit-error)]
+(defn- banner
+  "A banner: its text, and × when `dismiss!` is given (clicking the text
+  does `on-click`, default the same dismissal)."
+  [cls text dismiss! & [on-click]]
+  [:div {:id "banner" :class (str cls (when (some? dismiss!) " dismissible"))
+         :on-click (fn [_] (when-let [f (or on-click dismiss!)] (f)))}
+   [:span {:class "banner-text"} text]
+   (when (some? dismiss!) (banner-close dismiss!))])
 
-    (some? nav-error)
-    [:div {:id "banner" :class "error"
-           :on-click (fn [_] (swap! state assoc :nav-error nil))}
-     nav-error]
+(defn- banner-view
+  "The one banner shown, most urgent first. Every one but \"not
+  connected\" can be dismissed: an edit, navigation or notice error
+  clears; the graph error and the warnings hide until their text changes
+  (editor/banner-visible?)."
+  [{:keys [error warnings collapsed edit-error disconnected nav-error notice
+           dismissed-error dismissed-warnings]}]
+  (let [warn-text (.join warnings "\n")]
+    (cond
+      disconnected
+      (banner "error" "Not connected: the simpleviz server is not running. Restart it to resume live reload." nil)
 
-    (some? error)
-    [:div {:id "banner" :class "error"} error]
+      (some? edit-error)
+      (banner "error" (str "Edit failed: " edit-error) #(swap! state assoc :edit-error nil))
 
-    (pos? (.-length warnings))
-    [:div {:id "banner"
-           :class (str "warning" (when collapsed " collapsed"))
-           :on-click (fn [_] (swap! state update :collapsed not))}
-     (.join warnings "\n")]
+      (some? nav-error)
+      (banner "error" nav-error #(swap! state assoc :nav-error nil))
 
-    :else nil))
+      (some? notice)
+      (banner "error" notice #(swap! state assoc :notice nil))
+
+      (editor/banner-visible? error dismissed-error)
+      (banner "error" error #(swap! state assoc :dismissed-error error))
+
+      (editor/banner-visible? warn-text dismissed-warnings)
+      (banner (str "warning" (when collapsed " collapsed")) warn-text
+              #(swap! state assoc :dismissed-warnings warn-text)
+              #(swap! state update :collapsed not))
+
+      :else nil)))
 
 (defn- item->payload [item]
   (let [nm (str (if (nil? (:name item)) "" (:name item)))
@@ -787,7 +808,6 @@
 (defn- app-view [st]
   [:div {:id "root" :class (str (when (some? (:pick st)) "picking")
                                 (when (some? (:selected st)) " inspecting"))}
-   (banner-view st)
    (hint-view st)
    (when (and (nil? (:scene st)) (nil? (:error st)))
      (load-view st))
@@ -797,8 +817,12 @@
     (when (some? (:graph st)) (legend-view st))]
    (when (:layouting st)
      [:div {:id "layouting"} "re-layouting…"])
-   ;; one row, so hidden buttons leave no holes; it moves left of the
-   ;; inspector while one is open
+   ;; the banner and the controls share the top: the banner takes the room
+   ;; left of the controls, so it never covers them (#111); both move left
+   ;; of the inspector while one is open
+   [:div {:id "top-bar"}
+    (banner-view st)
+   ;; one row, so hidden buttons leave no holes
    [:div {:id "top-right"}
     ;; always there and first, so it never shifts the others; disabled
     ;; until an edit keeps the old arrangement
@@ -824,7 +848,7 @@
     [:button {:id "help-btn" :type "button" :title "Help"
               :on-click (fn [e] (.stopPropagation e) (toggle-help!))}
      "?"]
-    (help-view st)]
+    (help-view st)]]
    (canvas-view)
    (when (and (some? (:scene st)) (current-edit-target-editable? st))
      (selection-toolbar st))
@@ -932,8 +956,10 @@
                 (swap! state assoc :layouting false)))))))
     (catch :default e
       (js/console.error "Relayout failed:" e)
+      ;; with a diagram on screen the failure isn't blocking: a notice
       (swap! state assoc :layouting false
-             :error (str "Render error: " (or (.-message e) (str e)))))))
+             (if (some? (:scene @state)) :notice :error)
+             (str "Render error: " (or (.-message e) (str e)))))))
 
 (defn- resolve-edit-target
   "The :edit-target to use for a freshly loaded graph g, given the
@@ -965,7 +991,7 @@
               ;; no graph to show (a navigation landed on a broken file):
               ;; back to the toggle's theme, which the now-visible toggle shows
               (apply-theme! (effective-theme nil (:theme @state))))
-            (swap! state assoc :error (str "Graph error: " (:error raw))))
+            (swap! state assoc :error (str "Graph error: " (:error raw)) :dismissed-error nil))
         (let [g (assoc raw :boxes-by-name
                        (reduce (fn [acc b] (assoc acc (:name b) b)) {} (:boxes raw)))
               first-load? (nil? (:graph @state))]
@@ -1022,7 +1048,7 @@
   (let [nav (editor/parse-nav js/location.search)]
     (swap! graph-gen inc)
     (swap! state assoc :nav nav
-           :nav-error nil :error nil :graph nil :scene nil :layout nil
+           :nav-error nil :error nil :notice nil :graph nil :scene nil :layout nil
            :selected nil :editing nil :edit-error nil :pick nil :pick-hint nil
            :chord nil :id-entry nil :pending-focus (:focus nav) :focus-center true
            :collapsed-boxes #{} :export-menu false)
@@ -1277,7 +1303,7 @@
                        ;; rather than silently losing the export as an
                        ;; unhandled promise rejection.
                        (.catch (fn [_] (download-blob! blob nm "png"))))
-                   (swap! state assoc :error
+                   (swap! state assoc :notice
                           "PNG export failed — the diagram may be too large")))
                "image/png"))))
 
@@ -1295,7 +1321,7 @@
         (download-blob! (js/Blob. [(canvas/export-svg sc pairs)] {:type "image/svg+xml"})
                         nm "svg")
         (catch :default e
-          (swap! state assoc :error
+          (swap! state assoc :notice
                  (str "SVG export failed — " (or (.-message e) (str e)))))))))
 
 ;; init

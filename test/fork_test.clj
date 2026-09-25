@@ -49,6 +49,23 @@
     (is (some #(clojure.string/includes? % "\"../notes.txt\"") @warnings))
     (fs/delete-tree root)))
 
+(deftest closure-warnings-say-link-for-refs-and-pairs
+  (let [root (tree! {"root.edn" "{:nodes {:a {:ref \"../x.edn\"} :b {:pair \"gone.edn#b\"}}}"})
+        warnings (atom [])]
+    (fork/closure "root.edn" (reader root) #(swap! warnings conj %))
+    (is (= ["root.edn: link \"../x.edn\" leaves the root folder, skipped"
+            "root.edn: link \"gone.edn\": no such file: gone.edn, skipped"]
+           @warnings))
+    (fs/delete-tree root)))
+
+(deftest fork-copies-a-pair-target-to-its-fork
+  (let [root (tree! {"overview.edn" "{:nodes {:api {:pair \"views/deploy.edn#api-svc\"}}}"
+                     "views/deploy.edn" "{:nodes {:api-svc {}}}"})
+        created (fork/fork! (.getPath (io/file root "overview.edn")) "next" (fn [_]))]
+    (is (= (mapv #(.getPath (io/file root %)) ["overview-next.edn" "views/deploy-next.edn"]) created))
+    (is (= (slurp (io/file root "views/deploy.edn")) (slurp (io/file root "views/deploy-next.edn"))))
+    (fs/delete-tree root)))
+
 (deftest closure-names-the-file-on-a-parse-error
   (let [root (tree! {"root.edn" "{:nodes {:a {:ref \"bad.edn\"}}}" "bad.edn" "{:unclosed"})]
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"^bad\.edn: "

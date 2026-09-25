@@ -25,9 +25,9 @@
          vec)))
 
 (defn closure
-  "Root-relative paths reachable by refs from `start`: `start` first,
-  depth-first, each once. `read-rel` returns the EDN text of a
-  root-relative path or throws; `warn!` takes one message. A ref that
+  "Root-relative paths reachable by links (refs and pairs) from `start`:
+  `start` first, depth-first, each once. `read-rel` returns the EDN text of a
+  root-relative path or throws; `warn!` takes one message. A link that
   leaves the root or whose file cannot be read is reported and skipped;
   a parse error propagates as ex-info \"<rel>: <msg>\"."
   [start read-rel warn!]
@@ -41,14 +41,14 @@
                 (let [target (paths/resolve-ref rel r)]
                   (cond
                     (nil? target)
-                    (warn! (str rel ": ref " (pr-str r) " leaves the root folder, skipped"))
+                    (warn! (str rel ": link " (pr-str r) " leaves the root folder, skipped"))
 
                     (some #{target} @seen) nil
 
                     :else
                     (let [text (try (read-rel target)
                                     (catch Exception e
-                                      (warn! (str rel ": ref " (pr-str r) ": " (ex-message e) ", skipped"))
+                                      (warn! (str rel ": link " (pr-str r) ": " (ex-message e) ", skipped"))
                                       nil))]
                       (when (some? text) (visit! target text)))))))]
       (visit! start (read-rel start))

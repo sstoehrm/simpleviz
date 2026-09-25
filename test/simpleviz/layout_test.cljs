@@ -149,3 +149,61 @@
                      (doseq [e (:edges l1)]
                        (assert/ok (and (:sections e) (pos? (.-length (:sections e))))
                                   (str "edge " (:id e) " has sections"))))))))))
+
+;; #94: the issue's graph. Four top-level boxes of different widths share
+;; one column; edits happen inside box3.
+(defn- issue-94-graph [edges]
+  (let [box (fn [nm members] {:id (str "b:" nm) :name nm :type "" :attrs {}
+                              :components (mapv (fn [m] (str "n:" m)) members)})]
+    (graph {:nodes {"api" (node "api" "service") "node2" (node "node2" "test")
+                    "node3" (node "node3" "test") "node4" (node "node4" "test")
+                    "box5" (node "box5" "test") "box6" (node "box6" "test")}
+            :edges edges
+            :boxes [(box "backend" ["api"]) (box "box2" ["node2"])
+                    (box "box3" ["node3" "box5" "box6"]) (box "box4" ["node4"])]
+            :parent-of {"n:api" "backend" "n:node2" "box2" "n:node3" "box3"
+                        "n:box5" "box3" "n:box6" "box3" "n:node4" "box4"}})))
+
+(def ^:private arrow {:source false :target true})
+
+(defn- relayout
+  "Fresh layout of g0, then the seeded relayout of g1 the page runs after
+  an edit; [positions before, positions after]."
+  [g0 g1]
+  (let [elk (ELK.)]
+    (-> (.layout elk (to-elk g0 measure))
+        (.then (fn [l0]
+                 (let [p0 (layout-positions l0)]
+                   (.then (.layout elk (seed-layout (to-elk g1 measure) p0))
+                          (fn [l1] [p0 (layout-positions l1)]))))))))
+
+(test "a seeded relayout of an unchanged graph moves nothing (#94)"
+  (fn []
+    ;; boxes reached ELK without a size, so its interactive layering saw
+    ;; them as 0 wide and split boxes that shared a column
+    (let [g (issue-94-graph [(edge 0 "box6" "box5" arrow) (edge 1 "node3" "box6" arrow)])]
+      (.then (relayout g g)
+             (fn [[p0 p1]]
+               (doseq [id (js/Object.keys p0)]
+                 (let [a (get p0 id) b (get p1 id)]
+                   (assert/ok (and (< (js/Math.abs (- (:x a) (:x b))) 1)
+                                   (< (js/Math.abs (- (:y a) (:y b))) 1))
+                              (str id " moved from " (:x a) "," (:y a) " to " (:x b) "," (:y b))))))))))
+
+(test "an edit inside one box keeps the other boxes in their column (#94)"
+  (fn []
+    (let [g0 (issue-94-graph [(edge 0 "box6" "box5" arrow)])
+          g1 (issue-94-graph [(edge 0 "box6" "box5" arrow) (edge 1 "node3" "box6" arrow)])
+          others ["b:backend" "b:box2" "b:box4"]
+          column? (fn [pos]
+                    ;; every pair's x ranges overlap: one layer
+                    (every? (fn [[a b]]
+                              (let [p (get pos a) q (get pos b)]
+                                (and (< (:x p) (+ (:x q) (:w q))) (< (:x q) (+ (:x p) (:w p))))))
+                            (for [a others b others :when (not= a b)] [a b])))
+          order (fn [pos] (sort-by (fn [id] (:y (get pos id))) others))]
+      (.then (relayout g0 g1)
+             (fn [[p0 p1]]
+               (assert/ok (column? p0) "the fresh layout stacks them in one column")
+               (assert/ok (column? p1) "they still share one column after the edit")
+               (assert/deepEqual (vec (order p1)) (vec (order p0)) "in the same order"))))))

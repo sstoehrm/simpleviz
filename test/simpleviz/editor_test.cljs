@@ -10,7 +10,7 @@
                                       add-node-in-box-ops box-remove-op
                                       name->id derived-id named-edge-ops creation-ops parse-entry
                                       resolve-ref parse-nav nav-query follow-url crumb-url ref-of banner-visible?
-                                      theme-menu set-theme-op top-box-of]]))
+                                      theme-menu top-box-of]]))
 
 (test "target maps selection payloads to op targets"
   (fn []
@@ -397,25 +397,24 @@
     (assert/ok (nil? (chord-action "edge" "f" "p")))
     (assert/equal (chord-hint "node" "f") "f … r follow ref · p follow pair")))
 
-(test "theme-menu follows the file's theme and whether the page may edit it"
+(test "theme-menu shows your theme unless the file sets its own (#115)"
   (fn []
-    (let [named (theme-menu {:theme {:bg "#000"} :theme-name "nord" :editable true})
-          custom (theme-menu {:theme {:bg "#000"} :editable true})
-          none (theme-menu {:editable true})
-          read-only (theme-menu {:theme {:bg "#000"} :theme-name "nord"})]
-      (assert/equal (:value named) "nord")
-      (assert/equal (:disabled named) false)
+    (let [mine (theme-menu {:editable true} "nord")
+          os (theme-menu {:editable true} nil)
+          named (theme-menu {:theme {:bg "#000"} :theme-name "dracula" :editable true} "nord")
+          custom (theme-menu {:theme {:bg "#000"}} "nord")]
+      ;; no :theme in the file: the menu is yours, "" = follow the OS
+      (assert/equal (:value mine) "nord")
+      (assert/equal (:disabled mine) false)
+      (assert/equal (:file mine) false)
+      (assert/equal (:value os) "")
+      ;; the file's :theme wins, whether a built-in or a custom map
+      (assert/equal (:value named) "dracula")
+      (assert/equal (:disabled named) true)
+      (assert/equal (:file named) true)
       (assert/equal (:value custom) "custom")
       (assert/equal (:disabled custom) true)
-      (assert/equal (:value none) "")
-      (assert/equal (:disabled none) false)
-      (assert/equal (:value read-only) "nord")
-      (assert/equal (:disabled read-only) true))))
-
-(test "set-theme-op names a built-in, or removes the theme for the empty entry"
-  (fn []
-    (assert/deepEqual (set-theme-op "nord") {:op "set-theme" :theme "nord"})
-    (assert/deepEqual (set-theme-op "") {:op "set-theme" :theme nil})))
+      (assert/equal (:file custom) true))))
 
 (test "top-box-of walks a scene id up to its outermost box"
   (fn []

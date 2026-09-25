@@ -15,6 +15,27 @@
 (def elk (js/ELK.))
 (def app-el (js/document.getElementById "app"))
 
+(def ^:private theme-key
+  "localStorage key of your theme (the old light/dark toggle used it too)."
+  "simpleviz-theme")
+
+(defn- stored-theme
+  "Your theme from this browser: a built-in name, else nil (follow the
+  OS). Storage can be unavailable (private windows) — then nil."
+  []
+  (try (let [v (js/localStorage.getItem theme-key)]
+         (when (some #(= v %) themes/NAMES) v))
+       (catch :default _ nil)))
+
+(defn- store-theme!
+  "Save your theme (\"\" forgets it: follow the OS); storage failures
+  only mean the choice doesn't outlive the page."
+  [v]
+  (try (if (seq v)
+         (js/localStorage.setItem theme-key v)
+         (js/localStorage.removeItem theme-key))
+       (catch :default _ nil)))
+
 (def state (atom {:error nil :notice nil :dismissed-error nil :dismissed-warnings nil
                   :warnings [] :graph nil :layout nil
                   :colors nil :selected nil :collapsed false
@@ -28,7 +49,9 @@
                   :focus-center true :flash nil
                   :help false :export-menu false :disconnected false
                   :nav (editor/parse-nav js/location.search) :nav-error nil
-                  ;; light or dark for files without :theme, as the OS has it
+                  ;; your theme (#115), for files without :theme
+                  :theme-pref (stored-theme)
+                  ;; light or dark as the OS has it, when you chose none
                   :theme (if (.-matches (js/window.matchMedia "(prefers-color-scheme: dark)"))
                            "dark"
                            "light")}))
@@ -747,7 +770,7 @@
       "⇩ opens the export menu: PNG downloads the diagram as an image, SVG as a vector drawing, both with the source EDN embedded. An exported PNG can be served again, compared, or turned back into EDN with \"simpleviz extract\"; simpleviz can't read an SVG back yet.")
      (help-section
       "Theme"
-      "A graph without :theme is light or dark, following your system setting. A graph file can set its own theme instead — :theme :nord, or overrides on one such as {:base :nord :accent \"#b58900\"}. The theme menu at the top sets :theme in the file to one of the twelve built-in themes (↶ undoes it), or removes it (default); it's disabled for a custom theme map and for read-only files.")]))
+      "The theme menu at the top picks your theme, one of the twelve built-ins, for every graph without :theme; it's saved in this browser, and default follows your system's light or dark. A graph file can set its own theme instead — :theme :nord, or overrides on one such as {:base :nord :accent \"#b58900\"} — which wins: the menu then shows it, marked (file), and you change it in the file.")]))
 
 (defn- hint-view
   "The line above the toolbar: the pending chord's completions, else the
@@ -765,21 +788,27 @@
     [:div {:id "pick-hint"} "name the new edge — Enter creates it, Esc cancels"]))
 
 (defn- theme-menu-view
-  "The built-in themes as a menu that sets :theme in the file whose theme
-  is shown (see editor/theme-menu). Options carry :selected — reagami
-  sets it as a property, so the menu follows an undo or an outside edit."
-  [g]
-  (let [{:keys [value disabled title]} (editor/theme-menu g)
+  "Your theme, for every graph without :theme (see editor/theme-menu):
+  picking one saves it in this browser and repaints. A file's :theme
+  wins — the menu then shows it, marked (file), disabled. Options carry
+  :selected — reagami sets it as a property, so the menu follows."
+  [g pref]
+  (let [{:keys [value disabled title file]} (editor/theme-menu g pref)
         opt (fn [v label & [off]]
-              [:option {:value v :selected (= v value) :disabled (boolean off)} label])]
+              [:option {:value v :selected (= v value) :disabled (boolean off)}
+               (if (and file (= v value)) (str label " (file)") label)])]
     (into [:select {:id "theme-select" :title title :disabled disabled
                     :on-click (fn [e] (.stopPropagation e))
                     :on-change (fn [e]
-                                 (let [el (.-target e)]
-                                   (post-edit! [(editor/set-theme-op (.-value el))] "new")
-                                   ;; hand the keys back, so Ctrl+Z undoes the pick
+                                 (let [el (.-target e)
+                                       v (.-value el)]
+                                   (store-theme! v)
+                                   ;; paint first: the swap re-renders synchronously
+                                   (apply-theme! (effective-theme (:graph @state) v (:theme @state)))
+                                   (swap! state assoc :theme-pref (if (seq v) v nil))
+                                   ;; hand the keys back to the chords
                                    (.blur el)))}
-           (opt "" "default")]
+           (opt "" "default (follow the OS)")]
           (cond-> (mapv (fn [n] (opt n n)) themes/NAMES)
             (= value "custom") (conj (opt "custom" "custom" true))))))
 
@@ -833,7 +862,7 @@
                          "Re-layout: the layout is already fresh")
                 :on-click (fn [e] (.stopPropagation e) (relayout! true))}
        "▦"])
-    (when (some? (:graph st)) (theme-menu-view (:graph st)))
+    (when (some? (:graph st)) (theme-menu-view (:graph st) (:theme-pref st)))
     (when (current-edit-target-editable? st)
       [:button {:id "undo-btn" :type "button" :title "Undo last edit (Ctrl+Z)"
                 :on-click (fn [e] (.stopPropagation e) (post-edit! [{:op "undo"}]))}
@@ -989,8 +1018,8 @@
       (if (some? (:error raw))
         (do (when (nil? (:graph @state))
               ;; no graph to show (a navigation landed on a broken file):
-              ;; back to the toggle's theme, which the now-visible toggle shows
-              (apply-theme! (effective-theme nil (:theme @state))))
+              ;; back to your theme (or the OS's), which the menu shows again
+              (apply-theme! (effective-theme nil (:theme-pref @state) (:theme @state))))
             (swap! state assoc :error (str "Graph error: " (:error raw)) :dismissed-error nil))
         (let [g (assoc raw :boxes-by-name
                        (reduce (fn [acc b] (assoc acc (:name b) b)) {} (:boxes raw)))
@@ -998,7 +1027,7 @@
           (swap! graph-gen inc)
           (demote-layout-cache!)
           (set! (.-title js/document) (format/tab-title g))
-          (apply-theme! (effective-theme g (:theme @state)))
+          (apply-theme! (effective-theme g (:theme-pref @state) (:theme @state)))
           (swap! state (fn [st]
                          (assoc st :error nil :graph g :warnings (:warnings g)
                                 :edit-target (resolve-edit-target g (:edit-target st)))))
@@ -1225,9 +1254,10 @@
 
 (defn- effective-theme
   "The theme to show for graph g: the file's :theme (resolved by the
-  server), else light or dark as the OS has it."
-  [g os-theme]
-  (or (:theme g) (get themes/THEMES os-theme) (get themes/THEMES :light)))
+  server), else your theme `pref`, else light or dark as the OS has it."
+  [g pref os-theme]
+  (or (:theme g) (get themes/THEMES pref) (get themes/THEMES os-theme)
+      (get themes/THEMES :light)))
 
 (defn- apply-theme!
   "Paint page and canvas in theme, a complete theme map: the chrome via
@@ -1398,7 +1428,7 @@
       (swap! state assoc :export-menu false)))
   true)
 (canvas/set-repaint! paint-now!)
-(apply-theme! (effective-theme (:graph @state) (:theme @state)))
+(apply-theme! (effective-theme (:graph @state) (:theme-pref @state) (:theme @state)))
 (add-watch state :render (fn [_ _ _ _] (rerender!)))
 (canvas/setup-pan-zoom! (js/document.getElementById "canvas-wrap"))
 (rerender!)

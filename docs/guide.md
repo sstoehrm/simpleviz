@@ -45,15 +45,13 @@ name of a built-in theme or a map of changes on top of one.
      :nodes {:api {:type "service"}}}
 
 The file's theme carries into PNG and SVG exports. A comparison shows the
-new file's theme. Files without `:theme` are light or dark, following the
-operating system's setting.
+new file's theme.
 
-The theme menu at the top of the page sets `:theme` in the file to a
-built-in name, or removes it ("default"). It's an edit like any other: it
-rewrites the file, and ↶ undoes it. In a comparison it edits the new file,
-whose theme is shown. The menu is disabled for a custom `:theme` map (a
-name would drop its changes; edit those in the file) and for files the
-page can't edit, such as a served PNG.
+The theme menu at the top of the page picks your theme for every graph
+without `:theme`. It's saved in this browser, not in any file, and
+"default" follows the operating system's light or dark setting. A file's
+`:theme` wins over it: the menu then shows the file's theme, marked
+"(file)", and is disabled; change that theme in the file.
 
 Built-in themes: `light` and `dark` (the two the OS setting picks from),
 `print` (white, greys, no box fills), `high-contrast`, `blueprint`, `paper`,

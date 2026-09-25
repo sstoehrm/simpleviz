@@ -181,3 +181,5 @@ changed are parsed again.
   `f p` chord; scene items carry `:pair?`/`:pair-problem?`.
 - In the browser: follow a pair both ways, back via the trail and the
   back button, a broken pair's banner and dimmed row.
+
+TODO: fold pairs into the project's concept graph (`blend:deduce`); skipped for now.

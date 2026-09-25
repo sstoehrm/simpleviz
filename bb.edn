@@ -42,8 +42,8 @@
                  :requires ([release])
                  :task (release/check (first *command-line-args*))}
   test:clj {:doc "Run Clojure server tests"
-            :requires ([clojure.test :as t] [server-test] [graph-test] [diff-test] [docs-test] [png-test] [edit-test] [log-test] [fork-test] [launcher-test] [install-test] [check-test] [cli-test] [release-test])
-            :task (let [{:keys [fail error]} (t/run-tests 'graph-test 'server-test 'diff-test 'docs-test 'png-test 'edit-test 'log-test 'fork-test 'launcher-test 'install-test 'check-test 'cli-test 'release-test)]
+            :requires ([clojure.test :as t] [server-test] [graph-test] [diff-test] [docs-test] [png-test] [edit-test] [log-test] [fork-test] [launcher-test] [install-test] [check-test] [cli-test] [release-test] [notices-test])
+            :task (let [{:keys [fail error]} (t/run-tests 'graph-test 'server-test 'diff-test 'docs-test 'png-test 'edit-test 'log-test 'fork-test 'launcher-test 'install-test 'check-test 'cli-test 'release-test 'notices-test)]
                     (when (pos? (+ fail error)) (System/exit 1)))}
   test:js  {:doc "Run JS unit tests (compiled squint output)"
             :requires ([babashka.fs :as fs])
@@ -93,7 +93,7 @@
                     (println (str "created dist/" bundle-name ".tar.gz")))}
   jar      {:doc "Build dist/simpleviz.jar, the release jar bbin installs: bb jar [version]"
             :depends [build]
-            :requires ([babashka.fs :as fs] [clojure.edn :as edn] [clojure.string :as str])
+            :requires ([babashka.fs :as fs] [clojure.edn :as edn] [clojure.string :as str] [notices])
             :task (let [version (release-version)
                         stage (fs/path "dist" "jar-stage")
                         res (fs/path stage "res")
@@ -122,15 +122,16 @@
                       (java.nio.file.Files/copy (fs/path "LICENSE") (.getPath zfs "LICENSE" (make-array String 0))
                                                  (into-array java.nio.file.CopyOption
                                                              [java.nio.file.StandardCopyOption/REPLACE_EXISTING])))
-                    ;; every Maven library packed into the jar needs a notice
-                    (let [libs (with-open [z (java.util.zip.ZipFile. jar)]
-                                 (->> (enumeration-seq (.entries z))
-                                      (keep (fn [entry]
-                                              (second (re-matches (re-pattern "META-INF/maven/([^/]+/[^/]+)/pom\\.properties")
-                                                                   (.getName entry)))))
-                                      distinct sort vec))
-                          notices (slurp "THIRD-PARTY-NOTICES.md")
-                          missing (remove (fn [lib] (str/includes? notices lib)) libs)]
+                    ;; every library packed into the jar needs a notice: the jar's
+                    ;; Maven metadata names most of them, the stage's resolved
+                    ;; classpath all of them, malli included (it has no metadata)
+                    (let [in-meta (with-open [z (java.util.zip.ZipFile. jar)]
+                                    (notices/metadata-libs (map (fn [e] (.getName e)) (enumeration-seq (.entries z)))))
+                          cp (:out (shell {:dir (str stage) :out :string}
+                                          "bb" "-e" "(print (babashka.classpath/get-classpath))"))
+                          on-cp (notices/classpath-libs cp {:stage (str (fs/real-path stage))
+                                                            :m2 (str (fs/path (fs/home) ".m2" "repository"))})
+                          missing (notices/missing (concat in-meta on-cp) (slurp "THIRD-PARTY-NOTICES.md"))]
                       (when (seq missing)
                         (println (str "THIRD-PARTY-NOTICES.md does not mention: " (str/join ", " missing)))
                         (System/exit 1)))

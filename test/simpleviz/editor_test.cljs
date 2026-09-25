@@ -377,6 +377,24 @@
     (assert/ok (nil? (chord-action nil "f" "r")))
     (assert/equal (chord-for "node" "follow-ref") "f r")))
 
+(test "focus rides along in the URL, and only when there is one"
+  (fn []
+    (assert/equal (nav-query "views/d.edn" ["o.edn"] "n:api-svc")
+                  "?file=views%2Fd.edn&trail=o.edn&focus=n%3Aapi-svc")
+    (assert/deepEqual (parse-nav "?file=views%2Fd.edn&trail=o.edn&focus=n%3Aapi-svc")
+                      {:file "views/d.edn" :trail ["o.edn"] :focus "n:api-svc"})
+    (assert/deepEqual (parse-nav "?file=a.edn") {:file "a.edn" :trail []})
+    (assert/equal (follow-url "o.edn" [] "views/d.edn" "b:grp")
+                  "?file=views%2Fd.edn&trail=o.edn&focus=b%3Agrp")
+    (assert/equal (follow-url "o.edn" [] "x.edn") "?file=x.edn&trail=o.edn")))
+
+(test "f p follows a node's or a box's pair"
+  (fn []
+    (assert/equal (chord-action "node" "f" "p") "follow-pair")
+    (assert/equal (chord-action "box" "f" "p") "follow-pair")
+    (assert/ok (nil? (chord-action "edge" "f" "p")))
+    (assert/equal (chord-hint "node" "f") "f … r follow ref · p follow pair")))
+
 (test "theme-menu follows the file's theme and whether the page may edit it"
   (fn []
     (let [named (theme-menu {:theme {:bg "#000"} :theme-name "nord" :editable true})

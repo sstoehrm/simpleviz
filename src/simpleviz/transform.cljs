@@ -244,7 +244,10 @@
 (defn- apply-hints
   "c with its hint as x/y relative to the parent's absolute `origin`
   plus the matching elk.position; boxes also get the interactive
-  strategies and recurse."
+  strategies and recurse. A box also gets its hinted size: ELK computes
+  it anyway, but its interactive layering reads layers off each
+  element's x range, and a box without a size counts as 0 wide, so boxes
+  sharing a column would be split into several (#94)."
   [c origin out]
   (let [h (get out (:id c))
         x (- (:x h) (:x origin))
@@ -254,6 +257,8 @@
                                         {"elk.position" (str "(" x "," y ")")}))]
     (if (some? (:children c))
       (assoc c'
+             :width (:w h)
+             :height (:h h)
              :layoutOptions (merge (:layoutOptions c') interactive-options)
              :children (mapv (fn [k] (apply-hints k h out)) (:children c)))
       c')))

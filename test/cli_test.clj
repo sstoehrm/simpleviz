@@ -230,3 +230,28 @@
         (is (= 1 (count logs)) (str logs))
         (when (= 1 (count logs))
           (is (str/includes? (slurp (str (first logs))) "boom")))))))
+
+(deftest a-suffix-that-looks-like-a-flag-is-an-unknown-option
+  ;; `--noopen` used to become a suffix: "g---noopen.edn not found" (#98)
+  (with-tmp
+    (fn [tmp]
+      (spit (str (fs/path tmp "g.edn")) "{:nodes {:a {}}}")
+      (doseq [args [["g.edn" "--noopen"] ["g.edn" "next" "--noopen"]
+                    ["fork" "g.edn" "--noopen"] ["promote" "g.edn" "-x"]]]
+        (let [res (run-cli args :dir tmp)]
+          (is (= 1 (:exit res)) (pr-str args))
+          (is (= (str "simpleviz: unknown option: " (last args) " (see simpleviz --help)")
+                 (str/trim (:err res)))
+              (pr-str args))))
+      (is (= ["g.edn"] (map (comp str fs/file-name) (fs/list-dir tmp))) "no fork was written"))))
+
+(deftest demo-with-an-example-missing-says-so
+  ;; a broken build used to surface as a babashka stack trace (#98)
+  (let [res (p/shell {:out :string :err :string :continue true}
+                     "bb" "--config" (str proc-util/repo-root "/bb.edn") "-e"
+                     (str "(require 'cli) (alter-var-root #'cli/example-files conj \"nope.edn\")"
+                          " (cli/-main \"demo\" \"--no-open\")"))]
+    (is (= 1 (:exit res)))
+    (is (= (str "simpleviz: example missing from the classpath: nope.edn"
+                " — the install looks incomplete; reinstall simpleviz")
+           (str/trim (:err res))))))

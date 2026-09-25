@@ -5,7 +5,8 @@
   release jar runs it through simpleviz.main (bbin). Paths resolve from
   the working directory; the frontend, the examples and VERSION are
   classpath resources."
-  (:require [check]
+  (:require [babashka.fs :as fs]
+            [check]
             [clojure.java.browse :as browse]
             [clojure.java.io :as io]
             [clojure.string :as str]
@@ -60,9 +61,18 @@
   (binding [*out* *err*] (println usage))
   (System/exit 1))
 
+(defn- reject-flag!
+  "An argument starting with - that isn't a known flag is a mistyped one
+  (--noopen); taken as a suffix, it would name a fork like
+  graph---noopen.edn."
+  [arg]
+  (when (and (some? arg) (str/starts-with? arg "-"))
+    (die "unknown option: " arg " (see simpleviz --help)")))
+
 (defn- fork-cmd [cmd args]
   (when-not (= 2 (count args)) (usage-error))
   (let [[file suffix] args]
+    (reject-flag! suffix)
     (when-not (.isFile (io/file file)) (die "file not found: " file))
     (fork/-main cmd file suffix)))
 
@@ -131,6 +141,7 @@
 
 (defn- serve-cmd [args]
   (let [[[file suffix & extra] flags] (split-flags args)]
+    (run! reject-flag! (cons suffix extra))
     (when (or (nil? file) (seq extra)) (usage-error))
     (when-not (.isFile (io/file file)) (die "file not found: " file))
     (when (some? suffix)
@@ -160,7 +171,10 @@
     (when (seq positional) (usage-error))
     (let [dir (.toFile (java.nio.file.Files/createTempDirectory
                         "simpleviz-demo-" (make-array java.nio.file.attribute.FileAttribute 0)))]
-      (copy-examples! dir)
+      (try (copy-examples! dir)
+           (catch clojure.lang.ExceptionInfo e
+             (fs/delete-tree dir)
+             (die (ex-message e) " — the install looks incomplete; reinstall simpleviz")))
       (println (str "simpleviz: demo files in " dir))
       (serve! {:file (str (io/file dir "demo.edn")) :suffix "next" :debug (contains? flags "--debug")}
               (contains? flags "--no-open")))))

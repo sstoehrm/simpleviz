@@ -88,6 +88,8 @@
                       [{:op "retarget-edge" :edge ["a" "b"] :end "target" :to "c"}])
     ;; into-box: only boxes are valid
     (assert/equal (pick-ops {:mode "into-box" :member "web"} {:kind "node" :id "n:x"}) nil)
+    ;; a box picking itself as its new box is no target (the server refuses it anyway)
+    (assert/equal (pick-ops {:mode "into-box" :member "grp"} {:kind "box" :id "b:grp"}) nil)
     (assert/deepEqual (pick-ops {:mode "into-box" :member "web"} {:kind "box" :id "b:grp"})
                       [{:op "box-add" :box "grp" :member "web"}])
     ;; box-take node: only nodes

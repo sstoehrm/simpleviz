@@ -1048,7 +1048,8 @@
   (let [nav (editor/parse-nav js/location.search)]
     (swap! graph-gen inc)
     (swap! state assoc :nav nav
-           :nav-error nil :error nil :notice nil :graph nil :scene nil :layout nil
+           :nav-error nil :error nil :notice nil :dismissed-error nil :dismissed-warnings nil
+           :graph nil :scene nil :layout nil
            :selected nil :editing nil :edit-error nil :pick nil :pick-hint nil
            :chord nil :id-entry nil :pending-focus (:focus nav) :focus-center true
            :collapsed-boxes #{} :export-menu false)

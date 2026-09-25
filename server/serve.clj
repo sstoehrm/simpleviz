@@ -30,7 +30,10 @@
 
 (def ^:private ref-extensions #{"edn" "png"})
 
-(def suffix-re #"^[A-Za-z0-9_.-]+$")
+(def suffix-re
+  "A fork suffix: graph-<suffix>.edn. It can't start with -, which would
+  read as a mistyped flag."
+  #"^[A-Za-z0-9_.][A-Za-z0-9_.-]*$")
 
 (def empty-graph
   "What a file created by the server holds: map form, so it is editable."
@@ -637,8 +640,9 @@
   "Serve `file` — compared with its `suffix` fork when one is given — on
   127.0.0.1:`port`. Checks that every side resolves and reads first
   (ex-info with the user-facing message and {:startup-check true}
-  otherwise), opens the run log, then starts http-kit;
-  java.net.BindException passes through when the port is taken.
+  otherwise), starts http-kit, then opens the run log:
+  java.net.BindException passes through when the port is taken, before
+  any log file is written (the CLI retries another port).
   Returns {:served <description> :log-path <path or nil>}."
   [{:keys [file suffix port debug]}]
   (reset! files {:root file :suffix suffix})
@@ -655,15 +659,16 @@
                  suffix (str file " → " (fork-name file suffix) " (compare)")
                  (embedded-compare?) (str file " (embedded compare)")
                  :else file)
-        log-path (log/init! {:dir (log/default-dir)
-                             :debug debug
-                             :header (str "simpleviz " (version)
-                                          " (babashka " (System/getProperty "babashka.version")
-                                          ") serving " served " on port " port)})]
+        header (str "simpleviz " (version)
+                    " (babashka " (System/getProperty "babashka.version")
+                    ") serving " served " on port " port)
+        ;; the header only, so a crash report from the bind carries it
+        _ (log/init! {:dir (log/default-dir) :debug false :header header})
+        ;; loopback only — /api/edit can write to disk, so the server must
+        ;; never be reachable from other hosts on the network
+        _ (srv/run-server handler {:port port :ip "127.0.0.1"})
+        log-path (log/init! {:dir (log/default-dir) :debug debug :header header})]
     (log/install-crash-handler!)
-    ;; loopback only — /api/edit can write to disk, so the server must
-    ;; never be reachable from other hosts on the network
-    (srv/run-server handler {:port port :ip "127.0.0.1"})
     {:served served :log-path log-path}))
 
 (defn -main [& args]

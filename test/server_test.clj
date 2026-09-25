@@ -118,6 +118,23 @@
   (let [out (json/parse-string (serve/compare-json "{}" early-close "old.edn" "new.edn"))]
     (is (str/starts-with? (get out "error") "new.edn: content after the end of the graph"))))
 
+(deftest start-opens-no-run-log-when-the-port-is-taken
+  ;; the CLI retries another port on a BindException; each failed try
+  ;; used to leave an empty debug log behind (#98)
+  (let [dir (babashka.fs/create-temp-dir {:prefix "serve-test-logs"})
+        f (babashka.fs/file (babashka.fs/create-temp-file {:prefix "serve-test" :suffix ".edn"}))]
+    (try
+      (spit f "{:nodes {:a {}}}")
+      (with-open [taken (java.net.ServerSocket. 0 0 (java.net.InetAddress/getByName "127.0.0.1"))]
+        (with-redefs [log/default-dir (constantly (str dir))]
+          (is (thrown? java.net.BindException
+                       (serve/start! {:file (str f) :port (.getLocalPort taken) :debug true})))))
+      (is (empty? (babashka.fs/list-dir dir)) "no log file")
+      (finally
+        (log/clear!)
+        (babashka.fs/delete-tree dir)
+        (babashka.fs/delete f)))))
+
 (deftest compare-json-parse-error-names-the-file
   (let [out (json/parse-string
              (serve/compare-json "{:unclosed" "{}" "old.edn" "new.edn"))]

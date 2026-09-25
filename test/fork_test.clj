@@ -126,5 +126,7 @@
   (is (fork/valid-suffix? "next"))
   (is (fork/valid-suffix? "v2.1_rc-1"))
   (is (not (fork/valid-suffix? "a/b")))
+  ;; a leading - reads as a mistyped flag (#98)
+  (is (not (fork/valid-suffix? "-v2")))
   (is (not (fork/valid-suffix? "")))
   (is (not (fork/valid-suffix? nil))))

@@ -37,6 +37,50 @@
             "bash" "-c" (str "source '" proc-util/repo-root "/install.sh' && install_files"))
    [:out :err :exit]))
 
+(deftest install-refuses-paths-babashka-cannot-load-from
+  ;; the launcher could not run from there (#99), so main stops before it
+  ;; downloads anything
+  (let [tmp (fs/create-temp-dir {:prefix "simpleviz-install"})
+        bin (fs/path tmp "stub-bin")
+        fetched (fs/path tmp "fetched")
+        real-bb (str (fs/which "bb"))
+        run (fn [env user-home]
+              (spit (str (fs/path bin "bb"))
+                    (str "#!/usr/bin/env bash\n"
+                         (when user-home
+                           (str "if [ \"${1:-}\" = -e ]; then printf '%s' '" user-home "'; exit 0; fi\n"))
+                         "exec '" real-bb "' \"$@\"\n"))
+              (.setExecutable (fs/file (fs/path bin "bb")) true)
+              (select-keys
+               (p/shell {:out :string :err :string :continue true
+                         :extra-env (merge {"HOME" (str (fs/path tmp "user-home"))
+                                            "SIMPLEVIZ_HOME" (str (fs/path tmp "home"))
+                                            "SIMPLEVIZ_BIN" (str (fs/path tmp "bin"))
+                                            "PATH" (str bin ":" (System/getenv "PATH"))}
+                                           env)}
+                        "bash" (str proc-util/repo-root "/install.sh"))
+               [:out :err :exit]))]
+    (try
+      (fs/create-dirs bin)
+      (spit (str (fs/path bin "curl")) (str "#!/usr/bin/env bash\ntouch '" fetched "'\nexit 22\n"))
+      (.setExecutable (fs/file (fs/path bin "curl")) true)
+      (let [home (str (fs/path tmp "sim%viz"))
+            res (run {"SIMPLEVIZ_HOME" home} nil)]
+        (is (= 1 (:exit res)))
+        (is (= (str "install: " home " contains a %, and babashka can't load code from such a path"
+                    " — set SIMPLEVIZ_HOME to a path without one")
+               (str/trim (:err res)))))
+      (let [user-home (str (fs/path tmp "us%er"))
+            res (run {} user-home)]
+        (is (= 1 (:exit res)))
+        (is (= (str "install: " user-home "/.m2 contains a %, and babashka can't load code from such a path"
+                    " — it keeps simpleviz's libraries there")
+               (str/trim (:err res)))))
+      (is (not (fs/exists? fetched)) "nothing was downloaded")
+      (is (not (fs/exists? (fs/path tmp "home"))) "nothing was installed")
+      (is (not (fs/exists? (fs/path tmp "bin" "simpleviz"))) "no launcher was written")
+      (finally (fs/delete-tree tmp)))))
+
 (deftest install-refuses-a-release-without-the-cli
   ;; install.sh on main installs the latest release: one from before the
   ;; CLI would leave a launcher that execs a namespace it doesn't have

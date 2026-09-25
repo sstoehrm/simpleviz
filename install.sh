@@ -29,6 +29,21 @@ check_deps() {
     || die "babashka $have is too old (need >= $MIN_BB)"
 }
 
+# babashka loads nothing from a classpath entry whose path holds a %
+# (#99): the install folder and the Maven cache where bb keeps the
+# libraries must not have one. That cache is under Java's user.home (the
+# account's home, whatever $HOME says), so ask bb for it.
+check_paths() {
+  local m2
+  case "$SIMPLEVIZ_HOME" in *%*)
+    die "$SIMPLEVIZ_HOME contains a %, and babashka can't load code from such a path — set SIMPLEVIZ_HOME to a path without one" ;;
+  esac
+  m2="$(bb -e '(print (System/getProperty "user.home"))')/.m2"
+  case "$m2" in *%*)
+    die "$m2 contains a %, and babashka can't load code from such a path — it keeps simpleviz's libraries there" ;;
+  esac
+}
+
 fetch_release() { # sets TAG and TARBALL_URL
   local json
   json=$(curl -fsSL "$API_URL") || die "could not query $API_URL"
@@ -85,6 +100,20 @@ check_bb() {
     || die "babashka $have is too old (need >= $MIN_BB)"
 }
 
+# babashka loads nothing from a classpath entry whose path holds a %:
+# neither this install nor the Maven cache with its libraries (under
+# Java's user.home, whatever $HOME says) may have one
+check_paths() {
+  local m2
+  case "$SIMPLEVIZ_HOME" in *%*)
+    die "$SIMPLEVIZ_HOME contains a %, and babashka can't load code from such a path — reinstall with SIMPLEVIZ_HOME set to a path without one" ;;
+  esac
+  m2="$(bb -e '(print (System/getProperty "user.home"))')/.m2"
+  case "$m2" in *%*)
+    die "$m2 contains a %, and babashka can't load code from such a path — it keeps simpleviz's libraries there" ;;
+  esac
+}
+
 version() { cat "$SIMPLEVIZ_HOME/VERSION" 2>/dev/null || echo "unknown"; }
 
 update() {
@@ -129,6 +158,7 @@ case "${1:-}" in
   clean-all) clean_all ;;
   *)
     check_bb
+    check_paths
     [ -d "$SIMPLEVIZ_HOME" ] || die "$SIMPLEVIZ_HOME not found — run install.sh first"
     exec bb --config "$SIMPLEVIZ_HOME/bb.edn" -m cli "$@"
     ;;
@@ -139,6 +169,7 @@ LAUNCHER
 
 main() {
   check_deps
+  check_paths
   fetch_release
   install_files
   write_launcher

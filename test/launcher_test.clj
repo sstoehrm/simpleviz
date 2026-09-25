@@ -130,3 +130,58 @@
         (finally
           (p/destroy-tree proc)
           (some-> @demo-dir fs/delete-tree))))))
+
+(defn- stub-bb!
+  "A fake `bb` in a fresh folder `name` of `tmp` that reports `user-home`
+  as Java's user.home (which the environment can't fake). The CLI run
+  (`--config ...`) prints `cli ran` when `fake-cli`, else goes to the
+  real bb, like everything else. Returns the folder, for PATH."
+  [tmp name user-home & {:keys [fake-cli]}]
+  (let [bin (fs/path tmp name)
+        real (str (fs/which "bb"))]
+    (fs/create-dirs bin)
+    (spit (str (fs/path bin "bb"))
+          (str "#!/usr/bin/env bash\n"
+               "if [ \"${1:-}\" = -e ] && [[ \"${2:-}\" == *user.home* ]]; then printf '%s' '" user-home "'; exit 0; fi\n"
+               (when fake-cli "if [ \"${1:-}\" = --config ]; then echo 'cli ran'; exit 0; fi\n")
+               "exec '" real "' \"$@\"\n"))
+    (.setExecutable (fs/file (fs/path bin "bb")) true)
+    (str bin)))
+
+(deftest launcher-refuses-paths-babashka-cannot-load-from
+  ;; bb loads nothing from a classpath entry whose path holds a % (#99):
+  ;; say so instead of failing with "Could not locate cli.clj"
+  (let [script (write-launcher!)
+        tmp (fs/create-temp-dir {:prefix "simpleviz-pct"})
+        home (fs/path tmp "sim%20viz")
+        user-home (str (fs/path tmp "us%er"))]
+    (try
+      (fs/create-dirs home)
+      (let [res (p/shell {:out :string :err :string :continue true
+                          :extra-env {"SIMPLEVIZ_HOME" (str home)}}
+                         "bash" script "--version")]
+        (is (= 1 (:exit res)))
+        (is (= (str "simpleviz: " home " contains a %, and babashka can't load code from such a path"
+                    " — reinstall with SIMPLEVIZ_HOME set to a path without one")
+               (str/trim (:err res)))))
+      (let [res (p/shell {:out :string :err :string :continue true
+                          :extra-env {"SIMPLEVIZ_HOME" repo-root
+                                      "PATH" (str (stub-bb! tmp "pct-bin" user-home) ":" (System/getenv "PATH"))}}
+                         "bash" script "--version")]
+        (is (= 1 (:exit res)))
+        (is (= (str "simpleviz: " user-home "/.m2 contains a %, and babashka can't load code from such a path"
+                    " — it keeps simpleviz's libraries there")
+               (str/trim (:err res)))))
+      ;; the libraries sit under Java's user.home, not $HOME: a % in $HOME
+      ;; is fine, and an unset HOME (env -i, some services) must not trip
+      ;; set -u. The CLI run is faked; bb's deps tooling would fetch its
+      ;; tools into a fresh home first.
+      (let [bin (stub-bb! tmp "ok-bin" "/home/fine" :fake-cli true)
+            path (str bin ":" (System/getenv "PATH"))]
+        (doseq [env [{"SIMPLEVIZ_HOME" repo-root "PATH" path "HOME" (str tmp "/h%me")}
+                     {"SIMPLEVIZ_HOME" repo-root "PATH" path}]]
+          (let [res (p/shell {:out :string :err :string :continue true :dir (str tmp) :env env}
+                             "bash" script "--version")]
+            (is (= 0 (:exit res)) (str (keys env) (:err res)))
+            (is (= "cli ran" (str/trim (:out res)))))))
+      (finally (fs/delete-tree tmp)))))

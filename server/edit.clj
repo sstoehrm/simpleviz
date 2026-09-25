@@ -190,14 +190,33 @@
   (let [box-val (some (fn [[k v]] (when (= (ident->str k) box) v)) (:boxes data))]
     (into #{} (map ident->str) (:components box-val))))
 
-(defn box-add [text {:keys [box member]}]
+(defn- inside?
+  "Is box `box` somewhere in box `outer`'s content, at any depth?"
+  [data outer box]
+  (loop [todo [outer] seen #{}]
+    (if-let [b (first todo)]
+      (let [kids (filterv #(exists? data :boxes %) (box-components data b))]
+        (or (boolean (some #{box} kids))
+            (recur (into (vec (rest todo)) (remove seen kids)) (conj seen b))))
+      false)))
+
+(declare remove-first-component until-done)
+
+(defn box-add
+  "Put `member` (a node or box) into box `box`, taking it out of the box
+  it was in: an element sits in one box, and the loader would keep only
+  its first membership (#112). A box can't go into its own content."
+  [text {:keys [box member]}]
   (let [data (parsed text)]
     (when-not (or (exists? data :nodes member) (exists? data :boxes member))
       (fail! (str "unknown node or box " (pr-str member))))
     (when (= box member) (fail! "a box cannot contain itself"))
     (when (contains? (box-components data box) member)
       (fail! (str "\"" member "\" is already in box \"" box "\"")))
-    (let [entry (entry-val (zroot text) :boxes box)
+    (when (and (exists? data :boxes member) (inside? data member box))
+      (fail! "a box can't go inside its own content"))
+    (let [text (until-done text (fn [t] (remove-first-component t member)))
+          entry (entry-val (zroot text) :boxes box)
           entry (if (nil? (z/sexpr entry)) (z/replace entry {:components []}) entry)]
       (if-let [comps (find-val entry #(= % :components))]
         (z/root-string (z/append-child comps (ident-node member)))

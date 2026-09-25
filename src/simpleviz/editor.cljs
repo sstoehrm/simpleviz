@@ -201,7 +201,7 @@
   pick (keep picking). pick is one of:
   {:mode \"retarget\" :edge [a b] :end \"source\"|\"target\"} — any node
   or box is a valid new endpoint;
-  {:mode \"into-box\" :member id} — only a box is valid;
+  {:mode \"into-box\" :member id} — only a box is valid, not the member itself;
   {:mode \"box-take\" :box id :want \"node\"|\"box\"} — only an item of
   the wanted kind is valid, and not the box itself;
   {:mode \"box-drop\" :box id} — only a node whose :parent is that box."
@@ -212,7 +212,7 @@
                    [{:op "retarget-edge" :edge (:edge pick)
                      :end (:end pick) :to (bare-id item)}]
                    nil)
-      "into-box" (if (= kind "box")
+      "into-box" (if (and (= kind "box") (not= (bare-id item) (:member pick)))
                    [{:op "box-add" :box (bare-id item) :member (:member pick)}]
                    nil)
       "connect" (if (and (or (= kind "node") (= kind "box"))
@@ -346,6 +346,13 @@
   shown, the entries before it stay the trail."
   [trail i]
   (nav-query (nth trail i) (vec (.slice trail 0 i))))
+
+(defn banner-visible?
+  "Show a banner with `text` unless it's empty or the viewer dismissed
+  exactly this text (`dismissed`, nil when nothing was): a dismissed
+  warnings or error banner comes back once its content changes."
+  [text dismissed]
+  (boolean (and (some? text) (not= text "") (not= text dismissed))))
 
 (defn ref-of
   "The selection's :ref when it is a non-blank string, else nil."

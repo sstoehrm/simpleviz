@@ -165,6 +165,39 @@
   (is (thrown-with-msg? Exception #"unknown node or box \"ghost\""
         (edit/box-add small-file {:box "grp" :member "ghost"}))))
 
+(defn- memberships
+  "box name -> set of member ids, from the normalized file text."
+  [text]
+  (let [g (graph/normalize (clojure.edn/read-string text))]
+    {:boxes (into {} (map (fn [b] [(:name b) (set (:components b))])) (:boxes g))
+     :warnings (:warnings g)}))
+
+(deftest box-add-moves-a-member-out-of-its-current-box
+  ;; adding a node that sits in another box moved nothing: it ended up in
+  ;; both, and the loader kept it in the first (#112)
+  (let [out (edit/box-add "{:nodes {:a {} :b {}} :boxes {:left {:components #{:a}} :right {:components #{:b}}}}"
+                          {:box "right" :member "a"})
+        {:keys [boxes warnings]} (memberships out)]
+    (is (= #{} (get boxes "left")))
+    (is (= #{"n:a" "n:b"} (get boxes "right")))
+    (is (= [] warnings))))
+
+(deftest box-add-moves-a-nested-box
+  (let [out (edit/box-add (str "{:nodes {:a {}} :boxes {:outer {:components #{:inner}}"
+                               " :inner {:components #{:a}} :other {:components #{}}}}")
+                          {:box "other" :member "inner"})
+        {:keys [boxes warnings]} (memberships out)]
+    (is (= #{} (get boxes "outer")))
+    (is (= #{"b:inner"} (get boxes "other")))
+    (is (= [] warnings))))
+
+(deftest box-add-refuses-a-box-inside-its-own-content
+  (let [t "{:nodes {:a {}} :boxes {:outer {:components #{:mid}} :mid {:components #{:inner}} :inner {:components #{:a}}}}"]
+    (is (thrown-with-msg? Exception #"a box can't go inside its own content"
+          (edit/box-add t {:box "inner" :member "outer"})))
+    (is (thrown-with-msg? Exception #"a box can't go inside its own content"
+          (edit/box-add t {:box "mid" :member "outer"})))))
+
 (deftest box-add-self-containment-fails
   (is (thrown-with-msg? Exception #"a box cannot contain itself"
         (edit/box-add small-file {:box "grp" :member "grp"}))))

@@ -142,8 +142,8 @@ chord or pick.
 | `e 1` `e 2` `e 3` `e 4` | edge | direction → ← ↔ — |
 | `c s` / `c t` | edge | change source / target (click the new endpoint) |
 | `a e` | node, box | add edge (click the other endpoint, then name it or leave it empty) |
-| `a b` | node / box | add to a box / add a box as member (click it) |
-| `a n` | box | add a node as member (click it) |
+| `a b` | node / box | add to a box / add a box as member (click it); it leaves the box it was in |
+| `a n` | box | add a node as member (click it); it leaves the box it was in |
 | `r n` | box | remove node (click a member; it moves to the enclosing box or out) |
 | `r b` | node | remove from box (it moves to the enclosing box or out) |
 | `n n` | none / node / box | new node / new node connected to the selection / new node inside the box |

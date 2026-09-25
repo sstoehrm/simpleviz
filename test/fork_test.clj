@@ -5,16 +5,6 @@
             [fork]
             [serve]))
 
-(deftest resolve-ref-collapses-segments-and-refuses-escapes
-  (is (= "sub/api.edn" (fork/resolve-ref "root.edn" "sub/api.edn")))
-  (is (= "sub/deep/db.edn" (fork/resolve-ref "sub/api.edn" "deep/db.edn")))
-  (is (= "root.edn" (fork/resolve-ref "sub/api.edn" "../root.edn")))
-  (is (= "sub/x.edn" (fork/resolve-ref "sub/api.edn" "./x.edn")))
-  (is (nil? (fork/resolve-ref "root.edn" "../x.edn")))
-  (is (nil? (fork/resolve-ref "root.edn" "/etc/x.edn")))
-  (is (nil? (fork/resolve-ref "root.edn" "  ")))
-  (is (nil? (fork/resolve-ref "root.edn" nil))))
-
 (deftest ref-targets-collects-string-refs-on-every-element-kind
   (is (= #{"sub/api.edn" "x.edn" "y.edn"}
          (set (fork/ref-targets

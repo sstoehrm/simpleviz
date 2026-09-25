@@ -5,27 +5,8 @@
   rewritten, so both sides of a comparison name the same files."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
+            [paths]
             [serve]))
-
-(defn resolve-ref
-  "The root-relative path a `ref` on the file `current` (itself
-  root-relative) points to, with `.`/`..`/empty segments collapsed; nil
-  when the ref is blank, absolute, or climbs above the root. Mirrors
-  editor/resolve-ref on the page."
-  [current ref]
-  (let [ref (str/trim (str ref))]
-    (when (and (not= ref "")
-               (not (str/starts-with? ref "/"))
-               (nil? (re-find #"^[A-Za-z]:" ref)))
-      (loop [acc (vec (butlast (str/split (str current) #"/" -1)))
-             segs (str/split ref #"/" -1)]
-        (if (empty? segs)
-          (when (seq acc) (str/join "/" acc))
-          (let [[seg & more] segs]
-            (cond
-              (or (= seg "") (= seg ".")) (recur acc more)
-              (= seg "..") (when (seq acc) (recur (pop acc) more))
-              :else (recur (conj acc seg) more))))))))
 
 (defn ref-targets
   "The non-blank string :ref attrs on the nodes, edges and boxes in the
@@ -54,7 +35,7 @@
             (visit! [rel text]
               (swap! seen conj rel)
               (doseq [r (targets rel text)]
-                (let [target (resolve-ref rel r)]
+                (let [target (paths/resolve-ref rel r)]
                   (cond
                     (nil? target)
                     (warn! (str rel ": ref " (pr-str r) " leaves the root folder, skipped"))

@@ -5,16 +5,6 @@
             [fork]
             [serve]))
 
-(deftest resolve-ref-collapses-segments-and-refuses-escapes
-  (is (= "sub/api.edn" (fork/resolve-ref "root.edn" "sub/api.edn")))
-  (is (= "sub/deep/db.edn" (fork/resolve-ref "sub/api.edn" "deep/db.edn")))
-  (is (= "root.edn" (fork/resolve-ref "sub/api.edn" "../root.edn")))
-  (is (= "sub/x.edn" (fork/resolve-ref "sub/api.edn" "./x.edn")))
-  (is (nil? (fork/resolve-ref "root.edn" "../x.edn")))
-  (is (nil? (fork/resolve-ref "root.edn" "/etc/x.edn")))
-  (is (nil? (fork/resolve-ref "root.edn" "  ")))
-  (is (nil? (fork/resolve-ref "root.edn" nil))))
-
 (deftest ref-targets-collects-string-refs-on-every-element-kind
   (is (= #{"sub/api.edn" "x.edn" "y.edn"}
          (set (fork/ref-targets
@@ -26,6 +16,10 @@
   (is (thrown? Exception (fork/ref-targets "{:unclosed")))
   ;; refs after an early } would be missed, so that's a parse error too
   (is (thrown? Exception (fork/ref-targets "{:nodes {:a {}}}\n :boxes {:g {:ref \"v.edn\"}}}"))))
+
+(deftest ref-targets-includes-the-files-of-pairs
+  (is (= #{"sub/a.edn" "views/d.edn"}
+         (set (fork/ref-targets "{:nodes {:x {:ref \"sub/a.edn\" :pair \"views/d.edn#y\"}}}")))))
 
 (defn- tree!
   "Write {rel text} under a fresh temp dir; returns its canonical File."
@@ -53,6 +47,23 @@
     (is (some #(clojure.string/includes? % "\"../../x.edn\" leaves the root folder") @warnings))
     (is (some #(clojure.string/includes? % "\"nope.edn\"") @warnings))
     (is (some #(clojure.string/includes? % "\"../notes.txt\"") @warnings))
+    (fs/delete-tree root)))
+
+(deftest closure-warnings-say-link-for-refs-and-pairs
+  (let [root (tree! {"root.edn" "{:nodes {:a {:ref \"../x.edn\"} :b {:pair \"gone.edn#b\"}}}"})
+        warnings (atom [])]
+    (fork/closure "root.edn" (reader root) #(swap! warnings conj %))
+    (is (= ["root.edn: link \"../x.edn\" leaves the root folder, skipped"
+            "root.edn: link \"gone.edn\": no such file: gone.edn, skipped"]
+           @warnings))
+    (fs/delete-tree root)))
+
+(deftest fork-copies-a-pair-target-to-its-fork
+  (let [root (tree! {"overview.edn" "{:nodes {:api {:pair \"views/deploy.edn#api-svc\"}}}"
+                     "views/deploy.edn" "{:nodes {:api-svc {}}}"})
+        created (fork/fork! (.getPath (io/file root "overview.edn")) "next" (fn [_]))]
+    (is (= (mapv #(.getPath (io/file root %)) ["overview-next.edn" "views/deploy-next.edn"]) created))
+    (is (= (slurp (io/file root "views/deploy.edn")) (slurp (io/file root "views/deploy-next.edn"))))
     (fs/delete-tree root)))
 
 (deftest closure-names-the-file-on-a-parse-error

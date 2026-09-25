@@ -21,7 +21,10 @@
                   :diff-cursors {}
                   :edit-target "new" :edit-error nil :editing nil
                   :pick nil :pick-hint nil
-                  :id-entry nil :pending-focus nil :chord nil
+                  :id-entry nil :chord nil
+                  ;; a URL naming an element (focus=n:api) selects and centers it
+                  :pending-focus (:focus (editor/parse-nav js/location.search))
+                  :focus-center true :flash nil
                   :help false :export-menu false :disconnected false
                   :nav (editor/parse-nav js/location.search) :nav-error nil
                   ;; light or dark for files without :theme, as the OS has it
@@ -316,24 +319,29 @@
         "follow-ref" (when-let [r (editor/ref-of sel)]
                        (when (some? (:path (:graph @state)))
                          {:label "follow ref" :go r}))
+        ;; only with exactly one pair to follow; several are picked in the inspector
+        "follow-pair" (let [ps (working-pairs sel)]
+                        (when (= 1 (count ps)) {:label "follow pair" :go-pair (first ps)}))
         nil))))
 
 ;; the action-bar buttons per selection kind, in display order
 (def ^:private toolbar-actions
   {"edge" [["retarget" "source"] ["retarget" "target"] "follow-ref"]
-   "node" ["add-edge" "add-to-box" "remove-from-box" "new-connected-node" "new-box" "follow-ref"]
+   "node" ["add-edge" "add-to-box" "remove-from-box" "new-connected-node" "new-box"
+           "follow-ref" "follow-pair"]
    "box" ["add-edge" "add-node-member" "add-box-member" "remove-node-member"
-          "new-node-in-box" "new-box" "follow-ref"]})
+          "new-node-in-box" "new-box" "follow-ref" "follow-pair"]})
 
 (defn- start-action!
   "Do what the toolbar button for `action` does."
   [sel tgt action]
-  (let [{:keys [pick hint id-entry post go]} (action-spec sel tgt action)]
+  (let [{:keys [pick hint id-entry post go go-pair]} (action-spec sel tgt action)]
     (cond
       (some? pick) (start-pick! pick hint)
       (some? id-entry) (start-id-entry! id-entry)
       (some? post) (post-edit! post)
-      (some? go) (follow-ref! go))))
+      (some? go) (follow-ref! go)
+      (some? go-pair) (follow-pair! go-pair))))
 
 (defn- action-btn
   "The toolbar button for `action`, or nil when it does not apply to
@@ -354,7 +362,7 @@
   [tgt]
   (when-let [{:keys [ops focus]} (editor/creation-ops (:id-entry @state) tgt)]
     (post-edit! ops)
-    (swap! state assoc :pending-focus focus :id-entry nil)))
+    (swap! state assoc :pending-focus focus :focus-center false :id-entry nil)))
 
 (defn- id-entry-row [tgt entry]
   [:div {:class "id-entry"}
@@ -386,6 +394,25 @@
            "Delete" (key-hint (editor/chord-for (:kind sel) "delete"))]]
          (when-let [entry (:id-entry @state)] [(id-entry-row tgt entry)]))))
 
+(defn- pairs-view
+  "The selection's pairs: → for those it declares, ← for those pointing
+  at it; a broken one dimmed with its problem. Clicking a row follows it."
+  [sel]
+  (let [ps (or (:pairs sel) [])]
+    (when (pos? (.-length ps))
+      (into [:div {:class "details-pairs"} [:div {:class "details-pairs-header"} "pairs"]]
+            (mapv (fn [p]
+                    (let [in? (= (:dir p) "in")
+                          label (str (if in? "← " "→ ") (:file p) "#" (:id p)
+                                     (if in? " (points here)" ""))]
+                      (if (some? (:problem p))
+                        [:div {:class "pair-row broken" :title (:problem p)}
+                         label [:div {:class "pair-problem"} (:problem p)]]
+                        [:button {:class "pair-row" :type "button"
+                                  :on-click (fn [e] (.stopPropagation e) (follow-pair! p))}
+                         label])))
+                  ps)))))
+
 (defn- details-view [st]
   (let [sel (:selected st)
         editable (current-edit-target-editable? st)
@@ -411,6 +438,7 @@
                          [:dd {:key (str "cd" k)}
                           (str (fmt-val (:old v)) " → " (fmt-val (:new v)))]])
                       (js/Object.entries (:changed sel))))])
+     (pairs-view sel)
      (into [:dl]
            (concat
             (when (not= (:kind sel) "edge")
@@ -477,7 +505,8 @@
              :subtitle (str (if (nil? (:type item)) "" (:type item)))
              :attrs (:attrs item)
              :diff (:diff item)
-             :changed (:changed item)}
+             :changed (:changed item)
+             :pairs (:pairs item)}
       (= (:kind item) "edge") (assoc :source (:source item) :target (:target item)))))
 
 (defn- refresh-selection
@@ -680,14 +709,15 @@
      [:h2 "How to use"]
      (help-section
       "Navigate"
-      "Drag to pan, scroll to zoom. Hover an element to see its name and attributes; click it to inspect and edit them. A double border marks a node with a :ref; the mark on a node's corner is its :state — grey disc new, blue half disc in-progress, red square blocked, green check done. The − in a box header collapses the box to a single node — the panel on the left lists collapsed boxes and re-expands them.")
+      "Drag to pan, scroll to zoom. Hover an element to see its name and attributes; click it to inspect and edit them. A double border marks a node with a :ref; the mark on a node's corner is its :state — grey disc new, blue half disc in-progress, red square blocked, green check done. The − in a box header collapses the box to a single node — the panel on the left lists collapsed boxes and re-expands them."
+      "A :pair (\"views/deploy.edn#api\", or a vector of them) links a node or box to the same thing in another graph. The ⇄ mark on an element's bottom-left corner shows its pairs — red when one is broken; the inspector lists them, those declared here and those pointing here. Click one, or use \"follow pair\" (f p), to open that graph with the element selected.")
      (help-section
       "Edit"
       "When the served file is editable EDN, the floating toolbar at the bottom holds the tools for the current selection: delete, edge direction, and pick modes such as \"add edge\" (click the other element on the canvas, then name the edge; Esc cancels). New nodes and boxes are created by name: the prompt types a name, and the id is derived from it — lowercased, illegal characters turned into dashes; name::type also sets the type. With nothing selected it creates a standalone node. A :ref attribute naming another graph file (relative path) makes \"follow ref\" open it — in a suffix comparison (simpleviz graph.edn next) it opens that file's own comparison; the trail at the top leads back. Following a ref to an .edn file that does not exist yet creates it as an empty graph — in a comparison the side picked by the old|new toggle."
       "In the inspector, click a value or its ✎ to edit it inline — Enter commits, Shift+Enter inserts a line break, Escape cancels. × deletes an attribute; the key/value row at the bottom adds one. Ctrl+Z or ↶ undoes the last edit.")
      (help-section
       "Keys"
-      "Two-key chords act on the selection, when no text field has focus (the toolbar buttons show them): d d delete · e 1/2/3/4 edge direction → ← ↔ — · c s / c t change an edge's source / target · a e add edge · a b add to box (node) or add a box as member (box) · a n add a node as member (box) · n n new node (connected to the selected node, or inside the selected box — c n too) · n b new box around the selection · r r rename the id · r n take a node out of the selected box · r b take the selected node out of its box · f r follow the selection's :ref. Esc cancels a pending chord; ? toggles this help; Ctrl+Z undoes.")
+      "Two-key chords act on the selection, when no text field has focus (the toolbar buttons show them): d d delete · e 1/2/3/4 edge direction → ← ↔ — · c s / c t change an edge's source / target · a e add edge · a b add to box (node) or add a box as member (box) · a n add a node as member (box) · n n new node (connected to the selected node, or inside the selected box — c n too) · n b new box around the selection · r r rename the id · r n take a node out of the selected box · r b take the selected node out of its box · f r follow the selection's :ref · f p follow the selection's pair. Esc cancels a pending chord; ? toggles this help; Ctrl+Z undoes.")
      (help-section
       "Compare"
       "Serving a file with a suffix (simpleviz graph.edn next) renders it against its fork graph-next.edn as one merged diagram: added elements get a green +, modified an amber ~ (select for an old → new list), removed ones stay as red dashed ghosts. Click a legend row to jump through the changes; the old|new toggle picks which file edits apply to.")
@@ -703,6 +733,9 @@
   active pick mode's instruction, else the open edge-name prompt's."
   [st]
   (cond
+    (some? (:flash st))
+    [:div {:id "pick-hint"} (:flash st)]
+
     (some? (:chord st))
     [:div {:id "pick-hint"} (editor/chord-hint (:kind (:selected st)) (:chord st)) " — Esc cancels"]
     (some? (:pick st))
@@ -808,18 +841,25 @@
   (canvas/request-paint!))
 
 (defn- apply-pending-focus!
-  "When an add-node flow is in flight, select the freshly created node
-  once its scene item lands — :pending-focus holds its scene id. The
-  view is deliberately not panned: the seeded relayout puts the node
-  beside its source, and a jump would undo the arrangement staying
-  put. Always clears :pending-focus, found or not: the edit may have
-  failed, and either way this is a one-shot request."
+  "Select the element :pending-focus names (a scene id) once its scene
+  item lands: a freshly created node after an edit, or the element a
+  URL's focus names after navigating. Only the navigation case
+  (:focus-center) pans to it and reports an element that isn't there —
+  after an edit the seeded relayout puts the node beside its source,
+  and a jump would undo the arrangement staying put. Always clears both
+  keys: this is a one-shot request."
   [sc]
-  (when-let [pending (:pending-focus @state)]
-    (let [item (some (fn [it] (when (= (:id it) pending) it)) (:items sc))]
-      (when (some? item)
-        (on-select (item->payload item))))
-    (swap! state assoc :pending-focus nil)))
+  (let [{:keys [pending-focus focus-center]} @state]
+    (when (some? pending-focus)
+      (let [item (some (fn [it] (when (= (:id it) pending-focus) it)) (:items sc))]
+        (if (some? item)
+          (do (on-select (item->payload item))
+              (when focus-center (canvas/center-on! item)))
+          (when focus-center
+            (swap! state assoc :nav-error
+                   (str "no node or box " (.slice pending-focus 2) " in "
+                        (or (:file (:nav @state)) (:path (:graph @state)))))))))
+    (swap! state assoc :pending-focus nil :focus-center false)))
 
 (defn ^:async relayout!
   "Layout + scene from the stored graph, with collapsed boxes contracted.
@@ -938,15 +978,21 @@
                                 :edit-target (resolve-edit-target g (:edit-target st)))))
           ;; big graphs open as a collapsed overview: all top-level boxes
           ;; start folded, drill in from there (also makes the first ELK
-          ;; run cheap). Small graphs open fully expanded.
+          ;; run cheap). Small graphs open fully expanded. The box holding
+          ;; a URL's focus stays open, so the focused element has a scene
+          ;; item to select (load-nav! clears :graph: every navigation
+          ;; comes through here).
           (when (and first-load?
                      (> (.-length (js/Object.keys (:nodes g))) 500))
-            (swap! state assoc :collapsed-boxes
-                   (set (keep (fn [b]
-                                (when (nil? (get (:parent-of g)
-                                                 (str "b:" (:name b))))
-                                  (:name b)))
-                              (:boxes g)))))
+            (let [pf (:pending-focus @state)
+                  keep-open (when (some? pf) (editor/top-box-of (:parent-of g) pf))]
+              (swap! state assoc :collapsed-boxes
+                     (set (keep (fn [b]
+                                  (when (and (nil? (get (:parent-of g)
+                                                        (str "b:" (:name b))))
+                                             (not= (:name b) keep-open))
+                                    (:name b)))
+                                (:boxes g))))))
           (js-await (relayout!)))))
     (catch :default e
       (js/console.error "Reload failed:" e)
@@ -973,16 +1019,17 @@
   selection, edits in progress, collapsed boxes, cached layouts, the
   graph itself — and load the file the URL now names."
   []
-  (swap! graph-gen inc)
-  (swap! state assoc :nav (editor/parse-nav js/location.search)
-         :nav-error nil :error nil :graph nil :scene nil :layout nil
-         :selected nil :editing nil :edit-error nil :pick nil :pick-hint nil
-         :chord nil :id-entry nil :pending-focus nil :collapsed-boxes #{}
-         :export-menu false)
-  (.clear layout-cache)
-  (reset! last-mtime nil)
-  (canvas/refit-next!)
-  (js-await (tick)))
+  (let [nav (editor/parse-nav js/location.search)]
+    (swap! graph-gen inc)
+    (swap! state assoc :nav nav
+           :nav-error nil :error nil :graph nil :scene nil :layout nil
+           :selected nil :editing nil :edit-error nil :pick nil :pick-hint nil
+           :chord nil :id-entry nil :pending-focus (:focus nav) :focus-center true
+           :collapsed-boxes #{} :export-menu false)
+    (.clear layout-cache)
+    (reset! last-mtime nil)
+    (canvas/refit-next!)
+    (js-await (tick))))
 
 (defn- ^:async navigate!
   "Show another graph of the served folder: push its query string
@@ -1025,6 +1072,31 @@
               (catch :default _ nil)))
           (js-await (navigate! (editor/follow-url current trail target)))
           (finally (swap! state assoc :following false)))))))
+
+(defn- working-pairs
+  "The pairs of selection payload sel that can be followed."
+  [sel]
+  (filterv (fn [p] (nil? (:problem p))) (or (:pairs sel) [])))
+
+(defn- flash!
+  "Show msg in the hint line above the toolbar for a few seconds."
+  [msg]
+  (swap! state assoc :flash msg)
+  (js/setTimeout (fn [] (when (= msg (:flash @state)) (swap! state assoc :flash nil))) 3000))
+
+(defn- ^:async follow-pair!
+  "Open the file on the other end of pair p (a payload :pairs entry,
+  :file root-relative) with its element selected and centered; the
+  current file joins the trail. Unlike a ref, nothing is created: a
+  pair names an element, which an empty graph doesn't have."
+  [p]
+  (let [st @state]
+    (when-not (:following st)
+      (swap! state assoc :following true)
+      (try
+        (js-await (navigate! (editor/follow-url (:path (:graph st)) (:trail (:nav st)) (:file p)
+                                                (str (if (= (:kind p) "box") "b:" "n:") (:id p)))))
+        (finally (swap! state assoc :following false))))))
 
 (js/window.addEventListener "popstate" (fn [_] (load-nav!)))
 
@@ -1099,7 +1171,7 @@
       (do
         ;; one-shot: close the field now, so the blur the re-render fires
         ;; cannot post a second rename while this one is in flight
-        (swap! state assoc :editing nil :pending-focus new-elk)
+        (swap! state assoc :editing nil :pending-focus new-elk :focus-center false)
         (rename-cached-layouts! old-elk new-elk (when box? [old-id to]))
         (when box? (rename-collapsed! old-id to))
         (let [ok? (try
@@ -1244,6 +1316,9 @@
 
       (= action "delete") (delete! tgt)
       (= action "rename") (start-editing! ID-FIELD (:id tgt))
+      (and (= action "follow-pair") (> (count (working-pairs sel)) 1))
+      (flash! "several pairs — pick one in the inspector")
+
       :else (start-action! sel tgt action))))
 
 (defn- handle-chord-key!

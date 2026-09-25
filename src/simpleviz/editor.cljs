@@ -295,35 +295,51 @@
               (= seg "..") (when (seq acc) (recur (pop acc) more))
               :else (recur (conj acc seg) more))))))))
 
+(defn top-box-of
+  "The outermost box around scene id `scene-id` (\"n:api\", \"b:grp\"):
+  walks `parent-of` (scene id -> box name) up to the last box; nil when
+  the id is in no box."
+  [parent-of scene-id]
+  (loop [box (get parent-of scene-id)]
+    (when (some? box)
+      (let [up (get parent-of (str "b:" box))]
+        (if (some? up) (recur up) box)))))
+
 (defn parse-nav
   "The page's navigation state from its query string: {:file
   root-relative path or nil (the root file) :trail [paths visited
-  before it]}. Each trail entry is URL-encoded on its own inside the
-  parameter, so commas in file names survive."
+  before it]}, plus :focus (a scene id, \"n:api\") when the URL names
+  an element to select. Each trail entry is URL-encoded on its own
+  inside the parameter, so commas in file names survive."
   [query-string]
   (let [p (js/URLSearchParams. (str (if (nil? query-string) "" query-string)))
         file (.get p "file")
-        trail (.get p "trail")]
-    {:file (if (or (nil? file) (= file "")) nil file)
-     :trail (if (or (nil? trail) (= trail ""))
-              []
-              (mapv js/decodeURIComponent (.split trail ",")))}))
+        trail (.get p "trail")
+        focus (.get p "focus")]
+    (cond-> {:file (if (or (nil? file) (= file "")) nil file)
+             :trail (if (or (nil? trail) (= trail ""))
+                      []
+                      (mapv js/decodeURIComponent (.split trail ",")))}
+      (and (some? focus) (not= focus "")) (assoc :focus focus))))
 
 (defn nav-query
-  "The query string (\"\" or \"?file=..&trail=..\") for showing `file`
-  (nil = root) with `trail` behind it — the inverse of parse-nav."
-  [file trail]
+  "The query string (\"\" or \"?file=..&trail=..&focus=..\") for showing
+  `file` (nil = root) with `trail` behind it and, optionally, element
+  `focus` selected — the inverse of parse-nav."
+  [file trail & [focus]]
   (let [p (js/URLSearchParams.)]
     (when (some? file) (.set p "file" file))
     (when (seq trail) (.set p "trail" (.join (mapv js/encodeURIComponent trail) ",")))
+    (when (some? focus) (.set p "focus" focus))
     (let [s (.toString p)]
       (if (= s "") "" (str "?" s)))))
 
 (defn follow-url
-  "Query string for following a ref from `current-path` to `target`:
-  the current file joins the end of the trail."
-  [current-path trail target]
-  (nav-query target (conj (vec trail) current-path)))
+  "Query string for following a ref or pair from `current-path` to
+  `target`: the current file joins the end of the trail; `focus`, when
+  given, is the element to select there."
+  [current-path trail target & [focus]]
+  (nav-query target (conj (vec trail) current-path) focus))
 
 (defn crumb-url
   "Query string for going back to trail entry i: it becomes the file
@@ -362,7 +378,8 @@
    ["r" "r" {"node" ["rename" "rename"] "box" ["rename" "rename"]}]
    ["r" "n" {"box" ["remove-node-member" "remove node"]}]
    ["r" "b" {"node" ["remove-from-box" "remove from box"]}]
-   ["f" "r" {"node" ["follow-ref" "follow ref"] "edge" ["follow-ref" "follow ref"] "box" ["follow-ref" "follow ref"]}]])
+   ["f" "r" {"node" ["follow-ref" "follow ref"] "edge" ["follow-ref" "follow ref"] "box" ["follow-ref" "follow ref"]}]
+   ["f" "p" {"node" ["follow-pair" "follow pair"] "box" ["follow-pair" "follow pair"]}]])
 
 (defn- kind-key [kind] (if (nil? kind) "none" kind))
 

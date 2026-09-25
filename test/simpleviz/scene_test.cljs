@@ -265,3 +265,17 @@
     (assert/ok (nil? (:state (node-with {:state "paused"}))))
     (assert/ok (nil? (:state (node-with {:state 3}))))
     (assert/ok (nil? (:state (node-with {}))))))
+
+(test "paired nodes and boxes are flagged, broken pairs too"
+  (fn []
+    (let [g (-> graph
+                (assoc-in [:nodes "a" :pairs] [{:dir "out" :file "d.edn" :id "x" :kind "node"}])
+                (assoc-in [:boxes-by-name "grp" :pairs] [{:dir "out" :file "d.edn" :id "y" :problem "no node or box y in d.edn"}]))
+          items (:items (build-scene {:layout layout :graph g :colors colors}))
+          by-id (fn [id] (some (fn [it] (when (= (:id it) id) it)) items))]
+      (assert/equal (:pair? (by-id "n:a")) true)
+      (assert/equal (:pair-problem? (by-id "n:a")) false)
+      (assert/equal (:pair? (by-id "b:grp")) true)
+      (assert/equal (:pair-problem? (by-id "b:grp")) true)
+      (assert/equal (:pair? (by-id "n:b")) false)
+      (assert/equal (.-length (:pairs (by-id "n:a"))) 1))))

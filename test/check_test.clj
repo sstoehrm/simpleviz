@@ -12,6 +12,13 @@
     (spit f text)
     (.getPath f)))
 
+(defn- temp-folder-with
+  "A fresh temp folder holding `files` (name -> text); the folder."
+  [files]
+  (let [dir (fs/create-temp-dir {:prefix "check-test"})]
+    (doseq [[nm text] files] (spit (fs/file dir nm) text))
+    dir))
+
 (deftest check-clean-file-reports-nothing
   (is (= {:error nil :warnings []}
          (check/check (temp-graph "{:nodes {:a {} :b {}} :edges {[:a :b] {}}}")))))
@@ -38,3 +45,18 @@
 
 (deftest check-missing-file-is-an-error
   (is (string? (:error (check/check "test/fixtures/does-not-exist.edn")))))
+
+(deftest check-reports-a-broken-pair
+  (let [dir (temp-folder-with {"g.edn" "{:nodes {:api {:pair \"missing.edn#x\"}}}"})]
+    (try
+      (is (= {:error nil
+              :warnings ["node \"api\": pair \"missing.edn#x\": missing.edn not found"]}
+             (check/check (str (fs/file dir "g.edn")))))
+      (finally (fs/delete-tree dir)))))
+
+(deftest check-accepts-a-working-pair-next-to-the-file
+  (let [dir (temp-folder-with {"g.edn" "{:nodes {:api {:pair \"other.edn#b\"}}}"
+                               "other.edn" "{:nodes {:b {}}}"})]
+    (try
+      (is (= {:error nil :warnings []} (check/check (str (fs/file dir "g.edn")))))
+      (finally (fs/delete-tree dir)))))

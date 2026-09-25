@@ -69,6 +69,15 @@
     (and (< (:x0 bb) (:x1 vr)) (> (:x1 bb) (:x0 vr))
          (< (:y0 bb) (:y1 vr)) (> (:y1 bb) (:y0 vr)))))
 
+(defn- pair-fields
+  "The pair data a node or box item carries: its payload :pairs, whether
+  it has any, and whether one of them is broken."
+  [el]
+  (let [ps (or (:pairs el) [])]
+    {:pairs ps
+     :pair? (pos? (.-length ps))
+     :pair-problem? (boolean (some (fn [p] (some? (:problem p))) ps))}))
+
 (defn build-scene [{:keys [layout graph colors]}]
   (let [boxes (js/Array.)
         nodes (js/Array.)
@@ -84,28 +93,30 @@
                    ;; collapsed-style, but there is nothing to toggle
                    empty? (and (not (:collapsed box))
                                (zero? (.-length (or (:components box) []))))]
-               (.push boxes {:kind "box" :id (:id child)
-                             :x x :y y :w (:width child) :h (:height child)
-                             :title-h TITLE-H
-                             :collapsed (or (:collapsed box) empty?)
-                             :empty empty?
-                             :bbox (rect-bbox x y (:width child) (:height child))
-                             :color-idx (color-idx box (:box colors))
-                             :name (or (:label box) (:name box)) :type (:type box)
-                             :attrs (:attrs box)
-                             :diff (:diff box) :changed (:changed box) :diff-inside (:diff-inside box)})
+               (.push boxes (merge {:kind "box" :id (:id child)
+                                    :x x :y y :w (:width child) :h (:height child)
+                                    :title-h TITLE-H
+                                    :collapsed (or (:collapsed box) empty?)
+                                    :empty empty?
+                                    :bbox (rect-bbox x y (:width child) (:height child))
+                                    :color-idx (color-idx box (:box colors))
+                                    :name (or (:label box) (:name box)) :type (:type box)
+                                    :attrs (:attrs box)
+                                    :diff (:diff box) :changed (:changed box) :diff-inside (:diff-inside box)}
+                             (pair-fields box)))
                (.set origins (:id child) {:x x :y y})
                (walk child x y))
              (let [node (get (:nodes graph) (.slice (:id child) 2))]
-               (.push nodes {:kind "node" :id (:id child)
-                             :x x :y y :w (:width child) :h (:height child)
-                             :bbox (rect-bbox x y (:width child) (:height child))
-                             :color-idx (color-idx node (:node colors))
-                             :name (:name node) :type (:type node)
-                             :attrs (:attrs node)
-                             :ref? (some? (ref-of node))
-                             :state (node-state node)
-                             :diff (:diff node) :changed (:changed node)}))))))
+               (.push nodes (merge {:kind "node" :id (:id child)
+                                    :x x :y y :w (:width child) :h (:height child)
+                                    :bbox (rect-bbox x y (:width child) (:height child))
+                                    :color-idx (color-idx node (:node colors))
+                                    :name (:name node) :type (:type node)
+                                    :attrs (:attrs node)
+                                    :ref? (some? (ref-of node))
+                                    :state (node-state node)
+                                    :diff (:diff node) :changed (:changed node)}
+                             (pair-fields node))))))))
      layout 0 0)
     (let [edges-by-id (let [m (js/Map.)]
                         (doseq [e (:edges graph)] (.set m (:id e) e))

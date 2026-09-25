@@ -15,6 +15,8 @@ The README example shows every attribute simpleviz reads.
   disc with a check. Any other value is an ordinary attribute.
 - `:ref` links the element to another graph file (see
   [Following refs](#following-refs)). A node with a ref gets a double border.
+- `:pair` links a node or box to the same thing in another graph file
+  (see [Pairs](#pairs)). A paired element gets a ⇄ mark.
 - `:theme` at the top level sets the graph's colors (see [Themes](#themes)).
 - An edge's key is its endpoints, nodes or boxes, in left/right order.
   Writing both `[:a :b]` and `[:b :a]` warns "same connection". An edge
@@ -149,6 +151,7 @@ chord or pick.
 | `n b` | node, box | new box around the selection, in the selection's place |
 | `r r` | node, box | rename the id |
 | `f r` | node, edge, box | follow the `:ref` |
+| `f p` | node, box | follow the pair (with several, pick one in the inspector) |
 | `?` | any | toggle the help panel |
 
 **Layout and undo.** A relayout after an edit starts from the previous
@@ -178,6 +181,31 @@ browser's back button.
 
 In `examples/demo.edn` the API node refs `api/internals.edn`, whose
 "Demo overview" node refs back.
+
+## Pairs
+
+A `:pair` on a node or box names the same thing in another graph file:
+`"views/deploy.edn#api-svc"`, a path relative to the file the pair is in,
+`#`, and a node or box id there. Several views take a vector of them.
+The path follows the ref rules: `..` is fine, the served folder is the
+limit, and a fork is refused.
+
+- The ⇄ mark shows elements with pairs; a red ⇄ marks one with a broken
+  pair. The inspector lists them: `→` for
+  pairs declared here, `←` for pairs in other files that point here, so
+  declaring one side is enough. Click one, or use "follow pair" (`f p`),
+  to open that graph with the element selected; the trail leads back.
+- The server finds pairs pointing here by reading every `.edn` under the
+  served root's folder, except dot-folders, `node_modules` and forks. A
+  pair added in another file shows once this file reloads.
+- A broken pair (missing file, missing id, a fork, a path out of the
+  folder) is dimmed in the inspector and warns in the banner, in
+  `simpleviz check` and in `/api/errors`. `check` treats the checked
+  file's folder as the served folder and only checks pairs the file
+  declares.
+- Following a pair never creates a file. When the id is gone, the file
+  still opens, with a banner naming what's missing.
+- If both a node and a box have the id, the pair means the node.
 
 ## Exporting
 

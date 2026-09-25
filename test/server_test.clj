@@ -1130,3 +1130,150 @@
     (is (= "#2e3440" (get-in out ["theme" "bg"])))
     (is (= "#b58900" (get-in out ["theme" "accent"])))
     (is (= 72 (get-in out ["theme" "node-lightness"])))))
+
+;; --- pairs on /api/graph (Task 3) --------------------------------------
+
+(defn- pair-folder!
+  "A served folder: overview.edn pairs to views/deploy.edn#api-svc and to
+  a missing id; views/deploy.edn has api-svc; runtime.edn pairs into
+  deploy; a dot-folder and node_modules hold pairs that must be ignored."
+  []
+  (let [dir (babashka.fs/create-temp-dir {:prefix "pairs-test"})
+        w (fn [rel text] (let [f (babashka.fs/file dir rel)] (babashka.fs/create-dirs (babashka.fs/parent f)) (spit f text)))]
+    (w "overview.edn" "{:nodes {:api {:name \"API\" :pair [\"views/deploy.edn#api-svc\" \"views/deploy.edn#nope\"]}}}")
+    (w "views/deploy.edn" "{:nodes {:api-svc {}}}")
+    (w "runtime.edn" "{:boxes {:rt {:components #{} :pair \"views/deploy.edn#api-svc\"}}}")
+    (w ".hidden/x.edn" "{:nodes {:h {:pair \"views/deploy.edn#api-svc\"}}}")
+    (w "node_modules/y.edn" "{:nodes {:m {:pair \"views/deploy.edn#api-svc\"}}}")
+    (str dir)))
+
+(deftest graph-payload-carries-outgoing-pairs-and-their-warnings
+  (let [dir (pair-folder!)]
+    (try
+      (serve! (str dir "/overview.edn"))
+      (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph"})))
+            ps (get-in out ["nodes" "api" "pairs"])]
+        (is (= [{"dir" "out" "file" "views/deploy.edn" "id" "api-svc" "kind" "node"
+                 "raw" "views/deploy.edn#api-svc"}]
+               (filterv #(nil? (get % "problem")) ps)))
+        (is (= "no node or box nope in views/deploy.edn" (get (second ps) "problem")))
+        (is (= ["node \"api\": pair \"views/deploy.edn#nope\": no node or box nope in views/deploy.edn"]
+               (get out "warnings"))))
+      (finally (babashka.fs/delete-tree dir)))))
+
+(deftest graph-payload-carries-incoming-pairs-from-the-folder
+  (let [dir (pair-folder!)]
+    (try
+      (serve! (str dir "/overview.edn"))
+      (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "file=views/deploy.edn"})))]
+        (is (= #{{"dir" "in" "file" "overview.edn" "id" "api" "kind" "node"}
+                 {"dir" "in" "file" "runtime.edn" "id" "rt" "kind" "box"}}
+               (set (get-in out ["nodes" "api-svc" "pairs"])))
+            "dot-folders and node_modules are not scanned"))
+      (finally (babashka.fs/delete-tree dir)))))
+
+(deftest a-changed-target-file-is-read-again
+  (let [dir (pair-folder!)]
+    (try
+      (serve! (str dir "/overview.edn"))
+      (serve/handler {:uri "/api/graph"})
+      (let [f (babashka.fs/file dir "views/deploy.edn")]
+        (spit f "{:nodes {:renamed {}}}")
+        (.setLastModified f (+ 2000 (.lastModified f))))
+      (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph"})))]
+        (is (some #(str/includes? % "no node or box api-svc in views/deploy.edn") (get out "warnings"))))
+      (finally (babashka.fs/delete-tree dir)))))
+
+(deftest a-pair-into-a-file-that-does-not-parse-warns
+  (let [dir (pair-folder!)]
+    (try
+      (spit (babashka.fs/file dir "broken.edn") "{:nodes {:a {}")
+      (spit (babashka.fs/file dir "overview.edn") "{:nodes {:api {:pair \"broken.edn#a\"}}}")
+      (serve! (str dir "/overview.edn"))
+      (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph"})))]
+        (is (= ["node \"api\": pair \"broken.edn#a\": broken.edn does not parse"] (get out "warnings"))))
+      (finally (babashka.fs/delete-tree dir)))))
+
+(deftest compare-payload-carries-pairs-of-the-shown-side
+  (let [dir (pair-folder!)]
+    (try
+      (spit (babashka.fs/file dir "overview-next.edn") "{:nodes {:api {:pair \"views/deploy.edn#api-svc\"} :new {}}}")
+      (serve! (str dir "/overview.edn") "next")
+      (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph"})))]
+        (is (= ["views/deploy.edn"] (mapv #(get % "file") (get-in out ["nodes" "api" "pairs"]))))
+        (is (some #(str/starts-with? % "overview.edn: node \"api\": pair \"views/deploy.edn#nope\"")
+                  (get out "warnings"))
+            "the old side's broken pair warns under its file name"))
+      (finally (babashka.fs/delete-tree dir)))))
+
+;; --- final review fixes ------------------------------------------------
+
+(deftest the-folder-scan-does-not-follow-a-directory-symlink-loop
+  (let [dir (pair-folder!)]
+    (try
+      (babashka.fs/create-dirs (babashka.fs/file dir "a"))
+      (when (try (symlink! (str dir) "a/loop" "..") true
+                 (catch Exception _ false))
+        (serve! (str dir "/overview.edn"))
+        (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "file=views/deploy.edn"})))]
+          (is (nil? (get out "error")))
+          (is (= [{"dir" "in" "file" "overview.edn" "id" "api" "kind" "node"}
+                  {"dir" "in" "file" "runtime.edn" "id" "rt" "kind" "box"}]
+                 (get-in out ["nodes" "api-svc" "pairs"]))
+              "each real file is indexed once, none through a/loop")
+          (is (= ["overview.edn" "runtime.edn" "views/deploy.edn"]
+                 (#'serve/scan-edn @serve/root-dir nil))
+              "the walk neither follows a/loop nor enters .hidden or node_modules")))
+      (finally (babashka.fs/delete-tree dir)))))
+
+(deftest compare-mode-checks-the-new-sides-pairs-against-the-forks
+  (let [dir (babashka.fs/create-temp-dir {:prefix "pairs-test"})
+        w (fn [rel text] (let [f (babashka.fs/file dir rel)] (babashka.fs/create-dirs (babashka.fs/parent f)) (spit f text)))]
+    (try
+      (w "overview.edn" "{:nodes {:api {:pair \"views/deploy.edn#api-svc\"}}}")
+      (w "overview-next.edn" "{:nodes {:api {:pair \"views/deploy.edn#api-service\"}}}")
+      (w "views/deploy.edn" "{:nodes {:api-svc {}}}")
+      (w "views/deploy-next.edn" "{:nodes {:api-service {}}}")
+      (serve! (str dir "/overview.edn") "next")
+      (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph"})))
+            ps (get-in out ["nodes" "api" "pairs"])]
+        (is (= [{"dir" "out" "file" "views/deploy.edn" "id" "api-service" "kind" "node"
+                 "raw" "views/deploy.edn#api-service"}]
+               ps)
+            "the new side's pair resolves in deploy-next.edn, named by the original")
+        (is (not-any? #(str/includes? % "api-service") (get out "warnings")))
+        (is (not-any? #(str/includes? % "api-svc") (get out "warnings"))
+            "the old side's pair reads the original, which has api-svc"))
+      (finally (babashka.fs/delete-tree dir)))))
+
+(deftest a-same-second-rewrite-of-a-target-is-read-again
+  (let [dir (pair-folder!)]
+    (try
+      (serve! (str dir "/overview.edn"))
+      (serve/handler {:uri "/api/graph"})
+      (let [f (babashka.fs/file dir "views/deploy.edn")
+            mtime (.lastModified f)]
+        (spit f "{:nodes {:renamed-longer {}}}")
+        (.setLastModified f mtime))
+      (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph"})))]
+        (is (some #(str/includes? % "no node or box api-svc in views/deploy.edn") (get out "warnings"))))
+      (finally (babashka.fs/delete-tree dir)))))
+
+(deftest api-errors-reports-a-broken-pair
+  (let [dir (pair-folder!)]
+    (try
+      (serve! (str dir "/overview.edn"))
+      (is (= {"error" nil
+              "warnings" ["node \"api\": pair \"views/deploy.edn#nope\": no node or box nope in views/deploy.edn"]}
+             (api-errors)))
+      (finally (babashka.fs/delete-tree dir)))))
+
+(deftest a-pair-declared-only-in-a-fork-is-not-incoming
+  (let [dir (pair-folder!)]
+    (try
+      (spit (babashka.fs/file dir "runtime-next.edn") "{:nodes {:only-fork {:pair \"views/deploy.edn#api-svc\"}}}")
+      (serve! (str dir "/overview.edn") "next")
+      (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "file=views/deploy.edn"})))]
+        (is (not-any? #(= "runtime-next.edn" (get % "file")) (get-in out ["nodes" "api-svc" "pairs"])))
+        (is (some #(= "runtime.edn" (get % "file")) (get-in out ["nodes" "api-svc" "pairs"]))))
+      (finally (babashka.fs/delete-tree dir)))))

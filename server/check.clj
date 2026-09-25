@@ -1,9 +1,7 @@
 (ns check
   "simpleviz check: what the page's banners would show for one graph
   file — its parse error or its validation warnings — without a server."
-  (:require [clojure.edn :as edn]
-            [graph]
-            [serve]))
+  (:require [serve]))
 
 (defn check
   "{:error <message or nil> :warnings [...]} for the graph file at
@@ -11,7 +9,7 @@
   [path]
   (try
     {:error nil
-     :warnings (:warnings (graph/normalize (edn/read-string (serve/read-source path))))}
+     :warnings (:warnings (serve/parse-graph (serve/read-source path)))}
     (catch Exception e
       {:error (ex-message e) :warnings []})))
 

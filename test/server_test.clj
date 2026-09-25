@@ -83,6 +83,41 @@
     (is (nil? (get-in out ["nodes" "a" "diff"])))
     (is (= {"old" "old.edn" "new" "new.edn"} (get out "compare")))))
 
+(def ^:private early-close
+  "The root map closed too early: the edges sit after it (#92)."
+  "{:nodes {:a {} :b {}}}\n :edges {[:a :b] {}}}")
+
+(deftest parse-graph-rejects-content-after-the-root-map
+  ;; the line is where the map closes: that's where an extra } sits
+  (is (thrown-with-msg? Exception
+                        #"^content after the end of the graph: its map closes at line 1 — check there for an extra \}$"
+                        (serve/parse-graph early-close)))
+  (is (thrown-with-msg? Exception #"closes at line 1 " (serve/parse-graph "{:nodes {:a {}}}}")))
+  (is (thrown-with-msg? Exception #"closes at line 2 "
+                        (serve/parse-graph "{:nodes\r\n {:a {}}}\r\n; the rest\r\n}\r\n")))
+  (is (thrown-with-msg? Exception #"closes at line 1 "
+                        (serve/parse-graph "{:nodes {}}\n#_ {:x 1}\n:edges {}"))))
+
+(deftest parse-graph-allows-whitespace-comments-and-discards-after-the-root
+  (is (= ["a"] (keys (:nodes (serve/parse-graph "{:nodes {:a {}}}\n; note\n#_ {:b {}},\n\n")))))
+  ;; as edn/read-string had it: an empty file is an empty graph
+  (is (= [] (:warnings (serve/parse-graph ""))))
+  (is (= [] (:warnings (serve/parse-graph " \n; nothing yet\n")))))
+
+(deftest parse-graph-leaves-a-non-map-root-to-normalize
+  ;; a root that isn't a map gets normalize's warning, not an "extra }" hint
+  (let [g (serve/parse-graph ":graph {:nodes {:a {}}}")]
+    (is (some #(str/includes? % "root must be a map") (:warnings g)))))
+
+(deftest graph-json-reports-content-after-the-root-as-an-error
+  (let [out (json/parse-string (serve/graph-json early-close))]
+    (is (str/starts-with? (get out "error") "content after the end of the graph"))
+    (is (not (contains? out "nodes")))))
+
+(deftest compare-json-content-after-the-root-names-the-file
+  (let [out (json/parse-string (serve/compare-json "{}" early-close "old.edn" "new.edn"))]
+    (is (str/starts-with? (get out "error") "new.edn: content after the end of the graph"))))
+
 (deftest compare-json-parse-error-names-the-file
   (let [out (json/parse-string
              (serve/compare-json "{:unclosed" "{}" "old.edn" "new.edn"))]

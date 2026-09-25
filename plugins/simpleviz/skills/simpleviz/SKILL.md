@@ -43,7 +43,7 @@ Rules that are easy to get wrong:
 
 ## Validation is lenient — check what you wrote
 
-Unknown node references, duplicate memberships, containment cycles, wrong shapes: the offending element is skipped and a warning banner explains it; everything else still renders. A parse error shows an error banner and keeps the last good render. Nothing fails loudly, so after every write, get the banners' text yourself — no server or browser needed:
+Unknown node references, duplicate memberships, containment cycles, wrong shapes: the offending element is skipped and a warning banner explains it; everything else still renders. A parse error shows an error banner and keeps the last good render; so does anything after the root map, such as the rest of the file behind an extra `}`. Nothing fails loudly, so after every write, get the banners' text yourself — no server or browser needed:
 
     simpleviz check graph.edn        # from a bundle/repo dir: bb check graph.edn
     # `ok` (exit 0), or `error: ..` / one `warning: ..` line per problem (exit 1)

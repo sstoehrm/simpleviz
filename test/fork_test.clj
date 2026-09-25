@@ -23,7 +23,9 @@
                     " :boxes {:z {:components #{:a} :ref \"y.edn\"}}}")))))
   ;; vector forms work too
   (is (= ["v.edn"] (fork/ref-targets "{:nodes {:a nil} :boxes [{:name \"g\" :components #{:a} :ref \"v.edn\"}]}")))
-  (is (thrown? Exception (fork/ref-targets "{:unclosed"))))
+  (is (thrown? Exception (fork/ref-targets "{:unclosed")))
+  ;; refs after an early } would be missed, so that's a parse error too
+  (is (thrown? Exception (fork/ref-targets "{:nodes {:a {}}}\n :boxes {:g {:ref \"v.edn\"}}}"))))
 
 (defn- tree!
   "Write {rel text} under a fresh temp dir; returns its canonical File."

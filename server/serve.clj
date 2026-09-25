@@ -12,7 +12,9 @@
             [graph]
             [log]
             [org.httpkit.server :as srv]
-            [png]))
+            [png])
+  (:import [clojure.lang LineNumberingPushbackReader]
+           [java.io StringReader]))
 
 (def default-port 7373)
 
@@ -340,6 +342,28 @@
     (catch Exception e
       {:error (str "invalid arguments: " (ex-message e) "\n" usage)})))
 
+(defn parse-graph
+  "Read the EDN text of a graph file and normalize it. Throws on a parse
+  error, and when anything but whitespace, commas, comments and #_
+  discards follows a root map: edn/read-string ignores it, so an extra }
+  would hide the rest of the file without a word (#92). The error names
+  the line the map closes on, where that } sits."
+  [s]
+  ;; LineNumberingPushbackReader counts lines (and folds \r\n to \n,
+  ;; also inside strings); it wraps reader errors in a ReaderException,
+  ;; so rethrow the plain message
+  (let [r (LineNumberingPushbackReader. (StringReader. s))
+        root (try (edn/read {:eof nil} r)
+                  (catch Exception e (throw (ex-info (ex-message (or (ex-cause e) e)) {} e))))]
+    ;; a root that isn't a map gets normalize's own warning instead
+    (when (map? root)
+      (let [line (.getLineNumber r)]
+        (when-not (= ::eof (try (edn/read {:eof ::eof} r) (catch Exception _ ::stray)))
+          (throw (ex-info (str "content after the end of the graph: its map closes at line "
+                               line " — check there for an extra }")
+                          {})))))
+    (graph/normalize root)))
+
 (defn graph-json
   "Parse an EDN string, normalize it, return the graph as a JSON string.
   With fname, the payload carries it as :file (the export download
@@ -351,7 +375,7 @@
   ([s fname extra-map]
    (try
      (json/generate-string
-      (cond-> (graph/normalize (edn/read-string s))
+      (cond-> (parse-graph s)
         (some? fname) (assoc :file fname)
         (some? extra-map) (merge extra-map)))
      (catch Exception e
@@ -369,11 +393,11 @@
   ([old-s new-s old-name new-name file-name extra-map]
    (try
      (let [parse (fn [s nm]
-                   (try (edn/read-string s)
+                   (try (parse-graph s)
                         (catch Exception e
                           (throw (ex-info (str nm ": " (ex-message e)) {})))))
-           old-g (graph/normalize (parse old-s old-name))
-           new-g (graph/normalize (parse new-s new-name))]
+           old-g (parse old-s old-name)
+           new-g (parse new-s new-name)]
        (json/generate-string
         (cond-> (assoc (diff/union old-g new-g old-name new-name)
                        :file file-name)

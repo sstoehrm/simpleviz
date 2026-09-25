@@ -1,0 +1,33 @@
+{:nodes {:overview  {:name "views/overview.edn" :type "file"   :note "{:api {:pair \"deploy.edn#api-svc\"}}"}
+         :deploy    {:name "views/deploy.edn"   :type "file"   :note "{:api-svc {...}} — declares nothing, still shows the pair"}
+         :folder    {:name "served folder"      :type "file"   :note "every .edn under the root file's folder; dot-folders and forks skipped"}
+         :parse     {:name "pairs/parse"        :type "server" :note ":pair value → [{:file :id}] + warnings for malformed values"}
+         :target    {:name "pairs/target-path"  :type "server" :note "join to the declaring file's folder; serve/resolve-path boundary; no forks"}
+         :index     {:name "pairs/index"        :type "server" :note "\"file#id\" → elements pairing in; files parsed once per mtime (cache atom)"}
+         :attach    {:name "pairs/attach"       :type "server" :note ":pairs on each node and box (out and in); outgoing problems → :warnings"}
+         :graphbody {:name "serve/graph-response-body" :type "server" :note "parse-graph → attach (each side in compare mode) → diff/union"}
+         :check     {:name "check / /api/errors" :type "server" :note "outgoing pair warnings; check indexes only the files its pairs name"}
+         :fork      {:name "fork/ref-targets"   :type "server" :note "ref and pair targets, so fork/promote carry pair files along"}
+         :scene     {:name "scene"              :type "page"   :note "items get :pair? and :pair-problem?"}
+         :canvas    {:name "canvas"             :type "page"   :note "⇄ mark bottom-left; warning color when broken"}
+         :details   {:name "inspector Pairs"    :type "page"   :note "→ declared here / ← points here; broken rows dimmed; click follows"}
+         :toolbar   {:name "follow pair (f p)"  :type "page"   :note "one working pair: jump; several: hint to pick in the inspector"}
+         :nav       {:name "navigate + focus"   :type "page"   :note "trail like :ref, plus focus=n:id in the URL → :pending-focus + center-on!"}}
+ :edges {[:overview :parse]     {:direction :-> :name ":pair value"}
+         [:parse :target]       {:direction :-> :name "file, id"}
+         [:folder :index]       {:direction :-> :name "scan (mtime cache)"}
+         [:target :attach]      {:direction :-> :name "outgoing"}
+         [:index :attach]       {:direction :-> :name "incoming"}
+         [:attach :graphbody]   {:direction :-> :name ":pairs, warnings"}
+         [:attach :check]       {:direction :-> :name "warnings"}
+         [:parse :fork]         {:direction :-> :name "pair files"}
+         [:graphbody :scene]    {:direction :-> :name "payload :pairs" :type "http"}
+         [:graphbody :details]  {:direction :-> :name "payload :pairs" :type "http"}
+         [:scene :canvas]       {:direction :-> :name ":pair?"}
+         [:details :nav]        {:direction :-> :name "click a row"}
+         [:toolbar :nav]        {:direction :-> :name "f p"}
+         [:nav :deploy]         {:direction :-> :name "?file=…&focus=n:api-svc" :type "http"}}
+ :boxes {:disk   {:name "Graph files"   :type "zone" :components #{:overview :deploy :folder}}
+         :server {:name "Server (bb)"   :type "zone" :components #{:pairsns :graphbody :check :fork}}
+         :pairsns {:name "server/pairs.clj" :type "module" :components #{:parse :target :index :attach}}
+         :page   {:name "Page (squint)" :type "zone" :components #{:scene :canvas :details :toolbar :nav}}}}

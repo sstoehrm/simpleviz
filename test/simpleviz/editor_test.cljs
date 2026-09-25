@@ -10,7 +10,7 @@
                                       add-node-in-box-ops box-remove-op
                                       name->id derived-id named-edge-ops creation-ops parse-entry
                                       resolve-ref parse-nav nav-query follow-url crumb-url ref-of
-                                      theme-menu set-theme-op]]))
+                                      theme-menu set-theme-op top-box-of]]))
 
 (test "target maps selection payloads to op targets"
   (fn []
@@ -414,3 +414,13 @@
   (fn []
     (assert/deepEqual (set-theme-op "nord") {:op "set-theme" :theme "nord"})
     (assert/deepEqual (set-theme-op "") {:op "set-theme" :theme nil})))
+
+(test "top-box-of walks a scene id up to its outermost box"
+  (fn []
+    (let [parent-of {"n:api" "inner" "b:inner" "outer" "n:solo" "outer"}]
+      (assert/equal (top-box-of parent-of "n:api") "outer")
+      (assert/equal (top-box-of parent-of "b:inner") "outer")
+      (assert/equal (top-box-of parent-of "n:solo") "outer")
+      (assert/ok (nil? (top-box-of parent-of "n:free")) "a node in no box")
+      (assert/ok (nil? (top-box-of parent-of "b:outer")) "a top-level box has no ancestor")
+      (assert/ok (nil? (top-box-of nil "n:api")) "no parent-of at all"))))

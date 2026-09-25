@@ -295,6 +295,16 @@
               (= seg "..") (when (seq acc) (recur (pop acc) more))
               :else (recur (conj acc seg) more))))))))
 
+(defn top-box-of
+  "The outermost box around scene id `scene-id` (\"n:api\", \"b:grp\"):
+  walks `parent-of` (scene id -> box name) up to the last box; nil when
+  the id is in no box."
+  [parent-of scene-id]
+  (loop [box (get parent-of scene-id)]
+    (when (some? box)
+      (let [up (get parent-of (str "b:" box))]
+        (if (some? up) (recur up) box)))))
+
 (defn parse-nav
   "The page's navigation state from its query string: {:file
   root-relative path or nil (the root file) :trail [paths visited

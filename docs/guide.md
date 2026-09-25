@@ -190,7 +190,8 @@ A `:pair` on a node or box names the same thing in another graph file:
 The path follows the ref rules: `..` is fine, the served folder is the
 limit, and a fork is refused.
 
-- The ⇄ mark shows elements with pairs. The inspector lists them: `→` for
+- The ⇄ mark shows elements with pairs; a red ⇄ marks one with a broken
+  pair. The inspector lists them: `→` for
   pairs declared here, `←` for pairs in other files that point here, so
   declaring one side is enough. Click one, or use "follow pair" (`f p`),
   to open that graph with the element selected; the trail leads back.

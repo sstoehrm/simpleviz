@@ -709,12 +709,12 @@
      [:h2 "How to use"]
      (help-section
       "Navigate"
-      "Drag to pan, scroll to zoom. Hover an element to see its name and attributes; click it to inspect and edit them. A double border marks a node with a :ref; the mark on a node's corner is its :state — grey disc new, blue half disc in-progress, red square blocked, green check done. The − in a box header collapses the box to a single node — the panel on the left lists collapsed boxes and re-expands them.")
+      "Drag to pan, scroll to zoom. Hover an element to see its name and attributes; click it to inspect and edit them. A double border marks a node with a :ref; the mark on a node's corner is its :state — grey disc new, blue half disc in-progress, red square blocked, green check done. The − in a box header collapses the box to a single node — the panel on the left lists collapsed boxes and re-expands them."
+      "A :pair (\"views/deploy.edn#api\", or a vector of them) links a node or box to the same thing in another graph. The ⇄ mark on an element's bottom-left corner shows its pairs — red when one is broken; the inspector lists them, those declared here and those pointing here. Click one, or use \"follow pair\" (f p), to open that graph with the element selected.")
      (help-section
       "Edit"
       "When the served file is editable EDN, the floating toolbar at the bottom holds the tools for the current selection: delete, edge direction, and pick modes such as \"add edge\" (click the other element on the canvas, then name the edge; Esc cancels). New nodes and boxes are created by name: the prompt types a name, and the id is derived from it — lowercased, illegal characters turned into dashes; name::type also sets the type. With nothing selected it creates a standalone node. A :ref attribute naming another graph file (relative path) makes \"follow ref\" open it — in a suffix comparison (simpleviz graph.edn next) it opens that file's own comparison; the trail at the top leads back. Following a ref to an .edn file that does not exist yet creates it as an empty graph — in a comparison the side picked by the old|new toggle."
-      "In the inspector, click a value or its ✎ to edit it inline — Enter commits, Shift+Enter inserts a line break, Escape cancels. × deletes an attribute; the key/value row at the bottom adds one. Ctrl+Z or ↶ undoes the last edit."
-      "A :pair (\"views/deploy.edn#api\", or a vector of them) links a node or box to the same thing in another graph. The ⇄ mark shows paired elements; the inspector lists their pairs, those declared here and those pointing here. Click one, or use \"follow pair\" (f p), to open that graph with the element selected.")
+      "In the inspector, click a value or its ✎ to edit it inline — Enter commits, Shift+Enter inserts a line break, Escape cancels. × deletes an attribute; the key/value row at the bottom adds one. Ctrl+Z or ↶ undoes the last edit.")
      (help-section
       "Keys"
       "Two-key chords act on the selection, when no text field has focus (the toolbar buttons show them): d d delete · e 1/2/3/4 edge direction → ← ↔ — · c s / c t change an edge's source / target · a e add edge · a b add to box (node) or add a box as member (box) · a n add a node as member (box) · n n new node (connected to the selected node, or inside the selected box — c n too) · n b new box around the selection · r r rename the id · r n take a node out of the selected box · r b take the selected node out of its box · f r follow the selection's :ref · f p follow the selection's pair. Esc cancels a pending chord; ? toggles this help; Ctrl+Z undoes.")
@@ -978,15 +978,21 @@
                                 :edit-target (resolve-edit-target g (:edit-target st)))))
           ;; big graphs open as a collapsed overview: all top-level boxes
           ;; start folded, drill in from there (also makes the first ELK
-          ;; run cheap). Small graphs open fully expanded.
+          ;; run cheap). Small graphs open fully expanded. The box holding
+          ;; a URL's focus stays open, so the focused element has a scene
+          ;; item to select (load-nav! clears :graph: every navigation
+          ;; comes through here).
           (when (and first-load?
                      (> (.-length (js/Object.keys (:nodes g))) 500))
-            (swap! state assoc :collapsed-boxes
-                   (set (keep (fn [b]
-                                (when (nil? (get (:parent-of g)
-                                                 (str "b:" (:name b))))
-                                  (:name b)))
-                              (:boxes g)))))
+            (let [pf (:pending-focus @state)
+                  keep-open (when (some? pf) (editor/top-box-of (:parent-of g) pf))]
+              (swap! state assoc :collapsed-boxes
+                     (set (keep (fn [b]
+                                  (when (and (nil? (get (:parent-of g)
+                                                        (str "b:" (:name b))))
+                                             (not= (:name b) keep-open))
+                                    (:name b)))
+                                (:boxes g))))))
           (js-await (relayout!)))))
     (catch :default e
       (js/console.error "Reload failed:" e)

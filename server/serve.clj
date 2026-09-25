@@ -369,21 +369,23 @@
     (graph/normalize root)))
 
 (def ^:private graph-cache
-  "canonical path -> {:mtime ms :graph g} or {:mtime ms :error msg}: the
-  files pairs read, parsed once per modification."
+  "canonical path -> {:stamp [mtime length] :graph g} or {:stamp ..
+  :error msg}: the files pairs read, parsed once per modification."
   (atom {}))
 
 (defn- cached-graph
   "The normalized graph in canonical file f (`rel` names it in
-  messages), parsed once per mtime; throws \"<rel> does not parse\"."
+  messages), parsed once per mtime and length — the length catches a
+  rewrite within the mtime's resolution; throws \"<rel> does not
+  parse\"."
   [f rel]
   (let [k (.getPath f)
-        mtime (.lastModified f)
+        stamp [(.lastModified f) (.length f)]
         hit (get @graph-cache k)
-        entry (if (= mtime (:mtime hit))
+        entry (if (= stamp (:stamp hit))
                 hit
-                (let [e (try {:mtime mtime :graph (parse-graph (read-source k))}
-                             (catch Exception _ {:mtime mtime :error (str rel " does not parse")}))]
+                (let [e (try {:stamp stamp :graph (parse-graph (read-source k))}
+                             (catch Exception _ {:stamp stamp :error (str rel " does not parse")}))]
                   (swap! graph-cache assoc k e)
                   e))]
     (if-let [err (:error entry)]
@@ -393,43 +395,66 @@
 (defn- read-rel-graph
   "The normalized graph of root-relative `rel` under folder `root`, for
   pairs: throws \"<rel> not found\", resolve-path's refusal, or
-  \"<rel> does not parse\"."
-  [root rel]
-  (let [f (try (resolve-path root rel)
-               (catch Exception e
-                 (throw (ex-info (if (str/starts-with? (str (ex-message e)) "no such file")
-                                   (str rel " not found")
-                                   (ex-message e))
-                                 {}))))]
-    (cached-graph f rel)))
+  \"<rel> does not parse\". With `suffix`, rel's fork is read when it
+  exists — side-file's rule for the new side — still named rel."
+  ([root rel]
+   (let [f (try (resolve-path root rel)
+                (catch Exception e
+                  (throw (ex-info (if (str/starts-with? (str (ex-message e)) "no such file")
+                                    (str rel " not found")
+                                    (ex-message e))
+                                  {}))))]
+     (cached-graph f rel)))
+  ([root rel suffix]
+   (if-let [fk (try (resolve-path root (fork-name rel suffix)) (catch Exception _ nil))]
+     (cached-graph fk rel)
+     (read-rel-graph root rel))))
 
 (defn- scan-edn
-  "Root-relative paths of the .edn files under folder `root`: not in a
-  dot-folder or node_modules, not a dotfile, and not a fork of `suffix`."
+  "Root-relative paths of the .edn files under folder `root`, sorted:
+  not a dotfile, not a fork of `suffix`. The walk never enters a
+  dot-folder, node_modules, or a symlinked folder (so a link loop ends)."
   [root suffix]
-  (let [root-p (.toPath (io/file root))]
-    (->> (file-seq (io/file root))
-         (filter (fn [f] (and (.isFile f) (str/ends-with? (str/lower-case (.getName f)) ".edn"))))
+  (let [root-f (io/file root)
+        root-p (.toPath root-f)
+        descend? (fn [f]
+                   (or (identical? f root-f)
+                       (let [nm (.getName f)]
+                         (and (.isDirectory f)
+                              (not (str/starts-with? nm "."))
+                              (not= nm "node_modules")
+                              (not (java.nio.file.Files/isSymbolicLink (.toPath f)))))))]
+    (->> (tree-seq descend? (fn [d] (seq (.listFiles d))) root-f)
+         (filter (fn [f] (let [nm (.getName f)]
+                           (and (not (str/starts-with? nm "."))
+                                (str/ends-with? (str/lower-case nm) ".edn")
+                                (.isFile f)))))
          (map (fn [f] (str/replace (str (.relativize root-p (.toPath f))) java.io.File/separator "/")))
-         (remove (fn [rel] (some (fn [seg] (or (str/starts-with? seg ".") (= seg "node_modules")))
-                                 (str/split rel #"/"))))
          (remove (fn [rel] (and (some? suffix) (some? (fork-base rel suffix)))))
          sort)))
 
+(defn pair-index
+  "The reverse index (pairs/index) of every .edn under canonical folder
+  `root` but `suffix`'s forks, read through the mtime cache; a file that
+  doesn't parse contributes nothing."
+  [root suffix]
+  (pairs/index (keep (fn [r] (try [r (read-rel-graph root r)] (catch Exception _ nil)))
+                     (scan-edn root suffix))))
+
 (defn pair-context
   "The pairs/attach ctx for root-relative `rel` under canonical folder
-  `root`: reads through the mtime cache, knows `suffix`'s forks, and —
-  with scan? — the reverse index of every .edn under root (else an
-  empty one, as check has it)."
-  [root rel suffix scan?]
-  (let [read (fn [r] (read-rel-graph root r))]
-    {:path rel
-     :read read
-     :fork-of (fn [r] (when (some? suffix) (fork-base r suffix)))
-     :index (if scan?
-              (pairs/index (keep (fn [r] (try [r (read r)] (catch Exception _ nil)))
-                                 (scan-edn root suffix)))
-              {})}))
+  `root`: reads through the mtime cache, knows `suffix`'s forks, and
+  looks incoming pairs up in `index` (pair-index, or {} as check has
+  it). Side \"new\" of a comparison reads each target's fork when it
+  exists; \"old\" (the default) reads the originals."
+  ([root rel suffix index] (pair-context root rel suffix index "old"))
+  ([root rel suffix index side]
+   {:path rel
+    :read (if (and (some? suffix) (= side "new"))
+            (fn [r] (read-rel-graph root r suffix))
+            (fn [r] (read-rel-graph root r)))
+    :fork-of (fn [r] (when (some? suffix) (fork-base r suffix)))
+    :index index}))
 
 (defn graph-json
   "Parse an EDN string, normalize it, return the graph as a JSON string.
@@ -455,22 +480,22 @@
   JSON string; file-name overrides the export download name (defaults to
   new-name's basename). A parse failure returns {\"error\": \"<file>: msg\"}.
   prepare, when given, transforms each normalized graph before the diff
-  (pairs/attach)."
+  (pairs/attach): (prepare g \"old\") and (prepare g \"new\")."
   ([old-s new-s old-name new-name]
    (compare-json old-s new-s old-name new-name
                  (.getName (io/file new-name)) nil))
   ([old-s new-s old-name new-name file-name]
    (compare-json old-s new-s old-name new-name file-name nil))
   ([old-s new-s old-name new-name file-name extra-map]
-   (compare-json old-s new-s old-name new-name file-name extra-map identity))
+   (compare-json old-s new-s old-name new-name file-name extra-map (fn [g _] g)))
   ([old-s new-s old-name new-name file-name extra-map prepare]
    (try
      (let [parse (fn [s nm]
                    (try (parse-graph s)
                         (catch Exception e
                           (throw (ex-info (str nm ": " (ex-message e)) {})))))
-           old-g (prepare (parse old-s old-name))
-           new-g (prepare (parse new-s new-name))]
+           old-g (prepare (parse old-s old-name) "old")
+           new-g (prepare (parse new-s new-name) "new")]
        (json/generate-string
         (cond-> (assoc (diff/union old-g new-g old-name new-name)
                        :file file-name)
@@ -562,7 +587,9 @@
                    (let [{:keys [old new] :as pair} (sides rel)
                          path (or rel (root-rel))
                          new-p (.getPath new)
-                         prepare (fn [g] (pairs/attach g (pair-context @root-dir path suffix true)))]
+                         ;; one scan per request, shared by both sides
+                         index (pair-index @root-dir suffix)
+                         prepare (fn [g which] (pairs/attach g (pair-context @root-dir path suffix index which)))]
                      (if (some? old)
                        (compare-json (side-source pair "old") (side-source pair "new")
                                      path (fork-name path suffix) (.getName new)
@@ -572,7 +599,7 @@
                                      prepare)
                        (graph-json (read-source new-p) (.getName new)
                                    {:editable (not (png/png? new-p)) :path path}
-                                   prepare)))))
+                                   #(prepare % "new"))))))
                (catch Exception e
                  (json/generate-string {:error (ex-message e)})))]
     ;; graph-json/compare-json fold parse failures into the payload; only

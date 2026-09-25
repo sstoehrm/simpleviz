@@ -15,7 +15,7 @@
     (let [f (.getCanonicalFile (io/file path))
           g (serve/parse-graph (serve/read-source path))]
       {:error nil
-       :warnings (:warnings (pairs/attach g (serve/pair-context (.getParentFile f) (.getName f) nil false)))})
+       :warnings (:warnings (pairs/attach g (serve/pair-context (.getParentFile f) (.getName f) nil {})))})
     (catch Exception e
       {:error (ex-message e) :warnings []})))
 

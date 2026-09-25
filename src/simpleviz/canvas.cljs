@@ -197,6 +197,8 @@
       (.arc ctx (- bx 8) (+ by (/ s 2)) 3.5 0 (* 2 js/Math.PI))
       (set! (.-fillStyle ctx) (:diff-modified @palette))
       (.fill ctx)))))
+  (when (and text? (:pair? item))
+    (draw-pair-mark ctx item))
   (when (some? (:diff item))
     (draw-diff-ring ctx item 12 text?))
   (when removed? (set! (.-globalAlpha ctx) 1))))
@@ -239,6 +241,25 @@
                  (.stroke ctx))
       nil)))
 
+(defn- draw-pair-mark
+  "⇄ on the item's bottom-left corner: it has pairs (in either
+  direction); drawn in the blocked-state red when one is broken."
+  [ctx item]
+  (let [cx (:x item)
+        cy (+ (:y item) (:h item))
+        c (if (:pair-problem? item) (:state-blocked @palette) (:sub @palette))]
+    (.beginPath ctx)
+    (.arc ctx cx cy 7 0 (* 2 js/Math.PI))
+    (set! (.-fillStyle ctx) (:node-fill @palette))
+    (.fill ctx)
+    (set! (.-strokeStyle ctx) c)
+    (set! (.-lineWidth ctx) 1)
+    (.stroke ctx)
+    (set! (.-textAlign ctx) "center")
+    (set! (.-font ctx) "10px system-ui, sans-serif")
+    (set! (.-fillStyle ctx) c)
+    (.fillText ctx "⇄" cx (+ cy 3.5))))
+
 (defn- draw-node [ctx item sel? text?]
   (let [removed? (= (:diff item) "removed")]
     (when removed? (set! (.-globalAlpha ctx) 0.45))
@@ -256,6 +277,8 @@
       (.stroke ctx))
     (when (and text? (some? (:state item)))
       (draw-state-mark ctx item))
+    (when (and text? (:pair? item))
+      (draw-pair-mark ctx item))
     (when text?
     (set! (.-textAlign ctx) "center")
     (set! (.-font ctx) NODE-FONT)

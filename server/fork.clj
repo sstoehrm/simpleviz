@@ -5,19 +5,22 @@
   rewritten, so both sides of a comparison name the same files."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
+            [pairs]
             [paths]
             [serve]))
 
 (defn ref-targets
-  "The non-blank string :ref attrs on the nodes, edges and boxes in the
-  EDN text of a graph file, distinct. Throws on a parse error."
+  "The files a graph file links to, as written: its non-blank string
+  :ref attrs on nodes, edges and boxes, then the files of its pairs;
+  distinct. Throws on a parse error."
   [text]
   (let [g (serve/parse-graph text)]
-    (->> (concat (map :attrs (vals (:nodes g)))
-                 (map :attrs (:edges g))
-                 (map :attrs (:boxes g)))
-         (map :ref)
-         (filter #(and (string? %) (not (str/blank? %))))
+    (->> (concat (->> (concat (map :attrs (vals (:nodes g)))
+                              (map :attrs (:edges g))
+                              (map :attrs (:boxes g)))
+                      (map :ref)
+                      (filter #(and (string? %) (not (str/blank? %)))))
+                 (pairs/pair-files g))
          distinct
          vec)))
 

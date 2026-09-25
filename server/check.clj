@@ -1,15 +1,21 @@
 (ns check
   "simpleviz check: what the page's banners would show for one graph
-  file — its parse error or its validation warnings — without a server."
-  (:require [serve]))
+  file — its parse error or its validation warnings, pairs included —
+  without a server. The file's folder counts as the served folder, as
+  `simpleviz <file>` would serve it; incoming pairs aren't looked for."
+  (:require [clojure.java.io :as io]
+            [pairs]
+            [serve]))
 
 (defn check
   "{:error <message or nil> :warnings [...]} for the graph file at
   `path` (EDN, or the EDN embedded in an exported PNG)."
   [path]
   (try
-    {:error nil
-     :warnings (:warnings (serve/parse-graph (serve/read-source path)))}
+    (let [f (.getCanonicalFile (io/file path))
+          g (serve/parse-graph (serve/read-source path))]
+      {:error nil
+       :warnings (:warnings (pairs/attach g (serve/pair-context (.getParentFile f) (.getName f) nil false)))})
     (catch Exception e
       {:error (ex-message e) :warnings []})))
 

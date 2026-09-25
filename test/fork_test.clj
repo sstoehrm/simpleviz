@@ -17,6 +17,10 @@
   ;; refs after an early } would be missed, so that's a parse error too
   (is (thrown? Exception (fork/ref-targets "{:nodes {:a {}}}\n :boxes {:g {:ref \"v.edn\"}}}"))))
 
+(deftest ref-targets-includes-the-files-of-pairs
+  (is (= #{"sub/a.edn" "views/d.edn"}
+         (set (fork/ref-targets "{:nodes {:x {:ref \"sub/a.edn\" :pair \"views/d.edn#y\"}}}")))))
+
 (defn- tree!
   "Write {rel text} under a fresh temp dir; returns its canonical File."
   [files]

@@ -103,6 +103,25 @@
     (is (= 0 (:exit res)) (:err res))
     (is (str/includes? (:out res) ":nodes"))))
 
+(deftest extract-reads-an-svg-export
+  (let [svg (str proc-util/repo-root "/test/fixtures/compare.svg")]
+    (let [res (run-cli ["extract" svg])]
+      (is (= 0 (:exit res)) (:err res))
+      (is (= "{:nodes {:a {} :b {}}}" (:out res))))
+    (let [res (run-cli ["extract" svg "--old"])]
+      (is (= 0 (:exit res)) (:err res))
+      (is (= "{:nodes {:a {}}}" (:out res))))))
+
+(deftest extract-refuses-a-file-that-is-neither-png-nor-svg
+  (let [res (run-cli ["extract" (str proc-util/repo-root "/examples/demo.edn")])]
+    (is (= 1 (:exit res)))
+    (is (str/includes? (str (:out res) (:err res)) "is not a PNG or SVG file"))))
+
+(deftest svg-without-embedded-edn-is-refused
+  (let [res (run-cli [(str proc-util/repo-root "/test/fixtures/plain.svg") "--no-open"])]
+    (is (= 1 (:exit res)))
+    (is (str/starts-with? (:err res) "simpleviz: no embedded simpleviz EDN found") (:err res))))
+
 (deftest check-exits-1-and-prints-each-problem
   (with-tmp
     (fn [tmp]

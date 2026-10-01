@@ -12,8 +12,8 @@
             [graph]
             [log]
             [org.httpkit.server :as srv]
-            [pairs]
-            [png])
+            [embedded]
+            [pairs])
   (:import [clojure.lang LineNumberingPushbackReader]
            [java.io StringReader]))
 
@@ -29,7 +29,7 @@
 
 (def lock-ttl-ms 60000)
 
-(def ^:private ref-extensions #{"edn" "png"})
+(def ^:private ref-extensions #{"edn" "png" "svg"})
 
 (def suffix-re
   "A fork suffix: graph-<suffix>.edn. It can't start with -, which would
@@ -68,7 +68,7 @@
   "The canonical file for the root-relative path `rel` under `root`.
   Refuses (ex-info, message names the problem) an absolute path, a
   result outside `root` after canonicalization (so `..` and symlinks
-  cannot escape), an extension other than .edn/.png, and — unless
+  cannot escape), an extension other than .edn/.png/.svg, and — unless
   must-exist? is false — anything that is not an existing regular file."
   ([root rel] (resolve-path root rel true))
   ([root rel must-exist?]
@@ -83,7 +83,7 @@
        (when-not (str/starts-with? (.getPath f) (str (.getPath root-c) java.io.File/separator))
          (throw (ex-info (str rel " leaves the served folder") {})))
        (when-not (contains? ref-extensions ext)
-         (throw (ex-info (str rel " is not an .edn or .png file") {})))
+         (throw (ex-info (str rel " is not an .edn, .png or .svg file") {})))
        ;; canonicalization resolves every link but one whose target is
        ;; missing, and a write through that one lands wherever it points
        (when (java.nio.file.Files/isSymbolicLink (.toPath f))
@@ -138,20 +138,21 @@
       {:ok true})))
 
 (defn read-source
-  "EDN text of a graph file: simpleviz PNG exports yield their embedded
-  EDN (compare exports yield the new side), everything else its raw
-  contents. Throws with a clear message when a PNG has nothing embedded."
+  "EDN text of a graph file: simpleviz PNG and SVG exports yield their
+  embedded EDN (compare exports yield the new side), everything else its
+  raw contents. Throws with a clear message when an export has nothing
+  embedded."
   [f]
-  (if (png/png? f)
-    (or (png/extract f "simpleviz-edn-new")
-        (png/extract f "simpleviz-edn")
+  (if (embedded/export? f)
+    (or (embedded/extract f "simpleviz-edn-new")
+        (embedded/extract f "simpleviz-edn")
         (throw (ex-info (str "no embedded simpleviz EDN found in " f) {})))
     (slurp f)))
 
 (defn- embedded-old
   "The old-side EDN of a single-file compare export, nil otherwise."
   [f]
-  (when (png/png? f) (png/extract f "simpleviz-edn-old")))
+  (when (embedded/export? f) (embedded/extract f "simpleviz-edn-old")))
 
 (defn- query-param
   "The URL-decoded value of parameter k in a query string, or nil."
@@ -164,7 +165,7 @@
           (str/split query-string #"&"))))
 
 (defn- embedded-compare?
-  "Is the root a compare-export PNG (both sides embedded, no suffix)?"
+  "Is the root a compare export (both sides embedded, no suffix)?"
   []
   (let [{:keys [root suffix]} @files]
     (and (nil? suffix) (some? (embedded-old root)))))
@@ -218,15 +219,20 @@
     (.isFile new) new
     (and (some? old) (.isFile old)) old))
 
+(defn- export-name?
+  "Does the file's name say PNG or SVG?"
+  [f]
+  (boolean (re-find #"(?i)\.(png|svg)$" (.getName f))))
+
 (defn- read-only-side?
-  "Is side `which` a PNG — by content, or by name when nothing is there
-  yet, so an edit cannot bring a .png holding EDN text into being."
+  "Is side `which` a PNG or SVG — by content, or by name when nothing is
+  there yet, so an edit cannot bring a .png or .svg holding EDN text
+  into being."
   [{:keys [old new] :as sides} which]
   (let [target (if (= which "old") old new)]
     (boolean
-     (or (some-> (side-file sides which) .getPath png/png?)
-         (and (not (.isFile target))
-              (str/ends-with? (str/lower-case (.getName target)) ".png"))))))
+     (or (some-> (side-file sides which) .getPath embedded/export?)
+         (and (not (.isFile target)) (export-name? target))))))
 
 (defn- side-source [sides which]
   (if-let [f (side-file sides which)] (read-source (.getPath f)) empty-graph))
@@ -254,7 +260,7 @@
           holder (some-> path (lock-holder (System/currentTimeMillis)))]
       (cond
         (nil? path) {:error "no old file in single-file mode"}
-        (read-only-side? pair file) {:error "PNG sources are read-only"}
+        (read-only-side? pair file) {:error "PNG and SVG sources are read-only"}
         (some? holder) {:error (str "locked by " holder)}
         (= "undo" (:op (first ops)))
         ;; a file deleted since (promote, by hand) stays deleted
@@ -292,8 +298,8 @@
           fork (when (some? fk) (resolve-path @root-dir fk false))
           [rel target] (if (and (some? fork) (not= file "old")) [fk fork] [path base])]
       (cond
-        (str/ends-with? (str/lower-case (.getName base)) ".png")
-        {:error "PNG files cannot be created"}
+        (export-name? base)
+        {:error "PNG and SVG files cannot be created"}
         (or (.exists base) (and (some? fork) (.exists fork)))
         {:ok true :created nil}
         :else
@@ -309,11 +315,11 @@
     (catch Exception e {:error (ex-message e)})))
 
 (def ^:private usage
-  (str "usage: bb serve <graph.edn|export.png> [<suffix>] [--port N] [--debug]\n"
+  (str "usage: bb serve <graph.edn|export.png|export.svg> [<suffix>] [--port N] [--debug]\n"
        "  with a suffix, graph.edn is compared against its fork graph-<suffix>.edn\n"
        "  (create the fork with: bb fork graph.edn <suffix>); refs follow into\n"
        "  the same comparison of the referenced file and its fork\n"
-       "  a PNG exported from simpleviz serves its embedded EDN;\n"
+       "  a PNG or SVG exported from simpleviz serves its embedded EDN;\n"
        "  a compare-mode export re-opens as the comparison\n"
        "  --debug writes a per-run log of edits and errors to " log/dir-hint
        "\n  (default port " default-port ")"))
@@ -338,7 +344,7 @@
         (nil? f1) {:error usage}
         (seq extra) {:error usage}
         (not (and (int? port) (<= 1 port 65535))) {:error (str "invalid port: " port)}
-        (and (some? suffix) (re-find #"(?i)\.(edn|png)$" suffix))
+        (and (some? suffix) (re-find #"(?i)\.(edn|png|svg)$" suffix))
         {:error (str "two-file compare was replaced: bb fork " f1 " <suffix>, then bb serve " f1 " <suffix>\n" usage)}
         (and (some? suffix) (nil? (re-matches suffix-re suffix)))
         {:error (str "invalid suffix: " suffix "\n" usage)}
@@ -598,7 +604,7 @@
                                       :path path}
                                      prepare)
                        (graph-json (read-source new-p) (.getName new)
-                                   {:editable (not (png/png? new-p)) :path path}
+                                   {:editable (not (embedded/export? new-p)) :path path}
                                    #(prepare % "new"))))))
                (catch Exception e
                  (json/generate-string {:error (ex-message e)})))]
@@ -747,7 +753,7 @@
   [{:keys [file suffix port debug]}]
   (reset! files {:root file :suffix suffix})
   (reset! root-dir (.getParentFile (.getCanonicalFile (io/file file))))
-  ;; resolve both sides once so a missing fork or a PNG without
+  ;; resolve both sides once so a missing fork or an export without
   ;; embedded EDN fails at startup with a clear message instead of an
   ;; empty diagram in the browser
   (try

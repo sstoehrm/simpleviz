@@ -1,6 +1,6 @@
 ---
 name: simpleviz
-description: Use when creating or editing simpleviz graph EDN files, visualizing an architecture or system diagram with simpleviz, or serving and comparing graphs (bb serve, the simpleviz launcher, nodes/edges/boxes .edn files, exported PNGs with embedded EDN)
+description: Use when creating or editing simpleviz graph EDN files, visualizing an architecture or system diagram with simpleviz, or serving and comparing graphs (bb serve, the simpleviz launcher, nodes/edges/boxes .edn files, exported PNGs/SVGs with embedded EDN)
 ---
 
 # simpleviz — graph EDN authoring and usage
@@ -66,7 +66,7 @@ From a bundle/install/repo directory (repo needs `bb build` once):
     bb serve graph.edn next          # compare mode: graph.edn → graph-next.edn, ONE merged diff view
     bb promote graph.edn next        # each fork replaces its original
     bb check graph.edn               # parse error / validation warnings, exit 1 on any
-    bb serve diagram.png             # exported PNGs work in place of EDN files (embedded
+    bb serve diagram.png             # exported PNGs/SVGs work in place of EDN files (embedded
                                      # source; a compare export re-opens as the comparison)
 
 With the `simpleviz` command, installed by `install.sh` (files in `~/.simpleviz`, launcher in `~/.local/bin`) or by bbin (`bbin install https://github.com/sstoehrm/simpleviz/releases/latest/download/simpleviz.jar`; there `update` prints the bbin command and `clean-all` is unavailable):
@@ -82,7 +82,7 @@ With the `simpleviz` command, installed by `install.sh` (files in `~/.simpleviz`
     simpleviz check graph.edn        # print what the warning/error banners would say
     simpleviz update                 # install the latest release if newer
     simpleviz --version              # print the installed version
-    simpleviz extract diagram.png    # print the EDN embedded in an exported PNG
+    simpleviz extract diagram.png    # print the EDN embedded in an exported PNG or SVG
                                      # (compare exports embed BOTH files: default
                                      #  prints the new one, --old the old one;
                                      #  add an out.edn arg to write a file)
@@ -94,11 +94,11 @@ There is no `bb diff` or similar — comparing is serving a file with the suffix
 
 ## Viewer
 
-Click any node/edge/box for its full attributes. Hovering shows a tooltip with the element's name and its attributes (an unnamed edge is headed by its `[from to]` key). Drag pans, wheel zooms. Boxes collapse/expand via the `−` button in their header (a collapsed box showing an amber dot hides changes in compare mode). The theme menu top-right picks the viewer's own theme for every graph without `:theme` (saved in the browser; "default" follows the OS light/dark setting) — it never writes the file. A file's `:theme` wins, and the menu shows it disabled; to theme a file, write `:theme` in it. Saving the file live-reloads the page (~1s); the tab title names the served file (or `old → new` in compare mode). The ⇩ button opens an export menu for the whole diagram: PNG embeds the source EDN as metadata (recoverable via simpleviz extract, or serve the PNG directly); SVG embeds it in its `<metadata>` — unlike a PNG, simpleviz can't read an SVG back yet (no extract, no serving).
+Click any node/edge/box for its full attributes. Hovering shows a tooltip with the element's name and its attributes (an unnamed edge is headed by its `[from to]` key). Drag pans, wheel zooms. Boxes collapse/expand via the `−` button in their header (a collapsed box showing an amber dot hides changes in compare mode). The theme menu top-right picks the viewer's own theme for every graph without `:theme` (saved in the browser; "default" follows the OS light/dark setting) — it never writes the file. A file's `:theme` wins, and the menu shows it disabled; to theme a file, write `:theme` in it. Saving the file live-reloads the page (~1s); the tab title names the served file (or `old → new` in compare mode). The ⇩ button opens an export menu for the whole diagram: PNG embeds the source EDN as metadata, SVG in its `<metadata>`; either is recoverable via simpleviz extract, or serve the export directly.
 
 ## Editing (in the browser)
 
-Map-form files are editable in place. The inspector (right panel) is the data view: click an attribute value or its ✎ to edit inline (scalars as text, collections as raw EDN), `×` deletes an attr, a key/value row at the bottom adds one; in compare mode a modified element's old → new changes show as a card at the top. Editing tools sit in a floating toolbar at the bottom center: with nothing selected, "new node" (name prompt — the id is derived from the name: lowercased, illegal characters to dashes; `name::type` also sets the type; jumps to the new node); with a selection, that element's tools — Delete (cascades — removes touching edges and box membership); edges: direction row and source/target retarget (pick mode: click the new node/box, Esc cancels); nodes: "add edge" (pick the endpoint, then name the edge — empty leaves it unnamed), "add to box", "new node" (new connected node via name prompt), "new box" (name prompt); boxes: "add edge", "add node"/"add box" (pick a member), "new node" (inside the box, name prompt), "new box". Any element with a string `:ref` also offers "follow ref" (`f r`) — in an editable (EDN-served) graph; a PNG target can be reached but not followed from. Editing a node's or box's `name` in the inspector renames its id the same way. In compare mode the top-center legend carries the old|new toggle picking which file edits apply to. Ctrl+Z or the ↶ button undoes the last edit; the server keeps one undo stack per file, shared by all viewers, capped at 100. Edits rewrite the file on disk, preserving comments and formatting; PNG-served sessions are read-only.
+Map-form files are editable in place. The inspector (right panel) is the data view: click an attribute value or its ✎ to edit inline (scalars as text, collections as raw EDN), `×` deletes an attr, a key/value row at the bottom adds one; in compare mode a modified element's old → new changes show as a card at the top. Editing tools sit in a floating toolbar at the bottom center: with nothing selected, "new node" (name prompt — the id is derived from the name: lowercased, illegal characters to dashes; `name::type` also sets the type; jumps to the new node); with a selection, that element's tools — Delete (cascades — removes touching edges and box membership); edges: direction row and source/target retarget (pick mode: click the new node/box, Esc cancels); nodes: "add edge" (pick the endpoint, then name the edge — empty leaves it unnamed), "add to box", "new node" (new connected node via name prompt), "new box" (name prompt); boxes: "add edge", "add node"/"add box" (pick a member), "new node" (inside the box, name prompt), "new box". Any element with a string `:ref` also offers "follow ref" (`f r`) — in an editable (EDN-served) graph; a PNG or SVG target can be reached but not followed from. Editing a node's or box's `name` in the inspector renames its id the same way. In compare mode the top-center legend carries the old|new toggle picking which file edits apply to. Ctrl+Z or the ↶ button undoes the last edit; the server keeps one undo stack per file, shared by all viewers, capped at 100. Edits rewrite the file on disk, preserving comments and formatting; PNG- and SVG-served sessions are read-only.
 
 ## Concurrent writes (lock before editing a served file)
 

@@ -11,8 +11,8 @@
             [clojure.java.io :as io]
             [clojure.string :as str]
             [fork]
+            [embedded]
             [log]
-            [png]
             [serve]))
 
 (def latest-jar-url
@@ -32,7 +32,7 @@
     "                                         serve a graph; with a suffix, compare it"
     "                                         against its fork graph-<suffix>.edn (refs follow"
     "                                         into the same comparison of each referenced file)"
-    "                                         exported PNGs work in place of EDN files"
+    "                                         exported PNGs and SVGs work in place of EDN files"
     (str "                                         --debug logs edits and errors to " log/dir-hint)
     "                                         --no-open prints the URL without opening a browser"
     "       simpleviz demo [--debug] [--no-open]   copy the examples to a temp folder and serve"
@@ -41,7 +41,7 @@
     "                                               <name>-<suffix>.edn siblings"
     "       simpleviz promote <graph.edn> <suffix>  move each fork over its original file"
     "       simpleviz init <graph.edn>        write a starter graph file (won't overwrite)"
-    "       simpleviz extract <diagram.png> [out.edn] [--old]   print/extract the embedded EDN"
+    "       simpleviz extract <diagram.png|.svg> [out.edn] [--old]   print/extract the embedded EDN"
     "       simpleviz check <graph.edn>       print the parse error or validation warnings"
     "                                         the page would show; exit 1 if there are any"
     "       simpleviz update                  install the latest release (install.sh launcher;"
@@ -117,7 +117,7 @@
 
 (defn- serve!
   "Start on a free port, print the URL, open a browser unless `no-open`,
-  and block. A startup refusal (missing side, PNG without EDN) exits 1;
+  and block. A startup refusal (missing side, export without EDN) exits 1;
   any other startup failure gets a crash report, like serve/-main gives
   it, instead of a raw stack trace."
   [opts no-open]
@@ -145,7 +145,7 @@
     (when (or (nil? file) (seq extra)) (usage-error))
     (when-not (.isFile (io/file file)) (die "file not found: " file))
     (when (some? suffix)
-      (when (re-find #"(?i)\.(edn|png)$" suffix)
+      (when (re-find #"(?i)\.(edn|png|svg)$" suffix)
         (die "two-file compare was replaced: simpleviz fork " file
              " <suffix>, then simpleviz " file " <suffix>"))
       (when-not (re-matches serve/suffix-re suffix)
@@ -189,7 +189,7 @@
       "clean-all" (die "clean-all needs the install.sh launcher (Linux)")
       ("fork" "promote") (fork-cmd cmd more)
       "init" (init-cmd more)
-      "extract" (apply png/-main more)
+      "extract" (apply embedded/-main more)
       "check" (do (when-not (= 1 (count more)) (usage-error))
                   (check/-main (first more)))
       "demo" (demo-cmd more)

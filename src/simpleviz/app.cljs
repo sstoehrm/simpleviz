@@ -595,7 +595,7 @@
     [:button {:key side :type "button"
               :class (str "dl-target" (if active " active" ""))
               :disabled (not ok)
-              :title (when-not ok "PNG side is read-only")
+              :title (when-not ok "PNG or SVG side is read-only")
               :on-click (fn [e] (.stopPropagation e) (swap! state assoc :edit-target side))}
      side]))
 
@@ -767,7 +767,7 @@
       "Serving a file with a suffix (simpleviz graph.edn next) renders it against its fork graph-next.edn as one merged diagram: added elements get a green +, modified an amber ~ (select for an old → new list), removed ones stay as red dashed ghosts. Click a legend row to jump through the changes; the old|new toggle picks which file edits apply to.")
      (help-section
       "Export"
-      "⇩ opens the export menu: PNG downloads the diagram as an image, SVG as a vector drawing, both with the source EDN embedded. An exported PNG can be served again, compared, or turned back into EDN with \"simpleviz extract\"; simpleviz can't read an SVG back yet.")
+      "⇩ opens the export menu: PNG downloads the diagram as an image, SVG as a vector drawing, both with the source EDN embedded. Either can be served again, compared, or turned back into EDN with \"simpleviz extract\".")
      (help-section
       "Theme"
       "The theme menu at the top picks your theme, one of the twelve built-ins, for every graph without :theme; it's saved in this browser, and default follows your system's light or dark. A graph file can set its own theme instead — :theme :nord, or overrides on one such as {:base :nord :accent \"#b58900\"} — which wins: the menu then shows it, marked (file), and you change it in the file.")]))
@@ -996,7 +996,7 @@
   mode the current target is kept as long as its own editable flag
   (:editable for \"new\", :editable-old for \"old\") is true — the
   user's toggle choice survives every live-reload tick; only when it
-  goes stale (that side turned/became a PNG) do we hop to whichever
+  goes stale (that side turned/became a PNG or SVG) do we hop to whichever
   side is still editable, falling back to the unchanged current value
   when neither side is."
   [g current]
@@ -1298,10 +1298,10 @@
 
 (defn- export-name
   "Download name for an export of g, without extension: the served
-  file's name minus .edn/.png, else \"graph\"."
+  file's name minus .edn/.png/.svg, else \"graph\"."
   [g]
   (let [f (:file g)]
-    (if (some? f) (.replace f (js/RegExp. "\\.(edn|png)$") "") "graph")))
+    (if (some? f) (.replace f (js/RegExp. "\\.(edn|png|svg)$") "") "graph")))
 
 (defn- download-blob!
   "Trigger a browser download of blob as <nm>.<ext> via a throwaway

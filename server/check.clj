@@ -9,7 +9,7 @@
 
 (defn check
   "{:error <message or nil> :warnings [...]} for the graph file at
-  `path` (EDN, or the EDN embedded in an exported PNG)."
+  `path` (EDN, or the EDN embedded in an exported PNG or SVG)."
   [path]
   (try
     (let [f (.getCanonicalFile (io/file path))
@@ -20,11 +20,11 @@
       {:error (ex-message e) :warnings []})))
 
 (defn -main
-  "bb check <graph.edn|.png>: prints `error: ..` or one `warning: ..`
+  "bb check <graph.edn|.png|.svg>: prints `error: ..` or one `warning: ..`
   line per warning and exits 1, or prints `ok`."
   [& [file & extra]]
   (when (or (nil? file) (seq extra))
-    (binding [*out* *err*] (println "usage: bb check <graph.edn|.png>"))
+    (binding [*out* *err*] (println "usage: bb check <graph.edn|.png|.svg>"))
     (System/exit 1))
   (let [{:keys [error warnings]} (check file)]
     (if (or error (seq warnings))

@@ -58,11 +58,11 @@ The API serves one root file, alone or paired with its fork. The routes
 `/api/graph`, `/api/errors`, `/api/version` and `/api/source` take `?file=<path>`
 and `/api/edit` a `"path"` in its body, a path relative to the root file's
 folder; `serve/resolve-path` refuses anything above that folder, non
-`.edn`/`.png` targets and missing files. The page keeps the shown file and
+`.edn`/`.png`/`.svg` targets and missing files. The page keeps the shown file and
 the trail of followed refs in its query string (`?file=..&trail=..`, see
 `editor/parse-nav`). In suffix mode `serve/sides` pairs the requested path
-with its fork per request, so every route works in compare mode; an
-embedded-compare PNG refuses the parameter.
+with its fork per request, so every route works in compare mode; a
+compare export (PNG or SVG) refuses the parameter.
 
 ## CI and releases
 

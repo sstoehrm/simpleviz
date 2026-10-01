@@ -2,8 +2,8 @@
   (:require [clojure.test :refer [deftest is]]
             [svg]))
 
-;; The fixtures are real exports: svg/svg-document (src/simpleviz/svg.cljs)
-;; wrote them, so a change to the export format shows up here.
+;; The fixtures are real exports, written once by svg/svg-document
+;; (src/simpleviz/svg.cljs), whose own tests pin the format.
 ;; embedded.svg holds EDN with ]]>, <, &, quotes and a CR LF.
 
 (deftest extracts-embedded-edn
@@ -24,17 +24,21 @@
   (is (thrown-with-msg? Exception #"is not an SVG file"
                         (svg/extract "test/fixtures/embedded.png" "simpleviz-edn"))))
 
-(deftest svg?-sniffs-content
-  (is (svg/svg? "test/fixtures/embedded.svg"))
-  (is (not (svg/svg? "test/fixtures/embedded.png")))
-  (is (not (svg/svg? "examples/demo.edn")))
-  (is (not (svg/svg? "test/fixtures/no-such-file.svg"))))
-
 (defn- temp-svg [text]
   (let [f (java.io.File/createTempFile "svg-test" ".svg")]
     (.deleteOnExit f)
     (spit f text)
     (str f)))
+
+(deftest svg?-sniffs-content
+  (is (svg/svg? "test/fixtures/embedded.svg"))
+  (is (not (svg/svg? "test/fixtures/embedded.png")))
+  (is (not (svg/svg? "examples/demo.edn")))
+  (is (not (svg/svg? "test/fixtures/no-such-file.svg")))
+  ;; an .edn mid-merge starts with < too, and must stay EDN
+  (is (not (svg/svg? (temp-svg "<<<<<<< HEAD\n{:nodes {:a {}}}\n=======\n{}\n>>>>>>> x\n"))))
+  (is (svg/svg? (temp-svg "\uFEFF  <svg xmlns=\"http://www.w3.org/2000/svg\"/>")))
+  (is (svg/svg? (temp-svg "<!-- made by hand -->\n<svg xmlns=\"http://www.w3.org/2000/svg\"/>"))))
 
 (deftest a-dtd-is-refused-so-no-entity-is-ever-read
   (let [secret (java.io.File/createTempFile "svg-test-secret" ".txt")

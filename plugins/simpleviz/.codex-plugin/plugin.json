@@ -1,6 +1,6 @@
 {
   "name": "simpleviz",
-  "version": "0.26.0",
+  "version": "0.27.0",
   "description": "Create, serve, and compare EDN-driven system diagrams with simpleviz",
   "author": {
     "name": "Sören Stöhrmann",

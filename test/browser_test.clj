@@ -1,6 +1,9 @@
 (ns browser-test
-  (:require [browser]
-            [clojure.test :refer [deftest is]]))
+  (:require [babashka.fs :as fs]
+            [browser]
+            [clojure.string :as str]
+            [clojure.test :refer [deftest is]]
+            [org.httpkit.server :as srv]))
 
 (defn- finder [{:keys [env on-path files]}]
   (browser/find-browser {:env #(get env %) :which #(get on-path %) :exists? #(contains? (set files) %)}))
@@ -38,3 +41,56 @@
   (is (= "ws://127.0.0.1:42001/devtools/browser/f0dc"
          (browser/devtools-url "DevTools listening on ws://127.0.0.1:42001/devtools/browser/f0dc")))
   (is (nil? (browser/devtools-url "[1002/080707.580414:ERROR:ssl_client_socket_impl.cc] handshake failed"))))
+
+;; --- a real browser: skipped without one ------------------------------
+
+(def ^:private found (browser/find-browser))
+
+(defmacro ^:private with-real-browser [& body]
+  `(if-let [~'path (:path found)]
+     (do ~@body)
+     (println "browser-test: no browser found, real-browser tests skipped")))
+
+(deftest a-browser-starts-answers-and-is-cleaned-up
+  (with-real-browser
+    (let [seen (atom nil)]
+      (browser/with-browser path
+        (fn [ws-url profile]
+          (reset! seen profile)
+          (is (str/starts-with? ws-url "ws://127.0.0.1:"))
+          (is (fs/directory? profile))))
+      (is (not (fs/exists? @seen)) "profile folder deleted"))))
+
+(deftest a-failure-inside-still-cleans-up
+  (with-real-browser
+    (let [seen (atom nil)]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"boom"
+                            (browser/with-browser path
+                              (fn [_ profile] (reset! seen profile) (throw (ex-info "boom" {}))))))
+      (is (not (fs/exists? @seen))))))
+
+(deftest evaluate-returns-values-and-page-errors
+  (with-real-browser
+    (browser/with-browser path
+      (fn [ws-url _]
+        (let [page (browser/open-page ws-url)]
+          (try
+            (is (= {:data "ok"} (browser/evaluate page "Promise.resolve({data: 'ok'})" 5000)))
+            (is (thrown-with-msg? clojure.lang.ExceptionInfo #"^Graph error: x$"
+                                  (browser/evaluate page "Promise.reject(new Error('Graph error: x'))" 5000)))
+            (finally (browser/close-page page))))))))
+
+(deftest export-page-loads-the-page-and-awaits-its-hook
+  ;; the hook is defined by a module script, as app.mjs defines it
+  (with-real-browser
+    (let [html (str "<!doctype html><script type=module>"
+                    "window.simplevizExport = (o) => Promise.resolve({data: o.format + ':' + o.theme});"
+                    "</script>")
+          stop (srv/run-server (fn [_] {:status 200 :headers {"content-type" "text/html"} :body html})
+                               {:port 0 :ip "127.0.0.1" :legacy-return-value? false})]
+      (try
+        (browser/with-browser path
+          (fn [ws-url _]
+            (is (= "svg:nord" (browser/export-page! ws-url (str "http://127.0.0.1:" (srv/server-port stop))
+                                                    {:format "svg" :theme "nord" :timeout-ms 10000})))))
+        (finally (srv/server-stop! stop))))))

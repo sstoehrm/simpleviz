@@ -3,6 +3,11 @@
   it with a throwaway profile, and drive the page over the DevTools
   protocol (CDP) — babashka built-ins only."
   (:require [babashka.fs :as fs]
+            [babashka.http-client :as http]
+            [babashka.http-client.websocket :as ws]
+            [babashka.process :as p]
+            [cheshire.core :as json]
+            [clojure.java.io :as io]
             [clojure.string :as str]))
 
 (def candidates
@@ -50,3 +55,143 @@
   "The browser WebSocket URL Chrome prints on stderr, or nil."
   [line]
   (second (re-find #"DevTools listening on (ws://\S+)" (str line))))
+
+;; --- running the browser ------------------------------------------------
+
+(def start-timeout-ms 15000)
+
+(defn- profile-dir!
+  "A fresh profile folder the browser at `path` can use."
+  [path]
+  (let [resolved (str (fs/real-path path))
+        parent (profile-parent (snap-name path resolved) (str (fs/home))
+                               (System/getProperty "java.io.tmpdir"))]
+    (fs/create-dirs parent)
+    (str (fs/create-temp-dir {:dir parent :prefix "simpleviz-export-"}))))
+
+(defn- drain!
+  "Read the browser's stderr for its whole life — a full pipe would block
+  it. Delivers the DevTools URL to `url` (or :exited when stderr ends
+  first) and keeps the last lines in `tail` for error messages."
+  [proc url tail]
+  (future
+    (with-open [r (io/reader (:err proc))]
+      (loop []
+        (if-let [line (.readLine r)]
+          (do (swap! tail #(vec (take-last 5 (conj % line))))
+              (when-let [u (devtools-url line)] (deliver url u))
+              (recur))
+          (deliver url :exited))))))
+
+(defn- stop!
+  "Kill the browser, wait for it, then delete its profile — Chrome may
+  still be flushing it as it exits, so a failed delete is retried."
+  [proc profile]
+  (p/destroy-tree proc)
+  (deref proc 10000 nil)
+  (loop [n 0]
+    (when (and (fs/exists? profile)
+               (not (try (fs/delete-tree profile) true (catch Exception _ false)))
+               (< n 20))
+      (Thread/sleep 100)
+      (recur (inc n)))))
+
+(defn with-browser
+  "Start the browser at `path` headless with a throwaway profile, call
+  (f ws-url profile), and always stop it and delete the profile."
+  [path f]
+  (let [profile (profile-dir! path)
+        proc (p/process [path "--headless" "--remote-debugging-port=0"
+                         (str "--user-data-dir=" profile)
+                         "--no-first-run" "--no-default-browser-check" "about:blank"]
+                        {:out :discard :err :pipe})
+        url (promise)
+        tail (atom [])
+        nm (str (fs/file-name path))]
+    (try
+      (drain! proc url tail)
+      (let [u (deref url start-timeout-ms nil)]
+        (cond (nil? u) (throw (ex-info (str nm " did not start within 15 s") {}))
+              (= :exited u) (throw (ex-info (str "could not start " nm ": " (str/join " | " @tail)) {}))
+              :else (f u profile)))
+      (finally (stop! proc profile)))))
+
+;; --- CDP ----------------------------------------------------------------
+
+(defn open-page
+  "A CDP connection to the browser's about:blank page:
+  {:conn ws :pending (atom {id promise}) :events (atom {method promise}) :ids (atom n)}."
+  [ws-url]
+  (let [port (second (re-find #"ws://127\.0\.0\.1:(\d+)/" ws-url))
+        targets (json/parse-string (:body (http/get (str "http://127.0.0.1:" port "/json/list"))) true)
+        target (first (filter #(and (= "page" (:type %)) (= "about:blank" (:url %))) targets))
+        pending (atom {})
+        events (atom {})
+        buf (StringBuilder.)
+        conn (ws/websocket
+              {:uri (:webSocketDebuggerUrl target)
+               ;; a big reply arrives in several frames; `last?` ends it
+               :on-message (fn [_ data last?]
+                             (.append buf (str data))
+                             (when last?
+                               (let [m (json/parse-string (str buf) true)]
+                                 (.setLength buf 0)
+                                 (if-let [id (:id m)]
+                                   (some-> (get @pending id) (deliver m))
+                                   (some-> (get @events (:method m)) (deliver m))))))})]
+    {:conn conn :pending pending :events events :ids (atom 0)}))
+
+(defn close-page [{:keys [conn]}] (ws/close! conn))
+
+(defn- call
+  "Send a CDP command and wait for its reply's :result; ex-info on a CDP
+  error, or after timeout-ms naming `what`."
+  [{:keys [conn pending ids]} method params timeout-ms what]
+  (let [id (swap! ids inc)
+        reply (promise)]
+    (swap! pending assoc id reply)
+    (ws/send! conn (json/generate-string {:id id :method method :params params}))
+    (let [m (deref reply timeout-ms nil)]
+      (swap! pending dissoc id)
+      (cond (nil? m) (throw (ex-info (str what " did not finish within " (quot timeout-ms 1000) " s") {}))
+            (:error m) (throw (ex-info (str method ": " (get-in m [:error :message])) {}))
+            :else (:result m)))))
+
+(defn- exception-message
+  "The message of a rejected evaluate: the Error's message, else CDP's text."
+  [details]
+  (or (some-> (get-in details [:exception :description]) str/split-lines first
+              (str/replace #"^\w*Error: " ""))
+      (:text details)))
+
+(defn evaluate
+  "Await the JS expression's promise in the page; its JSON value, keys
+  keywordized. A rejection throws ex-info with the error's message."
+  [page expr timeout-ms]
+  (let [r (call page "Runtime.evaluate" {:expression expr :awaitPromise true :returnByValue true}
+                timeout-ms "export")]
+    (if-let [d (:exceptionDetails r)]
+      (throw (ex-info (exception-message d) {}))
+      (get-in r [:result :value]))))
+
+(defn navigate!
+  "Load url in the page and wait for its load event."
+  [{:keys [events] :as page} url]
+  (let [loaded (promise)]
+    (swap! events assoc "Page.loadEventFired" loaded)
+    (call page "Page.enable" {} start-timeout-ms "the page")
+    (call page "Page.navigate" {:url url} start-timeout-ms "the page")
+    (when (nil? (deref loaded start-timeout-ms nil))
+      (throw (ex-info "the page did not load within 15 s" {})))))
+
+(defn export-page!
+  "Navigate to page-url and return window.simplevizExport's data: base64
+  for \"png\", SVG text for \"svg\"."
+  [ws-url page-url {:keys [format theme timeout-ms]}]
+  (let [page (open-page ws-url)]
+    (try
+      (navigate! page page-url)
+      (:data (evaluate page (str "window.simplevizExport("
+                                 (json/generate-string {:format format :theme theme}) ")")
+                       timeout-ms))
+      (finally (close-page page)))))

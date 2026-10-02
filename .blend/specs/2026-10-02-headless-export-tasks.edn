@@ -1,6 +1,6 @@
 {:nodes {:t1 {:name "1. Page hook and shared producers" :state :done}
          :t2 {:name "2. Finding the browser" :state :done}
-         :t3 {:name "3. Launching Chrome and talking CDP" :state :new}
+         :t3 {:name "3. Launching Chrome and talking CDP" :state :done}
          :t4 {:name "4. The export command" :state :new}
          :t5 {:name "5. Docs" :state :new}}
  :edges {[:t2 :t3] {:direction :->}

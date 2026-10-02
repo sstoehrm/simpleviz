@@ -1314,46 +1314,77 @@
     (.click a)
     (js/setTimeout (fn [] (js/URL.revokeObjectURL url)) 1000)))
 
-(defn- ^:async export-png! []
-  (when-let [sc (:scene @state)]
-    (let [g (:graph @state)
-          nm (export-name g)
-          pairs (js-await (export-sources g))
-          cnv (canvas/export-canvas sc)]
-      (.toBlob cnv
-               (fn [blob]
-                 (if (some? blob)
-                   (-> (.arrayBuffer blob)
-                       (.then
-                        (fn [buf]
-                          (let [out (png/embed-many (js/Uint8Array. buf) pairs)]
-                            (download-blob! (js/Blob. [out] {:type "image/png"}) nm "png"))))
-                       ;; Embedding metadata failed for some unexpected
-                       ;; reason (e.g. embed-many throws) — degrade
-                       ;; gracefully to a plain, metadata-less download
-                       ;; rather than silently losing the export as an
-                       ;; unhandled promise rejection.
-                       (.catch (fn [_] (download-blob! blob nm "png"))))
-                   (swap! state assoc :notice
-                          "PNG export failed — the diagram may be too large")))
-               "image/png"))))
+(defn- ^:async png-bytes
+  "The PNG ⇩ downloads, as a Uint8Array, the sources embedded (plain if
+  embedding fails for some unexpected reason). Throws when the canvas
+  cannot be encoded."
+  []
+  (let [pairs (js-await (export-sources (:graph @state)))
+        cnv (canvas/export-canvas (:scene @state))
+        blob (js-await (js/Promise. (fn [res] (.toBlob cnv res "image/png"))))]
+    (when (nil? blob)
+      (throw (js/Error. "PNG export failed — the diagram may be too large")))
+    (let [u8 (js/Uint8Array. (js-await (.arrayBuffer blob)))]
+      (try (png/embed-many u8 pairs)
+           (catch :default _ u8)))))
+
+(defn- ^:async svg-text
+  "The SVG ⇩ downloads, the sources embedded (see svg/svg-document)."
+  []
+  (canvas/export-svg (:scene @state) (js-await (export-sources (:graph @state)))))
+
+(defn- ^:async export-png!
+  "Download the whole diagram as PNG; a failure shows in the error banner."
+  []
+  (when (some? (:scene @state))
+    (let [nm (export-name (:graph @state))]
+      (try (download-blob! (js/Blob. [(js-await (png-bytes))] {:type "image/png"}) nm "png")
+           (catch :default e (swap! state assoc :notice (.-message e)))))))
 
 (defn- ^:async export-svg!
   "Download the whole diagram as SVG, the source EDN embedded like the
-  PNG's (see svg/svg-document). A failure shows in the error banner, as
-  the PNG export's does, rather than as an unseen rejected promise."
+  PNG's. A failure shows in the error banner, as the PNG export's does,
+  rather than as an unseen rejected promise."
   []
-  (when-let [sc (:scene @state)]
-    (let [g (:graph @state)
-          nm (export-name g)
-          ;; never throws: a failed fetch only drops that source
-          pairs (js-await (export-sources g))]
-      (try
-        (download-blob! (js/Blob. [(canvas/export-svg sc pairs)] {:type "image/svg+xml"})
-                        nm "svg")
-        (catch :default e
-          (swap! state assoc :notice
-                 (str "SVG export failed — " (or (.-message e) (str e)))))))))
+  (when (some? (:scene @state))
+    (let [nm (export-name (:graph @state))]
+      (try (download-blob! (js/Blob. [(js-await (svg-text))] {:type "image/svg+xml"}) nm "svg")
+           (catch :default e
+             (swap! state assoc :notice
+                    (str "SVG export failed — " (or (.-message e) (str e)))))))))
+
+(defn- sleep [ms] (js/Promise. (fn [res] (js/setTimeout res ms))))
+
+(defn- ^:async wait-for!
+  "Resolve once (readiness @state) is {:ready true}; reject with its
+  :error. Polls every 50 ms — the CLI bounds the wait."
+  [readiness]
+  (let [r (readiness @state)]
+    (cond (some? (:error r)) (throw (js/Error. (:error r)))
+          (:ready r) true
+          :else (do (js-await (sleep 50)) (js-await (wait-for! readiness))))))
+
+(defn- ^:async headless-export
+  "window.simplevizExport: wait for the graph, take `theme` as this page's
+  theme preference (never stored), expand every box, wait for the layout,
+  then hand back what the ⇩ menu would download — {:data base64} for
+  \"png\", {:data svg-text} for \"svg\"."
+  [opts]
+  (let [fmt (.-format opts)
+        theme (.-theme opts)]
+    (js-await (wait-for! editor/load-readiness))
+    (when (some? theme)
+      (apply-theme! (effective-theme (:graph @state) theme (:theme @state)))
+      (swap! state assoc :theme-pref theme))
+    ;; a render error notice from before must not fail this export
+    (swap! state assoc :notice nil)
+    (when (pos? (.-size (:collapsed-boxes @state)))
+      (swap! state assoc :collapsed-boxes #{} :selected nil)
+      (js-await (relayout!)))
+    (js-await (wait-for! editor/export-readiness))
+    (if (= fmt "svg")
+      {:data (js-await (svg-text))}
+      {:data (png/bytes->base64 (js-await (png-bytes)))})))
 
 ;; init
 (defn- typing?
@@ -1428,6 +1459,8 @@
       (swap! state assoc :export-menu false)))
   true)
 (canvas/set-repaint! paint-now!)
+;; the headless export's entry point (simpleviz export, server/browser.clj)
+(set! (.-simplevizExport js/window) headless-export)
 (apply-theme! (effective-theme (:graph @state) (:theme-pref @state) (:theme @state)))
 (add-watch state :render (fn [_ _ _ _] (rerender!)))
 (canvas/setup-pan-zoom! (js/document.getElementById "canvas-wrap"))

@@ -13,11 +13,11 @@
 (defn- run-cli
   "Run the CLI with `args` in `dir` (default: a fresh temp folder);
   {:out :err :exit}."
-  [args & {:keys [dir]}]
+  [args & {:keys [dir env]}]
   (let [tmp (or dir (fs/create-temp-dir {:prefix "cli-test"}))]
     (try
       (select-keys
-       (apply p/shell {:dir (str tmp) :out :string :err :string :continue true}
+       (apply p/shell {:dir (str tmp) :out :string :err :string :continue true :extra-env (or env {})}
               "bb" "--config" (str proc-util/repo-root "/bb.edn") "-m" "cli" args)
        [:out :err :exit])
       (finally (when-not dir (fs/delete-tree tmp))))))
@@ -119,6 +119,52 @@
 
 (deftest svg-without-embedded-edn-is-refused
   (let [res (run-cli [(str proc-util/repo-root "/test/fixtures/plain.svg") "--no-open"])]
+    (is (= 1 (:exit res)))
+    (is (str/starts-with? (:err res) "simpleviz: no embedded simpleviz EDN found") (:err res))))
+
+(deftest export-args-parse
+  (is (= {:in "g.edn" :suffix nil :out "g.png" :format "png" :theme nil :force false}
+         (cli/parse-export-args ["g.edn" "g.png"])))
+  (is (= {:in "g.edn" :suffix "next" :out "d.SVG" :format "svg" :theme "nord" :force true}
+         (cli/parse-export-args ["g.edn" "next" "d.SVG" "--theme" "nord" "--force"])))
+  (is (re-find #"usage" (:error (cli/parse-export-args ["g.edn"]))))
+  (is (re-find #"usage" (:error (cli/parse-export-args ["g.edn" "g.png" "--theme"]))))
+  (is (re-find #"\.png or \.svg" (:error (cli/parse-export-args ["g.edn" "g.jpg"]))))
+  (is (re-find #"unknown theme: neon" (:error (cli/parse-export-args ["g.edn" "g.png" "--theme" "neon"]))))
+  (is (re-find #"unknown option: --nope" (:error (cli/parse-export-args ["g.edn" "g.png" "--nope"]))))
+  (is (re-find #"invalid suffix" (:error (cli/parse-export-args ["g.edn" "a/b" "g.png"])))))
+
+(deftest export-refuses-before-any-browser
+  (with-tmp
+    (fn [tmp]
+      (spit (str (fs/path tmp "g.edn")) "{:nodes {:a {}}}")
+      (spit (str (fs/path tmp "g.png")) "x")
+      (let [res (run-cli ["export" "g.edn" "g.png"] :dir tmp)]
+        (is (= 1 (:exit res)))
+        (is (= "simpleviz: g.png already exists (--force overwrites)" (str/trim (:err res)))))
+      (let [res (run-cli ["export" "nope.edn" "x.png"] :dir tmp)]
+        (is (= "simpleviz: file not found: nope.edn" (str/trim (:err res)))))
+      (let [res (run-cli ["export" "g.edn" "next" "x.png"] :dir tmp)]
+        (is (str/includes? (:err res) "g-next.edn not found")))
+      (let [res (run-cli ["export" "g.edn" "x.gif"] :dir tmp)]
+        (is (= 1 (:exit res)))
+        (is (str/includes? (:err res) "the output must end in .png or .svg"))))))
+
+(deftest export-failures-of-any-kind-are-one-line-messages
+  ;; a "browser" that announces DevTools on a port nobody listens on
+  (with-tmp
+    (fn [tmp]
+      (let [fake (str (fs/path tmp "fake-browser"))]
+        (spit fake "#!/bin/sh\necho 'DevTools listening on ws://127.0.0.1:9/devtools/browser/x' >&2\nsleep 30\n")
+        (fs/set-posix-file-permissions fake "rwx------")
+        (spit (str (fs/path tmp "g.edn")) "{:nodes {:a {}}}")
+        (let [res (run-cli ["export" "g.edn" "g.png"] :dir tmp :env {"SIMPLEVIZ_BROWSER" fake})]
+          (is (= 1 (:exit res)))
+          (is (str/starts-with? (:err res) "simpleviz: ") (:err res))
+          (is (= 1 (count (str/split-lines (str/trim (:err res))))) (:err res)))))))
+
+(deftest export-of-an-export-without-edn-is-refused
+  (let [res (run-cli ["export" (str proc-util/repo-root "/test/fixtures/plain.svg") "out.png"])]
     (is (= 1 (:exit res)))
     (is (str/starts-with? (:err res) "simpleviz: no embedded simpleviz EDN found") (:err res))))
 

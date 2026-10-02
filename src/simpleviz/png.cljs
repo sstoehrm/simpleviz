@@ -112,3 +112,14 @@
                       (.decode dec (.subarray data after))))))))
           (chunk-seq u8))
      nil)))
+
+(defn bytes->base64
+  "Base64 of a Uint8Array, built in 32 KiB chunks so big exports don't
+  overflow String.fromCharCode's argument limit."
+  [u8]
+  (let [parts #js []]
+    (loop [i 0]
+      (when (< i (.-length u8))
+        (.push parts (.apply js/String.fromCharCode nil (.subarray u8 i (+ i 32768))))
+        (recur (+ i 32768))))
+    (js/btoa (.join parts ""))))

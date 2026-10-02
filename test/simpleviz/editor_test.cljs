@@ -10,7 +10,7 @@
                                       add-node-in-box-ops box-remove-op
                                       name->id derived-id named-edge-ops creation-ops parse-entry
                                       resolve-ref parse-nav nav-query follow-url crumb-url ref-of banner-visible?
-                                      theme-menu top-box-of]]))
+                                      theme-menu top-box-of load-readiness export-readiness]]))
 
 (test "target maps selection payloads to op targets"
   (fn []
@@ -433,3 +433,29 @@
     (assert/equal (banner-visible? "a\nc" "a\nb") true)
     (assert/equal (banner-visible? "" nil) false)
     (assert/equal (banner-visible? nil nil) false)))
+
+(test "load-readiness waits for a graph or an error"
+  (fn []
+    (assert/ok (nil? (load-readiness {:graph nil :error nil})))
+    (assert/equal (:ready (load-readiness {:graph {:nodes {}} :error nil})) true)
+    (assert/equal (:error (load-readiness {:graph nil :error "Graph error: x"})) "Graph error: x")))
+
+(test "export-readiness wants a settled, fully expanded scene"
+  (fn []
+    (let [base {:scene {:items []} :layouting false :collapsed-boxes (js/Set.) :error nil}]
+      (assert/equal (:ready (export-readiness base)) true)
+      (assert/ok (nil? (export-readiness (assoc base :layouting true))))
+      (assert/ok (nil? (export-readiness (assoc base :collapsed-boxes (js/Set. ["a"])))))
+      (assert/ok (nil? (export-readiness (assoc base :scene nil))))
+      (assert/equal (:error (export-readiness (assoc base :scene nil :error "Render error: x")))
+                    "Render error: x")
+      ;; with a scene, an error is a leftover notice, not a failure
+      (assert/equal (:ready (export-readiness (assoc base :error "old"))) true))))
+
+(test "export-readiness fails when the expanding relayout did"
+  ;; relayout! keeps the old (collapsed) scene and reports a notice
+  (fn []
+    (let [base {:scene {:items []} :layouting false :collapsed-boxes (js/Set.) :error nil}]
+      (assert/equal (:error (export-readiness (assoc base :notice "Render error: ELK blew up")))
+                    "Render error: ELK blew up")
+      (assert/equal (:ready (export-readiness (assoc base :notice "PNG side is read-only"))) true))))

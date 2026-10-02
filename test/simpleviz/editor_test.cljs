@@ -451,3 +451,11 @@
                     "Render error: x")
       ;; with a scene, an error is a leftover notice, not a failure
       (assert/equal (:ready (export-readiness (assoc base :error "old"))) true))))
+
+(test "export-readiness fails when the expanding relayout did"
+  ;; relayout! keeps the old (collapsed) scene and reports a notice
+  (fn []
+    (let [base {:scene {:items []} :layouting false :collapsed-boxes (js/Set.) :error nil}]
+      (assert/equal (:error (export-readiness (assoc base :notice "Render error: ELK blew up")))
+                    "Render error: ELK blew up")
+      (assert/equal (:ready (export-readiness (assoc base :notice "PNG side is read-only"))) true))))

@@ -212,7 +212,10 @@
                         (browser/export-page! ws-url (str "http://localhost:" port)
                                               {:format format :theme theme
                                                :timeout-ms export-timeout-ms})))
-                    (catch clojure.lang.ExceptionInfo e (die (ex-message e))))]
+                    (catch clojure.lang.ExceptionInfo e (die (ex-message e)))
+                    ;; anything else (a refused connection, a failed
+                    ;; handshake) is still one line, not a stack trace
+                    (catch Exception e (die (or (ex-message e) (.getName (class e))))))]
       (try (if (= format "png")
              (io/copy (.decode (java.util.Base64/getDecoder) ^String data) (io/file out))
              (spit out data :encoding "UTF-8"))

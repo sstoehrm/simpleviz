@@ -84,11 +84,13 @@
           (deliver url :exited))))))
 
 (defn- stop!
-  "Kill the browser, wait for it, then delete its profile — Chrome may
-  still be flushing it as it exits, so a failed delete is retried."
+  "Kill the browser (if it started), wait for it, then delete its profile
+  — Chrome may still be flushing it as it exits, so a failed delete is
+  retried."
   [proc profile]
-  (p/destroy-tree proc)
-  (deref proc 10000 nil)
+  (when proc
+    (p/destroy-tree proc)
+    (deref proc 10000 nil))
   (loop [n 0]
     (when (and (fs/exists? profile)
                (not (try (fs/delete-tree profile) true (catch Exception _ false)))
@@ -98,23 +100,34 @@
 
 (defn with-browser
   "Start the browser at `path` headless with a throwaway profile, call
-  (f ws-url profile), and always stop it and delete the profile."
+  (f ws-url profile), and always stop it and delete the profile — also
+  when the process is interrupted or terminated (a shutdown hook covers
+  Ctrl-C and SIGTERM; only SIGKILL escapes)."
   [path f]
   (let [profile (profile-dir! path)
-        proc (p/process [path "--headless" "--remote-debugging-port=0"
-                         (str "--user-data-dir=" profile)
-                         "--no-first-run" "--no-default-browser-check" "about:blank"]
-                        {:out :discard :err :pipe})
+        proc (volatile! nil)
+        cleanup (Thread. ^Runnable (fn [] (stop! @proc profile)))
         url (promise)
         tail (atom [])
         nm (str (fs/file-name path))]
+    (.addShutdownHook (Runtime/getRuntime) cleanup)
     (try
-      (drain! proc url tail)
+      (vreset! proc (try (p/process [path "--headless" "--remote-debugging-port=0"
+                                     (str "--user-data-dir=" profile)
+                                     "--no-first-run" "--no-default-browser-check" "about:blank"]
+                                    {:out :discard :err :pipe})
+                         (catch java.io.IOException e
+                           (throw (ex-info (str "could not start " nm ": " (ex-message e)) {})))))
+      (drain! @proc url tail)
       (let [u (deref url start-timeout-ms nil)]
         (cond (nil? u) (throw (ex-info (str nm " did not start within 15 s") {}))
               (= :exited u) (throw (ex-info (str "could not start " nm ": " (str/join " | " @tail)) {}))
               :else (f u profile)))
-      (finally (stop! proc profile)))))
+      (finally
+        (stop! @proc profile)
+        ;; throws once shutdown is under way — then the hook runs anyway
+        (try (.removeShutdownHook (Runtime/getRuntime) cleanup)
+             (catch IllegalStateException _ nil))))))
 
 ;; --- CDP ----------------------------------------------------------------
 

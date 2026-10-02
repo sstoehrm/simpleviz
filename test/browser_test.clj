@@ -2,8 +2,11 @@
   (:require [babashka.fs :as fs]
             [browser]
             [clojure.string :as str]
+            [babashka.process :as p]
+            [clojure.java.io :as io]
             [clojure.test :refer [deftest is]]
-            [org.httpkit.server :as srv]))
+            [org.httpkit.server :as srv]
+            [proc-util]))
 
 (defn- finder [{:keys [env on-path files]}]
   (browser/find-browser {:env #(get env %) :which #(get on-path %) :exists? #(contains? (set files) %)}))
@@ -94,3 +97,37 @@
             (is (= "svg:nord" (browser/export-page! ws-url (str "http://127.0.0.1:" (srv/server-port stop))
                                                     {:format "svg" :theme "nord" :timeout-ms 10000})))))
         (finally (srv/server-stop! stop))))))
+
+(defn- profiles-in [dir]
+  (set (map str (fs/glob dir "simpleviz-export-*"))))
+
+(deftest a-browser-that-cannot-start-is-a-clear-error-and-leaves-nothing
+  ;; executable, but no program: exec itself fails
+  (let [fake (str (fs/create-temp-file {:prefix "not-a-browser"}))
+        tmp (System/getProperty "java.io.tmpdir")
+        before (profiles-in tmp)]
+    (spit fake "just text\n")
+    (fs/set-posix-file-permissions fake "rwx------")
+    (try
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"^could not start not-a-browser"
+                            (browser/with-browser fake (fn [_ _] :unreachable))))
+      (is (= before (profiles-in tmp)) "no profile folder left")
+      (finally (fs/delete fake)))))
+
+(defn- browser-running? [profile]
+  (zero? (:exit (p/shell {:out :string :err :string :continue true} "pgrep" "-f" profile))))
+
+(deftest a-terminated-export-still-stops-the-browser-and-deletes-the-profile
+  ;; a timeout kills bb with SIGTERM, not the whole process group
+  (with-real-browser
+    (let [proc (p/process ["bb" "--config" (str proc-util/repo-root "/bb.edn") "-e"
+                           (str "(require 'browser) (browser/with-browser " (pr-str path)
+                                " (fn [_ profile] (println profile) (flush) (Thread/sleep 60000)))")]
+                          {:err :inherit})
+          profile (.readLine (io/reader (:out proc)))]
+      (is (fs/directory? profile))
+      (p/destroy proc)
+      (deref proc 20000 nil)
+      (Thread/sleep 500)
+      (is (not (browser-running? profile)) "browser stopped")
+      (is (not (fs/exists? profile)) "profile deleted"))))

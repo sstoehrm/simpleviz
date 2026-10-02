@@ -1376,6 +1376,8 @@
     (when (some? theme)
       (apply-theme! (effective-theme (:graph @state) theme (:theme @state)))
       (swap! state assoc :theme-pref theme))
+    ;; a render error notice from before must not fail this export
+    (swap! state assoc :notice nil)
     (when (pos? (.-size (:collapsed-boxes @state)))
       (swap! state assoc :collapsed-boxes #{} :selected nil)
       (js-await (relayout!)))

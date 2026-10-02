@@ -1,0 +1,23 @@
+{:nodes {:input    {:name "graph.edn / .png / .svg" :type "file"   :note "with an optional fork suffix; exports re-export, compare exports stay compares"}
+         :out      {:name "out.png / out.svg"       :type "file"   :note "never overwritten without --force"}
+         :cli      {:name "cli export"              :type "server" :note "parse args, check theme + output, orchestrate, print wrote <out>"}
+         :serve    {:name "serve/start!"            :type "server" :note "in-process on a free port; the input checks and messages simpleviz <file> gives"}
+         :browser  {:name "browser.clj"             :type "server" :note "find (SIMPLEVIZ_BROWSER, PATH, macOS apps), launch headless, profile folder (snap-aware), cleanup in finally"}
+         :cdp      {:name "CDP client"              :type "server" :note "babashka.http-client.websocket; id-matched replies; navigate + Runtime.evaluate"}
+         :chrome   {:name "headless Chrome"         :type "external" :note "--remote-debugging-port=0; DevTools URL read from stderr"}
+         :hook     {:name "window.simplevizExport"  :type "page"   :note "wait for load, theme into :theme-pref (not storage), expand all boxes, wait for settled layout"}
+         :producer {:name "png-bytes / svg-text"    :type "page"   :note "split out of export-png!/export-svg!; embed the sources"}
+         :menu     {:name "⇩ menu"                  :type "page"   :note "thin download wrappers around the same producers"}}
+ :edges {[:input :cli]       {:direction :-> :name "argv"}
+         [:cli :serve]       {:direction :-> :name "file, suffix"}
+         [:cli :browser]     {:direction :-> :name "launch, export"}
+         [:browser :chrome]  {:direction :-> :name "spawn, kill"}
+         [:browser :cdp]     {:direction :-> :name "ws URL"}
+         [:cdp :chrome]      {:direction :-> :name "Page.navigate, Runtime.evaluate" :type "ws"}
+         [:chrome :serve]    {:direction :-> :name "/api/graph, /api/source" :type "http"}
+         [:chrome :hook]     {:direction :-> :name "evaluate"}
+         [:hook :producer]   {:direction :-> :name "format"}
+         [:menu :producer]   {:direction :-> :name "format"}
+         [:cli :out]         {:direction :-> :name "bytes / text"}}
+ :boxes {:process {:name "simpleviz export (bb)" :type "zone" :components #{:cli :serve :browser :cdp}}
+         :page    {:name "Page (squint)"         :type "zone" :components #{:hook :producer :menu}}}}

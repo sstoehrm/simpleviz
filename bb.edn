@@ -26,6 +26,9 @@
   extract  {:doc "Extract embedded EDN from an exported PNG/SVG: bb extract diagram.png|.svg [out.edn] [--old]"
             :requires ([embedded])
             :task (apply embedded/-main *command-line-args*)}
+  export   {:doc "Export a graph as PNG/SVG via headless Chrome: bb export graph.edn [suffix] out.png|out.svg [--theme t] [--force]"
+            :requires ([cli])
+            :task (apply cli/-main "export" *command-line-args*)}
   check    {:doc "Report a graph's parse error or validation warnings (exit 1 on any): bb check graph.edn|.png|.svg"
             :requires ([check])
             :task (apply check/-main *command-line-args*)}
@@ -42,8 +45,8 @@
                  :requires ([release])
                  :task (release/check (first *command-line-args*))}
   test:clj {:doc "Run Clojure server tests"
-            :requires ([clojure.test :as t] [server-test] [graph-test] [diff-test] [docs-test] [png-test] [svg-test] [browser-test] [edit-test] [log-test] [fork-test] [launcher-test] [install-test] [check-test] [cli-test] [release-test] [notices-test] [paths-test] [pairs-test])
-            :task (let [{:keys [fail error]} (t/run-tests 'graph-test 'server-test 'diff-test 'docs-test 'png-test 'svg-test 'browser-test 'edit-test 'log-test 'fork-test 'launcher-test 'install-test 'check-test 'cli-test 'release-test 'notices-test 'paths-test 'pairs-test)]
+            :requires ([clojure.test :as t] [server-test] [graph-test] [diff-test] [docs-test] [png-test] [svg-test] [browser-test] [export-test] [edit-test] [log-test] [fork-test] [launcher-test] [install-test] [check-test] [cli-test] [release-test] [notices-test] [paths-test] [pairs-test])
+            :task (let [{:keys [fail error]} (t/run-tests 'graph-test 'server-test 'diff-test 'docs-test 'png-test 'svg-test 'browser-test 'export-test 'edit-test 'log-test 'fork-test 'launcher-test 'install-test 'check-test 'cli-test 'release-test 'notices-test 'paths-test 'pairs-test)]
                     (when (pos? (+ fail error)) (System/exit 1)))}
   test:js  {:doc "Run JS unit tests (compiled squint output)"
             :requires ([babashka.fs :as fs])
@@ -69,6 +72,9 @@
                                                    extract {:doc "Extract embedded EDN from an exported PNG/SVG: bb extract diagram.png|.svg [out.edn] [--old]"
                                                             :requires ([embedded])
                                                             :task (apply embedded/-main *command-line-args*)}
+                                                   export {:doc "Export a graph as PNG/SVG via headless Chrome: bb export graph.edn [suffix] out.png|out.svg [--theme t] [--force]"
+                                                           :requires ([cli])
+                                                           :task (apply cli/-main "export" *command-line-args*)}
                                                    check {:doc "Report a graph's parse error or validation warnings (exit 1 on any): bb check graph.edn|.png|.svg"
                                                           :requires ([check])
                                                           :task (apply check/-main *command-line-args*)}

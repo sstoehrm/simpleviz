@@ -70,32 +70,3 @@
                         (String. bs (+ data-off after) tlen "UTF-8")))
                     (recur next-i)))))
             (recur next-i)))))))
-
-(defn -main
-  "bb extract <diagram.png> [out.edn] [--old]"
-  [& args]
-  (let [old? (boolean (some #{"--old"} args))
-        [in out] (vec (remove #{"--old"} args))]
-    (when (nil? in)
-      (println "usage: bb extract <diagram.png> [out.edn] [--old]")
-      (System/exit 1))
-    (let [text (try
-                 (if old?
-                   (extract in "simpleviz-edn-old")
-                   (or (extract in "simpleviz-edn-new")
-                       (extract in "simpleviz-edn")))
-                 (catch Exception e
-                   (println (ex-message e))
-                   (System/exit 1)))]
-      (cond
-        (nil? text)
-        (do (println (str "no embedded simpleviz EDN"
-                          (when old? " (old)") " found in " in))
-            (System/exit 1))
-
-        (nil? out) (print text)
-
-        (.exists (io/file out))
-        (do (println (str out " already exists")) (System/exit 1))
-
-        :else (do (spit out text) (println (str "wrote " out)))))))

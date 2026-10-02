@@ -41,7 +41,8 @@
     (is (= [] warnings))))
 
 (deftest check-reads-the-edn-embedded-in-an-exported-png
-  (is (= {:error nil :warnings []} (check/check "test/fixtures/embedded.png"))))
+  (is (= {:error nil :warnings []} (check/check "test/fixtures/embedded.png")))
+  (is (= {:error nil :warnings []} (check/check "test/fixtures/embedded.svg"))))
 
 (deftest check-missing-file-is-an-error
   (is (string? (:error (check/check "test/fixtures/does-not-exist.edn")))))

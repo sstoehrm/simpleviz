@@ -63,7 +63,8 @@
 (deftest parse-args-rejects-bad-suffixes
   (is (clojure.string/includes? (:error (serve/parse-args ["a.edn" "ne/xt"])) "invalid suffix: ne/xt"))
   (is (clojure.string/includes? (:error (serve/parse-args ["a.edn" "b.edn"])) "two-file compare was replaced"))
-  (is (clojure.string/includes? (:error (serve/parse-args ["a.edn" "b.PNG"])) "two-file compare was replaced")))
+  (is (clojure.string/includes? (:error (serve/parse-args ["a.edn" "b.PNG"])) "two-file compare was replaced"))
+  (is (clojure.string/includes? (:error (serve/parse-args ["a.edn" "b.svg"])) "two-file compare was replaced")))
 
 (deftest parse-args-rejects-extra-positionals
   (is (contains? (serve/parse-args ["a.edn" "next" "extra"]) :error)))
@@ -271,7 +272,7 @@
       (let [p (write! dir "x.png" (png-bytes* [(itxt* "simpleviz-edn" "{:nodes {:a {}}}")]))]
         (write! dir "x-next.png" (png-bytes* [(itxt* "simpleviz-edn" "{:nodes {:a {}}}")]))
         (serve! p "next")
-        (is (= "PNG sources are read-only"
+        (is (= "PNG and SVG sources are read-only"
                (get (json/parse-string (:body (serve/handler (edit-req {:file "old" :ops []})))) "error")))))))
 
 (deftest api-graph-file-param-refused-in-embedded-compare
@@ -342,6 +343,87 @@
     (is (= "{:nodes {:new {}}}"
            (:body (serve/handler {:uri "/api/source"}))))))
 
+;; --- Serving SVG exports: the same as PNGs ----------------------------
+;;
+;; svg* writes what svg/svg-document writes around its sources (see
+;; test/fixtures/*.svg, real exports): the reader only looks at
+;; <metadata>, so no drawing is needed.
+
+(defn- svg* [sources]
+  (str "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+       "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"20\" height=\"20\">\n"
+       "<metadata xmlns:simpleviz=\"https://github.com/sstoehrm/simpleviz\">\n"
+       (apply str (map (fn [[k text]]
+                         (str "<simpleviz:source key=\"" k "\">"
+                              (-> text (.replace "&" "&amp;") (.replace "<" "&lt;"))
+                              "</simpleviz:source>\n"))
+                       sources))
+       "</metadata>\n</svg>\n"))
+
+(deftest api-graph-serves-svg-embedded-edn
+  (serve! "test/fixtures/embedded.svg")
+  (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph"})))]
+    (is (contains? (get out "nodes") "a"))
+    (is (= "embedded.svg" (get out "file")))
+    (is (false? (get out "editable")))
+    (is (not (contains? out "compare")))))
+
+(deftest api-graph-auto-compares-a-compare-export-svg
+  (serve! "test/fixtures/compare.svg")
+  (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph"})))]
+    (is (= "added" (get-in out ["nodes" "b" "diff"])))
+    (is (contains? out "compare"))
+    (is (false? (get out "editable")))))
+
+(deftest api-source-compare-svg-selects-sides
+  (serve! "test/fixtures/compare.svg")
+  (is (= "{:nodes {:a {}}}" (:body (serve/handler {:uri "/api/source" :query-string "which=old"}))))
+  (is (= "{:nodes {:a {} :b {}}}" (:body (serve/handler {:uri "/api/source"})))))
+
+(deftest api-graph-svg-without-edn-is-a-clear-error
+  (serve! "test/fixtures/plain.svg")
+  (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph"})))]
+    (is (clojure.string/includes? (get out "error" "") "no embedded simpleviz EDN"))))
+
+(deftest api-edit-refuses-svg
+  (serve! "test/fixtures/embedded.svg")
+  (is (= "PNG and SVG sources are read-only"
+         (get (json/parse-string (:body (serve/handler (edit-req {:file "new" :ops []})))) "error"))))
+
+(deftest api-graph-suffix-compare-accepts-svg-sides
+  (with-temp-dir*
+    (fn [dir]
+      (let [p (write! dir "x.svg" (svg* [["simpleviz-edn" "{:nodes {:a {}}}"]]))]
+        (write! dir "x-next.svg" (svg* [["simpleviz-edn-new" "{:nodes {:a {} :b {}}}"]]))
+        (serve! p "next")
+        (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph"})))]
+          (is (= "added" (get-in out ["nodes" "b" "diff"])))
+          (is (false? (get out "editable")))
+          (is (false? (get out "editable-old"))))))))
+
+(deftest a-ref-may-name-an-svg
+  (with-temp-dir*
+    (fn [dir]
+      (serve! (write! dir "root.edn" "{:nodes {:a {:ref \"sub.svg\"}}}"))
+      (write! dir "sub.svg" (svg* [["simpleviz-edn" "{:nodes {:inner {}}}"]]))
+      (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "file=sub.svg"})))]
+        (is (nil? (get out "error")))
+        (is (contains? (get out "nodes") "inner"))
+        (is (false? (get out "editable")))))))
+
+(deftest a-missing-svg-side-reads-as-read-only
+  ;; by name, so an edit cannot bring an .svg holding EDN text into being
+  (with-temp-dir*
+    (fn [dir]
+      (serve! (write! dir "root.edn" "{}") "next")
+      (write! dir "root-next.edn" "{}")
+      (write! dir "x-next.svg" (svg* [["simpleviz-edn" "{:nodes {:a {}}}"]]))
+      (is (= "PNG and SVG sources are read-only"
+             (get (json/parse-string (:body (serve/handler (edit-req {:file "old" :path "x.svg"
+                                                                      :ops [{:op "add-node" :id "b"}]}))))
+                  "error")))
+      (is (not (.exists (java.io.File. dir "x.svg")))))))
+
 ;; --- /api/edit: undo stack + editable flags (Task 6) ------------------
 
 (deftest api-edit-applies-and-writes
@@ -374,7 +456,7 @@
 
 (deftest api-edit-refuses-png-and-missing-old
   (serve! "test/fixtures/embedded.png")
-  (is (= "PNG sources are read-only"
+  (is (= "PNG and SVG sources are read-only"
          (get (json/parse-string (:body (serve/handler (edit-req {:file "new" :ops []})))) "error")))
   (let [p (temp-edn "{:nodes {:a nil}}")]
     (serve! p)
@@ -535,18 +617,18 @@
                         (serve/resolve-path refs-root "../embedded.png")))
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"absolute"
                         (serve/resolve-path refs-root (.getPath (java.io.File. refs-root "root.edn")))))
-  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"not an .edn or .png"
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"not an .edn, .png or .svg"
                         (serve/resolve-path refs-root "notes.txt")))
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"no such file"
                         (serve/resolve-path refs-root "sub/missing.edn")))
   ;; a directory is not a file: extension check runs first, so a
   ;; directory named "sub" (no .edn/.png extension) fails there
-  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"not an .edn or .png"
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"not an .edn, .png or .svg"
                         (serve/resolve-path refs-root "sub")))
   ;; a file with no dot at all in its name has no extension to match —
   ;; refused the same way as a wrong extension, not treated as a
   ;; directory-style special case
-  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"not an .edn or .png"
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"not an .edn, .png or .svg"
                         (serve/resolve-path refs-root "edn"))))
 
 (deftest resolve-path-refuses-a-symlink-that-escapes-the-root
@@ -624,7 +706,7 @@
         txt (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "file=notes.txt"})))]
     (is (clojure.string/includes? (get escape "error") "leaves the served folder"))
     (is (clojure.string/includes? (get missing "error") "no such file"))
-    (is (clojure.string/includes? (get txt "error") "not an .edn or .png"))))
+    (is (clojure.string/includes? (get txt "error") "not an .edn, .png or .svg"))))
 
 (deftest api-version-file-param
   (refs-mode!)
@@ -833,8 +915,10 @@
     (fn [dir]
       (serve! (write! dir "root.edn" "{:nodes {:a nil}}"))
       (is (re-find #"leaves the served folder" (get (create! {:path "../x.edn" :file "new"}) "error")))
-      (is (re-find #"not an \.edn or \.png" (get (create! {:path "x.txt" :file "new"}) "error")))
-      (is (= "PNG files cannot be created" (get (create! {:path "x.png" :file "new"}) "error")))
+      (is (re-find #"not an \.edn, \.png or \.svg" (get (create! {:path "x.txt" :file "new"}) "error")))
+      (is (= "PNG and SVG files cannot be created" (get (create! {:path "x.png" :file "new"}) "error")))
+      (is (= "PNG and SVG files cannot be created" (get (create! {:path "x.svg" :file "new"}) "error")))
+      (is (not (.exists (java.io.File. dir "x.svg"))))
       (is (= "path required" (get (create! {:file "new"}) "error")))
       (is (not (.exists (java.io.File. dir "x.png"))))
       (let [resp (serve/handler (create-req {:path "y.edn" :file "new"} {:headers {"origin" "http://evil.example"}}))]
@@ -982,7 +1066,7 @@
       (let [g (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "file=pic.png"})))]
         (is (nil? (get g "error")))
         (is (false? (get g "editable-old"))))
-      (is (= "PNG sources are read-only"
+      (is (= "PNG and SVG sources are read-only"
              (get (json/parse-string (:body (serve/handler (edit-req {:file "old" :path "pic.png" :ops [{:op "add-node" :id "z"}]})))) "error")))
       (is (not (.exists (java.io.File. dir "pic.png")))))))
 

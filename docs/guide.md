@@ -112,7 +112,7 @@ without opening a browser.
 
 The page can edit map-form EDN files. An edit patches the file in place,
 keeps comments and formatting outside the changed value, and reaches the page
-through the usual live reload. Exported PNGs and pre-v2 vector-form files are
+through the usual live reload. Exported PNGs and SVGs, and pre-v2 vector-form files, are
 read-only.
 
 **Inspector.** Click a value or its ✎ to edit it. Scalars edit as text and
@@ -169,13 +169,14 @@ that graph in place. The trail at the top leads back, and so does the
 browser's back button.
 
 - Refs may use `..` but can't leave the folder of the file the server
-  started with. They must point at an `.edn` file or an exported `.png`.
+  started with. They must point at an `.edn` file or an exported `.png` or
+  `.svg`.
 - Following a ref to a missing `.edn` file creates it as an empty graph,
   folders included. In a comparison, only the side picked by the old|new
   toggle is created.
 - A ref names the original, never a fork: `x-next.edn` is refused while
   comparing with `next`.
-- A graph served from a PNG can't follow refs.
+- A graph served from a PNG or SVG can't follow refs.
 
 In `examples/demo.edn` the API node refs `api/internals.edn`, whose
 "Demo overview" node refs back.
@@ -208,28 +209,23 @@ limit, and a fork is refused.
 ## Exporting
 
 ⇩ (top right) opens the export menu. PNG downloads the whole graph as an
-image with the source EDN embedded. An export made in compare mode embeds both
-files.
+image, SVG as a vector drawing, which scales without blurring and keeps its
+text as text. Both embed the source EDN (the SVG in its `<metadata>`); an
+export made in compare mode embeds both files.
 
     simpleviz extract diagram.png            # print the embedded EDN (compare export: the new file)
     simpleviz extract diagram.png --old      # compare export: the old file
-    simpleviz extract diagram.png graph.edn  # write it to a file (never overwrites)
+    simpleviz extract diagram.svg graph.edn  # write it to a file (never overwrites)
 
-An exported PNG works anywhere an EDN file does, read-only:
+An exported PNG or SVG works anywhere an EDN file does, read-only:
 
     simpleviz diagram.png                    # serve the embedded graph
-    simpleviz diagram.png next               # compare against diagram-next.png
+    simpleviz diagram.svg next               # compare against diagram-next.svg
     simpleviz compare-export.png             # reopen the full comparison
 
-SVG, the menu's other item, downloads the whole graph as a vector drawing,
-which scales without blurring and keeps its text as text. It embeds the source
-EDN too, in its `<metadata>`, both files in compare mode. Two limits:
-
-- simpleviz can't read an SVG back yet: `extract`, serving and comparing take
-  PNGs only. The embedded EDN is there for when it can.
-- Fonts are referenced, not embedded. Browsers show the SVG exactly like the
-  page; other tools such as Inkscape may substitute a font, so label widths can
-  differ slightly from their boxes.
+SVG fonts are referenced, not embedded. Browsers show the SVG exactly like the
+page; other tools such as Inkscape may substitute a font, so label widths can
+differ slightly from their boxes.
 
 ## Checking a file
 

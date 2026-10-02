@@ -227,6 +227,28 @@ SVG fonts are referenced, not embedded. Browsers show the SVG exactly like the
 page; other tools such as Inkscape may substitute a font, so label widths can
 differ slightly from their boxes.
 
+### From the terminal
+
+`simpleviz export` writes the same file ⇩ downloads, without opening a window:
+the page renders it in a headless Chrome or Chromium.
+
+    simpleviz export graph.edn graph.png               # PNG of graph.edn
+    simpleviz export graph.edn next diff.svg           # compare export, both files embedded
+    simpleviz export diagram.png diagram.svg           # re-export an export
+    simpleviz export graph.edn graph.png --theme nord  # pick the theme
+
+- The format follows the output's extension, `.png` or `.svg`. An existing
+  output is kept unless you pass `--force`.
+- Every box is expanded, even in a big graph that the page opens collapsed.
+- The theme is the file's `:theme`. A file without one gets `--theme`, else
+  light. The page's theme menu doesn't apply here.
+- simpleviz looks for `google-chrome`, `chromium`, `microsoft-edge` or
+  `brave-browser` on your PATH, then for the macOS apps. Set
+  `SIMPLEVIZ_BROWSER` to a path or command to pick one.
+- A snap browser keeps its temporary profile in `~/snap/<name>/common/`,
+  since a snap can't use the system's temp folder. simpleviz deletes it
+  when it's done.
+
 ## Checking a file
 
 The page shows a file's problems in banners. To get the same report

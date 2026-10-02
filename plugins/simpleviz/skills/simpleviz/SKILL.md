@@ -82,6 +82,9 @@ With the `simpleviz` command, installed by `install.sh` (files in `~/.simpleviz`
     simpleviz check graph.edn        # print what the warning/error banners would say
     simpleviz update                 # install the latest release if newer
     simpleviz --version              # print the installed version
+    simpleviz export graph.edn out.png  # PNG/SVG of the whole graph via headless Chrome or
+                                     # Chromium; never opens a window (suffix for a compare
+                                     # export, --theme <name>, --force to overwrite)
     simpleviz extract diagram.png    # print the EDN embedded in an exported PNG or SVG
                                      # (compare exports embed BOTH files: default
                                      #  prints the new one, --old the old one;
@@ -94,7 +97,7 @@ There is no `bb diff` or similar — comparing is serving a file with the suffix
 
 ## Viewer
 
-Click any node/edge/box for its full attributes. Hovering shows a tooltip with the element's name and its attributes (an unnamed edge is headed by its `[from to]` key). Drag pans, wheel zooms. Boxes collapse/expand via the `−` button in their header (a collapsed box showing an amber dot hides changes in compare mode). The theme menu top-right picks the viewer's own theme for every graph without `:theme` (saved in the browser; "default" follows the OS light/dark setting) — it never writes the file. A file's `:theme` wins, and the menu shows it disabled; to theme a file, write `:theme` in it. Saving the file live-reloads the page (~1s); the tab title names the served file (or `old → new` in compare mode). The ⇩ button opens an export menu for the whole diagram: PNG embeds the source EDN as metadata, SVG in its `<metadata>`; either is recoverable via simpleviz extract, or serve the export directly.
+Click any node/edge/box for its full attributes. Hovering shows a tooltip with the element's name and its attributes (an unnamed edge is headed by its `[from to]` key). Drag pans, wheel zooms. Boxes collapse/expand via the `−` button in their header (a collapsed box showing an amber dot hides changes in compare mode). The theme menu top-right picks the viewer's own theme for every graph without `:theme` (saved in the browser; "default" follows the OS light/dark setting) — it never writes the file. A file's `:theme` wins, and the menu shows it disabled; to theme a file, write `:theme` in it. Saving the file live-reloads the page (~1s); the tab title names the served file (or `old → new` in compare mode). The ⇩ button opens an export menu for the whole diagram: PNG embeds the source EDN as metadata, SVG in its `<metadata>`; either is recoverable via simpleviz extract, or serve the export directly. To hand someone an image, run `simpleviz export` instead of asking them to click ⇩.
 
 ## Editing (in the browser)
 

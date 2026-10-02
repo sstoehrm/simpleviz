@@ -74,3 +74,8 @@
                               (str->codes "iTXt")
                               data)))]
       (assert/equal (png/extract-text bytes kw) nil))))
+
+(test "bytes->base64 matches Buffer's encoding, also past one chunk"
+  (fn []
+    (let [u8 (js/Uint8Array.from (js/Array.from {:length 70000} (fn [_ i] (mod i 256))))]
+      (assert/equal (png/bytes->base64 u8) (.toString (js/Buffer.from u8) "base64")))))

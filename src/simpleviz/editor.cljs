@@ -414,3 +414,21 @@
          (if (seq opts)
            (.join (vec opts) " · ")
            (if (nil? kind) "nothing without a selection" (str "nothing for a" (if (= kind "edge") "n " " ") kind))))))
+
+(defn load-readiness
+  "Where the first load stands for a headless export: {:ready true} once a
+  graph arrived, {:error msg} when only an error did, nil while waiting."
+  [st]
+  (cond (some? (:graph st)) {:ready true}
+        (some? (:error st)) {:error (:error st)}
+        :else nil))
+
+(defn export-readiness
+  "Whether page state st can be exported whole: {:ready true} for a laid
+  out scene with no box collapsed, {:error msg} when the page shows an
+  error and has nothing laid out, nil while layout is still going."
+  [st]
+  (cond (and (some? (:scene st)) (not (:layouting st))
+             (zero? (.-size (:collapsed-boxes st)))) {:ready true}
+        (and (nil? (:scene st)) (some? (:error st))) {:error (:error st)}
+        :else nil))

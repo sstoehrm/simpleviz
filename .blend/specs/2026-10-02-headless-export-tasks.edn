@@ -1,0 +1,12 @@
+{:nodes {:t1 {:name "1. Page hook and shared producers" :state :new}
+         :t2 {:name "2. Finding the browser" :state :new}
+         :t3 {:name "3. Launching Chrome and talking CDP" :state :new}
+         :t4 {:name "4. The export command" :state :new}
+         :t5 {:name "5. Docs" :state :new}}
+ :edges {[:t2 :t3] {:direction :->}
+         [:t1 :t4] {:direction :->}
+         [:t3 :t4] {:direction :->}
+         [:t4 :t5] {:direction :->}}
+ :boxes {:page    {:name "Page hook" :components #{:t1} :ref "2026-10-02-headless-export.edn"}
+         :browser {:name "browser.clj" :components #{:t2 :t3} :ref "2026-10-02-headless-export.edn"}
+         :cli     {:name "cli export" :components #{:t4 :t5} :ref "2026-10-02-headless-export.edn"}}}

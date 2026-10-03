@@ -2,7 +2,8 @@
   (:require ["node:test" :refer [test]]
             ["node:assert/strict$default" :as assert]
             [simpleviz.grid :refer [top-of edge-ends top-items grid-cells grid-mode? attach-loose
-                                   slots port-side tracks base-gaps track-sizes axis centres widen]]))
+                                   slots port-side tracks base-gaps track-sizes axis centres widen
+                                   route-edges label-at]]))
 
 (defn- n [id] {:id id :name id :type "" :attrs {}})
 (defn- box [nm grid comps] {:name nm :grid grid :components comps :type "" :attrs {}})
@@ -110,3 +111,58 @@
   (fn []
     (assert/deepEqual (widen [30 80 30] {"v1" 6 "h0" 9} "v") [30 100 30])
     (assert/deepEqual (widen [30 80 30] {"v1" 6 "h0" 9} "h") [130 80 30])))
+
+;; two columns, two rows: gap centres from the axis test
+(def vx [35 190 365])
+(def hy [35 190 365])
+
+(defn- orthogonal? [pts]
+  (every? (fn [i] (let [a (nth pts i) b (nth pts (inc i))]
+                    (or (= (:x a) (:x b)) (= (:y a) (:y b)))))
+          (range (dec (count pts)))))
+
+(test "route-edges: same gap — out, along, in"
+  (fn []
+    (let [r (route-edges [{:id "e" :from {:x 150 :y 100 :axis "v" :gap 1}
+                                   :to {:x 230 :y 120 :axis "v" :gap 1}}] vx hy)]
+      (assert/deepEqual (get (:points r) "e")
+                        [{:x 150 :y 100} {:x 190 :y 100} {:x 190 :y 120} {:x 230 :y 120}])
+      (assert/deepEqual (:lanes r) {"v1" 1}))))
+
+(test "route-edges: fewest bends through a crossing"
+  (fn []
+    ;; east side of [0 0] to the top of [1 1]
+    (let [r (route-edges [{:id "e" :from {:x 150 :y 100 :axis "v" :gap 1}
+                                   :to {:x 300 :y 230 :axis "h" :gap 1}}] vx hy)
+          pts (get (:points r) "e")]
+      (assert/deepEqual pts [{:x 150 :y 100} {:x 190 :y 100} {:x 190 :y 190}
+                             {:x 300 :y 190} {:x 300 :y 230}])
+      (assert/ok (orthogonal? pts)))))
+
+(test "route-edges: one row — around through the outer gap"
+  (fn []
+    ;; three columns in one row; east of column 0 to west of column 2:
+    ;; column 1 is in the way, so the path uses an outer row gap
+    (let [vx3 [35 190 345 500] hy1 [35 190]
+          ;; west of column 2 opens onto gap 2
+          r (route-edges [{:id "e" :from {:x 150 :y 100 :axis "v" :gap 1}
+                                   :to {:x 385 :y 100 :axis "v" :gap 2}}] vx3 hy1)
+          pts (get (:points r) "e")]
+      (assert/ok (orthogonal? pts))
+      (assert/deepEqual (first pts) {:x 150 :y 100})
+      (assert/deepEqual (last pts) {:x 385 :y 100})
+      (assert/ok (some (fn [p] (or (= (:y p) 35) (= (:y p) 190))) pts) "uses an outer row gap"))))
+
+(test "route-edges: edges sharing a gap get lanes ordered by position"
+  (fn []
+    (let [r (route-edges [{:id "e1" :from {:x 150 :y 100 :axis "v" :gap 1} :to {:x 230 :y 120 :axis "v" :gap 1}}
+                          {:id "e2" :from {:x 150 :y 50 :axis "v" :gap 1} :to {:x 230 :y 60 :axis "v" :gap 1}}]
+                         vx hy)]
+      (assert/equal (:x (second (get (:points r) "e2"))) 185)
+      (assert/equal (:x (second (get (:points r) "e1"))) 195)
+      (assert/deepEqual (:lanes r) {"v1" 2}))))
+
+(test "label-at sits on the longest segment"
+  (fn []
+    (assert/deepEqual (label-at [{:x 0 :y 0} {:x 100 :y 0} {:x 100 :y 20}] 20 10) {:x 40 :y -12})
+    (assert/deepEqual (label-at [{:x 0 :y 0} {:x 0 :y 100}] 20 10) {:x 4 :y 45})))

@@ -204,3 +204,136 @@
   (vec (map-indexed (fn [i g] (let [n (or (get lanes (str prefix i)) 0)]
                                 (if (pos? n) (max g (+ 40 (* LANE n))) g)))
                     gaps)))
+
+;; ---- routing through the gaps ----
+;; Vertices are gap crossings (i, j): vertical gap i (centre vx[i]) meets
+;; horizontal gap j (centre hy[j]). A route leaves its port straight into
+;; the gap the port faces, runs along gaps, and enters the target's port
+;; straight. Cost: bends first, then length.
+
+(def ^:private BEND 1000000)
+
+(defn- band
+  "Index k with cs[k] <= v < cs[k+1], within 0 .. (count cs) - 2."
+  [cs v]
+  (loop [k 0]
+    (if (and (< k (- (count cs) 2)) (<= (nth cs (inc k)) v)) (recur (inc k)) k)))
+
+(defn- entry-verts
+  "The two crossings on either side of where entry `e` meets its gap."
+  [vx hy e]
+  (if (= (:axis e) "v")
+    (let [k (band hy (:y e))] [[(:gap e) k] [(:gap e) (inc k)]])
+    (let [k (band vx (:x e))] [[k (:gap e)] [(inc k) (:gap e)]])))
+
+(defn- find-path
+  "Crossings [[i j] ...] of the fewest-bends-then-shortest path from
+  entry `from` to entry `to`."
+  [vx hy from to]
+  (let [nv (count vx)
+        nh (count hy)
+        dist {}
+        prev {}
+        done (js/Set.)
+        kk (fn [i j h] (str i "," j "," h))
+        at (fn [i j] {:x (nth vx i) :y (nth hy j)})
+        d (fn [a b] (+ (js/Math.abs (- (:x a) (:x b))) (js/Math.abs (- (:y a) (:y b)))))
+        relax! (fn [k c p]
+                 (when (or (nil? (get dist k)) (< c (get dist k)))
+                   (assoc! dist k c)
+                   (assoc! prev k p)))]
+    (doseq [[i j] (entry-verts vx hy from)]
+      (relax! (kk i j (:axis from)) (+ BEND (d from (at i j))) nil))
+    (loop []
+      (let [best (reduce (fn [acc k] (if (and (not (.has done k))
+                                              (or (nil? acc) (< (get dist k) (get dist acc))))
+                                       k acc))
+                         nil (js/Object.keys dist))]
+        (when (some? best)
+          (.add done best)
+          (let [[si sj h] (.split best ",")
+                i (js/parseInt si)
+                j (js/parseInt sj)
+                c (get dist best)]
+            (doseq [[i2 j2 h2] [[i (dec j) "v"] [i (inc j) "v"] [(dec i) j "h"] [(inc i) j "h"]]]
+              (when (and (<= 0 i2) (< i2 nv) (<= 0 j2) (< j2 nh))
+                (relax! (kk i2 j2 h2)
+                        (+ c (if (= h h2) 0 BEND) (d (at i j) (at i2 j2)))
+                        best))))
+          (recur))))
+    (let [finals (vec (mapcat (fn [[i j]]
+                                (keep (fn [h]
+                                        (let [k (kk i j h)]
+                                          (when (some? (get dist k))
+                                            [(+ (get dist k) (if (= h (:axis to)) 0 BEND) BEND (d (at i j) to)) k])))
+                                      ["v" "h"]))
+                              (entry-verts vx hy to)))
+          [_ end] (reduce (fn [a b] (if (or (nil? a) (< (first b) (first a))) b a)) nil finals)]
+      (loop [k end acc ()]
+        (if (nil? k)
+          (vec acc)
+          (let [[si sj] (.split k ",")]
+            (recur (get prev k) (cons [(js/parseInt si) (js/parseInt sj)] acc))))))))
+
+(defn- corner-of [e]
+  (if (= (:axis e) "v") {:vg (:gap e) :y (:y e)} {:hg (:gap e) :x (:x e)}))
+
+(defn route-edges
+  "Routes for `routes` [{:id :from entry :to entry}] (entry: {:x :y :axis
+  :gap}): {:points {id [{:x :y} ...]} :lanes {gap-key count}}. Edges that
+  share a gap get lanes LANE apart, centred, ordered by where they use
+  the gap (then id)."
+  [routes vx hy]
+  (let [corners {}
+        users {}]
+    (doseq [r routes]
+      (let [{:keys [from to]} r
+            mid (if (and (= (:axis from) (:axis to)) (= (:gap from) (:gap to)))
+                  []
+                  (mapv (fn [[i j]] {:vg i :hg j}) (find-path vx hy from to)))
+            cs (into (into [(corner-of from)] mid) [(corner-of to)])]
+        (assoc! corners (:id r) cs)
+        (doseq [c cs]
+          (when (some? (:vg c))
+            (let [g (str "v" (:vg c))
+                  p (if (some? (:y c)) (:y c) (nth hy (:hg c)))
+                  m (or (get users g) (let [m {}] (assoc! users g m) m))]
+              (assoc! m (:id r) (min p (or (get m (:id r)) p)))))
+          (when (some? (:hg c))
+            (let [g (str "h" (:hg c))
+                  p (if (some? (:x c)) (:x c) (nth vx (:vg c)))
+                  m (or (get users g) (let [m {}] (assoc! users g m) m))]
+              (assoc! m (:id r) (min p (or (get m (:id r)) p))))))))
+    (let [order {}
+          lanes {}]
+      (doseq [[g m] (js/Object.entries users)]
+        ;; by position, then id (sort-by is stable)
+        (let [ids (mapv first (sort-by (fn [[_ p]] p) (sort-by (fn [[id _]] id) (js/Object.entries m))))]
+          (assoc! order g ids)
+          (assoc! lanes g (count ids))))
+      (let [off (fn [g id] (let [ids (get order g)]
+                             (* LANE (- (.indexOf ids id) (/ (dec (count ids)) 2)))))
+            points {}]
+        (doseq [r routes]
+          (let [id (:id r)
+                pts (into (into [{:x (:x (:from r)) :y (:y (:from r))}]
+                                (mapv (fn [c]
+                                        {:x (if (some? (:vg c)) (+ (nth vx (:vg c)) (off (str "v" (:vg c)) id)) (:x c))
+                                         :y (if (some? (:hg c)) (+ (nth hy (:hg c)) (off (str "h" (:hg c)) id)) (:y c))})
+                                      (get corners id)))
+                          [{:x (:x (:to r)) :y (:y (:to r))}])]
+            (assoc! points id pts)))
+        {:points points :lanes lanes}))))
+
+(defn label-at
+  "Top-left of a w×h label centred on the longest segment of `points`:
+  above a horizontal segment, right of a vertical one."
+  [points w h]
+  (let [segs (mapv (fn [i] [(nth points i) (nth points (inc i))]) (range (dec (count points))))
+        len (fn [[a b]] (+ (js/Math.abs (- (:x b) (:x a))) (js/Math.abs (- (:y b) (:y a)))))
+        [a b] (reduce (fn [best s] (if (> (len s) (len best)) s best)) (first segs) segs)
+        mx (/ (+ (:x a) (:x b)) 2)
+        my (/ (+ (:y a) (:y b)) 2)]
+    (if (= (:y a) (:y b))
+      {:x (- mx (/ w 2)) :y (- my h 2)}
+      {:x (+ mx 4) :y (- my (/ h 2))})))

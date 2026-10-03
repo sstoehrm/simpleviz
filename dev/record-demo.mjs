@@ -42,6 +42,10 @@ const edit = (file, from, to) => {
 };
 // the API node is "the same thing" as api-svc in the deploy view
 edit(demo, `:ref "api/internals.edn"}`, `:ref "api/internals.edn"\n                  :pair "views/deploy.edn#api-svc"}`);
+// Auth is described by a markdown doc the viewer can edit
+edit(demo, `:auth   {:name "Auth"     :type "service"}`, `:auth   {:name "Auth"     :type "service" :md-ref "docs/auth.md"}`);
+fs.mkdirSync(path.join(ws, "docs"));
+fs.writeFileSync(path.join(ws, "docs/auth.md"), "# Auth\n\nIssues bearer tokens for the Web UI.\n");
 
 // ---- processes -------------------------------------------------------------
 
@@ -279,6 +283,21 @@ try {
   await sleep(300);
   await key("Enter");
   await sleep(1800);
+  await key("Escape");
+
+  // 4b — the doc behind an :md-ref, edited as plain text
+  await caption("Edit a node's markdown doc (<code>:md-ref</code>): <kbd>f m</kbd>, <kbd>Ctrl S</kbd> saves");
+  await click("n:auth");
+  await sleep(500);
+  await chord("f", "m");
+  await sleep(700);
+  await js(`(e => { e.focus(); e.setSelectionRange(e.value.length, e.value.length); })(document.getElementById("md-text"))`);
+  await type("Tokens expire after 15 minutes.\n");
+  await sleep(500);
+  await key("s", { modifiers: 2, text: undefined });
+  await sleep(1200);
+  await click(await elAt("#md-panel .md-btn", "×"), 450);
+  await sleep(400);
   await key("Escape");
 
   // 5 — state marks

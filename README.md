@@ -4,7 +4,7 @@ Minimal EDN-driven graph visualization. Describe nodes, directed edges, and
 nested grouping boxes in an EDN file; view it as an auto-layouted canvas diagram
 that live-reloads while you edit the file.
 
-[![45-second tour: live reload, inspecting, editing in place, state marks, themes, pairs, following a ref, comparing a fork, exporting](docs/assets/demo.gif)](docs/assets/demo.mp4)
+[![50-second tour: live reload, inspecting, editing in place, editing a linked markdown doc, state marks, themes, pairs, following a ref, comparing a fork, exporting](docs/assets/demo.gif)](docs/assets/demo.mp4)
 
 ## Install
 

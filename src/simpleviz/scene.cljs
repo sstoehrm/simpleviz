@@ -102,6 +102,7 @@
                                     :color-idx (color-idx box (:box colors))
                                     :name (or (:label box) (:name box)) :type (:type box)
                                     :attrs (:attrs box)
+                                    :md-ref? (some? (ref-of box :md-ref))
                                     :diff (:diff box) :changed (:changed box) :diff-inside (:diff-inside box)}
                              (pair-fields box)))
                (.set origins (:id child) {:x x :y y})
@@ -114,6 +115,7 @@
                                     :name (:name node) :type (:type node)
                                     :attrs (:attrs node)
                                     :ref? (some? (ref-of node))
+                                    :md-ref? (some? (ref-of node :md-ref))
                                     :state (node-state node)
                                     :diff (:diff node) :changed (:changed node)}
                              (pair-fields node))))))))

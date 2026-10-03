@@ -258,6 +258,24 @@
     (assert/equal (:ref? (node-with {:ref 3})) false)
     (assert/equal (:ref? (node-with {})) false)))
 
+(test "a node with a non-blank string :md-ref is flagged :md-ref?"
+  (fn []
+    (assert/equal (:md-ref? (node-with {:md-ref "docs/spec.md"})) true)
+    (assert/equal (:md-ref? (node-with {:md-ref "  "})) false)
+    (assert/equal (:md-ref? (node-with {:md-ref 3})) false)
+    (assert/equal (:md-ref? (node-with {:ref "sub/api.edn"})) false)))
+
+(defn- box-with [attrs]
+  (let [g (assoc-in graph [:boxes-by-name "grp" :attrs] attrs)
+        sc (build-scene {:layout layout :graph g :colors colors})]
+    (first (filterv (fn [it] (= (:id it) "b:grp")) (:items sc)))))
+
+(test "a box with a non-blank string :md-ref is flagged :md-ref?"
+  (fn []
+    (assert/equal (:md-ref? (box-with {:md-ref "docs/spec.md"})) true)
+    (assert/equal (:md-ref? (box-with {:md-ref ""})) false)
+    (assert/equal (:md-ref? (box-with {})) false)))
+
 (test "a node carries its :state only when it is a known one"
   (fn []
     (doseq [s ["new" "in-progress" "blocked" "done"]]

@@ -344,10 +344,12 @@
   (boolean (and (some? text) (not= text "") (not= text dismissed))))
 
 (defn ref-of
-  "The selection's :ref when it is a non-blank string, else nil."
-  [sel]
-  (let [r (:ref (:attrs sel))]
-    (when (and (string? r) (not= (.trim r) "")) r)))
+  "The selection's :ref (or attr k, e.g. :md-ref) when it is a non-blank
+  string, else nil."
+  ([sel] (ref-of sel :ref))
+  ([sel k]
+   (let [r (get (:attrs sel) k)]
+     (when (and (string? r) (not= (.trim r) "")) r))))
 
 ;; ---- keyboard chords ----
 

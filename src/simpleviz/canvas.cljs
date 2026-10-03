@@ -136,6 +136,14 @@
       (set! (.-textAlign ctx) "left")
       (.fillText ctx (get diff-glyphs d) (- (:x item) 2) (- (:y item) 6)))))
 
+(defn- stroke-border
+  "Strokes the current path as the item's outer border: dotted when it
+  has an :md-ref (a linked markdown doc)."
+  [ctx item]
+  (when (:md-ref? item) (.setLineDash ctx [2 2]))
+  (.stroke ctx)
+  (.setLineDash ctx []))
+
 (defn- draw-box [ctx item sel? text?]
   (let [removed? (= (:diff item) "removed") c (box-color item)]
   (when removed? (set! (.-globalAlpha ctx) 0.45))
@@ -144,7 +152,7 @@
   (.fill ctx)
   (set! (.-strokeStyle ctx) (if sel? (:accent @palette) (:border c)))
   (set! (.-lineWidth ctx) (if sel? 2 1))
-  (.stroke ctx)
+  (stroke-border ctx item)
   (when text?
   (if (:collapsed item)
     ;; collapsed: node-style two lines, centered left of the button zone
@@ -268,7 +276,7 @@
     (.fill ctx)
     (set! (.-strokeStyle ctx) (if sel? (:accent @palette) (:node-stroke @palette)))
     (set! (.-lineWidth ctx) (if sel? 2 1))
-    (.stroke ctx)
+    (stroke-border ctx item)
     ;; a :ref node reads as a container: a second border inside the first
     (when (:ref? item)
       (rounded-rect ctx (+ (:x item) 3) (+ (:y item) 3) (- (:w item) 6) (- (:h item) 6) 4)

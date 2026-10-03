@@ -2,7 +2,7 @@
   (:require ["node:test" :refer [test]]
             ["node:assert/strict$default" :as assert]
             ["node:module" :refer [createRequire]]
-            [simpleviz.transform :refer [to-elk layout-positions seed-layout]]))
+            [simpleviz.transform :refer [to-elk layout-positions seed-layout element-run]]))
 
 (def require' (createRequire (js* "import.meta.url")))
 (def ELK (require' "../../vendor/elk.bundled.js"))
@@ -207,3 +207,26 @@
                (assert/ok (column? p0) "the fresh layout stacks them in one column")
                (assert/ok (column? p1) "they still share one column after the edit")
                (assert/deepEqual (vec (order p1)) (vec (order p0)) "in the same order"))))))
+
+(test "element-run lays out one box on its own with ports on its sides"
+  (fn []
+    (let [g (graph {:nodes {"a" (node "a" "") "b" (node "b" "")}
+                    :boxes [{:id "b:grp" :name "grp" :type "" :components ["n:a" "n:b"] :attrs {}}]
+                    :parent-of {"n:a" "grp" "n:b" "grp"}
+                    :edges [(edge 0 "a" "b" {:source false :target true})]})
+          elk-g (to-elk g measure)
+          box (first (:children elk-g))
+          run (element-run (:layoutOptions elk-g) box
+                           [{:id "p:x:s" :side "EAST"} {:id "p:y:t" :side "SOUTH"}]
+                           (into (:edges elk-g)
+                                 [{:id "x:s" :sources ["n:b"] :targets ["p:x:s"]}
+                                  {:id "y:t" :sources ["p:y:t"] :targets ["n:a"]}]))]
+      (-> (.layout (ELK.) run)
+          (.then (fn [r]
+                   (let [b (first (:children r))
+                         port (fn [id] (first (filterv (fn [p] (= (:id p) id)) (:ports b))))]
+                     (assert/equal (:id b) "b:grp")
+                     ;; EAST port on the right border, SOUTH on the bottom
+                     (assert/ok (>= (:x (port "p:x:s")) (- (:width b) 2)))
+                     (assert/ok (>= (:y (port "p:y:t")) (- (:height b) 2)))
+                     (assert/equal (.-length (:edges r)) 3))))))))

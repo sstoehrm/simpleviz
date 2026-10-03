@@ -90,6 +90,24 @@
                         base)))
                   edges)}))
 
+(defn element-run
+  "ELK input that lays out one top-level element on its own (grid mode):
+  `child` — its to-elk node — inside a dummy root (ELK takes no ports on
+  the root of a run), with a port on its border per `ports` entry
+  [{:id :side}] and `edges` (its inner edges plus those to its ports)."
+  [root-options child ports edges]
+  {:id "root"
+   :layoutOptions (assoc root-options "elk.padding" "[top=0,left=0,bottom=0,right=0]")
+   :children [(if (pos? (count ports))
+                (assoc child
+                       :ports (mapv (fn [p] {:id (:id p) :width 1 :height 1
+                                             :layoutOptions {"elk.port.side" (:side p)}})
+                                    ports)
+                       :layoutOptions (assoc (or (:layoutOptions child) {})
+                                             "elk.portConstraints" "FIXED_SIDE"))
+                child)]
+   :edges edges})
+
 (defn rename-layout-ids
   "Copy of an ELK layout result with element id `old` replaced by `new`
   wherever it appears — node/box ids and edge endpoints — so a renamed

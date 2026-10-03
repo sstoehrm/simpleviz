@@ -68,7 +68,7 @@ and write locks.
              {:direction :->             ; :-> | :<- | :<-> | :- (default :-)
               :name "REST"
               :type "http"}}
-     :boxes {:backend                    ; key is the box id
+     :boxes {:backend                    ; key is the box id; :grid [0 0] pins a top-level box to a grid cell
              {:name "Backend"            ; display name (defaults to the key)
               :type "zone"               ; colors the box (separate palette)
               :components #{:api :db}}}} ; node and/or box ids; boxes nest

@@ -416,3 +416,48 @@
   (is (not (contains? (graph/normalize {:theme {:base :nord}}) :theme-name)))
   (is (not (contains? (graph/normalize {:theme :neon}) :theme-name)))
   (is (not (contains? (graph/normalize {}) :theme-name))))
+
+(defn- boxes-g [boxes & [extra]]
+  (graph/normalize (merge {:nodes {:a {} :b {} :c {}} :boxes boxes} extra)))
+
+(defn- grid-of [g nm] (:grid (first (filter (fn [b] (= nm (:name b))) (:boxes g)))))
+
+(deftest grid-accepts-both-forms
+  (let [g (boxes-g {:x {:grid [0 1] :components #{:a}} :y {:grid [1 0 2 3] :components #{:b}}})]
+    (is (= {:col 0 :row 1 :w 1 :h 1} (grid-of g "x")))
+    (is (= {:col 1 :row 0 :w 2 :h 3} (grid-of g "y")))
+    (is (= [0 1] (get-in (first (filter (fn [b] (= "x" (:name b))) (:boxes g))) [:attrs :grid])))
+    (is (= [] (:warnings g)))))
+
+(deftest grid-absent-is-nil
+  (let [g (boxes-g {:x {:components #{:a}}})]
+    (is (nil? (grid-of g "x")))
+    (is (= [] (:warnings g)))))
+
+(deftest grid-on-a-nested-box-warns
+  (let [g (boxes-g {:outer {:components #{:inner}} :inner {:grid [0 0] :components #{:a}}})]
+    (is (nil? (grid-of g "inner")))
+    (is (= ["box \"inner\": :grid only applies to top-level boxes, ignored"] (:warnings g)))))
+
+(deftest grid-malformed-values-warn
+  ;; huge indices made the page hang (review): cells stop at 99
+  (doseq [v [[0] [0 0 1] [-1 0] [0 0 0 1] [0 0 1 0] [0.5 0] ["0" 0] :x {:col 0}
+             [100 0] [0 100] [98 0 3 1] [0 99 1 2]]]
+    (let [g (boxes-g {:x {:grid v :components #{:a}}})]
+      (is (nil? (grid-of g "x")) (pr-str v))
+      (is (= ["box \"x\": :grid must be [col row] or [col row w h] (integers, col/row 0–99, w/h ≥ 1, within 100 columns/rows), ignored"]
+             (:warnings g)) (pr-str v)))))
+
+(deftest grid-overlap-keeps-the-first-by-sorted-name
+  (let [g (boxes-g {:zeta {:grid [0 0 2 1] :components #{:a}} :alpha {:grid [1 0] :components #{:b}}
+                    :mid {:grid [0 1] :components #{:c}}})]
+    (is (= {:col 1 :row 0 :w 1 :h 1} (grid-of g "alpha")))
+    (is (nil? (grid-of g "zeta")))
+    (is (= {:col 0 :row 1 :w 1 :h 1} (grid-of g "mid")))
+    (is (= ["box \"zeta\": :grid [0 0 2 1] overlaps box \"alpha\", ignored"] (:warnings g)))))
+
+(deftest grid-accepts-the-last-cell
+  (let [g (boxes-g {:x {:grid [99 99] :components #{:a}} :y {:grid [0 0 100 1] :components #{:b}}})]
+    (is (= {:col 99 :row 99 :w 1 :h 1} (grid-of g "x")))
+    (is (= {:col 0 :row 0 :w 100 :h 1} (grid-of g "y")))
+    (is (= [] (:warnings g)))))

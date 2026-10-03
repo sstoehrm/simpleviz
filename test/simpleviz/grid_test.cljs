@@ -1,0 +1,214 @@
+(ns simpleviz.grid-test
+  (:require ["node:test" :refer [test]]
+            ["node:assert/strict$default" :as assert]
+            [simpleviz.grid :refer [top-of edge-ends top-items grid-cells grid-mode? attach-loose
+                                   slots port-side tracks base-gaps track-sizes axis centres widen
+                                   route-edges label-at]]))
+
+(defn- n [id] {:id id :name id :type "" :attrs {}})
+(defn- box [nm grid comps] {:name nm :grid grid :components comps :type "" :attrs {}})
+(defn- e [s t] {:id (str s ">" t) :source s :target t})
+
+;; front [0 0] holds web, back [1 0] holds api; user → web (left of
+;; front), api → mail (right of back), x2 hangs off mail, lone and the
+;; p1–p2 pair reach no gridded box
+(def g
+  {:nodes {"user" (n "user") "web" (n "web") "api" (n "api") "mail" (n "mail")
+           "x2" (n "x2") "lone" (n "lone") "p1" (n "p1") "p2" (n "p2")}
+   :boxes [(box "front" {:col 0 :row 0 :w 1 :h 1} ["n:web"])
+           (box "back" {:col 1 :row 0 :w 1 :h 1} ["n:api"])]
+   :parent-of {"n:web" "front" "n:api" "back"}
+   :edges [(e "user" "web") (e "api" "mail") (e "x2" "mail") (e "p1" "p2")]})
+
+(test "top-of and edge-ends name top-level elk ids"
+  (fn []
+    (assert/equal (top-of (:parent-of g) "n:web") "b:front")
+    (assert/equal (top-of (:parent-of g) "n:user") "n:user")
+    (assert/equal (top-of (:parent-of g) "b:front") "b:front")
+    (assert/deepEqual (edge-ends (e "user" "web")) ["n:user" "n:web"])
+    (assert/deepEqual (edge-ends {:source "a" :target "x" :source-id "b:a"}) ["b:a" "n:x"])))
+
+(test "top-items lists top-level nodes then boxes"
+  (fn []
+    (assert/deepEqual (top-items g) ["n:user" "n:mail" "n:x2" "n:lone" "n:p1" "n:p2" "b:front" "b:back"])))
+
+(test "grid-cells keeps top-level gridded boxes, first by sorted name on overlap"
+  (fn []
+    (assert/deepEqual (js/Object.keys (grid-cells g)) ["b:back" "b:front"])
+    (assert/ok (grid-mode? g))
+    (assert/ok (not (grid-mode? (assoc g :boxes [(box "front" nil ["n:web"])]))))
+    (let [o (assoc g :boxes [(box "zeta" {:col 0 :row 0 :w 2 :h 1} ["n:web"])
+                             (box "alpha" {:col 1 :row 0 :w 1 :h 1} ["n:api"])])]
+      (assert/deepEqual (js/Object.keys (grid-cells o)) ["b:alpha"]))
+    ;; a gridded box inside another box is not a cell
+    (let [nested (assoc g :parent-of (assoc (:parent-of g) "b:back" "front"))]
+      (assert/deepEqual (js/Object.keys (grid-cells nested)) ["b:front"]))))
+
+(test "attach-loose: beside the box with most edges, chains, the rest in the strip"
+  (fn []
+    (let [{:keys [attached strip]} (attach-loose g (grid-cells g))]
+      (assert/deepEqual (get attached "n:user") {:anchor "b:front" :side "left"})
+      (assert/deepEqual (get attached "n:mail") {:anchor "b:back" :side "right"})
+      (assert/deepEqual (get attached "n:x2") {:anchor "b:back" :side "right"})
+      (assert/deepEqual strip ["n:lone" "n:p1" "n:p2"]))))
+
+(test "attach-loose: a tie goes to the box first by sorted id"
+  (fn []
+    (let [t (-> g
+                (assoc-in [:nodes "t"] (n "t"))
+                (assoc :edges [(e "t" "web") (e "api" "t")]))
+          {:keys [attached]} (attach-loose t (grid-cells t))]
+      ;; one edge each way: b:back < b:front; t is the target of api → right
+      (assert/deepEqual (get attached "n:t") {:anchor "b:back" :side "right"}))))
+
+(test "slots: cells on 3i+1 tracks, stacks beside their anchor's span"
+  (fn []
+    (let [cells {"b:front" {:col 0 :row 0 :w 1 :h 1} "b:wide" {:col 1 :row 1 :w 2 :h 1}}
+          att {"n:user" {:anchor "b:front" :side "left"} "n:out" {:anchor "b:wide" :side "right"}}
+          s (slots cells att)]
+      (assert/deepEqual (get s "b:front") {:c0 1 :c1 1 :r0 1 :r1 1})
+      (assert/deepEqual (get s "b:wide") {:c0 4 :c1 7 :r0 4 :r1 4})
+      (assert/deepEqual (get s "n:user") {:c0 0 :c1 0 :r0 1 :r1 1})
+      (assert/deepEqual (get s "n:out") {:c0 8 :c1 8 :r0 4 :r1 4}))))
+
+(test "port-side faces the other slot"
+  (fn []
+    (let [a {:c0 1 :c1 1 :r0 1 :r1 1}]
+      (assert/equal (port-side a {:c0 4 :c1 4 :r0 1 :r1 1}) "EAST")
+      (assert/equal (port-side a {:c0 0 :c1 0 :r0 1 :r1 1}) "WEST")
+      (assert/equal (port-side a {:c0 1 :c1 4 :r0 4 :r1 4}) "SOUTH")
+      (assert/equal (port-side {:c0 1 :c1 1 :r0 4 :r1 4} a) "NORTH")
+      (assert/equal (port-side a a) "EAST"))))
+
+(test "tracks and base gaps"
+  (fn []
+    (assert/deepEqual (tracks 2 [5 0]) [0 1 4 5])
+    (assert/deepEqual (tracks 3 []) [1 4 7])
+    (assert/deepEqual (base-gaps 2) [30 80 30])))
+
+(test "track-sizes: largest single item, spans grow their last track"
+  (fn []
+    (let [sz (track-sizes [1 4] [{:t0 1 :t1 1 :size 100} {:t0 4 :t1 4 :size 50}
+                                 {:t0 1 :t1 4 :size 300}] [30 80 30])]
+      (assert/equal (get sz 1) 100)
+      ;; 100 + 80 + 50 = 230 < 300: the last track grows by 70
+      (assert/equal (get sz 4) 120))
+    ;; an empty track stays 0 wide but keeps its gaps
+    (let [ax (axis [1 4 7] [{:t0 1 :t1 1 :size 100} {:t0 7 :t1 7 :size 40}] [30 80 80 30])]
+      (assert/deepEqual (:size ax) [100 0 40])
+      (assert/deepEqual (:pos ax) [50 230 310]))))
+
+(test "axis positions and gap centres"
+  (fn []
+    (let [ax (axis [1 4] [{:t0 1 :t1 1 :size 100} {:t0 4 :t1 4 :size 50}
+                          {:t0 1 :t1 4 :size 300}] [30 80 30])]
+      (assert/deepEqual (:size ax) [100 120])
+      (assert/deepEqual (:pos ax) [50 230])
+      (assert/equal (:end ax) 380)
+      (assert/deepEqual (centres ax) [35 190 365]))))
+
+(test "widen makes room for the lanes"
+  (fn []
+    (assert/deepEqual (widen [30 80 30] {"v1" 6 "h0" 9} "v") [30 100 30])
+    (assert/deepEqual (widen [30 80 30] {"v1" 6 "h0" 9} "h") [130 80 30])))
+
+;; two columns, two rows: gap centres from the axis test
+(def vx [35 190 365])
+(def hy [35 190 365])
+
+(defn- orthogonal? [pts]
+  (every? (fn [i] (let [a (nth pts i) b (nth pts (inc i))]
+                    (or (= (:x a) (:x b)) (= (:y a) (:y b)))))
+          (range (dec (count pts)))))
+
+(test "route-edges: same gap — out, along, in"
+  (fn []
+    (let [r (route-edges [{:id "e" :from {:x 150 :y 100 :axis "v" :gap 1}
+                                   :to {:x 230 :y 120 :axis "v" :gap 1}}] vx hy)]
+      (assert/deepEqual (get (:points r) "e")
+                        [{:x 150 :y 100} {:x 190 :y 100} {:x 190 :y 120} {:x 230 :y 120}])
+      (assert/deepEqual (:lanes r) {"v1" 1}))))
+
+(test "route-edges: fewest bends through a crossing"
+  (fn []
+    ;; east side of [0 0] to the top of [1 1]
+    (let [r (route-edges [{:id "e" :from {:x 150 :y 100 :axis "v" :gap 1}
+                                   :to {:x 300 :y 230 :axis "h" :gap 1}}] vx hy)
+          pts (get (:points r) "e")]
+      (assert/deepEqual pts [{:x 150 :y 100} {:x 190 :y 100} {:x 190 :y 190}
+                             {:x 300 :y 190} {:x 300 :y 230}])
+      (assert/ok (orthogonal? pts)))))
+
+(test "route-edges: one row — around through the outer gap"
+  (fn []
+    ;; three columns in one row; east of column 0 to west of column 2:
+    ;; column 1 is in the way, so the path uses an outer row gap
+    (let [vx3 [35 190 345 500] hy1 [35 190]
+          ;; west of column 2 opens onto gap 2
+          r (route-edges [{:id "e" :from {:x 150 :y 100 :axis "v" :gap 1}
+                                   :to {:x 385 :y 100 :axis "v" :gap 2}}] vx3 hy1)
+          pts (get (:points r) "e")]
+      (assert/ok (orthogonal? pts))
+      (assert/deepEqual (first pts) {:x 150 :y 100})
+      (assert/deepEqual (last pts) {:x 385 :y 100})
+      (assert/ok (some (fn [p] (or (= (:y p) 35) (= (:y p) 190))) pts) "uses an outer row gap"))))
+
+(test "route-edges: edges sharing a gap get lanes ordered by position"
+  (fn []
+    (let [r (route-edges [{:id "e1" :from {:x 150 :y 100 :axis "v" :gap 1} :to {:x 230 :y 120 :axis "v" :gap 1}}
+                          {:id "e2" :from {:x 150 :y 50 :axis "v" :gap 1} :to {:x 230 :y 60 :axis "v" :gap 1}}]
+                         vx hy)]
+      (assert/equal (:x (second (get (:points r) "e2"))) 185)
+      (assert/equal (:x (second (get (:points r) "e1"))) 195)
+      (assert/deepEqual (:lanes r) {"v1" 2}))))
+
+(test "label-at sits on the longest segment"
+  (fn []
+    (assert/deepEqual (label-at [{:x 0 :y 0} {:x 100 :y 0} {:x 100 :y 20}] 20 10) {:x 40 :y -12})
+    (assert/deepEqual (label-at [{:x 0 :y 0} {:x 0 :y 100}] 20 10) {:x 4 :y 45})))
+
+(test "label-at moves along the segment, then to the next one, to avoid placed labels"
+  (fn []
+    (let [h-seg [{:x 0 :y 0} {:x 100 :y 0}]]
+      ;; centre taken: the next spot along the segment
+      (assert/deepEqual (label-at h-seg 20 10 [{:x 40 :y -12 :w 20 :h 10}]) {:x 64 :y -12})
+      ;; nothing in the way: the centre, as before
+      (assert/deepEqual (label-at h-seg 20 10 []) {:x 40 :y -12}))
+    ;; the longest segment is full: the next longest one
+    (assert/deepEqual (label-at [{:x 0 :y 0} {:x 30 :y 0} {:x 30 :y 20}] 20 10
+                                [{:x 0 :y -14 :w 40 :h 14}])
+                      {:x 34 :y 5})))
+
+(test "label-at: a label longer than its segments slides past their ends rather than onto a node"
+  (fn []
+    ;; 40 px segment from a node's right side; a 100 px label centred
+    ;; above it would cover the node, so it moves right, off the node
+    (let [node {:x -60 :y -30 :w 60 :h 40}
+          at (label-at [{:x 0 :y 0} {:x 40 :y 0}] 100 10 [node])]
+      (assert/ok (>= (:x at) 0) (str "x " (:x at))))))
+
+(test "label-at treats collinear pieces as one segment"
+  (fn []
+    ;; two 50 px pieces in a line: the 56 px label fits the 100 px line
+    (assert/deepEqual (label-at [{:x 0 :y 0} {:x 50 :y 0} {:x 100 :y 0}] 56 10 [{:x -60 :y -20 :w 60 :h 40}])
+                      {:x 22 :y -12})))
+
+(test "route-edges goes around a box spanning the gap"
+  (fn []
+    ;; three rows; a box covers columns 0–1 of row 1 (track indices),
+    ;; so vertical gap 1 is inside it there
+    (let [hy3 [35 190 345 500]
+          r (route-edges [{:id "e" :from {:x 150 :y 100 :axis "v" :gap 1}
+                                   :to {:x 230 :y 400 :axis "v" :gap 1}}]
+                         vx hy3 [{:i0 0 :i1 1 :j0 1 :j1 1}])
+          pts (get (:points r) "e")]
+      (assert/ok (orthogonal? pts))
+      (assert/deepEqual (last pts) {:x 230 :y 400})
+      (doseq [i (range (dec (count pts)))]
+        (let [a (nth pts i) b (nth pts (inc i))]
+          ;; no segment may run through the spanning box (x 35..365, y 190..345)
+          (assert/ok (not (and (< 35 (max (:x a) (:x b))) (< (min (:x a) (:x b)) 365)
+                               (< 190 (max (:y a) (:y b))) (< (min (:y a) (:y b)) 345)
+                               (or (and (= (:x a) (:x b)) (< 35 (:x a) 365))
+                                   (and (= (:y a) (:y b)) (< 190 (:y a) 345)))))
+                     (str "segment " i " cuts the box: " (js/JSON.stringify [a b]))))))))

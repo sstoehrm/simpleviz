@@ -1,0 +1,19 @@
+;; grid layout — plan tasks (plan: docs/superpowers/plans/2026-10-03-grid-layout.md)
+{:nodes {:t1 {:name "1. server: validate :grid" :state :done}
+         :t2 {:name "2. grid: cells, loose attachment" :state :done}
+         :t3 {:name "3. grid: slots, sides, track sizing" :state :done}
+         :t4 {:name "4. grid: gap router" :state :done}
+         :t5 {:name "5. transform: element-run" :state :done}
+         :t6 {:name "6. grid: layout-grid pipeline" :state :done}
+         :t7 {:name "7. wire in, docs, e2e" :state :done}}
+ :edges {[:t1 :t7] {:direction :->}
+         [:t2 :t3] {:direction :->}
+         [:t3 :t4] {:direction :->}
+         [:t3 :t6] {:direction :->}
+         [:t4 :t6] {:direction :->}
+         [:t5 :t6] {:direction :->}
+         [:t6 :t7] {:direction :->}}
+ :boxes {:server {:name "Server" :type "zone" :ref "2026-10-03-grid-layout.edn" :components #{:t1}}
+         :grid {:name "simpleviz.grid (pure)" :type "zone" :ref "2026-10-03-grid-layout.edn"
+                :components #{:t2 :t3 :t4 :t6}}
+         :page {:name "Page" :type "zone" :ref "2026-10-03-grid-layout.edn" :components #{:t5 :t7}}}}

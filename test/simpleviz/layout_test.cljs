@@ -436,3 +436,28 @@
                                   (assert/deepEqual (mapv (fn [c] [(:id c) (:x c) (:y c)]) (:children (by-id l2 id)))
                                                     (mapv (fn [c] [(:id c) (:x c) (:y c)]) (:children (by-id l1 id)))
                                                     id)))))))))))
+
+(test "layout-grid: an edge between cells goes around a box spanning columns"
+  (fn []
+    (let [g (graph {:nodes {"a" (node "a" "") "b" (node "b" "") "d1" (node "d1" "") "d2" (node "d2" "")
+                            "d3" (node "d3" "") "c" (node "c" "")}
+                    :boxes [(gbox "A" {:col 0 :row 0 :w 1 :h 1} ["n:a"])
+                            (gbox "B" {:col 1 :row 0 :w 1 :h 1} ["n:b"])
+                            (gbox "D" {:col 0 :row 1 :w 2 :h 1} ["n:d1" "n:d2" "n:d3"])
+                            (gbox "C" {:col 1 :row 2 :w 1 :h 1} ["n:c"])]
+                    :parent-of {"n:a" "A" "n:b" "B" "n:d1" "D" "n:d2" "D" "n:d3" "D" "n:c" "C"}
+                    :edges [(edge 0 "a" "c" {:source false :target true})
+                            (edge 1 "d1" "d2" {:source false :target true})
+                            (edge 2 "d2" "d3" {:source false :target true})]})]
+      (-> (layout-grid g (to-elk g measure) run-elk nil)
+          (.then (fn [l]
+                   (let [d (by-id l "b:D")
+                         e (first (filterv (fn [e] (= (:id e) "e0")) (:edges l)))
+                         p (pts e)
+                         inside? (fn [q] (and (< (:x d) (:x q) (+ (:x d) (:width d)))
+                                              (< (:y d) (:y q) (+ (:y d) (:height d)))))]
+                     (doseq [i (range (dec (count p)))]
+                       (let [a (nth p i) b (nth p (inc i))
+                             mid {:x (/ (+ (:x a) (:x b)) 2) :y (/ (+ (:y a) (:y b)) 2)}]
+                         (assert/ok (not (or (inside? a) (inside? b) (inside? mid)))
+                                    (str "segment " i " runs through D: " (js/JSON.stringify [a b]))))))))))))

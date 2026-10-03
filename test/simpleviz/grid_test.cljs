@@ -192,3 +192,23 @@
     ;; two 50 px pieces in a line: the 56 px label fits the 100 px line
     (assert/deepEqual (label-at [{:x 0 :y 0} {:x 50 :y 0} {:x 100 :y 0}] 56 10 [{:x -60 :y -20 :w 60 :h 40}])
                       {:x 22 :y -12})))
+
+(test "route-edges goes around a box spanning the gap"
+  (fn []
+    ;; three rows; a box covers columns 0–1 of row 1 (track indices),
+    ;; so vertical gap 1 is inside it there
+    (let [hy3 [35 190 345 500]
+          r (route-edges [{:id "e" :from {:x 150 :y 100 :axis "v" :gap 1}
+                                   :to {:x 230 :y 400 :axis "v" :gap 1}}]
+                         vx hy3 [{:i0 0 :i1 1 :j0 1 :j1 1}])
+          pts (get (:points r) "e")]
+      (assert/ok (orthogonal? pts))
+      (assert/deepEqual (last pts) {:x 230 :y 400})
+      (doseq [i (range (dec (count pts)))]
+        (let [a (nth pts i) b (nth pts (inc i))]
+          ;; no segment may run through the spanning box (x 35..365, y 190..345)
+          (assert/ok (not (and (< 35 (max (:x a) (:x b))) (< (min (:x a) (:x b)) 365)
+                               (< 190 (max (:y a) (:y b))) (< (min (:y a) (:y b)) 345)
+                               (or (and (= (:x a) (:x b)) (< 35 (:x a) 365))
+                                   (and (= (:y a) (:y b)) (< 190 (:y a) 345)))))
+                     (str "segment " i " cuts the box: " (js/JSON.stringify [a b]))))))))

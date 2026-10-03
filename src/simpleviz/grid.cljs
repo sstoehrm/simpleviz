@@ -227,10 +227,22 @@
     (let [k (band hy (:y e))] [[(:gap e) k] [(:gap e) (inc k)]])
     (let [k (band vx (:x e))] [[k (:gap e)] [(inc k) (:gap e)]])))
 
+(defn- v-blocked?
+  "Is vertical gap i, in row band j, inside a spanning element? `spans`
+  [{:i0 :i1 :j0 :j1}] are column/row track index ranges."
+  [spans i j]
+  (some (fn [sp] (and (< (:i0 sp) i) (<= i (:i1 sp)) (<= (:j0 sp) j) (<= j (:j1 sp)))) spans))
+
+(defn- h-blocked?
+  "Is horizontal gap j, in column band i, inside a spanning element?"
+  [spans i j]
+  (some (fn [sp] (and (< (:j0 sp) j) (<= j (:j1 sp)) (<= (:i0 sp) i) (<= i (:i1 sp)))) spans))
+
 (defn- find-path
   "Crossings [[i j] ...] of the fewest-bends-then-shortest path from
-  entry `from` to entry `to`."
-  [vx hy from to]
+  entry `from` to entry `to`, never along a gap a spanning element
+  covers."
+  [vx hy from to spans]
   (let [nv (count vx)
         nh (count hy)
         dist {}
@@ -257,7 +269,10 @@
                 j (js/parseInt sj)
                 c (get dist best)]
             (doseq [[i2 j2 h2] [[i (dec j) "v"] [i (inc j) "v"] [(dec i) j "h"] [(inc i) j "h"]]]
-              (when (and (<= 0 i2) (< i2 nv) (<= 0 j2) (< j2 nh))
+              (when (and (<= 0 i2) (< i2 nv) (<= 0 j2) (< j2 nh)
+                         (not (if (= h2 "v")
+                                (v-blocked? spans i (min j j2))
+                                (h-blocked? spans (min i i2) j))))
                 (relax! (kk i2 j2 h2)
                         (+ c (if (= h h2) 0 BEND) (d (at i j) (at i2 j2)))
                         best))))
@@ -284,14 +299,25 @@
   :gap}): {:points {id [{:x :y} ...]} :lanes {gap-key count}}. Edges that
   share a gap get lanes LANE apart, centred, ordered by where they use
   the gap (then id)."
-  [routes vx hy]
-  (let [corners {}
-        users {}]
+  [routes vx hy & [spans]]
+  (let [spans (or spans [])
+        corners {}
+        users {}
+        ;; two ends on one gap connect straight along it, unless a
+        ;; spanning element covers the gap somewhere between them
+        straight? (fn [from to]
+                    (and (= (:axis from) (:axis to)) (= (:gap from) (:gap to))
+                         (let [v? (= (:axis from) "v")
+                               cs (if v? hy vx)
+                               k0 (band cs (if v? (:y from) (:x from)))
+                               k1 (band cs (if v? (:y to) (:x to)))]
+                           (not (some (fn [k] (if v? (v-blocked? spans (:gap from) k) (h-blocked? spans k (:gap from))))
+                                      (range (min k0 k1) (inc (max k0 k1))))))))]
     (doseq [r routes]
       (let [{:keys [from to]} r
-            mid (if (and (= (:axis from) (:axis to)) (= (:gap from) (:gap to)))
+            mid (if (straight? from to)
                   []
-                  (mapv (fn [[i j]] {:vg i :hg j}) (find-path vx hy from to)))
+                  (mapv (fn [[i j]] {:vg i :hg j}) (find-path vx hy from to spans)))
             cs (into (into [(corner-of from)] mid) [(corner-of to)])]
         (assoc! corners (:id r) cs)
         (doseq [c cs]
@@ -567,6 +593,13 @@
           nrows (apply max (mapv (fn [c] (+ (:row c) (:h c))) (js/Object.values cells)))
           col-ts (tracks ncols (mapv (fn [ids] (:c0 (get sl (first ids)))) (js/Object.values stacks)))
           row-ts (tracks nrows [])
+          ;; gridded boxes spanning several tracks cover the gaps inside them
+          spans (vec (keep (fn [id]
+                             (let [sl' (get sl id)
+                                   sp {:i0 (.indexOf col-ts (:c0 sl')) :i1 (.indexOf col-ts (:c1 sl'))
+                                       :j0 (.indexOf row-ts (:r0 sl')) :j1 (.indexOf row-ts (:r1 sl'))}]
+                               (when (or (< (:i0 sp) (:i1 sp)) (< (:j0 sp) (:j1 sp))) sp)))
+                           (js/Object.keys cells)))
           ;; where every placed element's top-left goes
           place (fn [ca ra]
                   (let [out {}
@@ -630,7 +663,7 @@
               places (place ca ra)
               ends (mapv (fn [c] [c (end-entry places c "s") (end-entry places c "t")]) cross)
               routed (route-edges (mapv (fn [[c s t]] {:id (:id (:e c)) :from (:entry s) :to (:entry t)}) ends)
-                                  (centres ca) (centres ra))
+                                  (centres ca) (centres ra) spans)
               cg2 (widen (base-gaps (count col-ts)) (:lanes routed) "v")
               rg2 (widen (base-gaps (count row-ts)) (:lanes routed) "h")]
           (if (and (< k 2) (or (not= (js/JSON.stringify cg2) (js/JSON.stringify cg))

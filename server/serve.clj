@@ -546,7 +546,7 @@
 
 (defn- edit-guard
   "HTTP-level rejection response for a write (/api/edit, /api/create,
-  /api/lock, /api/unlock), or nil when the
+  /api/lock, /api/unlock, /api/text/save), or nil when the
   request may proceed: 403 on a foreign Origin (cross-origin write
   attempt), 415 when Content-Type isn't application/json."
   [{:keys [headers server-port]}]
@@ -676,6 +676,94 @@
     (log/event! "create" {:file (:file parsed) :path (:path parsed) :result out})
     (json/generate-string out)))
 
+;; ---- docs: the plain-text editor for :md-ref files ----
+
+(def ^:private max-doc-bytes (* 1024 1024))
+
+;; one save at a time: the version check and the write must not interleave
+(def ^:private save-monitor (Object.))
+
+(defn- sha1-hex [^bytes b]
+  (let [d (.digest (java.security.MessageDigest/getInstance "SHA-1") b)]
+    (apply str (map (fn [x] (format "%02x" (bit-and x 0xff))) d))))
+
+(defn- doc-file
+  "The canonical .md file the root-relative `path` names (may be missing)."
+  [path]
+  (when-not (string? path) (throw (ex-info "path required" {})))
+  (resolve-path @root-dir path false doc-extensions))
+
+(defn- doc-state
+  "What is on disk at f: {:text :version :exists}; a missing file is
+  empty with version nil. Refuses a file over max-doc-bytes."
+  [f]
+  (if (.isFile f)
+    (do (when (> (.length f) max-doc-bytes)
+          (throw (ex-info (str (.getName f) " is over 1 MiB") {})))
+        (let [b (java.nio.file.Files/readAllBytes (.toPath f))]
+          {:text (String. b "UTF-8") :version (sha1-hex b) :exists true}))
+    {:text "" :version nil :exists false}))
+
+(defn- write-atomically!
+  "Replace f with `bytes` through a temp file in its folder (created with
+  its parents), so a reader never sees half a file; an existing file
+  keeps its permissions."
+  [f ^bytes bytes]
+  (let [dir (.getParentFile f)
+        _ (.mkdirs dir)
+        tmp (io/file dir (str "." (.getName f) ".simpleviz-tmp-" (System/nanoTime)))
+        tp (.toPath tmp)]
+    (try
+      (java.nio.file.Files/write tp bytes (into-array java.nio.file.OpenOption
+                                                      [java.nio.file.StandardOpenOption/CREATE_NEW
+                                                       java.nio.file.StandardOpenOption/WRITE]))
+      (when (.isFile f)
+        (try (java.nio.file.Files/setPosixFilePermissions
+              tp (java.nio.file.Files/getPosixFilePermissions (.toPath f) (make-array java.nio.file.LinkOption 0)))
+             (catch UnsupportedOperationException _ nil)))
+      (java.nio.file.Files/move tp (.toPath f)
+                                (into-array java.nio.file.CopyOption
+                                            [java.nio.file.StandardCopyOption/ATOMIC_MOVE
+                                             java.nio.file.StandardCopyOption/REPLACE_EXISTING]))
+      (finally (.delete tmp)))))
+
+(defn- text-response-body [query-string]
+  (json/generate-string
+   (try (doc-state (doc-file (query-param query-string "path")))
+        (catch Exception e {:error (ex-message e)}))))
+
+(defn- text-save
+  "Write {path text base}: only while the file's version is still `base`
+  (nil = it must not exist), no live lock is held on it, and the session
+  is not an export. Returns [status body]."
+  [{:keys [path text base]}]
+  (when (embedded/export? (:root @files))
+    (throw (ex-info "PNG and SVG sources are read-only" {})))
+  (when-not (string? text) (throw (ex-info "text must be a string" {})))
+  (let [bytes (.getBytes ^String text "UTF-8")
+        _ (when (> (alength bytes) max-doc-bytes) (throw (ex-info "text is over 1 MiB" {})))
+        f (doc-file path)]
+    (if-let [holder (lock-holder (.getPath f) (System/currentTimeMillis))]
+      [409 {:error (str "locked by " holder)}]
+      (locking save-monitor
+        (let [cur (doc-state f)]
+          (if (not= (:version cur) base)
+            [409 (assoc cur :error "changed on disk")]
+            (do (write-atomically! f bytes)
+                [200 {:version (sha1-hex bytes)}])))))))
+
+(defn- text-save-response [body-stream]
+  (let [parsed (try (json/parse-string (slurp body-stream) true)
+                    (catch Exception e {:parse-error (ex-message e)}))
+        [status out] (try
+                       (if-let [err (:parse-error parsed)]
+                         [400 {:error err}]
+                         (text-save parsed))
+                       (catch Exception e [400 {:error (ex-message e)}]))]
+    (log/event! "text-save" {:path (:path parsed) :status status
+                             :result (dissoc out :text)})
+    (assoc (json-response (json/generate-string out)) :status status)))
+
 (defn- post-only
   "The response of (f) for a guarded POST; 405 for any other method."
   [{:keys [request-method] :as req} f]
@@ -691,6 +779,8 @@
     "/api/create"  (post-only req #(json-response (create-response-body body)))
     "/api/lock"    (post-only req #(lock-response acquire-lock! body))
     "/api/unlock"  (post-only req #(lock-response release-lock! body))
+    "/api/text"      (json-response (text-response-body query-string))
+    "/api/text/save" (post-only req #(text-save-response body))
     "/api/version" (json-response
                     (json/generate-string
                      {:mtime (try

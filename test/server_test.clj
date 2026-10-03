@@ -1383,3 +1383,122 @@
       (is (= [409 {"error" "locked by agent" "owner" "agent"}]
              (lock-resp "/api/lock" {:owner "other" :path "docs/new.md"})))
       (is (= 400 (first (lock-resp "/api/lock" {:owner "agent" :path "notes.txt"})))))))
+
+;; --- docs (:md-ref) -----------------------------------------------------
+
+(defn- text-get [path]
+  (json/parse-string
+   (:body (serve/handler {:uri "/api/text" :request-method :get
+                          :query-string (str "path=" (java.net.URLEncoder/encode path "UTF-8"))}))))
+
+(defn- text-save [body & [opts]]
+  (let [resp (serve/handler (assoc (edit-req body opts) :uri "/api/text/save"))]
+    [(:status resp) (json/parse-string (:body resp))]))
+
+(defn- sha1 [s]
+  (let [d (.digest (java.security.MessageDigest/getInstance "SHA-1") (.getBytes s "UTF-8"))]
+    (apply str (map (fn [b] (format "%02x" (bit-and b 0xff))) d))))
+
+(deftest api-text-reads-a-doc
+  (with-temp-dir*
+    (fn [dir]
+      (serve! (write! dir "g.edn" "{:nodes {:a {:md-ref \"docs/a.md\"}}}"))
+      (write! dir "docs/a.md" "# A\r\nbody\n")
+      (is (= {"text" "# A\r\nbody\n" "version" (sha1 "# A\r\nbody\n") "exists" true}
+             (text-get "docs/a.md")))
+      (is (= {"text" "" "version" nil "exists" false} (text-get "docs/missing.md"))))))
+
+(deftest api-text-refusals
+  (with-temp-dir*
+    (fn [outer]
+      (let [dir (java.io.File. outer "served")]
+        (serve! (write! dir "g.edn" "{:nodes {:a nil}}"))
+        (write! outer "secret.md" "secret")
+        (is (re-find #"leaves the served folder" (get (text-get "../secret.md") "error")))
+        (is (re-find #"absolute" (get (text-get (.getPath (java.io.File. outer "secret.md"))) "error")))
+        (is (re-find #"is not an \.md file" (get (text-get "g.edn") "error")))
+        (symlink! dir "link.md" (.getPath (java.io.File. outer "secret.md")))
+        (is (re-find #"leaves the served folder" (get (text-get "link.md") "error")))
+        (write! dir "big.md" (apply str (repeat (inc (* 1024 1024)) "x")))
+        (is (re-find #"over 1 MiB" (get (text-get "big.md") "error")))
+        (is (= "path required" (get (json/parse-string (:body (serve/handler {:uri "/api/text"}))) "error")))))))
+
+(deftest api-text-save-creates-updates-and-keeps-crlf
+  (with-temp-dir*
+    (fn [dir]
+      (serve! (write! dir "g.edn" "{:nodes {:a nil}}"))
+      (is (= [200 {"version" (sha1 "new\n")}] (text-save {:path "deep/er/n.md" :text "new\n" :base nil})))
+      (is (= "new\n" (slurp (java.io.File. dir "deep/er/n.md"))))
+      (is (= [200 {"version" (sha1 "a\r\nb\r\n")}]
+             (text-save {:path "deep/er/n.md" :text "a\r\nb\r\n" :base (sha1 "new\n")})))
+      (is (= "a\r\nb\r\n" (slurp (java.io.File. dir "deep/er/n.md"))))
+      (is (empty? (filter (fn [n] (str/includes? n ".simpleviz-tmp")) (.list (java.io.File. dir "deep/er"))))
+          "no temp file left behind"))))
+
+(deftest api-text-save-keeps-the-file-mode
+  (with-temp-dir*
+    (fn [dir]
+      (serve! (write! dir "g.edn" "{:nodes {:a nil}}"))
+      (let [p (.toPath (java.io.File. (write! dir "a.md" "x")))
+            mode (java.nio.file.attribute.PosixFilePermissions/fromString "rw-rw-r--")]
+        (java.nio.file.Files/setPosixFilePermissions p mode)
+        (text-save {:path "a.md" :text "y" :base (sha1 "x")})
+        (is (= mode (java.nio.file.Files/getPosixFilePermissions p (make-array java.nio.file.LinkOption 0))))))))
+
+(deftest api-text-save-refuses-a-stale-base
+  (with-temp-dir*
+    (fn [dir]
+      (serve! (write! dir "g.edn" "{:nodes {:a nil}}"))
+      (write! dir "a.md" "disk")
+      (is (= [409 {"error" "changed on disk" "text" "disk" "version" (sha1 "disk") "exists" true}]
+             (text-save {:path "a.md" :text "mine" :base (sha1 "older")})))
+      (is (= "disk" (slurp (java.io.File. dir "a.md"))))
+      ;; it appeared since the panel opened it as a new file
+      (is (= 409 (first (text-save {:path "a.md" :text "mine" :base nil}))))
+      ;; it vanished since the panel loaded it
+      (is (= [409 {"error" "changed on disk" "text" "" "version" nil "exists" false}]
+             (text-save {:path "gone.md" :text "mine" :base (sha1 "x")})))
+      (is (not (.exists (java.io.File. dir "gone.md")))))))
+
+(deftest api-text-save-respects-locks-and-guards
+  (with-temp-dir*
+    (fn [dir]
+      (serve! (write! dir "g.edn" "{:nodes {:a nil}}"))
+      (write! dir "a.md" "disk")
+      (lock-resp "/api/lock" {:owner "agent" :path "a.md"})
+      (is (= [409 {"error" "locked by agent"}] (text-save {:path "a.md" :text "mine" :base (sha1 "disk")})))
+      (is (= "disk" (slurp (java.io.File. dir "a.md"))))
+      (lock-resp "/api/unlock" {:owner "agent" :path "a.md"})
+      (is (= 403 (:status (serve/handler (assoc (edit-req {:path "a.md" :text "x" :base (sha1 "disk")}
+                                                          {:headers {"origin" "http://evil.example"}})
+                                                :uri "/api/text/save")))))
+      (is (= 415 (:status (serve/handler (assoc (edit-req {:path "a.md" :text "x" :base (sha1 "disk")}
+                                                          {:headers {"content-type" nil}})
+                                                :uri "/api/text/save")))))
+      (is (= 405 (:status (serve/handler {:uri "/api/text/save" :request-method :get}))))
+      (is (= 400 (first (text-save {:path "../x.md" :text "x" :base nil}))))
+      (is (= 400 (first (text-save {:path "x.txt" :text "x" :base nil}))))
+      (is (= 400 (first (text-save {:path "a.md" :text 3 :base (sha1 "disk")}))))
+      (is (= 400 (first (text-save {:path "a.md" :text (apply str (repeat (inc (* 1024 1024)) "x")) :base (sha1 "disk")}))))
+      (is (= "disk" (slurp (java.io.File. dir "a.md")))))))
+
+(deftest api-text-save-cannot-leave-through-a-dangling-folder-link
+  (with-temp-dir*
+    (fn [outer]
+      (let [dir (java.io.File. outer "served")
+            outside (java.io.File. outer "outside")]
+        (serve! (write! dir "g.edn" "{:nodes {:a nil}}"))
+        (.mkdirs outside)
+        ;; docs -> ../outside/new (missing): mkdirs/write must not follow it out
+        (symlink! dir "docs" (.getPath (java.io.File. outside "new")))
+        (is (= 400 (first (text-save {:path "docs/a.md" :text "x" :base nil}))))
+        (is (empty? (.list outside)))))))
+
+(deftest api-text-save-is-read-only-for-an-export
+  (with-temp-dir*
+    (fn [dir]
+      (let [png (write! dir "g.png" (png-bytes* [(itxt* "simpleviz-edn" "{:nodes {:a nil}}")]))]
+        (serve! png)
+        (is (= [400 {"error" "PNG and SVG sources are read-only"}]
+               (text-save {:path "a.md" :text "x" :base nil})))
+        (is (not (.exists (java.io.File. dir "a.md"))))))))

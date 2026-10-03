@@ -1,7 +1,8 @@
 (ns simpleviz.grid-test
   (:require ["node:test" :refer [test]]
             ["node:assert/strict$default" :as assert]
-            [simpleviz.grid :refer [top-of edge-ends top-items grid-cells grid-mode? attach-loose]]))
+            [simpleviz.grid :refer [top-of edge-ends top-items grid-cells grid-mode? attach-loose
+                                   slots port-side tracks base-gaps track-sizes axis centres widen]]))
 
 (defn- n [id] {:id id :name id :type "" :attrs {}})
 (defn- box [nm grid comps] {:name nm :grid grid :components comps :type "" :attrs {}})
@@ -58,3 +59,54 @@
           {:keys [attached]} (attach-loose t (grid-cells t))]
       ;; one edge each way: b:back < b:front; t is the target of api → right
       (assert/deepEqual (get attached "n:t") {:anchor "b:back" :side "right"}))))
+
+(test "slots: cells on 3i+1 tracks, stacks beside their anchor's span"
+  (fn []
+    (let [cells {"b:front" {:col 0 :row 0 :w 1 :h 1} "b:wide" {:col 1 :row 1 :w 2 :h 1}}
+          att {"n:user" {:anchor "b:front" :side "left"} "n:out" {:anchor "b:wide" :side "right"}}
+          s (slots cells att)]
+      (assert/deepEqual (get s "b:front") {:c0 1 :c1 1 :r0 1 :r1 1})
+      (assert/deepEqual (get s "b:wide") {:c0 4 :c1 7 :r0 4 :r1 4})
+      (assert/deepEqual (get s "n:user") {:c0 0 :c1 0 :r0 1 :r1 1})
+      (assert/deepEqual (get s "n:out") {:c0 8 :c1 8 :r0 4 :r1 4}))))
+
+(test "port-side faces the other slot"
+  (fn []
+    (let [a {:c0 1 :c1 1 :r0 1 :r1 1}]
+      (assert/equal (port-side a {:c0 4 :c1 4 :r0 1 :r1 1}) "EAST")
+      (assert/equal (port-side a {:c0 0 :c1 0 :r0 1 :r1 1}) "WEST")
+      (assert/equal (port-side a {:c0 1 :c1 4 :r0 4 :r1 4}) "SOUTH")
+      (assert/equal (port-side {:c0 1 :c1 1 :r0 4 :r1 4} a) "NORTH")
+      (assert/equal (port-side a a) "EAST"))))
+
+(test "tracks and base gaps"
+  (fn []
+    (assert/deepEqual (tracks 2 [5 0]) [0 1 4 5])
+    (assert/deepEqual (tracks 3 []) [1 4 7])
+    (assert/deepEqual (base-gaps 2) [30 80 30])))
+
+(test "track-sizes: largest single item, spans grow their last track"
+  (fn []
+    (let [sz (track-sizes [1 4] [{:t0 1 :t1 1 :size 100} {:t0 4 :t1 4 :size 50}
+                                 {:t0 1 :t1 4 :size 300}] [30 80 30])]
+      (assert/equal (get sz 1) 100)
+      ;; 100 + 80 + 50 = 230 < 300: the last track grows by 70
+      (assert/equal (get sz 4) 120))
+    ;; an empty track stays 0 wide but keeps its gaps
+    (let [ax (axis [1 4 7] [{:t0 1 :t1 1 :size 100} {:t0 7 :t1 7 :size 40}] [30 80 80 30])]
+      (assert/deepEqual (:size ax) [100 0 40])
+      (assert/deepEqual (:pos ax) [50 230 310]))))
+
+(test "axis positions and gap centres"
+  (fn []
+    (let [ax (axis [1 4] [{:t0 1 :t1 1 :size 100} {:t0 4 :t1 4 :size 50}
+                          {:t0 1 :t1 4 :size 300}] [30 80 30])]
+      (assert/deepEqual (:size ax) [100 120])
+      (assert/deepEqual (:pos ax) [50 230])
+      (assert/equal (:end ax) 380)
+      (assert/deepEqual (centres ax) [35 190 365]))))
+
+(test "widen makes room for the lanes"
+  (fn []
+    (assert/deepEqual (widen [30 80 30] {"v1" 6 "h0" 9} "v") [30 100 30])
+    (assert/deepEqual (widen [30 80 30] {"v1" 6 "h0" 9} "h") [130 80 30])))

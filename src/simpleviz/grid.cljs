@@ -326,18 +326,57 @@
             (assoc! points id pts)))
         {:points points :lanes lanes}))))
 
+(defn- simplify
+  "points without the middle ones of straight runs."
+  [points]
+  (let [n (count points)
+        same? (fn [a b c] (or (and (= (:x a) (:x b)) (= (:x b) (:x c)))
+                              (and (= (:y a) (:y b)) (= (:y b) (:y c)))))]
+    (if (< n 3)
+      (vec points)
+      (into [(first points)]
+            (conj (filterv some? (mapv (fn [i] (let [p (nth points i)]
+                                                 (when-not (same? (nth points (dec i)) p (nth points (inc i))) p)))
+                                       (range 1 (dec n))))
+                  (last points))))))
+
+(defn- overlaps? [a b]
+  (and (< (:x a) (+ (:x b) (:w b))) (< (:x b) (+ (:x a) (:w a)))
+       (< (:y a) (+ (:y b) (:h b))) (< (:y b) (+ (:y a) (:h a)))))
+
 (defn label-at
-  "Top-left of a w×h label centred on the longest segment of `points`:
-  above a horizontal segment, right of a vertical one."
-  [points w h]
-  (let [segs (mapv (fn [i] [(nth points i) (nth points (inc i))]) (range (dec (count points))))
-        len (fn [[a b]] (+ (js/Math.abs (- (:x b) (:x a))) (js/Math.abs (- (:y b) (:y a)))))
-        [a b] (reduce (fn [best s] (if (> (len s) (len best)) s best)) (first segs) segs)
-        mx (/ (+ (:x a) (:x b)) 2)
-        my (/ (+ (:y a) (:y b)) 2)]
-    (if (= (:y a) (:y b))
-      {:x (- mx (/ w 2)) :y (- my h 2)}
-      {:x (+ mx 4) :y (- my (/ h 2))})))
+  "Top-left of a w×h label on `points`, clear of the rects in `taken`
+  ({:x :y :w :h}). Tried in rounds — on each segment's usual side (above
+  a horizontal one, right of a vertical one) within the segment; then on
+  the other side; then sliding past the segment's ends — segments
+  longest first within a round, each from its centre outwards. Nothing
+  clear: the longest segment's centre."
+  [points w h & [taken]]
+  (let [points (simplify points)
+        taken (or taken [])
+        segs (sort-by (fn [[a b]] (- (+ (js/Math.abs (- (:x b) (:x a))) (js/Math.abs (- (:y b) (:y a))))))
+                      (mapv (fn [i] [(nth points i) (nth points (inc i))]) (range (dec (count points)))))
+        spots (fn [[a b] other-side? bounded?]
+                (let [horiz? (= (:y a) (:y b))
+                      lo (if horiz? (min (:x a) (:x b)) (min (:y a) (:y b)))
+                      hi (if horiz? (max (:x a) (:x b)) (max (:y a) (:y b)))
+                      size (if horiz? w h)
+                      step (+ size 4)
+                      start (- (/ (+ lo hi) 2) (/ size 2))
+                      at (fn [v] (if horiz?
+                                   {:x v :y (if other-side? (+ (:y a) 2) (- (:y a) h 2))}
+                                   {:x (if other-side? (- (:x a) w 4) (+ (:x a) 4)) :y v}))
+                      fits? (fn [v] (or (not bounded?) (and (>= v lo) (<= (+ v size) hi))))
+                      n (if bounded? (js/Math.ceil (/ (- hi lo) step)) 6)]
+                  (into [(at start)]
+                        (mapcat (fn [k] (keep (fn [v] (when (fits? v) (at v)))
+                                              [(+ start (* k step)) (- start (* k step))]))
+                                (range 1 (inc n))))))
+        clear? (fn [p] (not (some (fn [t] (overlaps? (assoc p :w w :h h) t)) taken)))
+        round (fn [other-side? bounded?]
+                (some (fn [seg] (some (fn [p] (when (clear? p) p)) (spots seg other-side? bounded?))) segs))]
+    (or (round false true) (round true true) (round false false) (round true false)
+        (first (spots (first segs) false true)))))
 
 ;; ---- the pipeline ----
 
@@ -368,12 +407,13 @@
     (mapv (fn [lb] (assoc lb :x (+ ox (:x o) (:x lb)) :y (+ oy (:y o) (:y lb)))) (or (:labels e) []))))
 
 (defn- dedupe-points [ps]
-  (reduce (fn [acc p]
+  (simplify
+   (reduce (fn [acc p]
             (let [q (peek acc)]
               (if (and (some? q) (< (js/Math.abs (- (:x q) (:x p))) 0.01) (< (js/Math.abs (- (:y q) (:y p))) 0.01))
                 acc
                 (conj acc p))))
-          [] ps))
+          [] ps)))
 
 (defn- root-edge [id points labels]
   {:id id :container "root"
@@ -580,12 +620,27 @@
                                    (mapv (fn [e] (root-edge (:id e) (abs-points e rp sx sy) (abs-labels e rp sx sy)))
                                          (or (:edges strip-res) [])))
                                  [])
+                  ;; labels ELK placed inside boxes are taken; each cross
+                  ;; edge's label then takes the next free spot on its path
+                  leaf? (let [m {}]
+                          ((fn walk [cs] (doseq [c cs] (assoc! m (:id c) (nil? (:children c))) (walk (or (:children c) []))))
+                           children)
+                          m)
+                  taken (into (mapv (fn [lb] {:x (:x lb) :y (:y lb) :w (:width lb) :h (:height lb)})
+                                    (mapcat (fn [e] (:labels e)) (into run-edges strip-edges')))
+                              ;; and every node (or collapsed box) on the canvas
+                              (keep (fn [[id p]] (when (get leaf? id) {:x (:x p) :y (:y p) :w (:w p) :h (:h p)}))
+                                    (js/Object.entries (layout-positions {:children children}))))
                   cross-edges (mapv (fn [[c s t]]
                                       (let [e (:e c)
                                             ps (dedupe-points (into (into (:inner s) (get (:points routed) (:id e))) (:inner t)))
                                             lb (first (or (:labels e) []))]
                                         (root-edge (:id e) ps
-                                                   (if (some? lb) [(merge lb (label-at ps (:width lb) (:height lb)))] []))))
+                                                   (if (some? lb)
+                                                     (let [at (label-at ps (:width lb) (:height lb) taken)]
+                                                       (.push taken {:x (:x at) :y (:y at) :w (:width lb) :h (:height lb)})
+                                                       [(merge lb at)])
+                                                     []))))
                                     ends)
                   strip-w (if (some? strip-res) (+ sx (:width strip-res) MARGIN) 0)]
               (cond-> {:id "root"

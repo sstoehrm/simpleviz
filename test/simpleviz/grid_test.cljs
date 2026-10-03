@@ -166,3 +166,29 @@
   (fn []
     (assert/deepEqual (label-at [{:x 0 :y 0} {:x 100 :y 0} {:x 100 :y 20}] 20 10) {:x 40 :y -12})
     (assert/deepEqual (label-at [{:x 0 :y 0} {:x 0 :y 100}] 20 10) {:x 4 :y 45})))
+
+(test "label-at moves along the segment, then to the next one, to avoid placed labels"
+  (fn []
+    (let [h-seg [{:x 0 :y 0} {:x 100 :y 0}]]
+      ;; centre taken: the next spot along the segment
+      (assert/deepEqual (label-at h-seg 20 10 [{:x 40 :y -12 :w 20 :h 10}]) {:x 64 :y -12})
+      ;; nothing in the way: the centre, as before
+      (assert/deepEqual (label-at h-seg 20 10 []) {:x 40 :y -12}))
+    ;; the longest segment is full: the next longest one
+    (assert/deepEqual (label-at [{:x 0 :y 0} {:x 30 :y 0} {:x 30 :y 20}] 20 10
+                                [{:x 0 :y -14 :w 40 :h 14}])
+                      {:x 34 :y 5})))
+
+(test "label-at: a label longer than its segments slides past their ends rather than onto a node"
+  (fn []
+    ;; 40 px segment from a node's right side; a 100 px label centred
+    ;; above it would cover the node, so it moves right, off the node
+    (let [node {:x -60 :y -30 :w 60 :h 40}
+          at (label-at [{:x 0 :y 0} {:x 40 :y 0}] 100 10 [node])]
+      (assert/ok (>= (:x at) 0) (str "x " (:x at))))))
+
+(test "label-at treats collinear pieces as one segment"
+  (fn []
+    ;; two 50 px pieces in a line: the 56 px label fits the 100 px line
+    (assert/deepEqual (label-at [{:x 0 :y 0} {:x 50 :y 0} {:x 100 :y 0}] 56 10 [{:x -60 :y -20 :w 60 :h 40}])
+                      {:x 22 :y -12})))

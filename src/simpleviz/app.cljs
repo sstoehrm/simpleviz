@@ -10,6 +10,7 @@
             [simpleviz.canvas :as canvas]
             [simpleviz.png :as png]
             [simpleviz.editor :as editor]
+            [simpleviz.grid :as grid]
             [themes :as themes]))
 
 (def elk (js/ELK.))
@@ -763,7 +764,7 @@
      [:h2 "How to use"]
      (help-section
       "Navigate"
-      "Drag to pan, scroll to zoom. Hover an element to see its name and attributes; click it to inspect and edit them. A double border marks a node with a :ref, a dotted border a node or box with an :md-ref (a linked markdown doc — "open md", f m, edits it); the mark on a node's corner is its :state — grey disc new, blue half disc in-progress, red square blocked, green check done. The − in a box header collapses the box to a single node — the panel on the left lists collapsed boxes and re-expands them."
+      "Drag to pan, scroll to zoom. Hover an element to see its name and attributes; click it to inspect and edit them. A double border marks a node with a :ref, a dotted border a node or box with an :md-ref (a linked markdown doc — "open md", f m, edits it); the mark on a node's corner is its :state — grey disc new, blue half disc in-progress, red square blocked, green check done. The − in a box header collapses the box to a single node — the panel on the left lists collapsed boxes and re-expands them. Top-level boxes with :grid [col row] sit on that grid cell; the rest arranges itself around them."
       "A :pair (\"views/deploy.edn#api\", or a vector of them) links a node or box to the same thing in another graph. The ⇄ mark on an element's bottom-left corner shows its pairs — red when one is broken; the inspector lists them, those declared here and those pointing here. Click one, or use \"follow pair\" (f p), to open that graph with the element selected.")
      (help-section
       "Edit"
@@ -1001,7 +1002,9 @@
                                                          (js/Object.values (:nodes g0))))
                       :box (colors/assign-indices (mapv (fn [b] (:type b)) (:boxes g0)))}
                 elk-graph (to-elk g canvas/measure)
-                fp (elk-fingerprint elk-graph)
+                grid? (grid/grid-mode? g)
+                ;; in grid mode the cells shape the layout too
+                fp (elk-fingerprint (if grid? {:elk elk-graph :cells (grid/grid-cells g)} elk-graph))
                 prev (when (some? hit) (:layout hit))
                 positions (when (some? prev) (layout-positions prev))
                 ;; a demoted entry with a matching fingerprint means the
@@ -1009,6 +1012,10 @@
                 ;; so reuse its layout and skip the expensive ELK run
                 layout (cond (and (some? prev) (= fp (:fingerprint hit)))
                              prev
+
+                             ;; boxes on grid cells; unchanged boxes reuse prev's runs
+                             grid?
+                             (js-await (grid/layout-grid g elk-graph (fn [input] (.layout elk input)) prev))
 
                              (and (some? prev) (seedable? elk-graph positions))
                              (assoc (js-await (.layout elk (seed-layout elk-graph positions)))

@@ -135,8 +135,11 @@ Top-level nodes and top-level boxes without a cell are loose.
   gaps — until the gaps stop changing, at most three times.
 - The arrowheads and the dashed "removed" style are drawn as today from
   the edge's point list.
-- An edge label sits on the edge's longest segment, centred, offset to
-  the segment's side as ELK's inline labels are.
+- An edge label sits on its edge clear of nodes and of labels already
+  placed: on the longest straight run first (collinear pieces count as
+  one), centred, above a horizontal run or right of a vertical one; if
+  that spot is taken, further along the run, then on the next run, then
+  on the other side, then sliding past the run's ends.
 - Edges inside one box keep ELK's own routing.
 
 ### Everything else

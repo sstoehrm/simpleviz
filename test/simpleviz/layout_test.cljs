@@ -345,3 +345,18 @@
                                   (assert/deepEqual (mapv (fn [c] [(:id c) (:x c) (:y c)]) (:children (by-id l2 id)))
                                                     (mapv (fn [c] [(:id c) (:x c) (:y c)]) (:children (by-id l1 id)))
                                                     id)))))))))))
+
+(test "layout-grid: labels of edges between cells cover no node"
+  (fn []
+    (let [g (assoc grid-g :edges (mapv (fn [e] (assoc e :name (str "label of " (:id e) " is long")))
+                                       (:edges grid-g)))]
+      (-> (layout-grid g (to-elk g measure) run-elk nil)
+          (.then (fn [l]
+                   (let [pos (layout-positions l)
+                         nodes (filterv (fn [[id _]] (.startsWith id "n:")) (js/Object.entries pos))]
+                     (doseq [e (:edges l)]
+                       (doseq [lb (or (:labels e) [])]
+                         (doseq [[id p] nodes]
+                           (assert/ok (not (and (< (:x lb) (+ (:x p) (:w p))) (< (:x p) (+ (:x lb) (:width lb)))
+                                                (< (:y lb) (+ (:y p) (:h p))) (< (:y p) (+ (:y lb) (:height lb)))))
+                                      (str (:id e) " label covers " id))))))))))))

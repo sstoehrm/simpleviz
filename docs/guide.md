@@ -21,6 +21,8 @@ The README example shows every attribute simpleviz reads.
   [Editing docs](#editing-docs)).
 - `:pair` links a node or box to the same thing in another graph file
   (see [Pairs](#pairs)). A paired element gets a ⇄ mark.
+- `:grid [col row]` or `[col row w h]` puts a top-level box on a grid cell
+  (see [Grid layout](#grid-layout)).
 - `:theme` at the top level sets the graph's colors (see [Themes](#themes)).
 - An edge's key is its endpoints, nodes or boxes, in left/right order.
   Writing both `[:a :b]` and `[:b :a]` warns "same connection". An edge
@@ -165,6 +167,28 @@ per file that all viewers share (100 entries).
 
 **Security.** The server binds to loopback only and accepts writes only from
 its own `localhost`/`127.0.0.1` origin.
+
+## Grid layout
+
+Give top-level boxes a `:grid` cell and they are placed exactly there:
+
+    :boxes {:frontend {:grid [0 0] :components #{:web}}
+            :backend  {:grid [1 0] :components #{:api :auth}}
+            :data     {:grid [0 1 2 1] :components #{:db}}}  ; spans 2 columns
+
+- Columns and rows count from 0. A column is as wide as its widest box, a
+  row as tall as its tallest; boxes sit top-left in their cell. An empty
+  column or row still leaves its gap.
+- Inside each box the usual layout runs; edges leave a box on the side
+  facing their other end.
+- Nodes and boxes without a cell go beside the gridded box they have the
+  most edges to — left when their edges point into it, else right. What
+  reaches no gridded box sits in a strip under the grid.
+- Edges between cells run through the gaps at right angles; edges sharing
+  a gap get their own lanes.
+- Only top-level boxes take a cell. A nested box, a malformed value, or a
+  cell another box already has warns and is ignored (the box first by
+  sorted name keeps an overlapping cell).
 
 ## Editing docs
 

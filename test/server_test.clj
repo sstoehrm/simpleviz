@@ -1361,3 +1361,25 @@
         (is (not-any? #(= "runtime-next.edn" (get % "file")) (get-in out ["nodes" "api-svc" "pairs"])))
         (is (some #(= "runtime.edn" (get % "file")) (get-in out ["nodes" "api-svc" "pairs"]))))
       (finally (babashka.fs/delete-tree dir)))))
+
+(deftest resolve-path-takes-the-allowed-extensions
+  (with-temp-dir*
+    (fn [dir]
+      (write! dir "docs/a.md" "# A")
+      (is (= (.getCanonicalFile (java.io.File. dir "docs/a.md"))
+             (serve/resolve-path dir "docs/a.md" true #{"md"})))
+      (is (= (.getCanonicalFile (java.io.File. dir "docs/A.MD"))
+             (serve/resolve-path dir "docs/A.MD" false #{"md"})) "extension is case-insensitive")
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"x\.edn is not an \.md file"
+                            (serve/resolve-path dir "x.edn" false #{"md"})))
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"not an \.edn, \.png or \.svg file"
+                            (serve/resolve-path dir "docs/a.md" false))))))
+
+(deftest api-lock-accepts-a-doc-path
+  (with-temp-dir*
+    (fn [dir]
+      (serve! (write! dir "g.edn" "{:nodes {:a nil}}"))
+      (is (= [200 {"ok" true "ttl" 60}] (lock-resp "/api/lock" {:owner "agent" :path "docs/new.md"})))
+      (is (= [409 {"error" "locked by agent" "owner" "agent"}]
+             (lock-resp "/api/lock" {:owner "other" :path "docs/new.md"})))
+      (is (= 400 (first (lock-resp "/api/lock" {:owner "agent" :path "notes.txt"})))))))

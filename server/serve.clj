@@ -31,6 +31,19 @@
 
 (def ^:private ref-extensions #{"edn" "png" "svg"})
 
+(def ^:private doc-extensions #{"md"})
+
+;; an agent may lock a doc before writing it, as it locks a graph
+(def ^:private lockable-extensions (into ref-extensions doc-extensions))
+
+(defn- extensions-phrase
+  "\"an .edn, .png or .svg\" for #{\"edn\" \"png\" \"svg\"}."
+  [exts]
+  (let [ds (mapv (fn [e] (str "." e)) (sort exts))]
+    (str "an " (if (= 1 (count ds))
+                 (first ds)
+                 (str (str/join ", " (pop ds)) " or " (peek ds))))))
+
 (def suffix-re
   "A fork suffix: graph-<suffix>.edn. It can't start with -, which would
   read as a mistyped flag."
@@ -68,10 +81,12 @@
   "The canonical file for the root-relative path `rel` under `root`.
   Refuses (ex-info, message names the problem) an absolute path, a
   result outside `root` after canonicalization (so `..` and symlinks
-  cannot escape), an extension other than .edn/.png/.svg, and — unless
-  must-exist? is false — anything that is not an existing regular file."
+  cannot escape), an extension outside `exts` (default .edn/.png/.svg),
+  and — unless must-exist? is false — anything that is not an existing
+  regular file."
   ([root rel] (resolve-path root rel true))
-  ([root rel must-exist?]
+  ([root rel must-exist?] (resolve-path root rel must-exist? ref-extensions))
+  ([root rel must-exist? exts]
    (let [rel (str rel)]
      (when (.isAbsolute (io/file rel))
        (throw (ex-info (str "absolute path refused: " rel) {})))
@@ -82,8 +97,8 @@
            ext (when (some? dot) (str/lower-case (subs nm (inc dot))))]
        (when-not (str/starts-with? (.getPath f) (str (.getPath root-c) java.io.File/separator))
          (throw (ex-info (str rel " leaves the served folder") {})))
-       (when-not (contains? ref-extensions ext)
-         (throw (ex-info (str rel " is not an .edn, .png or .svg file") {})))
+       (when-not (contains? exts ext)
+         (throw (ex-info (str rel " is not " (extensions-phrase exts) " file") {})))
        ;; canonicalization resolves every link but one whose target is
        ;; missing, and a write through that one lands wherever it points
        (when (java.nio.file.Files/isSymbolicLink (.toPath f))
@@ -646,7 +661,7 @@
           (let [{:keys [owner path]} (json/parse-string (slurp body-stream) true)]
             (when-not (and (string? owner) (seq owner))
               (throw (ex-info "owner must be a non-empty string" {})))
-            (let [f (resolve-path @root-dir (or path (root-rel)) false)
+            (let [f (resolve-path @root-dir (or path (root-rel)) false lockable-extensions)
                   out (lock-fn (.getPath f) owner (System/currentTimeMillis))]
               [(if (:error out) 409 200) out]))
           (catch Exception e [400 {:error (ex-message e)}]))]

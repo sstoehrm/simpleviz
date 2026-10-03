@@ -1502,3 +1502,15 @@
         (is (= [400 {"error" "PNG and SVG sources are read-only"}]
                (text-save {:path "a.md" :text "x" :base nil})))
         (is (not (.exists (java.io.File. dir "a.md"))))))))
+
+(deftest api-text-refuses-a-doc-that-is-not-utf-8
+  (with-temp-dir*
+    (fn [dir]
+      (serve! (write! dir "g.edn" "{:nodes {:a nil}}"))
+      ;; "ä" in Windows-1252: decoding it as UTF-8 would turn it into U+FFFD
+      ;; and the first save would write that over the original byte
+      (write! dir "latin.md" (byte-array (map unchecked-byte [0x61 0xE4 0x0A])))
+      (is (re-find #"latin\.md is not UTF-8" (get (text-get "latin.md") "error")))
+      (is (= 400 (first (text-save {:path "latin.md" :text "a\n" :base nil}))))
+      (is (= [0x61 0xE4 0x0A] (map (fn [b] (bit-and b 0xff))
+                                   (java.nio.file.Files/readAllBytes (.toPath (java.io.File. dir "latin.md")))))))))

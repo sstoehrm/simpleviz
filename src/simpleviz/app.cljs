@@ -1240,20 +1240,11 @@
                                                   :base (or base nil)})}))
                 out (js-await (.json resp))]
             (swap! md-gen inc)
-            (if (some? (:version out))
-              (do (swap! state update :md assoc :saving false :base (:version out) :saved text
-                         :exists true :conflict nil :error nil)
-                  true)
-              (do (swap! state update :md
-                         (fn [m]
-                           (let [m (assoc m :saving false :error (or (:error out) "save failed"))]
-                             (if (some? (:text out))
-                               (assoc m :conflict {:text (:text out) :version (:version out)
-                                                   :exists (:exists out)})
-                               m))))
-                  false)))
+            (swap! state update :md editor/save-result (:path md) text out)
+            (and (nil? (:error out)) (some? (:version out))))
           (catch :default _
-            (swap! state update :md assoc :saving false :error "save failed: not connected")
+            (swap! state update :md editor/save-result (:path md) text
+                   {:error "save failed: not connected"})
             false))))))
 
 (defn- ^:async save-if-dirty!

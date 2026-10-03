@@ -183,7 +183,7 @@ other elements or follow refs.
   — Reload takes the file, Overwrite keeps your text. A save is refused
   while an agent holds the file's lock.
 - Same path rules as refs: relative to the graph file, never above the
-  served folder. Only `.md` files, up to 1 MiB.
+  served folder. Only `.md` files in UTF-8, up to 1 MiB.
 
 ## Following refs
 

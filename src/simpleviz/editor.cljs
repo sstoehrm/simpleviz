@@ -378,8 +378,7 @@
 
 (defn md-dirty?
   "Does the doc panel hold text the file doesn't: anything differing
-  from what was last loaded or saved (:saved — nil once the file
-  vanished, so then everything is unsaved)?"
+  from what was last loaded or saved (:saved)?"
   [md]
   (and (some? md) (not= (:text md) (or (:saved md) nil))))
 
@@ -395,9 +394,28 @@
 
 (defn gone-doc
   "Panel state md after its file vanished: a new file again, the text
-  kept and all of it unsaved."
+  kept. Only edits that were unsaved stay unsaved, so closing a panel
+  you never touched does not bring a deleted (or moved) file back."
   [md]
-  (assoc md :base nil :exists false :saved nil :conflict nil :error nil))
+  (assoc md :base nil :exists false :conflict nil :error nil))
+
+(defn save-result
+  "Panel state md after the save of `text` to `path` answered `out`
+  ({:version} on success, else {:error} — with the disk's {:text
+  :version :exists} on a conflict). A doc the panel no longer shows
+  (closed, or another opened meanwhile) is left alone. What was sent
+  becomes :saved, so typing during the save stays unsaved."
+  [md path text out]
+  (cond
+    (or (nil? md) (not= (:path md) path)) md
+    ;; a conflict answers with the disk's version too: success is no error
+    (and (nil? (:error out)) (some? (:version out)))
+    (assoc md :saving false :base (:version out) :saved text
+           :exists true :conflict nil :error nil)
+    :else
+    (cond-> (assoc md :saving false :error (or (:error out) "save failed"))
+      (some? (:text out)) (assoc :conflict {:text (:text out) :version (:version out)
+                                            :exists (:exists out)}))))
 
 (defn poll-outcome
   "What the doc fetched by a poll means for panel state md: \"same\" (the

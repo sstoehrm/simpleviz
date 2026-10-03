@@ -98,8 +98,10 @@ sessions, a server-side undo stack.
     the conflict state), not the one the edit started from.
   The banner stays until one is chosen or the disk text happens to
   equal the local text again.
-- A doc deleted on disk while open turns into `new file` (unsaved
-  changes are kept and marked `●`).
+- A doc deleted on disk while open turns into `new file`, its text
+  kept. Edits that were unsaved stay unsaved (`●`); an untouched panel
+  stays clean, so closing it does not bring a deleted or moved file
+  back. Should the file reappear, an untouched panel shows it.
 - No fetch starts while a save is in flight, and a fetch that started
   before a save finished is discarded (a generation counter, as the
   graph reload already does), so a save never reads back as its own
@@ -129,7 +131,9 @@ sessions, a server-side undo stack.
   `{"text": .., "version": .., "exists": true|false}`.
   - `version` is the hex SHA-1 of the file's bytes; a missing file has
     `exists: false`, `text: ""` and `version: null`.
-  - Files over 1 MiB are refused (checked by size before reading).
+  - Files over 1 MiB are refused (checked by size before reading), and
+    so are files that are not valid UTF-8 (a lossy decode would write
+    U+FFFD over the original bytes on the first save).
   - Errors (refused path, too large, unreadable) answer
     `{"error": msg}` with status 200, like `/api/graph`.
   - Text is read and written as UTF-8.
@@ -164,7 +168,11 @@ sessions, a server-side undo stack.
     `:md-ref`, so a bad one explains itself instead of hiding.
   - `from-disk [text]` / `to-disk [text crlf?]` — the CRLF round-trip.
   - `md-dirty? [md]` — the text differs from the last loaded or saved
-    text (`:saved`; nil after the file vanished, so anything is dirty).
+    text (`:saved`).
+  - `save-result [md path text out]` — the panel state after a save's
+    response; a doc no longer shown is left alone, and only an
+    error-free response counts as saved (a conflict also carries the
+    disk's version).
   - `adopt-doc [md fetched]` — the panel state after taking a fetched
     doc as the disk state; `gone-doc [md]` — after the file vanished.
   - `poll-outcome [md fetched]` — `"same"`, `"take"`, `"conflict"` or

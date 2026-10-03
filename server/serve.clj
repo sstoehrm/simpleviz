@@ -695,13 +695,20 @@
 
 (defn- doc-state
   "What is on disk at f: {:text :version :exists}; a missing file is
-  empty with version nil. Refuses a file over max-doc-bytes."
+  empty with version nil. Refuses a file over max-doc-bytes or not
+  valid UTF-8."
   [f]
   (if (.isFile f)
     (do (when (> (.length f) max-doc-bytes)
           (throw (ex-info (str (.getName f) " is over 1 MiB") {})))
-        (let [b (java.nio.file.Files/readAllBytes (.toPath f))]
-          {:text (String. b "UTF-8") :version (sha1-hex b) :exists true}))
+        (let [b (java.nio.file.Files/readAllBytes (.toPath f))
+              ;; strict: a lossy decode would show U+FFFD, and the first
+              ;; save would write it over the original bytes
+              text (try (str (.decode (.newDecoder java.nio.charset.StandardCharsets/UTF_8)
+                                      (java.nio.ByteBuffer/wrap b)))
+                        (catch java.nio.charset.CharacterCodingException _
+                          (throw (ex-info (str (.getName f) " is not UTF-8") {}))))]
+          {:text text :version (sha1-hex b) :exists true}))
     {:text "" :version nil :exists false}))
 
 (defn- write-atomically!

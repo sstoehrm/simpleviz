@@ -4,14 +4,14 @@
                    :note "validate, nested/malformed/overlap warnings, box payload :grid {:col :row :w :h}"}
          :diff {:name "diff union" :type "server" :note ":grid from the new side, else the old"}
          :relayout {:name "relayout!" :type "page" :note "grid-mode? → layout-grid, else one ELK run as today; same cache"}
-         :box-elk {:name "box-elk-graph" :type "page"
+         :box-elk {:name "transform/element-run" :type "page"
                    :note "one top-level element in a dummy root, ports on the sides facing its edges' other ends"}
          :elk {:name "ELK (per box)" :type "lib" :note "contents, nested boxes, inner edges to ports"}
          :loose {:name "attach-loose" :type "pure"
                  :note "most edges → beside that box (into it: left, else right); chains; the rest → strip under the grid"}
          :sizing {:name "grid sizing" :type "pure"
                   :note "column = widest single-column box, row = tallest; spans grow the last; 80 px gaps"}
-         :route {:name "route-cross" :type "pure"
+         :route {:name "route-edges" :type "pure"
                  :note "port → gap → gaps (fewest bends) → port; lanes 10 px; gaps widen; label on longest segment"}
          :assemble {:name "layout-grid" :type "pure"
                     :note "ELK-shaped result: children + root edges with absolute points"}

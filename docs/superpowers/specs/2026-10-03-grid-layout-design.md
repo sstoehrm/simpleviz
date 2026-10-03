@@ -87,8 +87,10 @@ unchanged.
   the difference. A column or row nothing occupies is 0 wide but keeps
   its gaps, so `[0 0]` and `[2 0]` leave a visible empty column.
 - Gaps between columns and between rows are 80 px, widened when the
-  edges running through them need more lanes (see Routing). The outer
-  margin is 20 px, as today.
+  edges running through them need more lanes (see Routing). Around the
+  grid runs a 30 px gap on every side — a routing channel too, so a
+  single row or column can still be routed around — then the 20 px
+  outer margin, as today.
 - Each box sits at the top-left of its cell (span), at its own size.
 
 ### Loose elements
@@ -123,13 +125,14 @@ Top-level nodes and top-level boxes without a cell are loose.
   into its target port: right angles only.
 - The path through the gaps is the one with the fewest bends, then
   the shortest, on the graph whose vertices are the gap crossings and
-  whose edges are the gap segments between them; ties break towards
-  lower column, then lower row.
+  whose edges are the gap segments between them; ties break
+  deterministically (same input, same path). Two ends on the same gap
+  connect straight along it.
 - Edges sharing a gap segment get separate lanes 10 px apart, centred
   in the gap, ordered by the position of their endpoints so lanes
   don't cross needlessly; a gap is widened to `lanes × 10 + 40` px when
-  that exceeds 80. Sizing and routing run twice: route, widen the gaps,
-  place, route again.
+  that exceeds 80. Sizing and routing repeat — place, route, widen the
+  gaps — until the gaps stop changing, at most three times.
 - The arrowheads and the dashed "removed" style are drawn as today from
   the edge's point list.
 - An edge label sits on the edge's longest segment, centred, offset to
@@ -161,35 +164,35 @@ Top-level nodes and top-level boxes without a cell are loose.
 - After membership is resolved (`parent-of` known), `resolve-grids`
   validates `:grid` per box, applies the overlap rule, warns, and
   assocs `:grid {:col :row :w :h}` or nil on each normalized box.
-- `server/diff.clj`: the union box takes `:grid` from the new side,
-  else the old.
+- `server/diff.clj` needs no change: the union keeps the new side's
+  box map (the old side's for a removed box), `:grid` included.
 
 ### Page: `src/simpleviz/grid.cljs` (new, pure)
 
-The grid layout, DOM-free and ELK-free: ELK is passed in.
+The grid layout, DOM-free; ELK is passed in.
 
-- `(grid-mode? graph)` — does any top-level box carry `:grid`.
-- `(port-side from-cell to-cell)` — `"EAST"`, `"WEST"`, `"SOUTH"`,
-  `"NORTH"`.
-- `(attach-loose graph cells)` — `{elk-id {:anchor box-id :side "left"|"right"}}`
-  plus the unconnected list.
-- `(grid-columns placement sizes)` / `(grid-rows …)` — column widths,
-  row heights, offsets.
-- `(route-cross edges placement gaps)` — the point lists and lanes.
-- `(^:async layout-grid graph measure run-elk)` — the whole pipeline:
-  per-element ELK inputs (via `transform/to-elk` pieces), `run-elk` on
-  each, placement, routing; returns an ELK-shaped layout `{:width
-  :height :children [...] :edges [...]}` whose edges carry absolute
-  points (`:container "root"`), so `scene/build-scene` consumes it
-  unchanged.
+- Structure: `top-of`, `edge-ends`, `top-items`, `grid-cells` (cells,
+  overlap-safe), `grid-mode?`, `attach-loose` (`{:attached {id {:anchor
+  :side}} :strip [ids]}`).
+- Geometry: `slots` (each element's column/row tracks: grid index i is
+  track 3i+1, a stack left/right of it 3i / 3i+2), `port-side`,
+  `tracks`, `base-gaps`, `track-sizes`, `axis` (sizes, positions, gaps
+  per axis), `centres` (gap centre lines), `widen`.
+- Routing: `route-edges` (gap entries → points and lane counts),
+  `label-at`.
+- `(^:async layout-grid graph elk-graph run-elk positions)` — the whole
+  pipeline: one ELK run per placed box (`transform/element-run`, seeded
+  from `positions` relative to the box), one for the strip, placement,
+  routing; returns an ELK-shaped layout `{:width :height :children
+  [...] :edges [...]}` whose edges carry absolute points (`:container
+  "root"`), so `scene/build-scene` consumes it unchanged.
 
-`transform.cljs` gains `box-elk-graph` (one top-level element with its
-ports, inside a dummy root) built from the existing `node-elk` /
-`box-elk` code, and the seeding helpers take an origin offset.
+`transform.cljs` gains `element-run`: one top-level element with its
+ports inside a dummy root (ELK takes no ports on a run's root).
 
 `app.cljs` `relayout!` calls `grid/layout-grid` instead of one
-`.layout` when `grid-mode?`, with the same caching, generation and
-stale-result rules.
+`.layout` when `grid-mode?`, with the same caching (the fingerprint
+also covers the cells), generation and stale-result rules.
 
 ## Docs
 

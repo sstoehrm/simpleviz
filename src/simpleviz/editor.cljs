@@ -351,6 +351,66 @@
    (let [r (get (:attrs sel) k)]
      (when (and (string? r) (not= (.trim r) "")) r))))
 
+;; ---- docs (:md-ref) ----
+
+(defn md-target
+  "Where the selection's :md-ref points, for the doc editor: nil without
+  a non-blank string one, {:path root-relative} for an .md file under
+  the root (resolved against `current-path`, the graph file shown), else
+  {:error msg} for the banner."
+  [current-path sel]
+  (when-let [r (ref-of sel :md-ref)]
+    (let [p (resolve-ref current-path r)]
+      (cond
+        (nil? p) {:error (str ":md-ref " (pr-str r) " leaves the served folder")}
+        (not (.endsWith (.toLowerCase p) ".md")) {:error (str ":md-ref " (pr-str r) " is not an .md file")}
+        :else {:path p}))))
+
+(defn from-disk
+  "Doc text as a textarea holds it: \\r\\n line ends become \\n."
+  [text]
+  (.replaceAll (str text) "\r\n" "\n"))
+
+(defn to-disk
+  "Textarea text as the file had it: \\n back to \\r\\n when it used them."
+  [text crlf?]
+  (if crlf? (.replaceAll text "\n" "\r\n") text))
+
+(defn md-dirty?
+  "Does the doc panel hold text the file doesn't: anything differing
+  from what was last loaded or saved (:saved — nil once the file
+  vanished, so then everything is unsaved)?"
+  [md]
+  (and (some? md) (not= (:text md) (or (:saved md) nil))))
+
+(defn adopt-doc
+  "Panel state md after taking `fetched` ({:text :version :exists}, as the
+  server sent it) as the disk state: shown, nothing unsaved, no conflict."
+  [md fetched]
+  (let [raw (str (or (:text fetched) ""))
+        t (from-disk raw)]
+    (assoc md :text t :saved t :base (or (:version fetched) nil)
+           :exists (= true (:exists fetched)) :crlf (.includes raw "\r\n")
+           :conflict nil :error nil)))
+
+(defn gone-doc
+  "Panel state md after its file vanished: a new file again, the text
+  kept and all of it unsaved."
+  [md]
+  (assoc md :base nil :exists false :saved nil :conflict nil :error nil))
+
+(defn poll-outcome
+  "What the doc fetched by a poll means for panel state md: \"same\" (the
+  version it is based on), \"gone\" (the file vanished), \"conflict\"
+  (it changed under unsaved local edits) or \"take\" (show the disk
+  text — nothing unsaved, or the disk now equals the local text)."
+  [md fetched]
+  (cond
+    (= (or (:version fetched) nil) (or (:base md) nil)) "same"
+    (not= true (:exists fetched)) "gone"
+    (and (md-dirty? md) (not= (from-disk (:text fetched)) (:text md))) "conflict"
+    :else "take"))
+
 ;; ---- keyboard chords ----
 
 ;; Two-key chords, in the order the hints list them. Each entry maps a
@@ -377,7 +437,8 @@
    ["r" "n" {"box" ["remove-node-member" "remove node"]}]
    ["r" "b" {"node" ["remove-from-box" "remove from box"]}]
    ["f" "r" {"node" ["follow-ref" "follow ref"] "edge" ["follow-ref" "follow ref"] "box" ["follow-ref" "follow ref"]}]
-   ["f" "p" {"node" ["follow-pair" "follow pair"] "box" ["follow-pair" "follow pair"]}]])
+   ["f" "p" {"node" ["follow-pair" "follow pair"] "box" ["follow-pair" "follow pair"]}]
+   ["f" "m" {"node" ["open-md" "open md"] "box" ["open-md" "open md"]}]])
 
 (defn- kind-key [kind] (if (nil? kind) "none" kind))
 

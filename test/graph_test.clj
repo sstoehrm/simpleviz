@@ -440,10 +440,12 @@
     (is (= ["box \"inner\": :grid only applies to top-level boxes, ignored"] (:warnings g)))))
 
 (deftest grid-malformed-values-warn
-  (doseq [v [[0] [0 0 1] [-1 0] [0 0 0 1] [0 0 1 0] [0.5 0] ["0" 0] :x {:col 0}]]
+  ;; huge indices made the page hang (review): cells stop at 99
+  (doseq [v [[0] [0 0 1] [-1 0] [0 0 0 1] [0 0 1 0] [0.5 0] ["0" 0] :x {:col 0}
+             [100 0] [0 100] [98 0 3 1] [0 99 1 2]]]
     (let [g (boxes-g {:x {:grid v :components #{:a}}})]
       (is (nil? (grid-of g "x")) (pr-str v))
-      (is (= ["box \"x\": :grid must be [col row] or [col row w h] (integers, col/row ≥ 0, w/h ≥ 1), ignored"]
+      (is (= ["box \"x\": :grid must be [col row] or [col row w h] (integers, col/row 0–99, w/h ≥ 1, within 100 columns/rows), ignored"]
              (:warnings g)) (pr-str v)))))
 
 (deftest grid-overlap-keeps-the-first-by-sorted-name
@@ -453,3 +455,9 @@
     (is (nil? (grid-of g "zeta")))
     (is (= {:col 0 :row 1 :w 1 :h 1} (grid-of g "mid")))
     (is (= ["box \"zeta\": :grid [0 0 2 1] overlaps box \"alpha\", ignored"] (:warnings g)))))
+
+(deftest grid-accepts-the-last-cell
+  (let [g (boxes-g {:x {:grid [99 99] :components #{:a}} :y {:grid [0 0 100 1] :components #{:b}}})]
+    (is (= {:col 99 :row 99 :w 1 :h 1} (grid-of g "x")))
+    (is (= {:col 0 :row 0 :w 100 :h 1} (grid-of g "y")))
+    (is (= [] (:warnings g)))))

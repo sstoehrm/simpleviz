@@ -176,7 +176,7 @@ Give top-level boxes a `:grid` cell and they are placed exactly there:
             :backend  {:grid [1 0] :components #{:api :auth}}
             :data     {:grid [0 1 2 1] :components #{:db}}}  ; spans 2 columns
 
-- Columns and rows count from 0. A column is as wide as its widest box, a
+- Columns and rows count from 0, up to 99. A column is as wide as its widest box, a
   row as tall as its tallest; boxes sit top-left in their cell. An empty
   column or row still leaves its gap.
 - Inside each box the usual layout runs; edges leave a box on the side

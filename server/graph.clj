@@ -382,12 +382,19 @@
 
     :else (do (warn! ":theme must be a theme name or a map, ignoring it") nil)))
 
+(def ^:private grid-max
+  "Cells stop at index 99: huge indices made a page lay out (and route
+  through) thousands of empty columns."
+  100)
+
 (defn- grid-cell
-  "{:col :row :w :h} for a well-formed :grid value, else nil."
+  "{:col :row :w :h} for a well-formed :grid value within grid-max
+  columns and rows, else nil."
   [v]
   (when (and (vector? v) (contains? #{2 4} (count v)) (every? integer? v))
     (let [[col row w h] (if (= 2 (count v)) (conj v 1 1) v)]
-      (when (and (>= col 0) (>= row 0) (>= w 1) (>= h 1))
+      (when (and (>= col 0) (>= row 0) (>= w 1) (>= h 1)
+                 (<= (+ col w) grid-max) (<= (+ row h) grid-max))
         {:col col :row row :w w :h h}))))
 
 (defn- resolve-grids
@@ -406,7 +413,7 @@
                                       nil)
                                   (nil? (grid-cell v))
                                   (do (warn! (str "box \"" (:name b) "\": :grid must be [col row] or [col row w h]"
-                                                  " (integers, col/row ≥ 0, w/h ≥ 1), ignored"))
+                                                  " (integers, col/row 0–99, w/h ≥ 1, within 100 columns/rows), ignored"))
                                       nil)
                                   :else [(:name b) (grid-cell v)])))))
                     boxes)

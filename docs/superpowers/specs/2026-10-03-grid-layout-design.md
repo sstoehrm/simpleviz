@@ -39,12 +39,12 @@ grids inside boxes, grid cells for nodes.
     :grid [col row w h]      ; spanning w columns and h rows
 
 - On a **top-level box** only (a box no other box lists in
-  `:components`). `col`, `row` are integers ≥ 0; `w`, `h` integers ≥ 1,
-  default 1.
+  `:components`). `col`, `row` are integers 0–99; `w`, `h` integers ≥ 1,
+  default 1; a span ends by column/row 99.
 - Lenient validation, like the rest of `normalize`: each of these warns
   and the box is treated as having no cell —
   - `:grid` on a nested box: `box "x": :grid only applies to top-level boxes, ignored`
-  - a malformed value: `box "x": :grid must be [col row] or [col row w h] (integers, col/row ≥ 0, w/h ≥ 1), ignored`
+  - a malformed value: `box "x": :grid must be [col row] or [col row w h] (integers, col/row 0–99, w/h ≥ 1, within 100 columns/rows), ignored`
   - cells overlapping another box's: `box "y": :grid [1 0] overlaps box "x", ignored` — the box first by sorted name keeps its cells.
 - The normalized box payload carries `:grid {:col :row :w :h}` for a
   box that keeps its cell, nil otherwise. `:grid` also stays in the

@@ -1,0 +1,31 @@
+;; grid layout — design figure (spec: docs/superpowers/specs/2026-10-03-grid-layout-design.md)
+{:nodes {:file {:name "graph.edn" :type "file" :note ":grid [col row] / [col row w h] on top-level boxes"}
+         :resolve {:name "resolve-grids" :type "server"
+                   :note "validate, nested/malformed/overlap warnings, box payload :grid {:col :row :w :h}"}
+         :diff {:name "diff union" :type "server" :note ":grid from the new side, else the old"}
+         :relayout {:name "relayout!" :type "page" :note "grid-mode? → layout-grid, else one ELK run as today; same cache"}
+         :box-elk {:name "box-elk-graph" :type "page"
+                   :note "one top-level element in a dummy root, ports on the sides facing its edges' other ends"}
+         :elk {:name "ELK (per box)" :type "lib" :note "contents, nested boxes, inner edges to ports"}
+         :loose {:name "attach-loose" :type "pure"
+                 :note "most edges → beside that box (into it: left, else right); chains; the rest → strip under the grid"}
+         :sizing {:name "grid sizing" :type "pure"
+                  :note "column = widest single-column box, row = tallest; spans grow the last; 80 px gaps"}
+         :route {:name "route-cross" :type "pure"
+                 :note "port → gap → gaps (fewest bends) → port; lanes 10 px; gaps widen; label on longest segment"}
+         :assemble {:name "layout-grid" :type "pure"
+                    :note "ELK-shaped result: children + root edges with absolute points"}
+         :scene {:name "scene/build-scene" :type "page" :note "unchanged"}}
+ :edges {[:file :resolve] {:direction :->}
+         [:resolve :diff] {:direction :->}
+         [:resolve :relayout] {:direction :-> :name "payload"}
+         [:relayout :assemble] {:direction :->}
+         [:assemble :box-elk] {:direction :->}
+         [:box-elk :elk] {:direction :->}
+         [:assemble :loose] {:direction :->}
+         [:assemble :sizing] {:direction :->}
+         [:assemble :route] {:direction :->}
+         [:assemble :scene] {:direction :-> :name "layout"}}
+ :boxes {:server {:name "Server" :type "zone" :grid [0 0] :components #{:resolve :diff}}
+         :grid {:name "simpleviz.grid (pure)" :type "zone" :grid [1 0] :components #{:assemble :loose :sizing :route}}
+         :page {:name "Page" :type "zone" :grid [1 1] :components #{:relayout :box-elk :elk :scene}}}}

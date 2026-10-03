@@ -143,9 +143,12 @@ Top-level nodes and top-level boxes without a cell are loose.
 
 - Collapsing a gridded box keeps it in its cell at node size; the grid
   shrinks around it.
-- Stability: boxes stay in their cells across edits. Inside a box the
-  seeded relayout keeps working: the previous layout's positions,
-  taken relative to the box, seed that box's ELK run.
+- Stability: boxes stay in their cells across edits. A box whose ELK
+  input did not change keeps its previous result (no ELK run), so
+  editing one box leaves the others exactly as they were; a changed box
+  is seeded with the previous layout's positions, taken relative to the
+  box. (A seeded run alone is not enough: ELK's interactive mode
+  re-places a box's ports and can shift unchanged contents.)
 - Layout cache: the fingerprint covers every per-box ELK input plus the
   grid placement input; an equal fingerprint reuses the layout.
 - Compare mode: the merged payload's boxes carry the new side's `:grid`
@@ -180,9 +183,10 @@ The grid layout, DOM-free; ELK is passed in.
   per axis), `centres` (gap centre lines), `widen`.
 - Routing: `route-edges` (gap entries → points and lane counts),
   `label-at`.
-- `(^:async layout-grid graph elk-graph run-elk positions)` — the whole
-  pipeline: one ELK run per placed box (`transform/element-run`, seeded
-  from `positions` relative to the box), one for the strip, placement,
+- `(^:async layout-grid graph elk-graph run-elk prev)` — the whole
+  pipeline: one ELK run per placed box (`transform/element-run`; reused
+  from `prev` when its input is unchanged, else seeded from `prev`'s
+  positions relative to the box), one for the strip, placement,
   routing; returns an ELK-shaped layout `{:width :height :children
   [...] :edges [...]}` whose edges carry absolute points (`:container
   "root"`), so `scene/build-scene` consumes it unchanged.

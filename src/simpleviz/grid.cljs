@@ -2,7 +2,8 @@
   "Grid layout (:grid on top-level boxes): gridded boxes on exact cells,
   ELK inside each box, loose elements beside the box they connect to,
   edges between cells routed through the gaps. Pure: ELK is passed in."
-  (:require [simpleviz.editor :refer [top-box-of]]))
+  (:require [simpleviz.editor :refer [top-box-of]]
+            [simpleviz.transform :refer [element-run layout-positions seed-layout seedable?]]))
 
 (def MARGIN 20)
 (def GAP 80)
@@ -337,3 +338,260 @@
     (if (= (:y a) (:y b))
       {:x (- mx (/ w 2)) :y (- my h 2)}
       {:x (+ mx 4) :y (- my (/ h 2))})))
+
+;; ---- the pipeline ----
+
+(defn- run-positions
+  "The previous layout's positions of top-level element `id` and all it
+  contains, relative to the element, which sits at 0,0 under \"root\" —
+  the seed for its own ELK run; nil when it was not placed before."
+  [positions po id]
+  (when-let [p0 (get positions id)]
+    (let [out {}]
+      (doseq [[k p] (js/Object.entries positions)]
+        (when (= (top-of po k) id)
+          (assoc! out k (assoc p :x (- (:x p) (:x p0)) :y (- (:y p) (:y p0))
+                               :parent (if (= k id) "root" (:parent p))))))
+      out)))
+
+(defn- abs-points
+  "An ELK edge's points (all sections) translated by its container's
+  origin in the run (`rp`, layout-positions of the run) plus (ox, oy)."
+  [e rp ox oy]
+  (let [o (or (get rp (:container e)) {:x 0 :y 0})
+        tx (fn [p] {:x (+ ox (:x o) (:x p)) :y (+ oy (:y o) (:y p))})]
+    (vec (mapcat (fn [s] (mapv tx (into (into [(:startPoint s)] (or (:bendPoints s) [])) [(:endPoint s)])))
+                 (or (:sections e) [])))))
+
+(defn- abs-labels [e rp ox oy]
+  (let [o (or (get rp (:container e)) {:x 0 :y 0})]
+    (mapv (fn [lb] (assoc lb :x (+ ox (:x o) (:x lb)) :y (+ oy (:y o) (:y lb)))) (or (:labels e) []))))
+
+(defn- dedupe-points [ps]
+  (reduce (fn [acc p]
+            (let [q (peek acc)]
+              (if (and (some? q) (< (js/Math.abs (- (:x q) (:x p))) 0.01) (< (js/Math.abs (- (:y q) (:y p))) 0.01))
+                acc
+                (conj acc p))))
+          [] ps))
+
+(defn- root-edge [id points labels]
+  {:id id :container "root"
+   :sections [{:startPoint (first points)
+               :bendPoints (vec (rest (butlast points)))
+               :endPoint (last points)}]
+   :labels labels})
+
+(defn- border-point
+  "Point k (0-based) of n spread along `side` of the w×h element at x,y."
+  [x y w h side k n]
+  (let [f (/ (inc k) (inc n))]
+    (case side
+      "EAST" {:x (+ x w) :y (+ y (* h f))}
+      "WEST" {:x x :y (+ y (* h f))}
+      "SOUTH" {:x (+ x (* w f)) :y (+ y h)}
+      {:x (+ x (* w f)) :y y})))
+
+(defn- select-keys*
+  "Map m restricted to keys ks (JS-object keys)."
+  [m ks]
+  (let [out {}] (doseq [k ks] (assoc! out k (get m k))) out))
+
+(defn ^:async layout-grid
+  "The grid layout of `graph` (collapse applied) as an ELK-shaped result:
+  top-level elements as :children at their places, every edge at the
+  root with absolute points. `elk-graph` is (to-elk graph ..), `run-elk`
+  lays out one ELK input (a promise), `prev` is the previous layout or
+  nil. A box whose ELK input is unchanged since `prev` keeps its result
+  (its :runs) — ELK's interactive mode re-places a box's ports, so even
+  a seeded run of an unchanged box could move its contents; a changed
+  box is seeded with the previous positions. The result carries :runs
+  {id {:key input-json :result elk-result}} for the next call."
+  [graph elk-graph run-elk prev]
+  (let [positions (when (some? prev) (layout-positions prev))
+        prev-runs (or (when (some? prev) (:runs prev)) {})
+        po (:parent-of graph)
+        cells (grid-cells graph)
+        {:keys [attached strip]} (attach-loose graph cells)
+        sl (slots cells attached)
+        kids {}
+        _ (doseq [c (:children elk-graph)] (assoc! kids (:id c) c))
+        compound? (fn [id] (some? (:children (get kids id))))
+        in-strip (js/Set. strip)
+        loose (filterv (fn [id] (some? (get attached id))) (top-items graph))
+        inner {} ports {} strip-edges [] cross []]
+    ;; sort the edges: inside one element, inside the strip, across cells
+    (doseq [e (:edges elk-graph)]
+      (let [s (first (:sources e)) t (first (:targets e))
+            ts (top-of po s) tt (top-of po t)]
+        (cond
+          (= ts tt) (when (compound? ts) (assoc! inner ts (conj (or (get inner ts) []) e)))
+          (and (.has in-strip ts) (.has in-strip tt)) (.push strip-edges e)
+          :else
+          (let [c {:e e :s s :t t :ts ts :tt tt
+                   :sside (port-side (get sl ts) (get sl tt))
+                   :tside (port-side (get sl tt) (get sl ts))}]
+            (.push cross c)
+            (when (compound? ts)
+              (assoc! ports ts (conj (or (get ports ts) []) {:id (str "p:" (:id e) ":s") :side (:sside c)}))
+              (when (not= s ts)
+                (assoc! inner ts (conj (or (get inner ts) [])
+                                       {:id (str (:id e) ":s") :sources [s] :targets [(str "p:" (:id e) ":s")]}))))
+            (when (compound? tt)
+              (assoc! ports tt (conj (or (get ports tt) []) {:id (str "p:" (:id e) ":t") :side (:tside c)}))
+              (when (not= t tt)
+                (assoc! inner tt (conj (or (get inner tt) [])
+                                       {:id (str (:id e) ":t") :sources [(str "p:" (:id e) ":t")] :targets [t]}))))))))
+    ;; one ELK run per placed compound element, one for the strip
+    (let [run-ids (filterv compound? (into (vec (js/Object.keys cells)) loose))
+          runs {}
+          run-of (fn [id run]
+                   (let [k (js/JSON.stringify run)
+                         old (get prev-runs id)]
+                     (if (and (some? old) (= k (:key old)))
+                       (do (assoc! runs id old) (js/Promise.resolve (:result old)))
+                       (let [rel (when (and (some? positions) (not= id "strip"))
+                                   (run-positions positions po id))
+                             input (if (and (some? rel) (seedable? run rel)) (seed-layout run rel) run)]
+                         ;; ELK writes into its input: hand it a copy, so the
+                         ;; caller's elk-graph (and the next call's keys) stay clean
+                         (.then (run-elk (js/JSON.parse (js/JSON.stringify input)))
+                                (fn [r] (assoc! runs id {:key k :result r}) r))))))
+          results (js-await (js/Promise.all
+                             (mapv (fn [id] (run-of id (element-run (:layoutOptions elk-graph) (get kids id)
+                                                                    (or (get ports id) []) (or (get inner id) []))))
+                                   run-ids)))
+          res {}
+          _ (doseq [i (range (count run-ids))] (assoc! res (nth run-ids i) (nth results i)))
+          strip-res (when (pos? (count strip))
+                      (js-await (run-of "strip"
+                                        {:id "root"
+                                         :layoutOptions (assoc (:layoutOptions elk-graph)
+                                                               "elk.padding" "[top=0,left=0,bottom=0,right=0]")
+                                         :children (mapv (fn [id] (get kids id)) strip)
+                                         :edges strip-edges})))
+          node-of (fn [id] (if-let [r (get res id)] (first (:children r)) (get kids id)))
+          ;; stacks: loose elements sharing a slot, top-down in top-items order
+          stacks {}
+          _ (doseq [id loose]
+              (let [k (str (:c0 (get sl id)) "," (:r0 (get sl id)))]
+                (assoc! stacks k (conj (or (get stacks k) []) id))))
+          col-items (into (mapv (fn [[id s]] {:t0 (:c0 s) :t1 (:c1 s) :size (:width (node-of id))})
+                                (js/Object.entries (select-keys* sl (js/Object.keys cells))))
+                          (mapv (fn [[k ids]] {:t0 (:c0 (get sl (first ids))) :t1 (:c0 (get sl (first ids)))
+                                               :size (apply max (mapv (fn [id] (:width (node-of id))) ids))})
+                                (js/Object.entries stacks)))
+          row-items (into (mapv (fn [[id s]] {:t0 (:r0 s) :t1 (:r1 s) :size (:height (node-of id))})
+                                (js/Object.entries (select-keys* sl (js/Object.keys cells))))
+                          (mapv (fn [[k ids]] {:t0 (:r0 (get sl (first ids))) :t1 (:r0 (get sl (first ids)))
+                                               :size (+ (reduce + 0 (mapv (fn [id] (:height (node-of id))) ids))
+                                                        (* STACK-GAP (dec (count ids))))})
+                                (js/Object.entries stacks)))
+          ncols (apply max (mapv (fn [c] (+ (:col c) (:w c))) (js/Object.values cells)))
+          nrows (apply max (mapv (fn [c] (+ (:row c) (:h c))) (js/Object.values cells)))
+          col-ts (tracks ncols (mapv (fn [ids] (:c0 (get sl (first ids)))) (js/Object.values stacks)))
+          row-ts (tracks nrows [])
+          ;; where every placed element's top-left goes
+          place (fn [ca ra]
+                  (let [out {}
+                        at (fn [ax ts t] (nth (:pos ax) (.indexOf ts t)))]
+                    (doseq [id (js/Object.keys cells)]
+                      (assoc! out id {:x (at ca col-ts (:c0 (get sl id))) :y (at ra row-ts (:r0 (get sl id)))}))
+                    (doseq [ids (js/Object.values stacks)]
+                      (let [s (get sl (first ids))
+                            x (at ca col-ts (:c0 s))]
+                        (loop [y (at ra row-ts (:r0 s)) i 0]
+                          (when (< i (count ids))
+                            (let [id (nth ids i)]
+                              (assoc! out id {:x x :y y})
+                              (recur (+ y (:height (node-of id)) STACK-GAP) (inc i)))))))
+                    out))
+          gap-of (fn [slot side]
+                   (case side
+                     "EAST" (inc (.indexOf col-ts (:c1 slot)))
+                     "WEST" (.indexOf col-ts (:c0 slot))
+                     "SOUTH" (inc (.indexOf row-ts (:r1 slot)))
+                     (.indexOf row-ts (:r0 slot))))
+          ;; leaves spread their edge ends along each side
+          leaf-ends {}
+          _ (doseq [c cross]
+              (doseq [[id side key] [[(:ts c) (:sside c) (str (:id (:e c)) ":s")]
+                                     [(:tt c) (:tside c) (str (:id (:e c)) ":t")]]]
+                (when-not (compound? id)
+                  (let [k (str id "|" side)]
+                    (assoc! leaf-ends k (conj (or (get leaf-ends k) []) key))))))
+          ;; run results translated to final coordinates: element at p
+          run-offset (fn [id p] (let [ch (node-of id)] {:ox (- (:x p) (:x ch)) :oy (- (:y p) (:y ch))}))
+          inner-points (fn [id p eid]
+                         (when-let [r (get res id)]
+                           (when-let [e (some (fn [e] (when (= (:id e) eid) e)) (:edges r))]
+                             (let [{:keys [ox oy]} (run-offset id p)]
+                               (abs-points e (layout-positions r) ox oy)))))
+          port-point (fn [id p pid]
+                       (let [ch (node-of id)
+                             pt (some (fn [q] (when (= (:id q) pid) q)) (or (:ports ch) []))]
+                         {:x (+ (:x p) (:x pt) (/ (:width pt) 2)) :y (+ (:y p) (:y pt) (/ (:height pt) 2))}))
+          end-entry (fn [places c end]
+                      (let [id (if (= end "s") (:ts c) (:tt c))
+                            side (if (= end "s") (:sside c) (:tside c))
+                            p (get places id)
+                            eid (:id (:e c))
+                            key (str eid ":" end)
+                            ip (inner-points id p key)
+                            pt (cond
+                                 (some? ip) (if (= end "s") (last ip) (first ip))
+                                 (compound? id) (port-point id p (str "p:" key))
+                                 :else (let [ks (get leaf-ends (str id "|" side))
+                                             nd (node-of id)]
+                                         (border-point (:x p) (:y p) (:width nd) (:height nd) side
+                                                       (.indexOf ks key) (count ks))))]
+                        {:inner (or ip []) :entry {:x (:x pt) :y (:y pt)
+                                                   :axis (if (or (= side "EAST") (= side "WEST")) "v" "h")
+                                                   :gap (gap-of (get sl id) side)}}))]
+      (loop [cg (base-gaps (count col-ts)) rg (base-gaps (count row-ts)) k 0]
+        (let [ca (axis col-ts col-items cg)
+              ra (axis row-ts row-items rg)
+              places (place ca ra)
+              ends (mapv (fn [c] [c (end-entry places c "s") (end-entry places c "t")]) cross)
+              routed (route-edges (mapv (fn [[c s t]] {:id (:id (:e c)) :from (:entry s) :to (:entry t)}) ends)
+                                  (centres ca) (centres ra))
+              cg2 (widen (base-gaps (count col-ts)) (:lanes routed) "v")
+              rg2 (widen (base-gaps (count row-ts)) (:lanes routed) "h")]
+          (if (and (< k 2) (or (not= (js/JSON.stringify cg2) (js/JSON.stringify cg))
+                               (not= (js/JSON.stringify rg2) (js/JSON.stringify rg))))
+            (recur cg2 rg2 (inc k))
+            (let [sx MARGIN
+                  sy (+ (:end ra) STACK-GAP)
+                  children (into (mapv (fn [id] (let [p (get places id)] (assoc (node-of id) :x (:x p) :y (:y p))))
+                                       (into (vec (js/Object.keys cells)) loose))
+                                 (mapv (fn [ch] (assoc ch :x (+ sx (:x ch)) :y (+ sy (:y ch))))
+                                       (if (some? strip-res) (:children strip-res) [])))
+                  run-edges (vec (mapcat (fn [id]
+                                           (let [r (get res id)
+                                                 rp (layout-positions r)
+                                                 {:keys [ox oy]} (run-offset id (get places id))]
+                                             (keep (fn [e]
+                                                     (when-not (or (.endsWith (:id e) ":s") (.endsWith (:id e) ":t"))
+                                                       (root-edge (:id e) (abs-points e rp ox oy) (abs-labels e rp ox oy))))
+                                                   (:edges r))))
+                                         (js/Object.keys res)))
+                  strip-edges' (if (some? strip-res)
+                                 (let [rp (layout-positions strip-res)]
+                                   (mapv (fn [e] (root-edge (:id e) (abs-points e rp sx sy) (abs-labels e rp sx sy)))
+                                         (or (:edges strip-res) [])))
+                                 [])
+                  cross-edges (mapv (fn [[c s t]]
+                                      (let [e (:e c)
+                                            ps (dedupe-points (into (into (:inner s) (get (:points routed) (:id e))) (:inner t)))
+                                            lb (first (or (:labels e) []))]
+                                        (root-edge (:id e) ps
+                                                   (if (some? lb) [(merge lb (label-at ps (:width lb) (:height lb)))] []))))
+                                    ends)
+                  strip-w (if (some? strip-res) (+ sx (:width strip-res) MARGIN) 0)]
+              (cond-> {:id "root"
+                       :width (max (+ (:end ca) MARGIN) strip-w)
+                       :height (+ (if (some? strip-res) (+ sy (:height strip-res)) (:end ra)) MARGIN)
+                       :children children
+                       :edges (into (into run-edges strip-edges') cross-edges)
+                       :runs runs}
+                (some? prev) (assoc :seeded true)))))))))

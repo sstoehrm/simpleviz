@@ -2,7 +2,9 @@
   (:require ["node:test" :refer [test]]
             ["node:assert/strict$default" :as assert]
             ["node:module" :refer [createRequire]]
-            [simpleviz.transform :refer [to-elk layout-positions seed-layout element-run]]))
+            [simpleviz.transform :refer [to-elk layout-positions seed-layout element-run]]
+            [simpleviz.grid :refer [layout-grid]]
+            [simpleviz.scene :refer [build-scene]]))
 
 (def require' (createRequire (js* "import.meta.url")))
 (def ELK (require' "../../vendor/elk.bundled.js"))
@@ -230,3 +232,116 @@
                      (assert/ok (>= (:x (port "p:x:s")) (- (:width b) 2)))
                      (assert/ok (>= (:y (port "p:y:t")) (- (:height b) 2)))
                      (assert/equal (.-length (:edges r)) 3))))))))
+
+(defn- gbox [nm grid comps] {:id (str "b:" nm) :name nm :type "" :grid grid :components comps :attrs {}})
+
+;; the spec's example: frontend [0 0], backend [1 0], data spans [0 1 2 1];
+;; user is loose (points into frontend → left); s1–s2 form the strip
+(def grid-g
+  (graph {:nodes {"user" (node "user" "") "web" (node "web" "") "api" (node "api" "")
+                  "auth" (node "auth" "") "db" (node "db" "") "cache" (node "cache" "")
+                  "s1" (node "s1" "") "s2" (node "s2" "")}
+          :boxes [(gbox "frontend" {:col 0 :row 0 :w 1 :h 1} ["n:web"])
+                  (gbox "backend" {:col 1 :row 0 :w 1 :h 1} ["n:api" "n:auth"])
+                  (gbox "data" {:col 0 :row 1 :w 2 :h 1} ["n:db" "n:cache"])]
+          :parent-of {"n:web" "frontend" "n:api" "backend" "n:auth" "backend"
+                      "n:db" "data" "n:cache" "data"}
+          :edges [(edge 0 "user" "web" {:source false :target true})
+                  (edge 1 "web" "api" {:source false :target true})
+                  (edge 2 "api" "auth" {:source false :target true})
+                  (edge 3 "api" "db" {:source false :target true})
+                  (edge 4 "api" "cache" {:source false :target true})
+                  (edge 5 "s1" "s2" {:source false :target true})]}))
+
+(defn- run-elk [input] (.layout (ELK.) input))
+
+(defn- by-id [layout id] (first (filterv (fn [c] (= (:id c) id)) (:children layout))))
+
+(defn- pts [e] (let [s (first (:sections e))] (into (into [(:startPoint s)] (or (:bendPoints s) [])) [(:endPoint s)])))
+
+(test "layout-grid puts gridded boxes on their cells and routes every edge"
+  (fn []
+    (-> (layout-grid grid-g (to-elk grid-g measure) run-elk nil)
+        (.then (fn [l]
+                 (let [fe (by-id l "b:frontend") be (by-id l "b:backend") da (by-id l "b:data")
+                       us (by-id l "n:user")]
+                   ;; row 0 aligned at the top, backend right of frontend
+                   (assert/equal (:y fe) (:y be))
+                   (assert/ok (> (:x be) (+ (:x fe) (:width fe))))
+                   ;; data under both, starting in column 0
+                   (assert/ok (> (:y da) (max (+ (:y fe) (:height fe)) (+ (:y be) (:height be)))))
+                   (assert/ok (< (js/Math.abs (- (:x da) (:x fe))) 1))
+                   ;; loose user left of frontend, in its row
+                   (assert/ok (< (+ (:x us) (:width us)) (:x fe)))
+                   (assert/equal (:y us) (:y fe))
+                   ;; strip under the grid
+                   (assert/ok (> (:y (by-id l "n:s1")) (+ (:y da) (:height da))))
+                   ;; every edge routed, all at the root, right angles only
+                   (assert/equal (.-length (:edges l)) 6)
+                   (doseq [e (:edges l)]
+                     (assert/equal (:container e) "root")
+                     (let [p (pts e)]
+                       (assert/ok (>= (count p) 2) (:id e))
+                       (doseq [i (range (dec (count p)))]
+                         (let [a (nth p i) b (nth p (inc i))]
+                           (assert/ok (or (< (js/Math.abs (- (:x a) (:x b))) 0.01)
+                                          (< (js/Math.abs (- (:y a) (:y b))) 0.01))
+                                      (str (:id e) " segment " i))))))
+                   ;; the scene builder takes it as an ELK result
+                   (let [sc (build-scene {:layout l :graph grid-g :colors {:node {} :box {}}})]
+                     (assert/equal (.-length (filterv (fn [it] (= (:kind it) "edge")) (:items sc))) 6))))))))
+
+(test "layout-grid: a collapsed gridded box is a leaf in its cell"
+  (fn []
+    (let [g (-> grid-g
+                (assoc :boxes [(gbox "frontend" {:col 0 :row 0 :w 1 :h 1} ["n:web"])
+                               (assoc (gbox "backend" {:col 1 :row 0 :w 1 :h 1} []) :collapsed true)
+                               (gbox "data" {:col 0 :row 1 :w 2 :h 1} ["n:db" "n:cache"])])
+                (assoc :parent-of {"n:web" "frontend" "n:db" "data" "n:cache" "data"})
+                (assoc :nodes (dissoc (:nodes grid-g) "api" "auth"))
+                (assoc :edges [(edge 0 "user" "web" {:source false :target true})
+                               (assoc (edge 1 "web" "backend" {:source false :target true}) :target-id "b:backend")
+                               (assoc (edge 3 "backend" "db" {:source false :target true}) :source-id "b:backend")]))
+          g (assoc g :boxes-by-name (reduce (fn [acc b] (assoc acc (:name b) b)) {} (:boxes g)))]
+      (-> (layout-grid g (to-elk g measure) run-elk nil)
+          (.then (fn [l]
+                   (let [be (by-id l "b:backend")]
+                     (assert/ok (nil? (:children be)))
+                     (assert/equal (.-length (:edges l)) 3)
+                     (doseq [e (:edges l)] (assert/ok (>= (count (pts e)) 2))))))))))
+
+(test "layout-grid: seeded by the previous layout, a box keeps its cell and its contents"
+  (fn []
+    (let [elk-g (to-elk grid-g measure)]
+      (-> (layout-grid grid-g elk-g run-elk nil)
+          (.then (fn [l1]
+                   (-> (layout-grid grid-g elk-g run-elk l1)
+                       (.then (fn [l2]
+                                (assert/equal (:seeded l2) true)
+                                (let [b1 (by-id l1 "b:backend") b2 (by-id l2 "b:backend")]
+                                  (assert/equal (:x b2) (:x b1))
+                                  (assert/equal (:y b2) (:y b1))
+                                  (assert/deepEqual (mapv (fn [c] [(:id c) (:x c) (:y c)]) (:children b2))
+                                                    (mapv (fn [c] [(:id c) (:x c) (:y c)]) (:children b1)))))))))))))
+
+(test "layout-grid: an edit inside one box reruns only that box"
+  (fn []
+    (let [calls (atom [])
+          counting (fn [input] (swap! calls conj (:id (first (:children input)))) (run-elk input))
+          g2 (-> grid-g
+                 (assoc-in [:nodes "queue"] (node "queue" ""))
+                 (assoc :boxes [(gbox "frontend" {:col 0 :row 0 :w 1 :h 1} ["n:web"])
+                                (gbox "backend" {:col 1 :row 0 :w 1 :h 1} ["n:api" "n:auth"])
+                                (gbox "data" {:col 0 :row 1 :w 2 :h 1} ["n:db" "n:cache" "n:queue"])])
+                 (assoc-in [:parent-of "n:queue"] "data"))
+          g2 (assoc g2 :boxes-by-name (reduce (fn [acc b] (assoc acc (:name b) b)) {} (:boxes g2)))]
+      (-> (layout-grid grid-g (to-elk grid-g measure) run-elk nil)
+          (.then (fn [l1]
+                   (-> (layout-grid g2 (to-elk g2 measure) counting l1)
+                       (.then (fn [l2]
+                                ;; only the edited box ran again
+                                (assert/deepEqual @calls ["b:data"])
+                                (doseq [id ["b:frontend" "b:backend"]]
+                                  (assert/deepEqual (mapv (fn [c] [(:id c) (:x c) (:y c)]) (:children (by-id l2 id)))
+                                                    (mapv (fn [c] [(:id c) (:x c) (:y c)]) (:children (by-id l1 id)))
+                                                    id)))))))))))

@@ -360,3 +360,38 @@
                            (assert/ok (not (and (< (:x lb) (+ (:x p) (:w p))) (< (:x p) (+ (:x lb) (:width lb)))
                                                 (< (:y lb) (+ (:y p) (:h p))) (< (:y p) (+ (:y lb) (:height lb)))))
                                       (str (:id e) " label covers " id))))))))))))
+
+;; review: two WEST in-ports plus a SOUTH out-port made ELK throw
+;; ("Expected 1 hierarchical ports") and the whole grid layout failed
+(def port-mix-g
+  (graph {:nodes {"web" (node "web" "") "mobile" (node "mobile" "") "api" (node "api" "") "db" (node "db" "")}
+          :boxes [(gbox "clients" {:col 0 :row 0 :w 1 :h 1} ["n:web" "n:mobile"])
+                  (gbox "backend" {:col 1 :row 0 :w 1 :h 1} ["n:api"])
+                  (gbox "data" {:col 1 :row 1 :w 1 :h 1} ["n:db"])]
+          :parent-of {"n:web" "clients" "n:mobile" "clients" "n:api" "backend" "n:db" "data"}
+          :edges [(edge 0 "web" "api" {:source false :target true})
+                  (edge 1 "mobile" "api" {:source false :target true})
+                  (edge 2 "api" "db" {:source false :target true})]}))
+
+(test "layout-grid: a port mix ELK rejects in one direction is laid out in another"
+  (fn []
+    (-> (layout-grid port-mix-g (to-elk port-mix-g measure) run-elk nil)
+        (.then (fn [l]
+                 (assert/equal (.-length (:edges l)) 3)
+                 (let [be (by-id l "b:backend")
+                       side (fn [pid] (let [p (first (filterv (fn [p] (= (:id p) pid)) (:ports be)))]
+                                        (cond (<= (:x p) 0) "WEST" (>= (:x p) (- (:width be) 2)) "EAST"
+                                              (<= (:y p) 0) "NORTH" :else "SOUTH")))]
+                   (assert/equal (side "p:e0:t") "WEST")
+                   (assert/equal (side "p:e1:t") "WEST")
+                   (assert/equal (side "p:e2:s") "SOUTH")))))))
+
+(test "layout-grid: a box ELK never lays out with ports leaves from its border"
+  (fn []
+    (let [picky (fn [input] (if (pos? (count (or (:ports (first (:children input))) [])))
+                              (js/Promise.reject (js/Error. "no ports today"))
+                              (run-elk input)))]
+      (-> (layout-grid port-mix-g (to-elk port-mix-g measure) picky nil)
+          (.then (fn [l]
+                   (assert/equal (.-length (:edges l)) 3)
+                   (doseq [e (:edges l)] (assert/ok (>= (count (pts e)) 2) (:id e)))))))))

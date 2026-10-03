@@ -432,6 +432,22 @@
       "SOUTH" {:x (+ x (* w f)) :y (+ y h)}
       {:x (+ x (* w f)) :y y})))
 
+(defn- with-direction
+  "A copy of ELK input `run` laid out in direction `dir`."
+  [run dir]
+  (let [c (js/JSON.parse (js/JSON.stringify run))]
+    (assoc c :layoutOptions (assoc (:layoutOptions c) "elk.direction" dir))))
+
+(defn- port-edge? [e] (or (.endsWith (:id e) ":s") (.endsWith (:id e) ":t")))
+
+(defn- portless
+  "A copy of element run `run` without its ports and the edges to them."
+  [run]
+  (let [c (js/JSON.parse (js/JSON.stringify run))]
+    (assoc c
+           :children (mapv (fn [ch] (assoc ch :ports [])) (:children c))
+           :edges (filterv (fn [e] (not (port-edge? e))) (:edges c)))))
+
 (defn- select-keys*
   "Map m restricted to keys ks (JS-object keys)."
   [m ks]
@@ -495,8 +511,15 @@
                              input (if (and (some? rel) (seedable? run rel)) (seed-layout run rel) run)]
                          ;; ELK writes into its input: hand it a copy, so the
                          ;; caller's elk-graph (and the next call's keys) stay clean
-                         (.then (run-elk (js/JSON.parse (js/JSON.stringify input)))
-                                (fn [r] (assoc! runs id {:key k :result r}) r))))))
+                         (-> (run-elk (js/JSON.parse (js/JSON.stringify input)))
+                             ;; some port mixes make ELK throw in one direction
+                             ;; and not in another (sides stay fixed); last
+                             ;; resort: no ports, the edges leave from the border
+                             (.catch (fn [_] (run-elk (with-direction input "DOWN"))))
+                             (.catch (fn [_] (run-elk (with-direction input "LEFT"))))
+                             (.catch (fn [_] (run-elk (with-direction input "UP"))))
+                             (.catch (fn [_] (run-elk (portless run))))
+                             (.then (fn [r] (assoc! runs id {:key k :result r}) r)))))))
           results (js-await (js/Promise.all
                              (mapv (fn [id] (run-of id (element-run (:layoutOptions elk-graph) (get kids id)
                                                                     (or (get ports id) []) (or (get inner id) []))))
@@ -557,9 +580,8 @@
           _ (doseq [c cross]
               (doseq [[id side key] [[(:ts c) (:sside c) (str (:id (:e c)) ":s")]
                                      [(:tt c) (:tside c) (str (:id (:e c)) ":t")]]]
-                (when-not (compound? id)
-                  (let [k (str id "|" side)]
-                    (assoc! leaf-ends k (conj (or (get leaf-ends k) []) key))))))
+                (let [k (str id "|" side)]
+                  (assoc! leaf-ends k (conj (or (get leaf-ends k) []) key)))))
           ;; run results translated to final coordinates: element at p
           run-offset (fn [id p] (let [ch (node-of id)] {:ox (- (:x p) (:x ch)) :oy (- (:y p) (:y ch))}))
           inner-points (fn [id p eid]
@@ -570,7 +592,8 @@
           port-point (fn [id p pid]
                        (let [ch (node-of id)
                              pt (some (fn [q] (when (= (:id q) pid) q)) (or (:ports ch) []))]
-                         {:x (+ (:x p) (:x pt) (/ (:width pt) 2)) :y (+ (:y p) (:y pt) (/ (:height pt) 2))}))
+                         (when (some? pt)
+                           {:x (+ (:x p) (:x pt) (/ (:width pt) 2)) :y (+ (:y p) (:y pt) (/ (:height pt) 2))})))
           end-entry (fn [places c end]
                       (let [id (if (= end "s") (:ts c) (:tt c))
                             side (if (= end "s") (:sside c) (:tside c))
@@ -578,10 +601,11 @@
                             eid (:id (:e c))
                             key (str eid ":" end)
                             ip (inner-points id p key)
-                            pt (cond
-                                 (some? ip) (if (= end "s") (last ip) (first ip))
-                                 (compound? id) (port-point id p (str "p:" key))
-                                 :else (let [ks (get leaf-ends (str id "|" side))
+                            pt (or
+                                 (when (some? ip) (if (= end "s") (last ip) (first ip)))
+                                 (when (compound? id) (port-point id p (str "p:" key)))
+                                 ;; a leaf, or a box laid out without its ports
+                                 (let [ks (get leaf-ends (str id "|" side))
                                              nd (node-of id)]
                                          (border-point (:x p) (:y p) (:width nd) (:height nd) side
                                                        (.indexOf ks key) (count ks))))]

@@ -395,3 +395,22 @@
           (.then (fn [l]
                    (assert/equal (.-length (:edges l)) 3)
                    (doseq [e (:edges l)] (assert/ok (>= (count (pts e)) 2) (:id e)))))))))
+
+(test "layout-grid draws edges inside strip boxes and self-loops"
+  (fn []
+    ;; S (ungridded box) and s3 reach no gridded box: the strip. u is
+    ;; loose beside A and loops on itself; s3 loops too
+    (let [g (graph {:nodes {"a" (node "a" "") "u" (node "u" "") "s1" (node "s1" "") "s2" (node "s2" "")
+                            "s3" (node "s3" "")}
+                    :boxes [(gbox "A" {:col 0 :row 0 :w 1 :h 1} ["n:a"])
+                            (gbox "S" nil ["n:s1" "n:s2"])]
+                    :parent-of {"n:a" "A" "n:s1" "S" "n:s2" "S"}
+                    :edges [(edge 0 "s1" "s2" {:source false :target true})
+                            (edge 1 "s2" "s3" {:source false :target true})
+                            (edge 2 "u" "a" {:source false :target true})
+                            (edge 3 "u" "u" {:source false :target true})
+                            (edge 4 "s3" "s3" {:source false :target true})]})]
+      (-> (layout-grid g (to-elk g measure) run-elk nil)
+          (.then (fn [l]
+                   (assert/deepEqual (vec (sort (mapv (fn [e] (:id e)) (:edges l)))) ["e0" "e1" "e2" "e3" "e4"])
+                   (doseq [e (:edges l)] (assert/ok (>= (count (pts e)) 2) (:id e)))))))))

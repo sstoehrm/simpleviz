@@ -475,13 +475,18 @@
         compound? (fn [id] (some? (:children (get kids id))))
         in-strip (js/Set. strip)
         loose (filterv (fn [id] (some? (get attached id))) (top-items graph))
-        inner {} ports {} strip-edges [] cross []]
+        inner {} ports {} strip-edges [] cross [] loops []]
     ;; sort the edges: inside one element, inside the strip, across cells
     (doseq [e (:edges elk-graph)]
       (let [s (first (:sources e)) t (first (:targets e))
             ts (top-of po s) tt (top-of po t)]
         (cond
-          (= ts tt) (when (compound? ts) (assoc! inner ts (conj (or (get inner ts) []) e)))
+          (= ts tt) (cond
+                      ;; inside a strip box, or a loop in the strip: the strip run
+                      (.has in-strip ts) (.push strip-edges e)
+                      (compound? ts) (assoc! inner ts (conj (or (get inner ts) []) e))
+                      ;; a loop on a placed leaf: drawn beside it below
+                      :else (.push loops e))
           (and (.has in-strip ts) (.has in-strip tt)) (.push strip-edges e)
           :else
           (let [c {:e e :s s :t t :ts ts :tt tt
@@ -655,6 +660,17 @@
                               ;; and every node (or collapsed box) on the canvas
                               (keep (fn [[id p]] (when (get leaf? id) {:x (:x p) :y (:y p) :w (:w p) :h (:h p)}))
                                     (js/Object.entries (layout-positions {:children children}))))
+                  loop-edges (mapv (fn [e]
+                                     (let [id (first (:sources e))
+                                           p (get places id)
+                                           nd (node-of id)
+                                           x (+ (:x p) (:width nd))
+                                           y1 (+ (:y p) (* 0.3 (:height nd)))
+                                           y2 (+ (:y p) (* 0.7 (:height nd)))]
+                                       (root-edge (:id e) [{:x x :y y1} {:x (+ x 16) :y y1} {:x (+ x 16) :y y2} {:x x :y y2}]
+                                                  (mapv (fn [lb] (assoc lb :x (+ x 20) :y (- y1 (/ (:height lb) 2))))
+                                                        (or (:labels e) [])))))
+                                   loops)
                   cross-edges (mapv (fn [[c s t]]
                                       (let [e (:e c)
                                             ps (dedupe-points (into (into (:inner s) (get (:points routed) (:id e))) (:inner t)))
@@ -671,6 +687,6 @@
                        :width (max (+ (:end ca) MARGIN) strip-w)
                        :height (+ (if (some? strip-res) (+ sy (:height strip-res)) (:end ra)) MARGIN)
                        :children children
-                       :edges (into (into run-edges strip-edges') cross-edges)
+                       :edges (into (into (into run-edges strip-edges') loop-edges) cross-edges)
                        :runs runs}
                 (some? prev) (assoc :seeded true)))))))))

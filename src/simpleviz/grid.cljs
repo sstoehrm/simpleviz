@@ -438,15 +438,13 @@
   (let [c (js/JSON.parse (js/JSON.stringify run))]
     (assoc c :layoutOptions (assoc (:layoutOptions c) "elk.direction" dir))))
 
-(defn- port-edge? [e] (or (.endsWith (:id e) ":s") (.endsWith (:id e) ":t")))
-
 (defn- portless
   "A copy of element run `run` without its ports and the edges to them."
   [run]
   (let [c (js/JSON.parse (js/JSON.stringify run))]
     (assoc c
            :children (mapv (fn [ch] (assoc ch :ports [])) (:children c))
-           :edges (filterv (fn [e] (not (port-edge? e))) (:edges c)))))
+           :edges (filterv (fn [e] (not (:port e))) (:edges c)))))
 
 (defn- select-keys*
   "Map m restricted to keys ks (JS-object keys)."
@@ -475,7 +473,14 @@
         compound? (fn [id] (some? (:children (get kids id))))
         in-strip (js/Set. strip)
         loose (filterv (fn [id] (some? (get attached id))) (top-items graph))
-        inner {} ports {} strip-edges [] cross [] loops []]
+        inner {} ports {} strip-edges [] cross [] loops []
+        ;; ELK inputs name edges by their endpoints, not by the server's
+        ;; positional ids: a new edge elsewhere renumbers those, and a
+        ;; box's input — and so its reuse — must not change with them
+        cid (fn [e] (str (first (:sources e)) "→" (first (:targets e))))
+        orig (js/Map.)
+        canon (fn [e] (let [k (cid e)] (.set orig k (:id e)) (assoc e :id k)))
+        port-edge-ids (js/Set.)]
     ;; sort the edges: inside one element, inside the strip, across cells
     (doseq [e (:edges elk-graph)]
       (let [s (first (:sources e)) t (first (:targets e))
@@ -483,26 +488,29 @@
         (cond
           (= ts tt) (cond
                       ;; inside a strip box, or a loop in the strip: the strip run
-                      (.has in-strip ts) (.push strip-edges e)
-                      (compound? ts) (assoc! inner ts (conj (or (get inner ts) []) e))
+                      (.has in-strip ts) (.push strip-edges (canon e))
+                      (compound? ts) (assoc! inner ts (conj (or (get inner ts) []) (canon e)))
                       ;; a loop on a placed leaf: drawn beside it below
                       :else (.push loops e))
-          (and (.has in-strip ts) (.has in-strip tt)) (.push strip-edges e)
+          (and (.has in-strip ts) (.has in-strip tt)) (.push strip-edges (canon e))
           :else
-          (let [c {:e e :s s :t t :ts ts :tt tt
+          (let [k (cid e)
+                c {:e e :cid k :s s :t t :ts ts :tt tt
                    :sside (port-side (get sl ts) (get sl tt))
                    :tside (port-side (get sl tt) (get sl ts))}]
             (.push cross c)
             (when (compound? ts)
-              (assoc! ports ts (conj (or (get ports ts) []) {:id (str "p:" (:id e) ":s") :side (:sside c)}))
+              (assoc! ports ts (conj (or (get ports ts) []) {:id (str "p:" k ":s") :side (:sside c)}))
               (when (not= s ts)
+                (.add port-edge-ids (str k ":s"))
                 (assoc! inner ts (conj (or (get inner ts) [])
-                                       {:id (str (:id e) ":s") :sources [s] :targets [(str "p:" (:id e) ":s")]}))))
+                                       {:id (str k ":s") :port true :sources [s] :targets [(str "p:" k ":s")]}))))
             (when (compound? tt)
-              (assoc! ports tt (conj (or (get ports tt) []) {:id (str "p:" (:id e) ":t") :side (:tside c)}))
+              (assoc! ports tt (conj (or (get ports tt) []) {:id (str "p:" k ":t") :side (:tside c)}))
               (when (not= t tt)
+                (.add port-edge-ids (str k ":t"))
                 (assoc! inner tt (conj (or (get inner tt) [])
-                                       {:id (str (:id e) ":t") :sources [(str "p:" (:id e) ":t")] :targets [t]}))))))))
+                                       {:id (str k ":t") :port true :sources [(str "p:" k ":t")] :targets [t]}))))))))
     ;; one ELK run per placed compound element, one for the strip
     (let [run-ids (filterv compound? (into (vec (js/Object.keys cells)) loose))
           runs {}
@@ -583,8 +591,8 @@
           ;; leaves spread their edge ends along each side
           leaf-ends {}
           _ (doseq [c cross]
-              (doseq [[id side key] [[(:ts c) (:sside c) (str (:id (:e c)) ":s")]
-                                     [(:tt c) (:tside c) (str (:id (:e c)) ":t")]]]
+              (doseq [[id side key] [[(:ts c) (:sside c) (str (:cid c) ":s")]
+                                     [(:tt c) (:tside c) (str (:cid c) ":t")]]]
                 (let [k (str id "|" side)]
                   (assoc! leaf-ends k (conj (or (get leaf-ends k) []) key)))))
           ;; run results translated to final coordinates: element at p
@@ -603,8 +611,7 @@
                       (let [id (if (= end "s") (:ts c) (:tt c))
                             side (if (= end "s") (:sside c) (:tside c))
                             p (get places id)
-                            eid (:id (:e c))
-                            key (str eid ":" end)
+                            key (str (:cid c) ":" end)
                             ip (inner-points id p key)
                             pt (or
                                  (when (some? ip) (if (= end "s") (last ip) (first ip)))
@@ -640,13 +647,13 @@
                                                  rp (layout-positions r)
                                                  {:keys [ox oy]} (run-offset id (get places id))]
                                              (keep (fn [e]
-                                                     (when-not (or (.endsWith (:id e) ":s") (.endsWith (:id e) ":t"))
-                                                       (root-edge (:id e) (abs-points e rp ox oy) (abs-labels e rp ox oy))))
+                                                     (when-not (.has port-edge-ids (:id e))
+                                                       (root-edge (.get orig (:id e)) (abs-points e rp ox oy) (abs-labels e rp ox oy))))
                                                    (:edges r))))
                                          (js/Object.keys res)))
                   strip-edges' (if (some? strip-res)
                                  (let [rp (layout-positions strip-res)]
-                                   (mapv (fn [e] (root-edge (:id e) (abs-points e rp sx sy) (abs-labels e rp sx sy)))
+                                   (mapv (fn [e] (root-edge (.get orig (:id e)) (abs-points e rp sx sy) (abs-labels e rp sx sy)))
                                          (or (:edges strip-res) [])))
                                  [])
                   ;; labels ELK placed inside boxes are taken; each cross

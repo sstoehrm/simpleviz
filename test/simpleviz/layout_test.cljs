@@ -379,12 +379,10 @@
         (.then (fn [l]
                  (assert/equal (.-length (:edges l)) 3)
                  (let [be (by-id l "b:backend")
-                       side (fn [pid] (let [p (first (filterv (fn [p] (= (:id p) pid)) (:ports be)))]
-                                        (cond (<= (:x p) 0) "WEST" (>= (:x p) (- (:width be) 2)) "EAST"
-                                              (<= (:y p) 0) "NORTH" :else "SOUTH")))]
-                   (assert/equal (side "p:e0:t") "WEST")
-                   (assert/equal (side "p:e1:t") "WEST")
-                   (assert/equal (side "p:e2:s") "SOUTH")))))))
+                       side (fn [p] (cond (<= (:x p) 0) "WEST" (>= (:x p) (- (:width be) 2)) "EAST"
+                                          (<= (:y p) 0) "NORTH" :else "SOUTH"))]
+                   ;; web and mobile come in from the west, db leaves south
+                   (assert/deepEqual (vec (sort (mapv side (:ports be)))) ["SOUTH" "WEST" "WEST"])))))))
 
 (test "layout-grid: a box ELK never lays out with ports leaves from its border"
   (fn []
@@ -414,3 +412,27 @@
           (.then (fn [l]
                    (assert/deepEqual (vec (sort (mapv (fn [e] (:id e)) (:edges l)))) ["e0" "e1" "e2" "e3" "e4"])
                    (doseq [e (:edges l)] (assert/ok (>= (count (pts e)) 2) (:id e)))))))))
+
+(test "layout-grid: a new edge renumbering later edge ids reruns only its own box"
+  (fn []
+    (let [calls (atom [])
+          counting (fn [input] (swap! calls conj (:id (first (:children input)))) (run-elk input))
+          ;; the server numbers edges by position: a new edge cache → db
+          ;; inside data becomes e3 and every later edge shifts by one
+          g2 (assoc grid-g :edges [(edge 0 "user" "web" {:source false :target true})
+                                   (edge 1 "web" "api" {:source false :target true})
+                                   (edge 2 "api" "auth" {:source false :target true})
+                                   (edge 3 "cache" "db" {:source false :target true})
+                                   (edge 4 "api" "db" {:source false :target true})
+                                   (edge 5 "api" "cache" {:source false :target true})
+                                   (edge 6 "s1" "s2" {:source false :target true})])]
+      (-> (layout-grid grid-g (to-elk grid-g measure) run-elk nil)
+          (.then (fn [l1]
+                   (-> (layout-grid g2 (to-elk g2 measure) counting l1)
+                       (.then (fn [l2]
+                                (assert/deepEqual @calls ["b:data"])
+                                (assert/equal (.-length (:edges l2)) 7)
+                                (doseq [id ["b:frontend" "b:backend"]]
+                                  (assert/deepEqual (mapv (fn [c] [(:id c) (:x c) (:y c)]) (:children (by-id l2 id)))
+                                                    (mapv (fn [c] [(:id c) (:x c) (:y c)]) (:children (by-id l1 id)))
+                                                    id)))))))))))

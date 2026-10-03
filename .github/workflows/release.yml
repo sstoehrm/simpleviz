@@ -22,7 +22,7 @@ jobs:
         uses: DeLaGuardo/setup-clojure@13.7.0
         with:
           # the newest babashka the CI matrix tests
-          bb: '1.13.224'
+          bb: '1.13.225'
 
       - name: Cache babashka deps
         uses: actions/cache@v6

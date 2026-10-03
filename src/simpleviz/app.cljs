@@ -753,7 +753,7 @@
      [:h2 "How to use"]
      (help-section
       "Navigate"
-      "Drag to pan, scroll to zoom. Hover an element to see its name and attributes; click it to inspect and edit them. A double border marks a node with a :ref; the mark on a node's corner is its :state — grey disc new, blue half disc in-progress, red square blocked, green check done. The − in a box header collapses the box to a single node — the panel on the left lists collapsed boxes and re-expands them."
+      "Drag to pan, scroll to zoom. Hover an element to see its name and attributes; click it to inspect and edit them. A double border marks a node with a :ref, a dotted border a node or box with an :md-ref (a linked markdown doc); the mark on a node's corner is its :state — grey disc new, blue half disc in-progress, red square blocked, green check done. The − in a box header collapses the box to a single node — the panel on the left lists collapsed boxes and re-expands them."
       "A :pair (\"views/deploy.edn#api\", or a vector of them) links a node or box to the same thing in another graph. The ⇄ mark on an element's bottom-left corner shows its pairs — red when one is broken; the inspector lists them, those declared here and those pointing here. Click one, or use \"follow pair\" (f p), to open that graph with the element selected.")
      (help-section
       "Edit"

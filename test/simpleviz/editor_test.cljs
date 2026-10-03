@@ -370,6 +370,12 @@
     (assert/ok (nil? (ref-of {:kind "node" :attrs {}})))
     (assert/ok (nil? (ref-of {:kind "edge"})))))
 
+(test "ref-of reads another key the same way"
+  (fn []
+    (assert/equal (ref-of {:kind "box" :attrs {:md-ref "docs/spec.md"}} :md-ref) "docs/spec.md")
+    (assert/ok (nil? (ref-of {:kind "box" :attrs {:ref "sub/api.edn"}} :md-ref)))
+    (assert/ok (nil? (ref-of {:kind "node" :attrs {:md-ref " "}} :md-ref)))))
+
 (test "chord f r follows a ref for every selection kind"
   (fn []
     (assert/ok (chord-group? "f"))

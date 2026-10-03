@@ -15,6 +15,9 @@ The README example shows every attribute simpleviz reads.
   disc with a check. Any other value is an ordinary attribute.
 - `:ref` links the element to another graph file (see
   [Following refs](#following-refs)). A node with a ref gets a double border.
+- `:md-ref` names a markdown doc that describes a node or box (a spec, an
+  ADR, notes), as a path. It only marks the element with a dotted border;
+  the viewer does not open or check the file.
 - `:pair` links a node or box to the same thing in another graph file
   (see [Pairs](#pairs)). A paired element gets a ⇄ mark.
 - `:theme` at the top level sets the graph's colors (see [Themes](#themes)).

@@ -200,3 +200,13 @@
 (deftest union-takes-the-new-sides-theme-name
   (is (= "nord" (:theme-name (u {:theme :dracula} {:theme :nord}))))
   (is (not (contains? (u {:theme :dracula} {:theme {:base :nord}}) :theme-name))))
+
+(deftest union-boxes-carry-the-grid-of-their-side
+  (let [g (u {:nodes {:a {} :b {}} :boxes {:kept {:grid [0 0] :components #{:a}}
+                                           :gone {:grid [1 0] :components #{:b}}}}
+             {:nodes {:a {} :b {}} :boxes {:kept {:grid [2 0] :components #{:a}}}})
+        by (into {} (map (juxt :name identity)) (:boxes g))]
+    (is (= {:col 2 :row 0 :w 1 :h 1} (:grid (get by "kept"))))
+    (is (= "modified" (:diff (get by "kept"))))
+    (is (= {:col 1 :row 0 :w 1 :h 1} (:grid (get by "gone"))))
+    (is (= "removed" (:diff (get by "gone"))))))

@@ -382,6 +382,47 @@
 
     :else (do (warn! ":theme must be a theme name or a map, ignoring it") nil)))
 
+(defn- grid-cell
+  "{:col :row :w :h} for a well-formed :grid value, else nil."
+  [v]
+  (when (and (vector? v) (contains? #{2 4} (count v)) (every? integer? v))
+    (let [[col row w h] (if (= 2 (count v)) (conj v 1 1) v)]
+      (when (and (>= col 0) (>= row 0) (>= w 1) (>= h 1))
+        {:col col :row row :w w :h h}))))
+
+(defn- resolve-grids
+  "Each box with its :grid as {:col :row :w :h}, or nil: only top-level
+  boxes, well-formed values, and — where cells overlap — the box first
+  by sorted name keeps them. Everything else warns and is ignored."
+  [boxes parent-of warn!]
+  (let [raw (into {} (map (fn [b] [(:name b) (get-in b [:attrs :grid])])) boxes)
+        cells (into {}
+                    (keep (fn [b]
+                            (let [v (get raw (:name b))]
+                              (when (some? v)
+                                (cond
+                                  (some? (get parent-of (:id b)))
+                                  (do (warn! (str "box \"" (:name b) "\": :grid only applies to top-level boxes, ignored"))
+                                      nil)
+                                  (nil? (grid-cell v))
+                                  (do (warn! (str "box \"" (:name b) "\": :grid must be [col row] or [col row w h]"
+                                                  " (integers, col/row ≥ 0, w/h ≥ 1), ignored"))
+                                      nil)
+                                  :else [(:name b) (grid-cell v)])))))
+                    boxes)
+        kept (first
+              (reduce (fn [[kept taken] nm]
+                        (let [{:keys [col row w h]} (get cells nm)
+                              ks (for [c (range col (+ col w)) r (range row (+ row h))] [c r])]
+                          (if-let [other (some taken ks)]
+                            (do (warn! (str "box \"" nm "\": :grid " (pr-str (get raw nm))
+                                            " overlaps box \"" other "\", ignored"))
+                                [kept taken])
+                            [(assoc kept nm (get cells nm)) (into taken (map (fn [k] [k nm])) ks)])))
+                      [{} {}]
+                      (sort (keys cells))))]
+    (mapv (fn [b] (assoc b :grid (get kept (:name b)))) boxes)))
+
 (defn normalize [raw]
   (let [warnings (atom [])
         warn! (fn [msg] (swap! warnings conj msg))
@@ -408,6 +449,7 @@
         [boxes1 parents1] (resolve-membership boxes0 nodes warn!)
         [boxes parent-of] (break-cycles boxes1 parents1 warn!)
         edges (drop-containment-edges edges0 parent-of warn!)
+        boxes (resolve-grids boxes parent-of warn!)
         theme (resolve-theme (:theme raw) warn!)
         ;; the built-in's name when the file names one (the page's theme
         ;; menu can rewrite that); a :theme map is custom and has none

@@ -4,9 +4,9 @@
          :panel {:name "md panel" :type "ui"
                  :note "docked right, wider than the inspector; fullscreen toggle; textarea, Save, Close"}
          :md-state {:name "md state" :type "state"
-                    :note "{:path :text :base :exists :crlf :dirty :conflict :error :full :saving :gen}"}
+                    :note "{:path :text :saved :base :exists :crlf :conflict :error :full :saving}; a generation counter drops stale polls"}
          :md-helpers {:name "editor.cljs md helpers" :type "pure"
-                      :note "md-path, poll-outcome, to-disk (CRLF), f m chord"}
+                      :note "md-target, from-disk/to-disk, md-dirty?, adopt-doc, gone-doc, poll-outcome, f m chord"}
          :poll {:name "1s poll while open" :type "state"
                 :note "skipped while saving; clean → take disk text; dirty → conflict (Reload / Overwrite)"}
          :text-get {:name "GET /api/text" :type "route"

@@ -55,11 +55,14 @@ sessions, a server-side undo stack.
   elements, following refs and pairs, and navigating the trail leave it
   open. While it is open the inspector is hidden.
 - Opening "open md" on an element whose doc is already open focuses the
-  textarea. Opening a different doc saves the current one first (see
-  Saving); if that save fails, the current doc stays open.
+  textarea. Opening a different doc saves the current one first when it
+  has unsaved changes (see Saving); if that save fails, the current doc
+  stays open.
 
 ### Saving
 
+- Close and opening another doc save only unsaved changes; Ctrl/Cmd+S
+  and Save always run the save rules below.
 - Save triggers: Ctrl/Cmd+S (whenever the panel is open, also with the
   textarea focused; the browser's own save dialog is suppressed), the
   Save button, Close, and opening a different doc.

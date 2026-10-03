@@ -12,7 +12,7 @@ jobs:
       fail-fast: false
       matrix:
         # the last two babashka minor releases; the floor is MIN_BB in install.sh
-        bb: ['1.12.218', '1.13.224']
+        bb: ['1.12.218', '1.13.225']
     name: test (bb ${{ matrix.bb }})
     steps:
       - uses: actions/checkout@v7

@@ -59,7 +59,7 @@ and write locks.
                    :ref "sub/api.edn"    ; another graph file, relative to this one — "follow ref" opens it;
                                          ; the node gets a double border
                    :pair "views/deploy.edn#api-svc" ; the same thing in another graph — "follow pair" jumps to it
-                   :md-ref "docs/api.md" ; the markdown doc describing it (node or box) — a dotted border
+                   :md-ref "docs/api.md" ; the markdown doc describing it (node or box) — dotted border; "open md" edits it
                    :state :in-progress}  ; :new | :in-progress | :blocked | :done — a mark on the node's corner
              :web {:type "frontend"}
              :db  {:type "database"}}

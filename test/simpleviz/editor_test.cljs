@@ -10,7 +10,8 @@
                                       add-node-in-box-ops box-remove-op
                                       name->id derived-id named-edge-ops creation-ops parse-entry
                                       resolve-ref parse-nav nav-query follow-url crumb-url ref-of banner-visible?
-                                      theme-menu top-box-of load-readiness export-readiness]]))
+                                      theme-menu top-box-of load-readiness export-readiness
+                                      md-target from-disk to-disk md-dirty? adopt-doc gone-doc poll-outcome save-result]]))
 
 (test "target maps selection payloads to op targets"
   (fn []
@@ -401,7 +402,7 @@
     (assert/equal (chord-action "node" "f" "p") "follow-pair")
     (assert/equal (chord-action "box" "f" "p") "follow-pair")
     (assert/ok (nil? (chord-action "edge" "f" "p")))
-    (assert/equal (chord-hint "node" "f") "f … r follow ref · p follow pair")))
+    (assert/equal (chord-hint "node" "f") "f … r follow ref · p follow pair · m open md")))
 
 (test "theme-menu shows your theme unless the file sets its own (#115)"
   (fn []
@@ -465,3 +466,95 @@
       (assert/equal (:error (export-readiness (assoc base :notice "Render error: ELK blew up")))
                     "Render error: ELK blew up")
       (assert/equal (:ready (export-readiness (assoc base :notice "PNG side is read-only"))) true))))
+
+(test "md-target resolves the selection's :md-ref against the graph file"
+  (fn []
+    (assert/deepEqual (md-target "sub/g.edn" {:kind "node" :attrs {:md-ref "docs/a.md"}})
+                      {:path "sub/docs/a.md"})
+    (assert/deepEqual (md-target "sub/g.edn" {:kind "box" :attrs {:md-ref "../README.MD"}})
+                      {:path "README.MD"})
+    (assert/ok (some? (:error (md-target "g.edn" {:kind "node" :attrs {:md-ref "../out.md"}}))))
+    (assert/ok (some? (:error (md-target "g.edn" {:kind "node" :attrs {:md-ref "notes.txt"}}))))
+    (assert/ok (nil? (md-target "g.edn" {:kind "node" :attrs {:md-ref " "}})))
+    (assert/ok (nil? (md-target "g.edn" {:kind "node" :attrs {}})))))
+
+(test "from-disk and to-disk round-trip CRLF"
+  (fn []
+    (assert/equal (from-disk "a\r\nb\r\n") "a\nb\n")
+    (assert/equal (to-disk "a\nb\n" true) "a\r\nb\r\n")
+    (assert/equal (to-disk "a\nb\n" false) "a\nb\n")))
+
+(def doc-0 {:path "a.md" :full false :saving false})
+
+(test "adopt-doc takes the disk text as clean state"
+  (fn []
+    (let [md (adopt-doc doc-0 {:text "a\r\nb" :version "v1" :exists true})]
+      (assert/equal (:text md) "a\nb")
+      (assert/equal (:saved md) "a\nb")
+      (assert/equal (:base md) "v1")
+      (assert/equal (:crlf md) true)
+      (assert/equal (:exists md) true)
+      (assert/ok (not (md-dirty? md))))
+    (let [md (adopt-doc doc-0 {:text "" :version nil :exists false})]
+      (assert/ok (nil? (:base md)))
+      (assert/equal (:exists md) false)
+      (assert/ok (not (md-dirty? md)) "an untouched new file is not dirty"))))
+
+(test "md-dirty? compares with the last loaded or saved text"
+  (fn []
+    (let [md (adopt-doc doc-0 {:text "x" :version "v1" :exists true})]
+      (assert/ok (not (md-dirty? md)))
+      (assert/ok (md-dirty? (assoc md :text "y")))
+      ;; a vanished file is not brought back by Close unless you edited it
+      (assert/ok (not (md-dirty? (gone-doc md))) "untouched: nothing to save")
+      (assert/ok (md-dirty? (gone-doc (assoc md :text "y"))) "edited: still unsaved")
+      (assert/equal (:exists (gone-doc md)) false)
+      (assert/ok (nil? (:base (gone-doc md))))
+      ;; deleted and written again (git checkout): an untouched panel takes it
+      (assert/equal (poll-outcome (gone-doc md) {:text "z" :version "v2" :exists true}) "take"))))
+
+(test "poll-outcome decides what a fetched doc means"
+  (fn []
+    (let [clean (adopt-doc doc-0 {:text "x" :version "v1" :exists true})
+          dirty (assoc clean :text "mine")]
+      (assert/equal (poll-outcome clean {:text "x" :version "v1" :exists true}) "same")
+      (assert/equal (poll-outcome clean {:text "y" :version "v2" :exists true}) "take")
+      (assert/equal (poll-outcome dirty {:text "y" :version "v2" :exists true}) "conflict")
+      ;; the disk caught up with the local text: no conflict
+      (assert/equal (poll-outcome dirty {:text "mine" :version "v3" :exists true}) "take")
+      (assert/equal (poll-outcome clean {:text "" :version nil :exists false}) "gone")
+      (assert/equal (poll-outcome dirty {:text "" :version nil :exists false}) "gone")
+      ;; a new file still missing; base nil vs version nil (also undefined)
+      (let [fresh (adopt-doc doc-0 {:text "" :version nil :exists false})]
+        (assert/equal (poll-outcome fresh {:text "" :version nil :exists false}) "same")
+        (assert/equal (poll-outcome (dissoc fresh :base) {:text "" :exists false}) "same")
+        (assert/equal (poll-outcome fresh {:text "z" :version "v9" :exists true}) "take")))))
+
+(test "f m opens the md of a node or box"
+  (fn []
+    (assert/equal (chord-action "node" "f" "m") "open-md")
+    (assert/equal (chord-action "box" "f" "m") "open-md")
+    (assert/ok (nil? (chord-action "edge" "f" "m")))
+    (assert/equal (chord-for "node" "open-md") "f m")))
+
+(test "save-result applies a save's response to the doc it saved, only"
+  (fn []
+    (let [md (assoc (adopt-doc doc-0 {:text "a" :version "v1" :exists true}) :text "ab" :saving true)
+          ok (save-result md "a.md" "ab" {:version "v2"})]
+      (assert/equal (:base ok) "v2")
+      (assert/equal (:saved ok) "ab")
+      (assert/equal (:saving ok) false)
+      (assert/ok (not (md-dirty? ok)))
+      ;; typed during the save: what was sent is saved, the rest is not
+      (assert/ok (md-dirty? (save-result (assoc md :text "abc") "a.md" "ab" {:version "v2"})))
+      (let [c (save-result md "a.md" "ab" {:error "changed on disk" :text "x" :version "v9" :exists true})]
+        (assert/equal (:error c) "changed on disk")
+        (assert/deepEqual (:conflict c) {:text "x" :version "v9" :exists true})
+        (assert/equal (:saving c) false))
+      (let [l (save-result md "a.md" "ab" {:error "locked by t"})]
+        (assert/equal (:error l) "locked by t")
+        (assert/ok (nil? (:conflict l))))
+      ;; the panel was closed or switched to another doc meanwhile
+      (assert/ok (nil? (save-result nil "a.md" "ab" {:version "v2"})))
+      (let [other (assoc md :path "b.md")]
+        (assert/equal (save-result other "a.md" "ab" {:version "v2"}) other)))))

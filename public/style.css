@@ -80,6 +80,35 @@ body { margin: 0; font-family: system-ui, sans-serif; overflow: hidden;
 .attr-edit { width: 100%; }
 textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
                      display: block; }
+
+/* the doc panel (:md-ref): docked wider than the inspector — the
+   override moves everything that makes room for the inspector */
+#root.md-open { --inspector-w: max(420px, 45vw); }
+#md-panel { position: fixed; top: 0; right: 0; bottom: 0; width: var(--inspector-w);
+            display: flex; flex-direction: column; background: var(--panel);
+            border-left: 1px solid var(--panel-border); z-index: 5;
+            box-shadow: -2px 0 8px var(--shadow); }
+#md-panel.full { left: 0; width: auto; z-index: 20; border-left: none; }
+#md-panel .md-head { display: flex; align-items: center; gap: 6px; padding: 8px 10px 8px 14px;
+                     border-bottom: 1px solid var(--panel-divider); font-size: 13px; }
+#md-panel .md-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+                     color: var(--text-strong); font-family: ui-monospace, "Cascadia Mono", monospace; }
+#md-panel .md-dirty { color: var(--accent); }
+#md-panel .md-new { color: var(--text-muted); font-size: 11px; }
+#md-panel .md-spacer { flex: 1 1 auto; }
+#md-panel .md-btn { border: 1px solid var(--panel-border); background: var(--panel); color: var(--text);
+                    border-radius: 6px; padding: 3px 9px; font-size: 12px; cursor: pointer; }
+#md-panel .md-btn:hover { border-color: var(--accent); }
+#md-panel .md-btn:disabled { opacity: .5; cursor: default; }
+#md-panel .md-error { display: flex; align-items: center; gap: 8px; padding: 6px 14px; font-size: 12px;
+                      background: #fde8e8; color: #9b1c1c; border-bottom: 1px solid #f8b4b4; }
+#md-panel .md-error-text { flex: 1 1 auto; }
+/* the toolbar centres on the canvas left of the panel, not under it */
+#root.md-open #selection-toolbar { left: calc((100vw - var(--inspector-w)) / 2);
+                                   max-width: calc(100vw - var(--inspector-w) - 24px); }
+#md-text { flex: 1 1 auto; border: none; outline: none; resize: none; padding: 12px 14px;
+           background: var(--panel); color: var(--text);
+           font: 13px/1.5 ui-monospace, "Cascadia Mono", monospace; }
 .attr-btn { flex: none; border: none; background: none; color: var(--text-dim);
             cursor: pointer; font-size: 13px; line-height: 1.2;
             padding: 1px 4px; border-radius: 4px; }

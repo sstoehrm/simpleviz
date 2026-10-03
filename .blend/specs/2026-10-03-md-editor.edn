@@ -1,0 +1,36 @@
+;; md editor — design figure (spec: docs/superpowers/specs/2026-10-03-md-editor-design.md)
+{:nodes {:toolbar {:name "toolbar: open md (f m)" :type "ui"
+                   :note "shown for a node/box with a string :md-ref, EDN-served sessions only"}
+         :panel {:name "md panel" :type "ui"
+                 :note "docked right, wider than the inspector; fullscreen toggle; textarea, Save, Close"}
+         :md-state {:name "md state" :type "state"
+                    :note "{:path :text :saved :base :exists :crlf :conflict :error :full :saving}; a generation counter drops stale polls"}
+         :md-helpers {:name "editor.cljs md helpers" :type "pure"
+                      :note "md-target, from-disk/to-disk, md-dirty?, adopt-doc, gone-doc, poll-outcome, f m chord"}
+         :poll {:name "1s poll while open" :type "state"
+                :note "skipped while saving; clean → take disk text; dirty → conflict (Reload / Overwrite)"}
+         :text-get {:name "GET /api/text" :type "route"
+                    :note "?path=<root-relative .md> → {text, version, exists}"}
+         :text-save {:name "POST /api/text/save" :type "route"
+                     :note "{path, text, base} → {version} | 409 changed | 409 locked | 400 in PNG/SVG sessions"}
+         :resolve {:name "resolve-path (.md)" :type "server"
+                   :note "same rules as graph files; extension .md only"}
+         :locks {:name "advisory locks" :type "server" :note "existing; now also .md paths; a held lock refuses the save"}
+         :guard {:name "edit-guard" :type "server" :note "existing Origin + Content-Type check"}
+         :disk {:name "docs/*.md" :type "file"
+                :note "temp file + atomic rename; missing folders created on first save"}}
+ :edges {[:toolbar :md-state] {:direction :-> :name "open"}
+         [:panel :md-state] {:direction :<-> :name "edit / save / close"}
+         [:md-helpers :md-state] {:direction :-> :name "derives"}
+         [:poll :text-get] {:direction :-> :name "fetch"}
+         [:poll :md-state] {:direction :-> :name "update"}
+         [:md-state :text-save] {:direction :-> :name "save (Ctrl+S, Close)"}
+         [:text-get :resolve] {:direction :->}
+         [:text-save :guard] {:direction :->}
+         [:guard :resolve] {:direction :->}
+         [:text-save :locks] {:direction :-> :name "check"}
+         [:resolve :disk] {:direction :-> :name "read / write"}}
+ :boxes {:browser {:name "Browser (src/simpleviz)" :type "zone"
+                   :components #{:toolbar :panel :md-state :md-helpers :poll}}
+         :server {:name "Server (server/serve.clj)" :type "zone"
+                  :components #{:text-get :text-save :resolve :locks :guard}}}}

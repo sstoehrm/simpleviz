@@ -48,6 +48,8 @@
                   :pending-focus (:focus (editor/parse-nav js/location.search))
                   :focus-center true :flash nil
                   :help false :export-menu false :disconnected false
+                  ;; the open :md-ref doc (open-md!), nil when the panel is closed
+                  :md nil
                   :nav (editor/parse-nav js/location.search) :nav-error nil
                   ;; your theme (#115), for files without :theme
                   :theme-pref (stored-theme)
@@ -78,7 +80,8 @@
 (defn- cancel-id-entry! []
   (swap! state assoc :id-entry nil))
 
-(declare relayout! post-edit! delete! current-edit-target-editable? follow-ref! navigate!)
+(declare relayout! post-edit! delete! current-edit-target-editable? follow-ref! navigate!
+         open-md! save-md! close-md!)
 
 ;; layouts per collapsed-set, so expanding (or re-collapsing a seen
 ;; combination) is instant instead of a multi-second ELK run; demoted
@@ -346,24 +349,31 @@
         ;; only with exactly one pair to follow; several are picked in the inspector
         "follow-pair" (let [ps (working-pairs sel)]
                         (when (= 1 (count ps)) {:label "follow pair" :go-pair (first ps)}))
+        ;; a node or box with a string :md-ref, where the server can
+        ;; navigate (the payload has :path); a bad path explains itself
+        ;; in a banner when clicked rather than hiding the button
+        "open-md" (when (and (some? (editor/ref-of sel :md-ref))
+                             (some? (:path (:graph @state))))
+                    {:label "open md" :md true})
         nil))))
 
 ;; the action-bar buttons per selection kind, in display order
 (def ^:private toolbar-actions
   {"edge" [["retarget" "source"] ["retarget" "target"] "follow-ref"]
    "node" ["add-edge" "add-to-box" "remove-from-box" "new-connected-node" "new-box"
-           "follow-ref" "follow-pair"]
+           "follow-ref" "follow-pair" "open-md"]
    "box" ["add-edge" "add-node-member" "add-box-member" "remove-node-member"
-          "new-node-in-box" "new-box" "follow-ref" "follow-pair"]})
+          "new-node-in-box" "new-box" "follow-ref" "follow-pair" "open-md"]})
 
 (defn- start-action!
   "Do what the toolbar button for `action` does."
   [sel tgt action]
-  (let [{:keys [pick hint id-entry post go go-pair]} (action-spec sel tgt action)]
+  (let [{:keys [pick hint id-entry post go go-pair md]} (action-spec sel tgt action)]
     (cond
       (some? pick) (start-pick! pick hint)
       (some? id-entry) (start-id-entry! id-entry)
       (some? post) (post-edit! post)
+      (some? md) (open-md! sel)
       (some? go) (follow-ref! go)
       (some? go-pair) (follow-pair! go-pair))))
 
@@ -753,15 +763,16 @@
      [:h2 "How to use"]
      (help-section
       "Navigate"
-      "Drag to pan, scroll to zoom. Hover an element to see its name and attributes; click it to inspect and edit them. A double border marks a node with a :ref, a dotted border a node or box with an :md-ref (a linked markdown doc); the mark on a node's corner is its :state — grey disc new, blue half disc in-progress, red square blocked, green check done. The − in a box header collapses the box to a single node — the panel on the left lists collapsed boxes and re-expands them."
+      "Drag to pan, scroll to zoom. Hover an element to see its name and attributes; click it to inspect and edit them. A double border marks a node with a :ref, a dotted border a node or box with an :md-ref (a linked markdown doc — "open md", f m, edits it); the mark on a node's corner is its :state — grey disc new, blue half disc in-progress, red square blocked, green check done. The − in a box header collapses the box to a single node — the panel on the left lists collapsed boxes and re-expands them."
       "A :pair (\"views/deploy.edn#api\", or a vector of them) links a node or box to the same thing in another graph. The ⇄ mark on an element's bottom-left corner shows its pairs — red when one is broken; the inspector lists them, those declared here and those pointing here. Click one, or use \"follow pair\" (f p), to open that graph with the element selected.")
      (help-section
       "Edit"
       "When the served file is editable EDN, the floating toolbar at the bottom holds the tools for the current selection: delete, edge direction, and pick modes such as \"add edge\" (click the other element on the canvas, then name the edge; Esc cancels). New nodes and boxes are created by name: the prompt types a name, and the id is derived from it — lowercased, illegal characters turned into dashes; name::type also sets the type. With nothing selected it creates a standalone node. A :ref attribute naming another graph file (relative path) makes \"follow ref\" open it — in a suffix comparison (simpleviz graph.edn next) it opens that file's own comparison; the trail at the top leads back. Following a ref to an .edn file that does not exist yet creates it as an empty graph — in a comparison the side picked by the old|new toggle."
-      "In the inspector, click a value or its ✎ to edit it inline — Enter commits, Shift+Enter inserts a line break, Escape cancels. × deletes an attribute; the key/value row at the bottom adds one. Ctrl+Z or ↶ undoes the last edit.")
+      "In the inspector, click a value or its ✎ to edit it inline — Enter commits, Shift+Enter inserts a line break, Escape cancels. × deletes an attribute; the key/value row at the bottom adds one. Ctrl+Z or ↶ undoes the last edit."
+      "\"open md\" (f m) opens the markdown file a node's or box's :md-ref names in a text panel on the right; ⤢ makes it fill the window, Esc docks it again. Ctrl+S or Save writes it, and so does closing it (×) or opening another; a missing file is created on the first save. If the file changes on disk while you have unsaved edits, the panel says so — Reload takes the file, Overwrite keeps yours.")
      (help-section
       "Keys"
-      "Two-key chords act on the selection, when no text field has focus (the toolbar buttons show them): d d delete · e 1/2/3/4 edge direction → ← ↔ — · c s / c t change an edge's source / target · a e add edge · a b add to box (node) or add a box as member (box) · a n add a node as member (box) — either moves it out of the box it was in · n n new node (connected to the selected node, or inside the selected box — c n too) · n b new box around the selection · r r rename the id · r n take a node out of the selected box · r b take the selected node out of its box · f r follow the selection's :ref · f p follow the selection's pair. Esc cancels a pending chord; ? toggles this help; Ctrl+Z undoes.")
+      "Two-key chords act on the selection, when no text field has focus (the toolbar buttons show them): d d delete · e 1/2/3/4 edge direction → ← ↔ — · c s / c t change an edge's source / target · a e add edge · a b add to box (node) or add a box as member (box) · a n add a node as member (box) — either moves it out of the box it was in · n n new node (connected to the selected node, or inside the selected box — c n too) · n b new box around the selection · r r rename the id · r n take a node out of the selected box · r b take the selected node out of its box · f r follow the selection's :ref · f p follow the selection's pair · f m open the selection's :md-ref doc (Ctrl+S saves it). Esc cancels a pending chord; ? toggles this help; Ctrl+Z undoes.")
      (help-section
       "Compare"
       "Serving a file with a suffix (simpleviz graph.edn next) renders it against its fork graph-next.edn as one merged diagram: added elements get a green +, modified an amber ~ (select for an old → new list), removed ones stay as red dashed ghosts. Click a legend row to jump through the changes; the old|new toggle picks which file edits apply to.")
@@ -834,9 +845,44 @@
      (item "SVG" "vector" export-svg!)
      [:div {:class "em-note"} "Both embed the source EDN."]]))
 
+(defn- md-panel [st]
+  (let [md (:md st)]
+    [:aside {:id "md-panel" :class (if (:full md) "full" "")}
+     [:div {:class "md-head"}
+      [:span {:class "md-path" :title (:path md)} (:path md)]
+      (when (editor/md-dirty? md) [:span {:class "md-dirty" :title "unsaved changes"} "●"])
+      (when-not (:exists md) [:span {:class "md-new"} "new file"])
+      [:span {:class "md-spacer"}]
+      [:button {:class "md-btn" :type "button"
+                :title (if (:full md) "Dock (Esc)" "Fullscreen")
+                :on-click (fn [e] (.stopPropagation e)
+                            (swap! state assoc-in [:md :full] (not (:full (:md @state)))))}
+       (if (:full md) "⤡" "⤢")]
+      [:button {:class "md-btn" :type "button" :title "Save (Ctrl+S)" :disabled (= true (:saving md))
+                :on-click (fn [e] (.stopPropagation e) (save-md!))}
+       "Save"]
+      [:button {:class "md-btn" :type "button" :title "Save and close" :aria-label "Save and close"
+                :on-click (fn [e] (.stopPropagation e) (close-md!))}
+       "×"]]
+     (when (some? (:error md))
+       [:div {:class "md-error"}
+        [:span {:class "md-error-text"} (:error md)]
+        (when (some? (:conflict md))
+          [:button {:class "md-btn" :type "button" :title "Discard your edits, show the file on disk"
+                    :on-click (fn [e] (.stopPropagation e)
+                                (swap! state update :md editor/adopt-doc (:conflict md)))}
+           "Reload"])
+        (when (some? (:conflict md))
+          [:button {:class "md-btn" :type "button" :title "Save your text over the file on disk"
+                    :on-click (fn [e] (.stopPropagation e) (save-md! true))}
+           "Overwrite"])])
+     [:textarea {:id "md-text" :spellcheck "false" :value (:text md)
+                 :on-input (fn [e] (swap! state assoc-in [:md :text] (.. e -target -value)))}]]))
+
 (defn- app-view [st]
   [:div {:id "root" :class (str (when (some? (:pick st)) "picking")
-                                (when (some? (:selected st)) " inspecting"))}
+                                (cond (some? (:md st)) " inspecting md-open"
+                                      (some? (:selected st)) " inspecting"))}
    (hint-view st)
    (when (and (nil? (:scene st)) (nil? (:error st)))
      (load-view st))
@@ -881,8 +927,8 @@
    (canvas-view)
    (when (and (some? (:scene st)) (current-edit-target-editable? st))
      (selection-toolbar st))
-   (when (some? (:selected st))
-     (details-view st))])
+   (cond (some? (:md st)) (md-panel st)
+         (some? (:selected st)) (details-view st))])
 
 (defn- paint-now! []
   (when-let [canvas-el (js/document.getElementById "canvas")]
@@ -1155,6 +1201,118 @@
         (finally (swap! state assoc :following false))))))
 
 (js/window.addEventListener "popstate" (fn [_] (load-nav!)))
+
+;; ---- the doc panel (:md-ref) ----
+
+;; bumped by every open and save: a poll that started before is stale
+(def ^:private md-gen (atom 0))
+
+(defn- ^:async fetch-doc [path]
+  (let [resp (js-await (js/fetch (str "/api/text?path=" (js/encodeURIComponent path))))]
+    (js-await (.json resp))))
+
+(defn- focus-md! []
+  (when-let [el (js/document.getElementById "md-text")] (.focus el)))
+
+(defn- ^:async save-md!
+  "Write the open doc; `overwrite?` saves over the version the conflict
+  banner found on disk instead of the one the edit started from.
+  Resolves true when the file now holds the text sent — trivially when
+  nothing is unsaved in an existing file. The text sent becomes :saved,
+  so typing during the save stays unsaved."
+  [& [overwrite?]]
+  (let [md (:md @state)]
+    (cond
+      (nil? md) true
+      (and (not overwrite?) (:exists md) (not (editor/md-dirty? md))) true
+      (:saving md) false
+      :else
+      (let [text (:text md)
+            base (if overwrite? (:version (:conflict md)) (:base md))]
+        (swap! state assoc-in [:md :saving] true)
+        (try
+          (let [resp (js-await (js/fetch "/api/text/save"
+                                         {:method "POST"
+                                          :headers {"Content-Type" "application/json"}
+                                          :body (js/JSON.stringify
+                                                 {:path (:path md)
+                                                  :text (editor/to-disk text (:crlf md))
+                                                  :base (or base nil)})}))
+                out (js-await (.json resp))]
+            (swap! md-gen inc)
+            (swap! state update :md editor/save-result (:path md) text out)
+            (and (nil? (:error out)) (some? (:version out))))
+          (catch :default _
+            (swap! state update :md editor/save-result (:path md) text
+                   {:error "save failed: not connected"})
+            false))))))
+
+(defn- ^:async save-if-dirty!
+  "Close and switch save only unsaved text: an untouched new file is
+  not created (an explicit Save does create it). Resolves true when
+  nothing is left unsaved."
+  []
+  (if (editor/md-dirty? (:md @state))
+    (js-await (save-md!))
+    true))
+
+(defn- ^:async open-md!
+  "Open the doc the selection's :md-ref names in the panel; the doc
+  open before is saved first and stays open when that fails."
+  [sel]
+  (let [st @state
+        {:keys [path error]} (or (editor/md-target (:path (:graph st)) sel) {})]
+    (cond
+      (some? error) (swap! state assoc :nav-error error)
+      (nil? path) nil
+      (= path (:path (:md st))) (focus-md!)
+      (js-await (save-if-dirty!))
+      (try
+        (let [out (js-await (fetch-doc path))]
+          (if (some? (:error out))
+            (swap! state assoc :nav-error (str "Can't open " path ": " (:error out)))
+            (do (swap! md-gen inc)
+                (swap! state assoc :md (editor/adopt-doc {:path path :full false :saving false} out))
+                (focus-md!))))
+        (catch :default _
+          (swap! state assoc :nav-error (str "Can't open " path ": not connected")))))))
+
+(defn- ^:async close-md! []
+  (when (js-await (save-if-dirty!))
+    (swap! state assoc :md nil)))
+
+(defn- take-disk!
+  "Show the fetched doc, keeping the caret at its offset (clamped)."
+  [fetched]
+  (let [el (js/document.getElementById "md-text")
+        focused? (and (some? el) (= el (.-activeElement js/document)))
+        pos (when focused? (.-selectionStart el))]
+    (swap! state update :md editor/adopt-doc fetched)
+    (when focused?
+      (let [p (min pos (.-length (.-value el)))]
+        (.setSelectionRange el p p)))))
+
+(defn- ^:async poll-md!
+  "The 1 s check of the open doc: take a changed disk text when nothing
+  is unsaved, flag a conflict when something is. Skipped while a save
+  runs; a result that a save or open overtook is dropped."
+  []
+  (let [md (:md @state)
+        gen @md-gen]
+    (when (and (some? md) (not (:saving md)))
+      (let [out (try (js-await (fetch-doc (:path md))) (catch :default _ nil))
+            cur (:md @state)]
+        (when (and (some? out) (some? cur) (= gen @md-gen)
+                   (= (:path cur) (:path md)) (not (:saving cur)))
+          (if (some? (:error out))
+            (swap! state assoc-in [:md :error] (:error out))
+            (case (editor/poll-outcome cur out)
+              "take" (take-disk! out)
+              "gone" (swap! state update :md editor/gone-doc)
+              "conflict" (swap! state update :md assoc :error "changed on disk"
+                                :conflict {:text (:text out) :version (:version out)
+                                           :exists (:exists out)})
+              nil)))))))
 
 (defn- ^:async post-edit!
   "POST ops to the edit target — or to `file` (\"old\"/\"new\") when given."
@@ -1432,8 +1590,15 @@
 (js/window.addEventListener "keydown"
   (fn [e]
     (cond
+      (and (or (.-ctrlKey e) (.-metaKey e))
+           (= (.toLowerCase (.-key e)) "s")
+           (some? (:md @state)))
+      (do (.preventDefault e) (save-md!))
+
       (= (.-key e) "Escape") (do (cancel-pick!)
-                                 (swap! state assoc :help false :chord nil :export-menu false))
+                                 (swap! state assoc :help false :chord nil :export-menu false)
+                                 (when (:full (:md @state))
+                                   (swap! state assoc-in [:md :full] false)))
       ;; a held key must not complete its own chord
       (.-repeat e) nil
       (and (= (.-key e) "?") (not (typing?)))
@@ -1467,3 +1632,10 @@
 (rerender!)
 (tick)
 (js/setInterval tick 1000)
+(js/setInterval poll-md! 1000)
+;; unsaved doc edits: the browser asks before the tab closes or reloads
+(js/window.addEventListener "beforeunload"
+  (fn [e]
+    (when (editor/md-dirty? (:md @state))
+      (.preventDefault e)
+      (set! (.-returnValue e) ""))))

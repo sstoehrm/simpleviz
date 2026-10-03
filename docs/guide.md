@@ -16,8 +16,9 @@ The README example shows every attribute simpleviz reads.
 - `:ref` links the element to another graph file (see
   [Following refs](#following-refs)). A node with a ref gets a double border.
 - `:md-ref` names a markdown doc that describes a node or box (a spec, an
-  ADR, notes), as a path. It only marks the element with a dotted border;
-  the viewer does not open or check the file.
+  ADR, notes), as a path relative to the file, `.md` only. It draws a
+  dotted border, and "open md" (`f m`) edits the doc (see
+  [Editing docs](#editing-docs)).
 - `:pair` links a node or box to the same thing in another graph file
   (see [Pairs](#pairs)). A paired element gets a ⇄ mark.
 - `:theme` at the top level sets the graph's colors (see [Themes](#themes)).
@@ -153,6 +154,7 @@ chord or pick.
 | `r r` | node, box | rename the id |
 | `f r` | node, edge, box | follow the `:ref` |
 | `f p` | node, box | follow the pair (with several, pick one in the inspector) |
+| `f m` | node, box | open the `:md-ref` doc in the text panel |
 | `?` | any | toggle the help panel |
 
 **Layout and undo.** A relayout after an edit starts from the previous
@@ -163,6 +165,25 @@ per file that all viewers share (100 entries).
 
 **Security.** The server binds to loopback only and accepts writes only from
 its own `localhost`/`127.0.0.1` origin.
+
+## Editing docs
+
+"Open md" (`f m`) opens the `.md` file an element's `:md-ref` names in a
+plain-text panel on the right, wider than the inspector; ⤢ makes it fill
+the window and Esc docks it again. The panel stays open while you select
+other elements or follow refs.
+
+- Ctrl+S (Cmd+S) or Save writes the file, and so do closing the panel and
+  opening another doc. ● marks unsaved changes; closing the browser tab
+  with unsaved changes asks first.
+- A file that doesn't exist yet opens empty, marked "new file", and is
+  created, with its folders, on the first save.
+- The panel follows the file on disk: without unsaved changes it shows
+  what someone else wrote; with unsaved changes it says "changed on disk"
+  — Reload takes the file, Overwrite keeps your text. A save is refused
+  while an agent holds the file's lock.
+- Same path rules as refs: relative to the graph file, never above the
+  served folder. Only `.md` files in UTF-8, up to 1 MiB.
 
 ## Following refs
 

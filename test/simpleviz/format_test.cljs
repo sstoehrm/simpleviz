@@ -1,7 +1,7 @@
 (ns simpleviz.format-test
   (:require ["node:test" :refer [test]]
             ["node:assert/strict$default" :as assert]
-            [simpleviz.format :refer [value->hiccup tab-title]]))
+            [simpleviz.format :refer [value->hiccup tab-title number-vector-text]]))
 
 (test "strings and scalars render plain"
   (fn []
@@ -16,6 +16,18 @@
                       [:ul {:class "dd-list"}
                        [:li {:key "0"} "active"]
                        [:li {:key "1"} "passive"]])))
+
+(test "a vector of numbers reads inline, as in the file"
+  (fn []
+    (assert/equal (value->hiccup [1 0]) "[1 0]")
+    (assert/equal (value->hiccup [0 1 2 1]) "[0 1 2 1]")
+    (assert/equal (value->hiccup [1.5 -2]) "[1.5 -2]")
+    ;; anything else stays a list
+    (assert/equal (first (value->hiccup [1 "a"])) :ul)
+    (assert/equal (first (value->hiccup [])) :ul)
+    (assert/equal (number-vector-text [1 0]) "[1 0]")
+    (assert/ok (nil? (number-vector-text ["a"])))
+    (assert/ok (nil? (number-vector-text "x")))))
 
 (test "a map becomes a list enumerated by its keys"
   (fn []

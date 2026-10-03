@@ -177,7 +177,7 @@
 (defn- fmt-val [v]
   (cond (nil? v) "—"
         (string? v) v
-        :else (js/JSON.stringify v)))
+        :else (or (format/number-vector-text v) (js/JSON.stringify v))))
 
 (defn- autosize!
   "Grow a textarea to fit its content (and shrink back), so a value

@@ -20,10 +20,18 @@
     (some? (:file g)) (str (:file g) " — simpleviz")
     :else "simpleviz"))
 
+(defn number-vector-text
+  "\"[1 0]\" for a non-empty vector of numbers — as it is written in the
+  file, e.g. a :grid cell — else nil."
+  [v]
+  (when (and (vector? v) (pos? (count v)) (every? number? v))
+    (str "[" (.join v " ") "]")))
+
 (defn value->hiccup [v]
   (cond
     (string? v) v
     (nil? v) "—"
+    (some? (number-vector-text v)) (number-vector-text v)
     (vector? v) (into [:ul {:class "dd-list"}]
                       (map-indexed
                        (fn [i x] [:li {:key (str i)} (value->hiccup x)])

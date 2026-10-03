@@ -153,19 +153,26 @@ sessions, a server-side undo stack.
 ### Page
 
 - `editor.cljs` (pure, unit-tested):
-  - `md-path [current-path sel]` — the root-relative doc path for a
-    selection: `resolve-ref` of its `(ref-of sel :md-ref)` against
-    `current-path`; nil when there is none, it leaves the folder, or it
-    is not `.md`.
-  - `poll-outcome [md fetched]` — `:same`, `:take` (adopt disk text),
-    `:conflict`, or `:gone`, from the panel state and a fetch result.
-  - `to-disk [text crlf?]` — the text to send.
-  - `"open-md"` in the chord table (`f m`, node and box) and in
-    `action-spec`.
+  - `md-target [current-path sel]` — nil when the selection has no
+    string `:md-ref`; `{:path p}` (root-relative, via `resolve-ref`
+    against `current-path`) for an `.md` file under the root; else
+    `{:error msg}` ("leaves the served folder" / "is not an .md file"),
+    shown as a banner. The toolbar action shows for any string
+    `:md-ref`, so a bad one explains itself instead of hiding.
+  - `from-disk [text]` / `to-disk [text crlf?]` — the CRLF round-trip.
+  - `md-dirty? [md]` — the text differs from the last loaded or saved
+    text (`:saved`; nil after the file vanished, so anything is dirty).
+  - `adopt-doc [md fetched]` — the panel state after taking a fetched
+    doc as the disk state; `gone-doc [md]` — after the file vanished.
+  - `poll-outcome [md fetched]` — `"same"`, `"take"`, `"conflict"` or
+    `"gone"`.
+  - `"open-md"` in the chord table (`f m`, node and box).
 - `app.cljs`:
-  - State `:md` — nil when closed, else `{:path :text :base :exists
-    :crlf :dirty :conflict :error :full :saving :gen}`; `:conflict`
-    holds the fetched `{:text :version :exists}`.
+  - State `:md` — nil when closed, else `{:path :text :saved :base
+    :exists :crlf :conflict :error :full :saving}`; `:conflict` holds
+    the fetched `{:text :version :exists}`. A module-level generation
+    counter, bumped by every open and save, discards stale polls.
+  - `"open-md"` in `action-spec` and `toolbar-actions` (node, box).
   - `open-md!`, `save-md!` (returns a promise of success), `close-md!`
     (save, then close on success), and the tick extension.
   - `md-panel` view, rendered instead of `details-view` while `:md` is
@@ -198,9 +205,10 @@ sessions, a server-side undo stack.
     held lock, 403 on a foreign Origin, 415 without JSON, 405 on GET,
     400 on a bad path; the file content after each.
   - Lock routes accept a `.md` path.
-- `test/simpleviz/editor_test.cljs`: `md-path` (plain, `..`, escape,
-  non-md, missing), `poll-outcome` (each outcome), `to-disk` (LF and
-  CRLF), the `f m` chord for node, box and edge.
+- `test/simpleviz/editor_test.cljs`: `md-target` (plain, `..`, escape,
+  non-md, none), `poll-outcome` (each outcome), `adopt-doc`,
+  `gone-doc`, `md-dirty?`, `from-disk`/`to-disk` (LF and CRLF), the
+  `f m` chord for node, box and edge.
 - End-to-end in a real browser (`dev/cdp.mjs` or the browser tools):
   open a doc, edit, Ctrl+S, file on disk changed; change the file on
   disk while clean (textarea updates) and while dirty (conflict

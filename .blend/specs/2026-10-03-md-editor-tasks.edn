@@ -1,0 +1,14 @@
+;; md editor — plan tasks (plan: docs/superpowers/plans/2026-10-03-md-editor.md)
+{:nodes {:t1 {:name "1. resolve-path exts; locks accept .md" :state :new}
+         :t2 {:name "2. /api/text + /api/text/save" :state :new}
+         :t3 {:name "3. editor.cljs doc helpers + f m" :state :new}
+         :t4 {:name "4. doc panel, styles, docs" :state :new}
+         :t5 {:name "5. end-to-end check" :state :new}}
+ :edges {[:t1 :t2] {:direction :->}
+         [:t2 :t4] {:direction :->}
+         [:t3 :t4] {:direction :->}
+         [:t4 :t5] {:direction :->}}
+ :boxes {:server {:name "Server (server/serve.clj)" :type "zone"
+                  :ref "2026-10-03-md-editor.edn" :components #{:t1 :t2}}
+         :browser {:name "Browser (src/simpleviz)" :type "zone"
+                   :ref "2026-10-03-md-editor.edn" :components #{:t3 :t4}}}}

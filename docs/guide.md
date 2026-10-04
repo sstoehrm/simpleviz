@@ -61,8 +61,8 @@ without `:theme`. It's saved in this browser, not in any file, and
 
 Built-in themes: `light` and `dark` (the two the OS setting picks from),
 `print` (white, greys, no box fills), `high-contrast`, `blueprint`, `paper`,
-`solarized-light`, `solarized-dark`, `nord`, `dracula`, `carbonfox` and
-`one-dark`.
+`solarized-light`, `solarized-dark`, `nord`, `dracula`, `carbonfox`,
+`one-dark`, `tabak-light` and `tabak-dark`.
 
 | Group | Keys |
 |---|---|

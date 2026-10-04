@@ -1,7 +1,7 @@
 (ns simpleviz.format-test
   (:require ["node:test" :refer [test]]
             ["node:assert/strict$default" :as assert]
-            [simpleviz.format :refer [value->hiccup tab-title]]))
+            [simpleviz.format :refer [value->hiccup tab-title attr->hiccup attr->text]]))
 
 (test "strings and scalars render plain"
   (fn []
@@ -16,6 +16,19 @@
                       [:ul {:class "dd-list"}
                        [:li {:key "0"} "active"]
                        [:li {:key "1"} "passive"]])))
+
+(test ":grid reads inline, as in the file; other vectors stay lists"
+  (fn []
+    (assert/equal (attr->hiccup "grid" [1 0]) "[1 0]")
+    (assert/equal (attr->hiccup "grid" [0 1 2 1]) "[0 1 2 1]")
+    ;; any other attribute keeps the bullet list, numbers or not
+    (assert/equal (first (attr->hiccup "ports" [80 443])) :ul)
+    (assert/equal (first (value->hiccup [1 0])) :ul)
+    ;; a malformed :grid shows as it is
+    (assert/equal (first (attr->hiccup "grid" ["a" 1])) :ul)
+    (assert/equal (attr->hiccup "grid" "x") "x")
+    (assert/equal (attr->text "grid" [1 0]) "[1 0]")
+    (assert/ok (nil? (attr->text "ports" [80 443])))))
 
 (test "a map becomes a list enumerated by its keys"
   (fn []

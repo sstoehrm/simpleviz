@@ -42,6 +42,20 @@
   {"edge" #{"nodes" "direction"}
    "box" #{"components"}})
 
+(defn attr->text
+  "The one-line form of attribute `k`'s value when it has one: a :grid
+  cell of numbers reads as written in the file, \"[1 0]\". Nil for
+  everything else."
+  [k v]
+  (when (and (= k "grid") (vector? v) (pos? (count v)) (every? number? v))
+    (str "[" (.join v " ") "]")))
+
+(defn attr->hiccup
+  "Attribute `k`'s value for the inspector and tooltip: attr->text when
+  it has one, else value->hiccup."
+  [k v]
+  (or (attr->text k v) (value->hiccup v)))
+
 (defn visible-attrs
   "The [key value] attr pairs to show for a selection or scene item —
   anything with :kind and :attrs."

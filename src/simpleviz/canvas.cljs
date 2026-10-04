@@ -103,6 +103,21 @@
             :y (- (/ (.-height rect) 2) (* cy k)))
     (request-paint!)))
 
+(defn to-screen
+  "Screen (canvas-wrap) coordinates of the scene point wx, wy."
+  [wx wy]
+  {:x (+ (* wx (:k view)) (:x view))
+   :y (+ (* wy (:k view)) (:y view))})
+
+(defn pin!
+  "Pan (zoom unchanged) so the scene point wx, wy lands on screen point
+  sx, sy."
+  [wx wy sx sy]
+  (assoc! view
+          :x (- sx (* wx (:k view)))
+          :y (- sy (* wy (:k view))))
+  (request-paint!))
+
 (defn- rounded-rect [ctx x y w h r]
   (.beginPath ctx)
   (.roundRect ctx x y w h r))

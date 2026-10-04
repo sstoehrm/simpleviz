@@ -120,7 +120,33 @@
               (not= k current)
               (.delete layout-cache k))))))
 
+;; the box being collapsed/expanded and where its top-right corner (the
+;; hide-button's anchor) was on screen: when the new layout lands, the
+;; view pans so the corner — and the button — stays put
+(def ^:private pinned-box (atom nil))
+
+(defn- box-item [sc id]
+  (some (fn [it] (when (and (= (:kind it) "box") (= (:id it) id)) it))
+        (or (:items sc) [])))
+
+(defn- pin-box! [box-name]
+  (let [id (str "b:" box-name)
+        it (box-item (:scene @state) id)]
+    (reset! pinned-box
+            (when (some? it)
+              (assoc (canvas/to-screen (+ (:x it) (:w it)) (:y it)) :id id)))))
+
+(defn- keep-pinned!
+  "Pan so the pinned box's top-right corner in the freshly applied scene
+  sc sits where it was on screen before the toggle; then drop the pin."
+  [sc]
+  (when-let [{:keys [id x y]} @pinned-box]
+    (reset! pinned-box nil)
+    (when-let [it (box-item sc id)]
+      (canvas/pin! (+ (:x it) (:w it)) (:y it) x y))))
+
 (defn- collapse-box! [box-name]
+  (pin-box! box-name)
   (swap! state (fn [st]
                  (let [collapsed (conj (:collapsed-boxes st) box-name)]
                    (assoc st
@@ -135,6 +161,7 @@
   (relayout!))
 
 (defn- expand-box! [box-name]
+  (pin-box! box-name)
   (swap! state (fn [st] (assoc st :collapsed-boxes (disj (:collapsed-boxes st) box-name)
                                :selected nil)))
   (relayout!))
@@ -984,7 +1011,8 @@
           ck (cache-key collapsed)
           hit (.get layout-cache ck)]
       (if (and (some? hit) (some? (:scene hit)))
-        (do (swap! state (fn [st]
+        (do (keep-pinned! (:scene hit))
+            (swap! state (fn [st]
                            (refresh-selection
                             (assoc st :colors (:colors hit) :layout (:layout hit)
                                    :scene (:scene hit) :layouting false :diff-cursors {})
@@ -1029,7 +1057,8 @@
               (.set layout-cache ck {:fingerprint fp :colors cmap
                                      :layout layout :scene sc})
               (if (= ck (cache-key (:collapsed-boxes @state)))
-                (do (swap! state (fn [st]
+                (do (keep-pinned! sc)
+                    (swap! state (fn [st]
                                    (refresh-selection
                                     (assoc st :colors cmap :layout layout :scene sc
                                            :layouting false :diff-cursors {})

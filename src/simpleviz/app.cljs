@@ -174,10 +174,10 @@
                         [:span {:class "cp-plus"} "+"]]))
                    (vec (sort (js/Array.from collapsed)))))])))
 
-(defn- fmt-val [v]
+(defn- fmt-val [k v]
   (cond (nil? v) "—"
         (string? v) v
-        :else (or (format/number-vector-text v) (js/JSON.stringify v))))
+        :else (or (format/attr->text k v) (js/JSON.stringify v))))
 
 (defn- autosize!
   "Grow a textarea to fit its content (and shrink back), so a value
@@ -236,7 +236,7 @@
    (if (= k (:attr editing))
      (edit-field k editing (fn [text] (commit-attr! sel tgt k text scalar true)) false)
      [:span {:on-click (fn [_] (start-editing! k (editor/value->edn-text v)))}
-      [:span {:class "attr-val"} (format/value->hiccup v)]
+      [:span {:class "attr-val"} (format/attr->hiccup k v)]
       [:button {:class "attr-btn" :type "button" :title "Edit value"
                 :on-click (fn [e]
                             (.stopPropagation e)
@@ -471,7 +471,7 @@
               (mapcat (fn [[k v]]
                         [[:dt {:key (str "ct" k)} k]
                          [:dd {:key (str "cd" k)}
-                          (str (fmt-val (:old v)) " → " (fmt-val (:new v)))]])
+                          (str (fmt-val k (:old v)) " → " (fmt-val k (:new v)))]])
                       (js/Object.entries (:changed sel))))])
      (pairs-view sel)
      (into [:dl]
@@ -485,7 +485,7 @@
                       [[:dt {:key (str "t" k)} k]
                        (if editable
                          (attr-edit-row sel tgt k v (editor/scalar? v) editing)
-                         [:dd {:key (str "d" k)} (format/value->hiccup v)])])
+                         [:dd {:key (str "d" k)} (format/attr->hiccup k v)])])
                     (format/visible-attrs sel))))
      (when editable (attr-add-row sel tgt))]))
 
@@ -667,7 +667,7 @@
      (into [:dl]
            (mapcat (fn [[k v]]
                      [[:dt {:key (str "t" k)} k]
-                      [:dd {:key (str "d" k)} (format/value->hiccup v)]])
+                      [:dd {:key (str "d" k)} (format/attr->hiccup k v)]])
                    (:attrs tip))))])
 
 (defn- place-tooltip!

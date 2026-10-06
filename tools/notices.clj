@@ -3,7 +3,8 @@
   the jar must be named (as group/artifact) in THIRD-PARTY-NOTICES.md.
   Two sources name them: the jar's META-INF/maven metadata, and the jar
   stage's resolved classpath, which also shows the libraries that ship
-  without that metadata, such as malli (#96)."
+  without that metadata, such as malli (#96). The classpath also gives
+  each library's version, which the notices table must match."
   (:require [babashka.fs :as fs]
             [clojure.string :as str]))
 
@@ -17,22 +18,22 @@
        distinct sort vec))
 
 (defn- maven-lib
-  "group/artifact of a jar at <m2>/<group dirs>/<artifact>/<version>/
-  <artifact>-<version>.jar, nil for any other path."
+  "[group/artifact version] of a jar at <m2>/<group dirs>/<artifact>/
+  <version>/<artifact>-<version>.jar, nil for any other path."
   [m2 entry]
   (when (fs/starts-with? entry m2)
     (let [parts (mapv str (fs/components (fs/relativize m2 entry)))
           [artifact version file] (take-last 3 parts)
           group (drop-last 3 parts)]
       (when (and (seq group) (= file (str artifact "-" version ".jar")))
-        (str (str/join "." group) "/" artifact)))))
+        [(str (str/join "." group) "/" artifact) version]))))
 
-(defn classpath-libs
-  "group/artifact of every library on classpath `cp` (entries joined by
-  the path separator), in classpath order. Entries under `stage`, the
-  jar stage's own folders, are skipped. Anything that isn't a jar in the
-  Maven repository `m2` throws: a kind of dependency this check can't
-  name must not reach the jar unnoticed."
+(defn classpath-versions
+  "[group/artifact version] of every library on classpath `cp` (entries
+  joined by the path separator), in classpath order. Entries under
+  `stage`, the jar stage's own folders, are skipped. Anything that isn't
+  a jar in the Maven repository `m2` throws: a kind of dependency this
+  check can't name must not reach the jar unnoticed."
   [cp {:keys [stage m2]}]
   (->> (str/split (str/trim cp) (re-pattern (java.util.regex.Pattern/quote java.io.File/pathSeparator)))
        (remove str/blank?)
@@ -43,8 +44,34 @@
                                         " only knows jars in " m2)
                                    {:entry entry})))))))
 
+(defn classpath-libs
+  "group/artifact of every library on classpath `cp`, in classpath order;
+  see `classpath-versions`."
+  [cp opts]
+  (mapv first (classpath-versions cp opts)))
+
 (defn missing
   "The libraries in `libs` that `notices` (the notices file's text) does
   not mention, distinct and sorted."
   [libs notices]
   (->> libs distinct (remove #(str/includes? notices %)) sort vec))
+
+(defn table-versions
+  "{group/artifact version} from the notices' table rows that start
+  `| group/artifact | version |`."
+  [notices]
+  (into {} (map (comp vec rest))
+        (re-seq #"(?m)^\|\s*([^|\s]+/[^|\s]+)\s*\|\s*([^|\s]+)\s*\|" notices)))
+
+(defn stale
+  "A message for each [group/artifact version] in `versions` whose row
+  in the notices table gives another version, or none; sorted."
+  [versions notices]
+  (let [table (table-versions notices)]
+    (->> versions
+         (keep (fn [[lib version]]
+                 (let [listed (get table lib)]
+                   (when (not= version listed)
+                     (str lib ": the table says " (or listed "no version")
+                          ", the jar bundles " version)))))
+         distinct sort vec)))

@@ -10,8 +10,9 @@ Copyright (c) the Eclipse Layout Kernel and elkjs contributors.
 
 Licensed under the Eclipse Public License 2.0 (full text below); elkjs is
 dual-licensed EPL-2.0 OR GPL-3.0-or-later, and simpleviz uses it under EPL-2.0.
-Source code: https://github.com/kieler/elkjs (JavaScript build) and
-https://github.com/eclipse-elk/elk (the underlying Java sources).
+Version: 0.12.0 (recorded in `public/vendor/package.json`).
+Source code: https://github.com/kieler/elkjs/releases/tag/0.12.0 (JavaScript
+build) and https://github.com/eclipse-elk/elk (the underlying Java sources).
 
 ## squint-cljs runtime (`public/js/vendor/squint-cljs/`)
 
@@ -48,20 +49,23 @@ Licensed under the MIT License:
 ## Server dependencies
 
 The tarball declares metosin/malli as a dependency; babashka downloads it
-and its dependencies from Maven Central on the user's machine.
+and its dependencies from Clojars and Maven Central on the user's machine.
 
 `simpleviz.jar`, the release jar for bbin, bundles them:
 
-| Library | Licence |
-|---|---|
-| metosin/malli | Eclipse Public License 2.0 (full text below) |
-| borkdude/dynaload | Eclipse Public License 1.0 (full text below) |
-| borkdude/edamame | Eclipse Public License 1.0 |
-| fipp/fipp | Eclipse Public License 1.0 |
-| org.clojure/core.rrb-vector | Eclipse Public License 1.0 |
-| org.clojure/test.check | Eclipse Public License 1.0 |
-| org.clojure/tools.reader | Eclipse Public License 1.0 |
-| mvxcvi/arrangement | The Unlicense (public domain) |
+| Library | Version | Licence | Source |
+|---|---|---|---|
+| metosin/malli | 0.20.2 | Eclipse Public License 2.0 (full text below) | [Clojars](https://clojars.org/metosin/malli) |
+| borkdude/dynaload | 0.3.5 | Eclipse Public License 1.0 (full text below) | [Clojars](https://clojars.org/borkdude/dynaload) |
+| borkdude/edamame | 1.6.44 | Eclipse Public License 1.0 | [Clojars](https://clojars.org/borkdude/edamame) |
+| fipp/fipp | 0.6.29 | Eclipse Public License 1.0 | [Clojars](https://clojars.org/fipp/fipp) |
+| org.clojure/core.rrb-vector | 0.1.2 | Eclipse Public License 1.0 | [Maven Central](https://central.sonatype.com/artifact/org.clojure/core.rrb-vector) |
+| org.clojure/test.check | 1.1.3 | Eclipse Public License 1.0 | [Maven Central](https://central.sonatype.com/artifact/org.clojure/test.check) |
+| org.clojure/tools.reader | 1.5.2 | Eclipse Public License 1.0 | [Maven Central](https://central.sonatype.com/artifact/org.clojure/tools.reader) |
+| mvxcvi/arrangement | 2.1.0 | The Unlicense (public domain) | [Clojars](https://clojars.org/mvxcvi/arrangement) |
+
+Sources for each listed library are available from Clojars or Maven
+Central (as listed) under the coordinates and versions above.
 
 ---
 

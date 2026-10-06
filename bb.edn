@@ -130,16 +130,22 @@
                                                              [java.nio.file.StandardCopyOption/REPLACE_EXISTING])))
                     ;; every library packed into the jar needs a notice: the jar's
                     ;; Maven metadata names most of them, the stage's resolved
-                    ;; classpath all of them, malli included (it has no metadata)
+                    ;; classpath all of them, malli included (it has no metadata),
+                    ;; and the table must list each one's resolved version
                     (let [in-meta (with-open [z (java.util.zip.ZipFile. jar)]
                                     (notices/metadata-libs (map (fn [e] (.getName e)) (enumeration-seq (.entries z)))))
                           cp (:out (shell {:dir (str stage) :out :string}
                                           "bb" "-e" "(print (babashka.classpath/get-classpath))"))
-                          on-cp (notices/classpath-libs cp {:stage (str (fs/real-path stage))
-                                                            :m2 (str (fs/path (fs/home) ".m2" "repository"))})
-                          missing (notices/missing (concat in-meta on-cp) (slurp "THIRD-PARTY-NOTICES.md"))]
+                          versions (notices/classpath-versions cp {:stage (str (fs/real-path stage))
+                                                                   :m2 (str (fs/path (fs/home) ".m2" "repository"))})
+                          text (slurp "THIRD-PARTY-NOTICES.md")
+                          missing (notices/missing (concat in-meta (map first versions)) text)
+                          stale (notices/stale versions text)]
                       (when (seq missing)
-                        (println (str "THIRD-PARTY-NOTICES.md does not mention: " (str/join ", " missing)))
+                        (println (str "THIRD-PARTY-NOTICES.md does not mention: " (str/join ", " missing))))
+                      (doseq [s stale]
+                        (println (str "THIRD-PARTY-NOTICES.md is stale: " s)))
+                      (when (or (seq missing) (seq stale))
                         (System/exit 1)))
                     (println (str "created " jar " (" version ")")))}
   jar:smoke {:doc "Build the jar and run it the way bbin's shim does: --version (also beside a bb.edn), check, demo --no-open"

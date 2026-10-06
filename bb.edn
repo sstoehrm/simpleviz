@@ -1,5 +1,5 @@
 {:paths ["server" "test" "tools" "."]
- :deps {metosin/malli {:mvn/version "0.19.1"}}
+ :deps {metosin/malli {:mvn/version "0.20.2"}}
  :tasks
  {:init (defn release-version
           "The version a release artifact carries: the task's first argument,

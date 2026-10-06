@@ -4,6 +4,6 @@
   "type": "module",
   "devDependencies": {
     "reagami": "^0.2.41",
-    "squint-cljs": "^0.14.210"
+    "squint-cljs": "^0.14.211"
   }
 }

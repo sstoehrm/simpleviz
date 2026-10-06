@@ -265,6 +265,17 @@
     (assert/equal (:md-ref? (node-with {:md-ref 3})) false)
     (assert/equal (:md-ref? (node-with {:ref "sub/api.edn"})) false)))
 
+(test "a node of type database is flagged :database?"
+  (fn []
+    (let [typed (fn [t attrs]
+                  (let [g (assoc-in graph [:nodes "b"] {:id "b" :name "b" :type t :attrs attrs})
+                        sc (build-scene {:layout layout :graph g :colors colors})]
+                    (first (filterv (fn [it] (= (:id it) "n:b")) (:items sc)))))]
+      (assert/equal (:database? (typed "database" {})) true)
+      (assert/equal (:database? (typed "DataBase" {})) true)
+      (assert/equal (:database? (typed "db" {})) false)
+      (assert/equal (:database? (typed "" {})) false))))
+
 (defn- box-with [attrs]
   (let [g (assoc-in graph [:boxes-by-name "grp" :attrs] attrs)
         sc (build-scene {:layout layout :graph g :colors colors})]

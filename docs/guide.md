@@ -10,6 +10,8 @@ The README example shows every attribute simpleviz reads.
 - `:name` defaults to the key. `:type` colors a node's name or a box (boxes
   have their own palette), and a type keeps its color across restarts and
   edits. Any other attribute shows only in the inspector.
+- A node of `:type "database"` (in any case) is drawn as the database
+  symbol, a cylinder.
 - `:state` — `:new`, `:in-progress`, `:blocked` or `:done` — puts a mark on
   the node's top-right corner: grey disc, blue half disc, red square, green
   disc with a check. Any other value is an ordinary attribute.

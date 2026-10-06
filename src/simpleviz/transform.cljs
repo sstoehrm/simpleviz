@@ -1,4 +1,5 @@
-(ns simpleviz.transform)
+(ns simpleviz.transform
+  (:require [simpleviz.scene :as scene]))
 
 ;; Builds the ELK JSON graph from a validated graph. Text measurement is
 ;; injected so this namespace stays DOM-free and testable.
@@ -33,7 +34,9 @@
                                 (if typed? (measure (str "(" (:type n) ")") SUB-FONT) 0))]
                      {:id (str "n:" (:id n))
                       :width (+ (js/Math.ceil w) 24)
-                      :height (if typed? 44 30)}))
+                      :height (cond-> (if typed? 44 30)
+                                ;; the cylinder's top and bottom rims
+                                (scene/database? (:type n)) (+ (* 2 scene/DB-RIM)))}))
         box-elk (fn box-elk [b]
                   ;; empty boxes (e.g. compare-mode removed shells) must not
                   ;; reach ELK as childless compounds — those lay out as 0×0

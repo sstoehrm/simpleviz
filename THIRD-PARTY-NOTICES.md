@@ -8,7 +8,8 @@ components. simpleviz itself is MIT-licensed (see LICENSE).
 Eclipse Layout Kernel (ELK), JavaScript build.
 Copyright (c) the Eclipse Layout Kernel and elkjs contributors.
 
-Licensed under the Eclipse Public License 2.0 (full text below).
+Licensed under the Eclipse Public License 2.0 (full text below); elkjs is
+dual-licensed EPL-2.0 OR GPL-3.0-or-later, and simpleviz uses it under EPL-2.0.
 Source code: https://github.com/kieler/elkjs (JavaScript build) and
 https://github.com/eclipse-elk/elk (the underlying Java sources).
 

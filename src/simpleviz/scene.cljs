@@ -225,6 +225,8 @@
                                   :w (:width lbl) :h (:height lbl)
                                   :bbox (rect-bbox lx ly (:width lbl) (:height lbl))
                                   :text (:text lbl)
+                                  ;; runs along a vertical edge, turned 90°
+                                  :rotated (= true (:rotated lbl))
                                   :diff (when (some? e) (:diff e))})))))
       {:items (.concat boxes edge-items label-items nodes)
        :width (or (:width layout) 0)

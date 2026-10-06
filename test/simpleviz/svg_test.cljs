@@ -269,3 +269,19 @@
                        "</metadata>\n"
                        "<rect width=\"10\" height=\"20\" fill=\"#fafafa\"/>\n"
                        "</svg>\n"))))
+
+(test "text drawn under a rotation turns with it; upright text gets no transform"
+  (fn []
+    (let [r (rec)]
+      (set! (.-font r) "11px sans-serif")
+      (.fillText r "up" 5 6)
+      (.save r)
+      (.translate r 100 50)
+      (.rotate r (/ js/Math.PI -2))
+      (.fillText r "turned" 0 4)
+      (.restore r)
+      (let [[upright turned] (.split (svg/markup r) "\n")]
+        (assert/ok (not (.includes upright "transform")) upright)
+        ;; (0, 4) turned by -90° lands 4 right of (100, 50)
+        (assert/ok (.includes turned "x=\"104\" y=\"50\"") turned)
+        (assert/ok (.includes turned "transform=\"rotate(-90 104 50)\"") turned)))))

@@ -92,11 +92,12 @@
 (def ^:private anchors {"center" "middle" "right" "end" "end" "end"})
 
 (defn- text-el
-  "A <text> at the transformed (x, y). The glyphs themselves are never
-  rotated — the painter draws no text under a rotation."
+  "A <text> at the transformed (x, y), its glyphs turned with the
+  transform when that rotates (an edge label along a vertical edge)."
   [rec m txt x y paint]
   (let [[px py] (xf m x y)
-        f (parse-font (:font rec))]
+        f (parse-font (:font rec))
+        deg (round2 (/ (* 180 (js/Math.atan2 (nth m 1) (nth m 0))) js/Math.PI))]
     (str "<text" (attrs (-> [["x" (round2 px)] ["y" (round2 py)]
                              ["text-anchor" (get anchors (:textAlign rec) "start")]
                              ["font-style" (:style f)] ["font-weight" (:weight f)]
@@ -105,7 +106,8 @@
                              ;; as one; SVG collapses and trims them unless
                              ;; the <text> itself (Chromium ignores an
                              ;; ancestor's) says preserve
-                             ["xml:space" (when (re-find #"^ | $|  |[\t\n\r]" (str txt)) "preserve")]]
+                             ["xml:space" (when (re-find #"^ | $|  |[\t\n\r]" (str txt)) "preserve")]
+                             ["transform" (when (not= 0 deg) (str "rotate(" deg " " (round2 px) " " (round2 py) ")"))]]
                             (into paint)
                             (conj ["opacity" (opacity rec)])))
          ">" (esc txt) "</text>")))
@@ -120,7 +122,8 @@
   and globalAlpha, and beginPath, moveTo, lineTo, arc, rect, roundRect
   (positive size, one radius), closePath, fill, stroke, fillText,
   strokeText, measureText, setLineDash, save, restore, translate and
-  rotate (translate/rotate only, so the transform stays rigid). Each
+  rotate (translate/rotate only, so the transform stays rigid; text
+  drawn under a rotation turns with it). Each
   fill, stroke, fillText and strokeText records an SVG element with the
   paint state of that moment; a stroke right after a fill of the same
   opaque path joins the fill's element. measure is (fn [text font] width),

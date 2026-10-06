@@ -376,29 +376,36 @@
   a horizontal one, right of a vertical one) within the segment; then on
   the other side; then sliding past the segment's ends — segments
   longest first within a round, each from its centre outwards. Nothing
-  clear: the longest segment's centre."
-  [points w h & [taken]]
+  clear: the longest segment's centre. `rotate?`: on a vertical segment
+  the label runs along it, turned 90° (h wide, w tall) — the result then
+  also carries the rect's :w :h and :rotated."
+  [points w0 h0 & [taken rotate?]]
   (let [points (simplify points)
         taken (or taken [])
         segs (sort-by (fn [[a b]] (- (+ (js/Math.abs (- (:x b) (:x a))) (js/Math.abs (- (:y b) (:y a))))))
                       (mapv (fn [i] [(nth points i) (nth points (inc i))]) (range (dec (count points)))))
         spots (fn [[a b] other-side? bounded?]
                 (let [horiz? (= (:y a) (:y b))
+                      turned? (and rotate? (not horiz?))
+                      w (if turned? h0 w0)
+                      h (if turned? w0 h0)
                       lo (if horiz? (min (:x a) (:x b)) (min (:y a) (:y b)))
                       hi (if horiz? (max (:x a) (:x b)) (max (:y a) (:y b)))
                       size (if horiz? w h)
                       step (+ size 4)
                       start (- (/ (+ lo hi) 2) (/ size 2))
-                      at (fn [v] (if horiz?
-                                   {:x v :y (if other-side? (+ (:y a) 2) (- (:y a) h 2))}
-                                   {:x (if other-side? (- (:x a) w 4) (+ (:x a) 4)) :y v}))
+                      at (fn [v] (cond-> (if horiz?
+                                           {:x v :y (if other-side? (+ (:y a) 2) (- (:y a) h 2))}
+                                           {:x (if other-side? (- (:x a) w 4) (+ (:x a) 4)) :y v})
+                                   rotate? (assoc :w w :h h :rotated turned?)))
                       fits? (fn [v] (or (not bounded?) (and (>= v lo) (<= (+ v size) hi))))
                       n (if bounded? (js/Math.ceil (/ (- hi lo) step)) 6)]
                   (into [(at start)]
                         (mapcat (fn [k] (keep (fn [v] (when (fits? v) (at v)))
                                               [(+ start (* k step)) (- start (* k step))]))
                                 (range 1 (inc n))))))
-        clear? (fn [p] (not (some (fn [t] (overlaps? (assoc p :w w :h h) t)) taken)))
+        clear? (fn [p] (not (some (fn [t] (overlaps? (assoc p :w (or (:w p) w0) :h (or (:h p) h0)) t))
+                                  taken)))
         round (fn [other-side? bounded?]
                 (some (fn [seg] (some (fn [p] (when (clear? p) p)) (spots seg other-side? bounded?))) segs))]
     (or (round false true) (round true true) (round false false) (round true false)
@@ -472,6 +479,34 @@
            :children (mapv (fn [ch] (assoc ch :ports [])) (:children c))
            :edges (filterv (fn [e] (not (:port e))) (:edges c)))))
 
+(def SQUARE-RATIO
+  "A box laid out wider than this many times its height also tries
+  top-to-bottom (layout-grid's :square)."
+  1.3)
+
+(def WRAP-OPTIONS
+  "ELK options that wrap a long left-to-right layout into rows stacked
+  top to bottom, aiming at about this width:height."
+  {"elk.layered.wrapping.strategy" "MULTI_EDGE"
+   "elk.aspectRatio" "1.6"})
+
+(defn squareness
+  "How far an ELK result is from square: 0 for square, growing either way."
+  [r]
+  (js/Math.abs (js/Math.log (/ (max 1 (:width r)) (max 1 (:height r))))))
+
+(defn turned-labels
+  "A copy of ELK input `run` whose edge labels are turned 90°: as tall as
+  their text is long, as wide as a line — for a top-to-bottom layout, so
+  each label runs along its vertical edge."
+  [run]
+  (let [c (js/JSON.parse (js/JSON.stringify run))]
+    (assoc c :edges (mapv (fn [e] (if (seq (:labels e))
+                                    (assoc e :labels (mapv (fn [lb] (assoc lb :width (:height lb) :height (:width lb)))
+                                                           (:labels e)))
+                                    e))
+                          (or (:edges c) [])))))
+
 (defn- select-keys*
   "Map m restricted to keys ks (JS-object keys)."
   [m ks]
@@ -486,8 +521,14 @@
   (its :runs) — ELK's interactive mode re-places a box's ports, so even
   a seeded run of an unchanged box could move its contents; a changed
   box is seeded with the previous positions. The result carries :runs
-  {id {:key input-json :result elk-result}} for the next call."
-  [graph elk-graph run-elk prev]
+  {id {:key input-json :result elk-result :dir ..}} for the next call.
+  `opts` (compact mode, all off by default): :square — a box laid out
+  much wider than tall is also tried top-to-bottom, and the squarer
+  result kept; a box keeps the direction it had in `prev`. Labels in a
+  top-to-bottom box run along its vertical edges, turned (:rotated).
+  :wrap-strip — the strip wraps into rows rather than one long line.
+  :rotate-labels — labels between cells on a vertical stretch turn too."
+  [graph elk-graph run-elk prev & [opts]]
   (let [positions (when (some? prev) (layout-positions prev))
         prev-runs (or (when (some? prev) (:runs prev)) {})
         po (:parent-of graph)
@@ -540,6 +581,23 @@
     ;; one ELK run per placed compound element, one for the strip
     (let [run-ids (filterv compound? (into (vec (js/Object.keys cells)) loose))
           runs {}
+          solve (fn [input run]
+                  ;; ELK writes into its input: hand it a copy, so the
+                  ;; caller's elk-graph (and the next call's keys) stay clean
+                  (-> (run-elk (js/JSON.parse (js/JSON.stringify input)))
+                      ;; some port mixes make ELK throw in one direction
+                      ;; and not in another (sides stay fixed); last
+                      ;; resort: no ports, the edges leave from the border
+                      (.catch (fn [_] (run-elk (with-direction input "DOWN"))))
+                      (.catch (fn [_] (run-elk (with-direction input "LEFT"))))
+                      (.catch (fn [_] (run-elk (with-direction input "UP"))))
+                      (.catch (fn [_] (run-elk (portless run))))))
+          ;; :square — the top-to-bottom try, its labels turned to run
+          ;; along the vertical edges; a run that fails keeps `fallback`
+          solve-down (fn [input fallback]
+                       (-> (run-elk (turned-labels (with-direction input "DOWN")))
+                           (.then (fn [r] {:result r :dir "DOWN"}))
+                           (.catch (fn [_] fallback))))
           run-of (fn [id run]
                    (let [k (js/JSON.stringify run)
                          old (get prev-runs id)]
@@ -547,18 +605,26 @@
                        (do (assoc! runs id old) (js/Promise.resolve (:result old)))
                        (let [rel (when (and (some? positions) (not= id "strip"))
                                    (run-positions positions po id))
-                             input (if (and (some? rel) (seedable? run rel)) (seed-layout run rel) run)]
-                         ;; ELK writes into its input: hand it a copy, so the
-                         ;; caller's elk-graph (and the next call's keys) stay clean
-                         (-> (run-elk (js/JSON.parse (js/JSON.stringify input)))
-                             ;; some port mixes make ELK throw in one direction
-                             ;; and not in another (sides stay fixed); last
-                             ;; resort: no ports, the edges leave from the border
-                             (.catch (fn [_] (run-elk (with-direction input "DOWN"))))
-                             (.catch (fn [_] (run-elk (with-direction input "LEFT"))))
-                             (.catch (fn [_] (run-elk (with-direction input "UP"))))
-                             (.catch (fn [_] (run-elk (portless run))))
-                             (.then (fn [r] (assoc! runs id {:key k :result r}) r)))))))
+                             input (if (and (some? rel) (seedable? run rel)) (seed-layout run rel) run)
+                             square? (and (:square opts) (not= id "strip"))]
+                         (-> (cond
+                               (not square?) (.then (solve input run) (fn [r] {:result r}))
+                               ;; an edit keeps the box's direction, so it doesn't flip
+                               (= "DOWN" (:dir old)) (solve-down input nil)
+                               (= "RIGHT" (:dir old)) (.then (solve input run) (fn [r] {:result r :dir "RIGHT"}))
+                               :else
+                               (.then (solve input run)
+                                      (fn [r]
+                                        (let [right {:result r :dir "RIGHT"}]
+                                          (if (> (/ (:width r) (max 1 (:height r))) SQUARE-RATIO)
+                                            (.then (solve-down input right)
+                                                   (fn [d] (if (< (squareness (:result d)) (squareness r)) d right)))
+                                            right)))))
+                             ;; a failed top-to-bottom edit run: left-to-right after all
+                             (.then (fn [d] (or d (.then (solve input run) (fn [r] {:result r :dir "RIGHT"})))))
+                             (.then (fn [d]
+                                      (assoc! runs id (assoc d :key k))
+                                      (:result d))))))))
           results (js-await (js/Promise.all
                              (mapv (fn [id] (run-of id (element-run (:layoutOptions elk-graph) (get kids id)
                                                                     (or (get ports id) []) (or (get inner id) []))))
@@ -568,8 +634,9 @@
           strip-res (when (pos? (count strip))
                       (js-await (run-of "strip"
                                         {:id "root"
-                                         :layoutOptions (assoc (:layoutOptions elk-graph)
-                                                               "elk.padding" "[top=0,left=0,bottom=0,right=0]")
+                                         :layoutOptions (cond-> (assoc (:layoutOptions elk-graph)
+                                                                       "elk.padding" "[top=0,left=0,bottom=0,right=0]")
+                                                          (:wrap-strip opts) (merge WRAP-OPTIONS))
                                          :children (mapv (fn [id] (get kids id)) strip)
                                          :edges strip-edges})))
           node-of (fn [id] (if-let [r (get res id)] (first (:children r)) (get kids id)))
@@ -678,10 +745,13 @@
                   run-edges (vec (mapcat (fn [id]
                                            (let [r (get res id)
                                                  rp (layout-positions r)
+                                                 down? (= "DOWN" (:dir (get runs id)))
                                                  {:keys [ox oy]} (run-offset id (get places id))]
                                              (keep (fn [e]
                                                      (when-not (.has port-edge-ids (:id e))
-                                                       (root-edge (.get orig (:id e)) (abs-points e rp ox oy) (abs-labels e rp ox oy))))
+                                                       (root-edge (.get orig (:id e)) (abs-points e rp ox oy)
+                                                                  (cond->> (abs-labels e rp ox oy)
+                                                                    down? (mapv (fn [lb] (assoc lb :rotated true)))))))
                                                    (:edges r))))
                                          (js/Object.keys res)))
                   strip-edges' (if (some? strip-res)
@@ -717,9 +787,12 @@
                                             lb (first (or (:labels e) []))]
                                         (root-edge (:id e) ps
                                                    (if (some? lb)
-                                                     (let [at (label-at ps (:width lb) (:height lb) taken)]
-                                                       (.push taken {:x (:x at) :y (:y at) :w (:width lb) :h (:height lb)})
-                                                       [(merge lb at)])
+                                                     (let [at (label-at ps (:width lb) (:height lb) taken (:rotate-labels opts))
+                                                           w (or (:w at) (:width lb))
+                                                           h (or (:h at) (:height lb))]
+                                                       (.push taken {:x (:x at) :y (:y at) :w w :h h})
+                                                       [(cond-> (assoc lb :x (:x at) :y (:y at) :width w :height h)
+                                                          (:rotated at) (assoc :rotated true))])
                                                      []))))
                                     ends)
                   strip-w (if (some? strip-res) (+ sx (:width strip-res) MARGIN) 0)]

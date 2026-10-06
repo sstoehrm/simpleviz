@@ -178,6 +178,29 @@
       {:value (or pref "") :file false :disabled false
        :title "Your theme, for every graph without :theme (saved in this browser)"})))
 
+(def LAYOUTS
+  "The layout algorithms, as the menu lists them: [name label]."
+  [["layered" "layered"] ["compact" "compact"]])
+
+(defn- layout-name? [v] (some (fn [[n _]] (= n v)) LAYOUTS))
+
+(defn effective-layout
+  "The layout algorithm graph g is laid out with: the file's :layout,
+  else yours (`pref`, saved in this browser), else layered."
+  [g pref]
+  (or (:layout g) (when (layout-name? pref) pref) "layered"))
+
+(defn layout-menu
+  "The layout menu's state, like theme-menu: yours (`pref`), for every
+  graph without :layout; a :layout in graph g's file wins — shown,
+  marked :file, and disabled."
+  [g pref]
+  (if (some? (:layout g))
+    {:value (:layout g) :file true :disabled true
+     :title "This graph sets its own layout (:layout in the file); edit the file to change it"}
+    {:value (effective-layout g pref) :file false :disabled false
+     :title "Layout algorithm, for every graph without :layout (saved in this browser)"}))
+
 (defn create-body
   "The /api/create POST body: the served-folder path a followed ref
   names and the file (\"old\"/\"new\") being edited, which is the side

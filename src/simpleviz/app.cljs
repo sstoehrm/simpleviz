@@ -11,6 +11,7 @@
             [simpleviz.png :as png]
             [simpleviz.editor :as editor]
             [simpleviz.grid :as grid]
+            [simpleviz.compact :as compact]
             [themes :as themes]))
 
 (def elk (js/ELK.))
@@ -37,6 +38,18 @@
          (js/localStorage.removeItem theme-key))
        (catch :default _ nil)))
 
+(def ^:private layout-key
+  "localStorage key of your layout algorithm."
+  "simpleviz-layout")
+
+(defn- stored-layout
+  "Your layout algorithm from this browser, nil when none (or storage
+  is unavailable)."
+  []
+  (try (let [v (js/localStorage.getItem layout-key)]
+         (when (some (fn [[n _]] (= v n)) editor/LAYOUTS) v))
+       (catch :default _ nil)))
+
 (def state (atom {:error nil :notice nil :dismissed-error nil :dismissed-warnings nil
                   :warnings [] :graph nil :layout nil
                   :colors nil :selected nil :collapsed false
@@ -54,6 +67,8 @@
                   :nav (editor/parse-nav js/location.search) :nav-error nil
                   ;; your theme (#115), for files without :theme
                   :theme-pref (stored-theme)
+                  ;; your layout algorithm, for files without :layout
+                  :layout-pref (stored-layout)
                   ;; light or dark as the OS has it, when you chose none
                   :theme (if (.-matches (js/window.matchMedia "(prefers-color-scheme: dark)"))
                            "dark"
@@ -96,8 +111,16 @@
 ;; relayout would overwrite the fresh scene and poison the cache
 (def ^:private graph-gen (atom 0))
 
-(defn- cache-key [collapsed]
-  (.join (.sort (js/Array.from collapsed)) "|"))
+(defn- current-layout
+  "The layout algorithm in use: the file's :layout, else yours."
+  []
+  (editor/effective-layout (:graph @state) (:layout-pref @state)))
+
+(defn- cache-key
+  "Layouts are cached per layout algorithm and collapsed-set:
+  \"compact#a|b\"."
+  [mode collapsed]
+  (str mode "#" (.join (.sort (js/Array.from collapsed)) "|")))
 
 (defn- demote-layout-cache!
   "The file changed: cached colors/scenes are stale, but each layout
@@ -111,7 +134,7 @@
   entry is exempt: it is the seed of the relayout this reload triggers,
   possibly still demoted only because the previous one is in flight."
   []
-  (let [current (cache-key (:collapsed-boxes @state))]
+  (let [current (cache-key (current-layout) (:collapsed-boxes @state))]
     (doseq [k (js/Array.from (.keys layout-cache))]
       (let [e (.get layout-cache k)]
         (cond (some? (:scene e))
@@ -808,7 +831,8 @@
       "Export"
       "⇩ opens the export menu: PNG downloads the diagram as an image, SVG as a vector drawing, both with the source EDN embedded. Either can be served again, compared, or turned back into EDN with \"simpleviz extract\".")
      (help-section
-      "Theme"
+      "Layout and theme"
+      "The layout menu at the top picks the layout: layered (left to right) or compact — top-level boxes on a grid, edges leaving at the top and bottom too, wide boxes turned top to bottom, labels on vertical edges turned — so big diagrams spread down as well as across. Your choice is saved in this browser; a file's :layout :compact wins."
       "The theme menu at the top picks your theme, one of the twelve built-ins, for every graph without :theme; it's saved in this browser, and default follows your system's light or dark. A graph file can set its own theme instead — :theme :nord, or overrides on one such as {:base :nord :accent \"#b58900\"} — which wins: the menu then shows it, marked (file), and you change it in the file.")]))
 
 (defn- hint-view
@@ -850,6 +874,29 @@
            (opt "" "default (follow the OS)")]
           (cond-> (mapv (fn [n] (opt n n)) themes/NAMES)
             (= value "custom") (conj (opt "custom" "custom" true))))))
+
+(defn- layout-menu-view
+  "Your layout algorithm, for every graph without :layout (see
+  editor/layout-menu): picking one saves it in this browser and lays the
+  graph out again, fitted to the window. A file's :layout wins — the
+  menu then shows it, marked (file), disabled."
+  [g pref]
+  (let [{:keys [value disabled title file]} (editor/layout-menu g pref)]
+    (into [:select {:id "layout-select" :title title :disabled disabled
+                    :on-click (fn [e] (.stopPropagation e))
+                    :on-change (fn [e]
+                                 (let [el (.-target e)
+                                       v (.-value el)]
+                                   (try (js/localStorage.setItem layout-key v) (catch :default _ nil))
+                                   (swap! state assoc :layout-pref v)
+                                   (canvas/refit-next!)
+                                   (relayout!)
+                                   ;; hand the keys back to the chords
+                                   (.blur el)))}]
+          (mapv (fn [[v label]]
+                  [:option {:value v :selected (= v value)}
+                   (if (and file (= v value)) (str label " (file)") label)])
+                editor/LAYOUTS))))
 
 (defn- load-view [st]
   [:div {:id "loadscreen"}
@@ -936,6 +983,7 @@
                          "Re-layout: the layout is already fresh")
                 :on-click (fn [e] (.stopPropagation e) (relayout! true))}
        "▦"])
+    (when (some? (:graph st)) (layout-menu-view (:graph st) (:layout-pref st)))
     (when (some? (:graph st)) (theme-menu-view (:graph st) (:theme-pref st)))
     (when (current-edit-target-editable? st)
       [:button {:id "undo-btn" :type "button" :title "Undo last edit (Ctrl+Z)"
@@ -1008,10 +1056,12 @@
     (let [gen @graph-gen
           g0 (:graph @state)
           collapsed (:collapsed-boxes @state)
-          ck (cache-key collapsed)
+          mode (current-layout)
+          ck (cache-key mode collapsed)
           hit (.get layout-cache ck)]
       (if (and (some? hit) (some? (:scene hit)))
-        (do (keep-pinned! (:scene hit))
+        (do (canvas/fit-view-once! (:scene hit))
+            (keep-pinned! (:scene hit))
             (swap! state (fn [st]
                            (refresh-selection
                             (assoc st :colors (:colors hit) :layout (:layout hit)
@@ -1031,8 +1081,9 @@
                       :box (colors/assign-indices (mapv (fn [b] (:type b)) (:boxes g0)))}
                 elk-graph (to-elk g canvas/measure)
                 grid? (grid/grid-mode? g)
-                ;; in grid mode the cells shape the layout too
-                fp (elk-fingerprint (if grid? {:elk elk-graph :cells (grid/grid-cells g)} elk-graph))
+                compact? (= mode "compact")
+                ;; in grid (and compact) mode the cells shape the layout too
+                fp (elk-fingerprint (if (or grid? compact?) {:elk elk-graph :cells (grid/grid-cells g)} elk-graph))
                 prev (when (some? hit) (:layout hit))
                 positions (when (some? prev) (layout-positions prev))
                 ;; a demoted entry with a matching fingerprint means the
@@ -1040,6 +1091,11 @@
                 ;; so reuse its layout and skip the expensive ELK run
                 layout (cond (and (some? prev) (= fp (:fingerprint hit)))
                              prev
+
+                             ;; every top-level box on a cell, wide ones turned
+                             ;; top to bottom; unchanged boxes reuse prev's runs
+                             compact?
+                             (js-await (compact/layout-compact g elk-graph (fn [input] (.layout elk input)) prev))
 
                              ;; boxes on grid cells; unchanged boxes reuse prev's runs
                              grid?
@@ -1056,7 +1112,7 @@
               (when (> (.-size layout-cache) 16) (.clear layout-cache))
               (.set layout-cache ck {:fingerprint fp :colors cmap
                                      :layout layout :scene sc})
-              (if (= ck (cache-key (:collapsed-boxes @state)))
+              (if (= ck (cache-key (current-layout) (:collapsed-boxes @state)))
                 (do (keep-pinned! sc)
                     (swap! state (fn [st]
                                    (refresh-selection
@@ -1375,9 +1431,12 @@
 (defn- rename-cache-key
   "Cache key k with collapsed box `old` called `new`, unchanged otherwise."
   [k old new]
-  (let [names (if (= k "") [] (.split k "|"))]
+  (let [i (.indexOf k "#")
+        mode (.slice k 0 i)
+        tail (.slice k (inc i))
+        names (if (= tail "") [] (.split tail "|"))]
     (if (some (fn [n] (= n old)) names)
-      (cache-key (mapv (fn [n] (if (= n old) new n)) names))
+      (cache-key mode (mapv (fn [n] (if (= n old) new n)) names))
       k)))
 
 (defn- rename-cached-layouts!

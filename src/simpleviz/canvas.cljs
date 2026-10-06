@@ -423,13 +423,20 @@
     (when removed? (set! (.-globalAlpha ctx) 0.45))
     (set! (.-textAlign ctx) "center")
     (set! (.-font ctx) SUB-FONT)
-    (let [cx (+ (:x item) (/ (:w item) 2))
-          cy (+ (:y item) (:h item) -3)]
-      (set! (.-lineWidth ctx) 3)
-      (set! (.-strokeStyle ctx) (:bg @palette))
-      (.strokeText ctx (:text item) cx cy)
-      (set! (.-fillStyle ctx) (:label @palette))
-      (.fillText ctx (:text item) cx cy))
+    (let [halo! (fn [x y]
+                  (set! (.-lineWidth ctx) 3)
+                  (set! (.-strokeStyle ctx) (:bg @palette))
+                  (.strokeText ctx (:text item) x y)
+                  (set! (.-fillStyle ctx) (:label @palette))
+                  (.fillText ctx (:text item) x y))]
+      (if (:rotated item)
+        ;; turned 90°, reading bottom to top, centred in its tall rect
+        (do (.save ctx)
+            (.translate ctx (+ (:x item) (/ (:w item) 2)) (+ (:y item) (/ (:h item) 2)))
+            (.rotate ctx (/ js/Math.PI -2))
+            (halo! 0 4)
+            (.restore ctx))
+        (halo! (+ (:x item) (/ (:w item) 2)) (+ (:y item) (:h item) -3))))
     (when removed? (set! (.-globalAlpha ctx) 1))))
 
 (defn- paint-items!

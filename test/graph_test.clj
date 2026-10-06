@@ -461,3 +461,11 @@
     (is (= {:col 99 :row 99 :w 1 :h 1} (grid-of g "x")))
     (is (= {:col 0 :row 0 :w 100 :h 1} (grid-of g "y")))
     (is (= [] (:warnings g)))))
+
+(deftest layout-names-a-layout-algorithm
+  (is (not (contains? (graph/normalize {:nodes {"a" {}}}) :layout)))
+  (is (= "compact" (:layout (graph/normalize {:layout :compact}))))
+  (is (= "layered" (:layout (graph/normalize {:layout "layered"}))))
+  (let [g (graph/normalize {:layout :spiral})]
+    (is (not (contains? g :layout)))
+    (is (= [":layout: unknown layout :spiral (layered or compact), ignored"] (:warnings g)))))

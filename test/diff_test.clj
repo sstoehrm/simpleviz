@@ -197,6 +197,10 @@
   (is (= (:nord themes/THEMES) (:theme (u {:theme :dracula} {:theme :nord}))))
   (is (not (contains? (u {:theme :dracula} {}) :theme))))
 
+(deftest union-takes-the-new-sides-layout
+  (is (= "compact" (:layout (u {:layout :layered} {:layout :compact}))))
+  (is (not (contains? (u {:layout :compact} {}) :layout))))
+
 (deftest union-takes-the-new-sides-theme-name
   (is (= "nord" (:theme-name (u {:theme :dracula} {:theme :nord}))))
   (is (not (contains? (u {:theme :dracula} {:theme {:base :nord}}) :theme-name))))

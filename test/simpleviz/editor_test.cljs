@@ -10,7 +10,7 @@
                                       add-node-in-box-ops box-remove-op
                                       name->id derived-id named-edge-ops creation-ops parse-entry
                                       resolve-ref parse-nav nav-query follow-url crumb-url ref-of banner-visible?
-                                      theme-menu top-box-of load-readiness export-readiness
+                                      theme-menu layout-menu effective-layout top-box-of load-readiness export-readiness
                                       md-target from-disk to-disk md-dirty? adopt-doc gone-doc poll-outcome save-result]]))
 
 (test "target maps selection payloads to op targets"
@@ -558,3 +558,20 @@
       (assert/ok (nil? (save-result nil "a.md" "ab" {:version "v2"})))
       (let [other (assoc md :path "b.md")]
         (assert/equal (save-result other "a.md" "ab" {:version "v2"}) other)))))
+
+(test "the layout: the file's :layout, else yours, else layered"
+  (fn []
+    (assert/equal (effective-layout {} nil) "layered")
+    (assert/equal (effective-layout {} "compact") "compact")
+    (assert/equal (effective-layout {} "spiral") "layered" "an unknown stored value is ignored")
+    (assert/equal (effective-layout {:layout "layered"} "compact") "layered")))
+
+(test "layout-menu shows your layout unless the file sets its own"
+  (fn []
+    (let [mine (layout-menu {} "compact")
+          file (layout-menu {:layout "compact"} "layered")]
+      (assert/equal (:value mine) "compact")
+      (assert/equal (:disabled mine) false)
+      (assert/equal (:value file) "compact")
+      (assert/equal (:file file) true)
+      (assert/equal (:disabled file) true))))

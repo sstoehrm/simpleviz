@@ -30,6 +30,8 @@ The README example shows every attribute simpleviz reads.
 - `:grid [col row]` or `[col row w h]` puts a top-level box on a grid cell
   (see [Grid layout](#grid-layout)).
 - `:theme` at the top level sets the graph's colors (see [Themes](#themes)).
+- `:layout` at the top level picks the layout algorithm, `:layered` or
+  `:compact` (see [Layouts](#layouts)).
 - An edge's key is its endpoints, nodes or boxes, in left/right order.
   Writing both `[:a :b]` and `[:b :a]` warns "same connection". An edge
   between a box and its own content, or a box and itself, is skipped with a
@@ -173,6 +175,33 @@ per file that all viewers share (100 entries).
 
 **Security.** The server binds to loopback only and accepts writes only from
 its own `localhost`/`127.0.0.1` origin.
+
+## Layouts
+
+The layout menu at the top picks how graphs are laid out:
+
+- **layered** (the default): left to right, edges leaving nodes and boxes
+  at their sides. Long chains make wide diagrams.
+- **compact**: big diagrams spread down as well as across.
+  - Every top-level box gets a cell of a grid, connected boxes side by
+    side, with as many columns as bring the whole closest to a screen's
+    shape. A box's own `:grid` cell is kept and the rest fill in around it.
+  - Edges between boxes leave on whichever side faces their other end,
+    the top and bottom too (see [Grid layout](#grid-layout) for the
+    routing).
+  - A box that would come out much wider than tall is laid out top to
+    bottom instead, so its edges leave from the top and bottom as well.
+  - An edge label on a vertical stretch turns 90° and runs along it.
+  - Loose nodes sit beside the box they connect to. Those that connect
+    to no box, and a graph without boxes, wrap into rows.
+  - Edits keep the arrangement: a box keeps its cell and its direction.
+    ▦ lays everything out fresh.
+
+Your choice is saved in this browser and applies to every graph without
+`:layout`. A file can pick its own with a top-level `:layout :compact`,
+which wins: the menu then shows it, marked "(file)", and is disabled.
+Exports from the terminal use the file's `:layout`. A comparison uses the
+new file's.
 
 ## Grid layout
 

@@ -430,6 +430,20 @@
                       (sort (keys cells))))]
     (mapv (fn [b] (assoc b :grid (get kept (:name b)))) boxes)))
 
+(def LAYOUTS
+  "The layout algorithms a file's top-level :layout can pick."
+  #{"layered" "compact"})
+
+(defn- resolve-layout
+  "The file's :layout as a layout name, nil when absent; an unknown one
+  warns and is dropped (the viewer's choice applies)."
+  [v warn!]
+  (cond
+    (nil? v) nil
+    (and (or (keyword? v) (string? v)) (contains? LAYOUTS (ident->str v))) (ident->str v)
+    :else (do (warn! (str ":layout: unknown layout " (pr-str v) " (layered or compact), ignored"))
+              nil)))
+
 (defn normalize [raw]
   (let [warnings (atom [])
         warn! (fn [msg] (swap! warnings conj msg))
@@ -458,6 +472,7 @@
         edges (drop-containment-edges edges0 parent-of warn!)
         boxes (resolve-grids boxes parent-of warn!)
         theme (resolve-theme (:theme raw) warn!)
+        layout (resolve-layout (:layout raw) warn!)
         ;; the built-in's name when the file names one (the page's theme
         ;; menu can rewrite that); a :theme map is custom and has none
         built-in (when (and (some? theme) (not (map? (:theme raw))))
@@ -468,4 +483,5 @@
              :parent-of parent-of
              :warnings @warnings}
       (some? theme) (assoc :theme theme)
+      (some? layout) (assoc :layout layout)
       (some? built-in) (assoc :theme-name built-in))))

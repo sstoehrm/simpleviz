@@ -55,6 +55,7 @@ and write locks.
     ;; optional, top level: :theme — a built-in (:nord, :dracula, …) or {:base :nord :accent "#b58900"}
     {:nodes {:api {:name "API"           ; display name (defaults to the key)
                    :type "service"       ; free-form; colors the name, shown as (type)
+                   :text "Order intake"  ; shown inside the node (boxes too); "\n" or a vector for more lines
                    :lang "clojure"       ; any other attr: inspector panel only
                    :ref "sub/api.edn"    ; another graph file, relative to this one — "follow ref" opens it;
                                          ; the node gets a double border

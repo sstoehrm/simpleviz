@@ -12,6 +12,10 @@ The README example shows every attribute simpleviz reads.
   edits. Any other attribute shows only in the inspector.
 - A node of `:type "database"` (in any case) is drawn as the database
   symbol, a cylinder.
+- `:text` on a node or box shows inside it: under a node's name and type,
+  under a box's header (not while the box is collapsed). A string breaks at
+  `\n`; a vector of strings gives one line each. Lines wrap at about 220 px,
+  and the element grows to fit.
 - `:state` — `:new`, `:in-progress`, `:blocked` or `:done` — puts a mark on
   the node's top-right corner: grey disc, blue half disc, red square, green
   disc with a check. Any other value is an ordinary attribute.

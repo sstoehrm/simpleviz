@@ -139,3 +139,12 @@
     (assert/deepEqual
      (:attrs (hover-tip {:kind "node" :id "n:a" :name "a" :attrs {:components 3}}))
      [["components" 3]])))
+
+(test "the tooltip leaves out a :text the element already shows"
+  (fn []
+    (assert/deepEqual (:attrs (hover-tip (assoc node-a :name "A" :attrs {"text" "hi" "owner" "ops"}
+                                                :text-lines ["hi"])))
+                      [["owner" "ops"]])
+    ;; a collapsed box doesn't show it: the tooltip does
+    (assert/deepEqual (:attrs (hover-tip {:kind "box" :id "b:g" :name "G" :attrs {"text" "hi"} :text-lines []}))
+                      [["text" "hi"]])))

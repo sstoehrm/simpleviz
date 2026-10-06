@@ -159,6 +159,16 @@
   (.stroke ctx)
   (.setLineDash ctx []))
 
+(defn- draw-text-lines!
+  "An element's :text lines from baseline y, LINE-H apart: centred on x
+  with align \"center\", else starting at x."
+  [ctx lines x y align]
+  (set! (.-textAlign ctx) align)
+  (set! (.-font ctx) scene/TEXT-FONT)
+  (set! (.-fillStyle ctx) (:text @palette))
+  (doseq [[i l] (map-indexed (fn [i l] [i l]) lines)]
+    (.fillText ctx l x (+ y (* i scene/LINE-H)))))
+
 (defn- draw-box [ctx item sel? text?]
   (let [removed? (= (:diff item) "removed") c (box-color item)]
   (when removed? (set! (.-globalAlpha ctx) 0.45))
@@ -195,7 +205,11 @@
           ;; only draw the inline type if it fits left of the button
           (when (< (+ 12 nw 5 tw) (- (:w item) 26))
             (set! (.-fillStyle ctx) (:sub @palette))
-            (.fillText ctx label (+ (:x item) 12 nw 5) (+ (:y item) 20)))))))
+            (.fillText ctx label (+ (:x item) 12 nw 5) (+ (:y item) 20)))))
+      ;; :text under the header
+      (when (seq (:text-lines item))
+        (draw-text-lines! ctx (:text-lines item) (+ (:x item) 12)
+                          (+ (:y item) scene/TITLE-H 8) "left"))))
   (when-not (:empty item)
   (let [bx (- (+ (:x item) (:w item)) scene/HIDE-BTN-RIGHT)
         by (+ (:y item) scene/HIDE-BTN-TOP)
@@ -351,7 +365,11 @@
       (set! (.-font ctx) SUB-FONT)
       (set! (.-fillStyle ctx) (:sub @palette))
       (.fillText ctx (str "(" (:type item) ")")
-                 (+ (:x item) (/ (:w item) 2)) (+ (:y item) 35 dy))))
+                 (+ (:x item) (/ (:w item) 2)) (+ (:y item) 35 dy)))
+    ;; :text under the name and type
+    (when (seq (:text-lines item))
+      (draw-text-lines! ctx (:text-lines item) (+ (:x item) (/ (:w item) 2))
+                        (+ (:y item) (if (pos? (.-length (:type item))) 44 30) dy 10) "center")))
     (when (some? (:diff item))
       (draw-diff-ring ctx item 8 text?))
     (when removed? (set! (.-globalAlpha ctx) 1))))

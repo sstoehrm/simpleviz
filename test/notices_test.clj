@@ -45,3 +45,29 @@
          (notices/missing ["metosin/malli" "borkdude/dynaload" "fipp/fipp" "metosin/malli"]
                           "| borkdude/dynaload | Eclipse Public License 1.0 |")))
   (is (= [] (notices/missing ["borkdude/dynaload"] "borkdude/dynaload"))))
+
+(deftest classpath-versions-pairs-each-library-with-its-resolved-version
+  (is (= [["metosin/malli" "0.20.2"] ["org.clojure/tools.reader" "1.5.2"]]
+         (notices/classpath-versions
+          (cp (str stage "/server")
+              (str m2 "/metosin/malli/0.20.2/malli-0.20.2.jar")
+              (str m2 "/org/clojure/tools.reader/1.5.2/tools.reader-1.5.2.jar"))
+          {:stage stage :m2 m2}))))
+
+(deftest table-versions-reads-the-library-and-version-columns
+  (is (= {"metosin/malli" "0.20.2" "mvxcvi/arrangement" "2.1.0"}
+         (notices/table-versions
+          (str "| Library | Version | Licence | Source |\n"
+               "|---|---|---|---|\n"
+               "| metosin/malli | 0.20.2 | Eclipse Public License 2.0 | [Clojars](https://clojars.org/metosin/malli) |\n"
+               "| mvxcvi/arrangement | 2.1.0 | The Unlicense (public domain) | [Clojars](https://clojars.org/mvxcvi/arrangement) |\n")))))
+
+(deftest stale-lists-libraries-whose-table-version-is-not-the-resolved-one
+  (let [table (str "| metosin/malli | 0.19.1 | EPL-2.0 | Clojars |\n"
+                   "| fipp/fipp | 0.6.29 | EPL-1.0 | Clojars |\n")]
+    (is (= ["metosin/malli: the table says 0.19.1, the jar bundles 0.20.2"
+            "org.clojure/test.check: the table says no version, the jar bundles 1.1.3"]
+           (notices/stale [["metosin/malli" "0.20.2"] ["fipp/fipp" "0.6.29"]
+                           ["org.clojure/test.check" "1.1.3"]]
+                          table)))
+    (is (= [] (notices/stale [["fipp/fipp" "0.6.29"]] table)))))

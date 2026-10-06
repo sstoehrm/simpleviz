@@ -9,7 +9,7 @@ The README example shows every attribute simpleviz reads.
 - Identifiers may be keywords or strings.
 - `:name` defaults to the key. `:type` colors a node's name or a box (boxes
   have their own palette), and a type keeps its color across restarts and
-  edits. Any other attribute shows only in the inspector.
+  edits. `"component"` is always blue, so it stands apart from `"service"`. Any other attribute shows only in the inspector.
 - A node of `:type "database"` (in any case) is drawn as the database
   symbol, a cylinder.
 - `:text` on a node or box shows inside it: under a node's name and type,

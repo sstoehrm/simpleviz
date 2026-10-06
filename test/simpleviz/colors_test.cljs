@@ -72,3 +72,25 @@
       (let [idx (colors/assign-indices ["alpha" other])]
         (assert/notEqual (get idx "alpha") (get idx other))))))
 
+
+(test "component is pinned to blue, apart from service; other types keep their hash slot"
+  (fn []
+    (let [hue (fn [i] (js-mod (* i colors/GOLDEN-ANGLE) 360))
+          idx (colors/assign-indices ["service" "component" "database"])
+          alone (colors/assign-indices ["service" "database"])]
+      (assert/ok (< (js/Math.abs (- (hue (get idx "component")) 210)) 3) (str (hue (get idx "component"))))
+      ;; at least 90° from service: never the same color family
+      (let [d (js/Math.abs (- (hue (get idx "component")) (hue (get idx "service"))))]
+        (assert/ok (>= (min d (- 360 d)) 90) (str d)))
+      (assert/equal (get idx "service") (get alone "service"))
+      (assert/equal (get idx "database") (get alone "database")))))
+
+(test "a type hashing onto a pinned slot moves on, the pinned type keeps it"
+  (fn []
+    (let [slot (colors/slot-for-hue 210)
+          ;; find a name that hashes onto the pinned slot
+          clash (some (fn [i] (let [t (str "t" i)] (when (= slot (js-mod (colors/fnv1a t) colors/TABLE-SIZE)) t)))
+                      (range 100000))
+          idx (colors/assign-indices [clash "component"])]
+      (assert/equal (get idx "component") slot)
+      (assert/equal (get idx clash) (js-mod (inc slot) colors/TABLE-SIZE)))))

@@ -466,6 +466,7 @@
   (is (not (contains? (graph/normalize {:nodes {"a" {}}}) :layout)))
   (is (= "compact" (:layout (graph/normalize {:layout :compact}))))
   (is (= "layered" (:layout (graph/normalize {:layout "layered"}))))
+  (is (= "tiled" (:layout (graph/normalize {:layout :tiled}))))
   (let [g (graph/normalize {:layout :spiral})]
     (is (not (contains? g :layout)))
-    (is (= [":layout: unknown layout :spiral (layered or compact), ignored"] (:warnings g)))))
+    (is (= [":layout: unknown layout :spiral (layered, compact or tiled), ignored"] (:warnings g)))))

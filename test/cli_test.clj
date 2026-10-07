@@ -256,9 +256,11 @@
           (finally (p/destroy-tree proc)))))))
 
 (deftest example-files-match-the-examples-folder
-  (let [root (fs/path proc-util/repo-root "examples")]
-    (is (= (set (map #(str (fs/relativize root %))
-                     (filter fs/regular-file? (fs/glob root "**"))))
+  ;; the files git knows under examples/ (tracked or new, not ignored): a
+  ;; git-ignored local file there is nobody else's example
+  (let [out (:out (p/shell {:out :string :dir proc-util/repo-root}
+                           "git" "ls-files" "--cached" "--others" "--exclude-standard" "--" "examples"))]
+    (is (= (set (map #(subs % (count "examples/")) (remove str/blank? (str/split-lines out))))
            (set cli/example-files)))))
 
 (deftest demo-copies-the-examples-and-serves-the-comparison

@@ -575,3 +575,8 @@
       (assert/equal (:value file) "compact")
       (assert/equal (:file file) true)
       (assert/equal (:disabled file) true))))
+
+(test "tiled is a layout of its own"
+  (fn []
+    (assert/equal (effective-layout {} "tiled") "tiled")
+    (assert/equal (:value (layout-menu {:layout "tiled"} nil)) "tiled")))

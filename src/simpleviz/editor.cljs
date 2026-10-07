@@ -180,7 +180,7 @@
 
 (def LAYOUTS
   "The layout algorithms, as the menu lists them: [name label]."
-  [["layered" "layered"] ["compact" "compact"]])
+  [["layered" "layered"] ["compact" "compact"] ["tiled" "tiled"]])
 
 (defn- layout-name? [v] (some (fn [[n _]] (= n v)) LAYOUTS))
 

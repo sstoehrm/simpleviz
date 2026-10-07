@@ -832,7 +832,7 @@
       "⇩ opens the export menu: PNG downloads the diagram as an image, SVG as a vector drawing, both with the source EDN embedded. Either can be served again, compared, or turned back into EDN with \"simpleviz extract\".")
      (help-section
       "Layout and theme"
-      "The layout menu at the top picks the layout: layered (left to right) or compact — top-level boxes on a grid, edges leaving at the top and bottom too, wide boxes turned top to bottom, labels on vertical edges turned — so big diagrams spread down as well as across. Your choice is saved in this browser; a file's :layout :compact wins."
+      "The layout menu at the top picks the layout: layered (left to right), compact — top-level boxes on a grid, edges leaving at the top and bottom too, wide boxes turned top to bottom, labels on vertical edges turned — or tiled, the same grid with every box left to right inside; compact and tiled spread big diagrams down as well as across. Your choice is saved in this browser; a file's :layout wins."
       "The theme menu at the top picks your theme, one of the twelve built-ins, for every graph without :theme; it's saved in this browser, and default follows your system's light or dark. A graph file can set its own theme instead — :theme :nord, or overrides on one such as {:base :nord :accent \"#b58900\"} — which wins: the menu then shows it, marked (file), and you change it in the file.")]))
 
 (defn- hint-view
@@ -1081,7 +1081,8 @@
                       :box (colors/assign-indices (mapv (fn [b] (:type b)) (:boxes g0)))}
                 elk-graph (to-elk g canvas/measure)
                 grid? (grid/grid-mode? g)
-                compact? (= mode "compact")
+                ;; compact turns wide boxes top to bottom, tiled doesn't
+                compact? (or (= mode "compact") (= mode "tiled"))
                 ;; in grid (and compact) mode the cells shape the layout too
                 fp (elk-fingerprint (if (or grid? compact?) {:elk elk-graph :cells (grid/grid-cells g)} elk-graph))
                 prev (when (some? hit) (:layout hit))
@@ -1092,10 +1093,11 @@
                 layout (cond (and (some? prev) (= fp (:fingerprint hit)))
                              prev
 
-                             ;; every top-level box on a cell, wide ones turned
-                             ;; top to bottom; unchanged boxes reuse prev's runs
+                             ;; every top-level box on a cell (compact: wide ones
+                             ;; turned top to bottom); unchanged boxes reuse prev's runs
                              compact?
-                             (js-await (compact/layout-compact g elk-graph (fn [input] (.layout elk input)) prev))
+                             (js-await (compact/layout-compact g elk-graph (fn [input] (.layout elk input)) prev
+                                                               (= mode "compact")))
 
                              ;; boxes on grid cells; unchanged boxes reuse prev's runs
                              grid?

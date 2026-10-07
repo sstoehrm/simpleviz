@@ -121,3 +121,14 @@
       ;; 8 columns: 1200 x 840, the closest to 1.6 : 1
       (assert/equal (best-columns g tall) 8)
       (assert/ok (< (best-columns g wide) 3)))))
+
+(test "the tiled layout keeps every box left to right"
+  (fn []
+    (-> (layout-compact chains (to-elk chains measure) run-elk nil false)
+        (.then (fn [l]
+                 (let [p (first (filterv (fn [c] (= (:id c) "b:p")) (:children l)))]
+                   (assert/ok (> (:width p) (:height p)) (str (:width p) "x" (:height p)))
+                   (assert/ok (nil? (:dir (get (:runs l) "b:p")))))
+                 (let [sc (build-scene {:layout l :graph chains :colors {:node {} :box {}}})
+                       inner (filterv (fn [it] (and (= (:kind it) "edge-label") (= (:text it) "next"))) (:items sc))]
+                   (assert/ok (not-any? :rotated inner) "labels inside stay upright")))))))

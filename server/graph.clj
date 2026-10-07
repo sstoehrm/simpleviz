@@ -432,7 +432,7 @@
 
 (def LAYOUTS
   "The layout algorithms a file's top-level :layout can pick."
-  #{"layered" "compact"})
+  #{"layered" "compact" "tiled"})
 
 (defn- resolve-layout
   "The file's :layout as a layout name, nil when absent; an unknown one
@@ -441,7 +441,7 @@
   (cond
     (nil? v) nil
     (and (or (keyword? v) (string? v)) (contains? LAYOUTS (ident->str v))) (ident->str v)
-    :else (do (warn! (str ":layout: unknown layout " (pr-str v) " (layered or compact), ignored"))
+    :else (do (warn! (str ":layout: unknown layout " (pr-str v) " (layered, compact or tiled), ignored"))
               nil)))
 
 (defn normalize [raw]

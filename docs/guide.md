@@ -30,8 +30,8 @@ The README example shows every attribute simpleviz reads.
 - `:grid [col row]` or `[col row w h]` puts a top-level box on a grid cell
   (see [Grid layout](#grid-layout)).
 - `:theme` at the top level sets the graph's colors (see [Themes](#themes)).
-- `:layout` at the top level picks the layout algorithm, `:layered` or
-  `:compact` (see [Layouts](#layouts)).
+- `:layout` at the top level picks the layout algorithm, `:layered`,
+  `:compact` or `:tiled` (see [Layouts](#layouts)).
 - An edge's key is its endpoints, nodes or boxes, in left/right order.
   Writing both `[:a :b]` and `[:b :a]` warns "same connection". An edge
   between a box and its own content, or a box and itself, is skipped with a
@@ -196,10 +196,16 @@ The layout menu at the top picks how graphs are laid out:
     to no box, and a graph without boxes, wrap into rows.
   - Edits keep the arrangement: a box keeps its cell and its direction.
     ▦ lays everything out fresh.
+- **tiled**: compact without the turning — boxes on the same automatic
+  grid, edges between them leaving at any side, labels between them
+  turned on vertical stretches, but every box keeps the layered layout
+  inside, left to right. (Like `:grid` files, a box ELK can't lay out left
+  to right with its edge ends goes top to bottom instead.)
 
 Your choice is saved in this browser and applies to every graph without
-`:layout`. A file can pick its own with a top-level `:layout :compact`,
-which wins: the menu then shows it, marked "(file)", and is disabled.
+`:layout`. A file can pick its own with a top-level `:layout :compact` (or
+`:tiled`), which wins: the menu then shows it, marked "(file)", and is
+disabled.
 Exports from the terminal use the file's `:layout`. A comparison uses the
 new file's.
 

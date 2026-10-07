@@ -4,7 +4,8 @@
   side by side, a box's own :grid kept — and the grid layout does the
   rest: edges between boxes leave on whichever side faces their other
   end, top and bottom too. A box laid out much wider than tall turns
-  top to bottom inside. A graph without boxes wraps its rows instead.
+  top to bottom inside — in the \"compact\" layout; the \"tiled\" one keeps
+  every box left to right. A graph without boxes wraps its rows instead.
   Pure: ELK is passed in."
   (:require [simpleviz.grid :as grid]))
 
@@ -140,8 +141,10 @@
   pass on a square of cells gives every box its size; when another
   column count brings the whole closer to ASPECT, a second pass uses it
   (reusing each box's direction). The result keeps :ncols, and an edit
-  (`prev`) keeps them, so boxes don't change places while you work."
-  [graph elk-graph run-elk prev]
+  (`prev`) keeps them, so boxes don't change places while you work.
+  `turn?` (default true) lets a wide box turn top to bottom; false keeps
+  every box left to right (the tiled layout)."
+  [graph elk-graph run-elk prev & [turn?]]
   (if (empty? (top-boxes graph))
     ;; nothing to put on cells: one wrapped left-to-right layout
     (let [copy (fn [x] (js/JSON.parse (js/JSON.stringify x)))]
@@ -149,7 +152,7 @@
                                     (merge (:layoutOptions elk-graph) grid/WRAP-OPTIONS)))
                     ;; should ELK not manage to wrap it: as it comes
                     (.catch (fn [_] (run-elk (copy elk-graph)))))))
-    (let [opts {:square true :wrap-strip true :rotate-labels true}
+    (let [opts {:square (not= false turn?) :wrap-strip true :rotate-labels true}
           pass (fn [ncols p] (.then (grid/layout-grid (with-cells graph ncols) elk-graph run-elk p opts)
                                     (fn [l] (assoc l :ncols ncols))))]
       (if (some? (:ncols prev))

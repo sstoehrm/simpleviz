@@ -66,7 +66,10 @@
         nm (:name item)]
     (if (some? t)
       {:title (if (and (string? nm) (pos? (.-length nm))) nm t)
-       :attrs (filterv (fn [[k _]] (not= k "name")) (visible-attrs item))}
+       ;; an element's :text is shown inside it already
+       :attrs (filterv (fn [[k _]] (and (not= k "name")
+                                        (not (and (= k "text") (seq (:text-lines item))))))
+                       (visible-attrs item))}
       nil)))
 
 (defn hit-test

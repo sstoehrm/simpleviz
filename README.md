@@ -53,8 +53,10 @@ and write locks.
 ## Data format
 
     ;; optional, top level: :theme — a built-in (:nord, :dracula, …) or {:base :nord :accent "#b58900"}
+    ;;                     :layout — :layered (default), :compact or :tiled (spread big diagrams down as well as across)
     {:nodes {:api {:name "API"           ; display name (defaults to the key)
                    :type "service"       ; free-form; colors the name, shown as (type)
+                   :text "Order intake"  ; shown inside the node (boxes too); "\n" or a vector for more lines
                    :lang "clojure"       ; any other attr: inspector panel only
                    :ref "sub/api.edn"    ; another graph file, relative to this one — "follow ref" opens it;
                                          ; the node gets a double border
@@ -62,7 +64,7 @@ and write locks.
                    :md-ref "docs/api.md" ; the markdown doc describing it (node or box) — dotted border; "open md" edits it
                    :state :in-progress}  ; :new | :in-progress | :blocked | :done — a mark on the node's corner
              :web {:type "frontend"}
-             :db  {:type "database"}}
+             :db  {:type "database"}}     ; drawn as the database cylinder
      :edges {[:web :api]                 ; key: endpoints (nodes or boxes), order defines left/right;
                                          ; the same edge cannot appear twice
              {:direction :->             ; :-> | :<- | :<-> | :- (default :-)

@@ -9,7 +9,13 @@ The README example shows every attribute simpleviz reads.
 - Identifiers may be keywords or strings.
 - `:name` defaults to the key. `:type` colors a node's name or a box (boxes
   have their own palette), and a type keeps its color across restarts and
-  edits. Any other attribute shows only in the inspector.
+  edits. `"component"` is always blue, so it stands apart from `"service"`. Any other attribute shows only in the inspector.
+- A node of `:type "database"` (in any case) is drawn as the database
+  symbol, a cylinder.
+- `:text` on a node or box shows inside it: under a node's name and type,
+  under a box's header (not while the box is collapsed). A string breaks at
+  `\n`; a vector of strings gives one line each. Lines wrap at about 220 px,
+  and the element grows to fit.
 - `:state` — `:new`, `:in-progress`, `:blocked` or `:done` — puts a mark on
   the node's top-right corner: grey disc, blue half disc, red square, green
   disc with a check. Any other value is an ordinary attribute.
@@ -24,6 +30,8 @@ The README example shows every attribute simpleviz reads.
 - `:grid [col row]` or `[col row w h]` puts a top-level box on a grid cell
   (see [Grid layout](#grid-layout)).
 - `:theme` at the top level sets the graph's colors (see [Themes](#themes)).
+- `:layout` at the top level picks the layout algorithm, `:layered`,
+  `:compact` or `:tiled` (see [Layouts](#layouts)).
 - An edge's key is its endpoints, nodes or boxes, in left/right order.
   Writing both `[:a :b]` and `[:b :a]` warns "same connection". An edge
   between a box and its own content, or a box and itself, is skipped with a
@@ -61,8 +69,8 @@ without `:theme`. It's saved in this browser, not in any file, and
 
 Built-in themes: `light` and `dark` (the two the OS setting picks from),
 `print` (white, greys, no box fills), `high-contrast`, `blueprint`, `paper`,
-`solarized-light`, `solarized-dark`, `nord`, `dracula`, `carbonfox` and
-`one-dark`.
+`solarized-light`, `solarized-dark`, `nord`, `dracula`, `carbonfox`,
+`one-dark`, `tabak-light` and `tabak-dark`.
 
 | Group | Keys |
 |---|---|
@@ -167,6 +175,39 @@ per file that all viewers share (100 entries).
 
 **Security.** The server binds to loopback only and accepts writes only from
 its own `localhost`/`127.0.0.1` origin.
+
+## Layouts
+
+The layout menu at the top picks how graphs are laid out:
+
+- **layered** (the default): left to right, edges leaving nodes and boxes
+  at their sides. Long chains make wide diagrams.
+- **compact**: big diagrams spread down as well as across.
+  - Every top-level box gets a cell of a grid, connected boxes side by
+    side, with as many columns as bring the whole closest to a screen's
+    shape. A box's own `:grid` cell is kept and the rest fill in around it.
+  - Edges between boxes leave on whichever side faces their other end,
+    the top and bottom too (see [Grid layout](#grid-layout) for the
+    routing).
+  - A box that would come out much wider than tall is laid out top to
+    bottom instead, so its edges leave from the top and bottom as well.
+  - An edge label on a vertical stretch turns 90° and runs along it.
+  - Loose nodes sit beside the box they connect to. Those that connect
+    to no box, and a graph without boxes, wrap into rows.
+  - Edits keep the arrangement: a box keeps its cell and its direction.
+    ▦ lays everything out fresh.
+- **tiled**: compact without the turning — boxes on the same automatic
+  grid, edges between them leaving at any side, labels between them
+  turned on vertical stretches, but every box keeps the layered layout
+  inside, left to right. (Like `:grid` files, a box ELK can't lay out left
+  to right with its edge ends goes top to bottom instead.)
+
+Your choice is saved in this browser and applies to every graph without
+`:layout`. A file can pick its own with a top-level `:layout :compact` (or
+`:tiled`), which wins: the menu then shows it, marked "(file)", and is
+disabled.
+Exports from the terminal use the file's `:layout`. A comparison uses the
+new file's.
 
 ## Grid layout
 

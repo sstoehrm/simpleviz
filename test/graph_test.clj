@@ -368,7 +368,7 @@
     (is (not (contains? g :theme)))
     (is (= 1 (count (:warnings g))))
     (is (str/starts-with? (first (:warnings g)) ":theme: unknown theme \"neon\" (built-in: light, dark, print,"))
-    (is (str/includes? (first (:warnings g)) "one-dark)"))))
+    (is (str/includes? (first (:warnings g)) "tabak-dark)"))))
 
 (deftest theme-wrong-type-warns-and-is-ignored
   (let [g (graph/normalize {:theme 3})]
@@ -461,3 +461,12 @@
     (is (= {:col 99 :row 99 :w 1 :h 1} (grid-of g "x")))
     (is (= {:col 0 :row 0 :w 100 :h 1} (grid-of g "y")))
     (is (= [] (:warnings g)))))
+
+(deftest layout-names-a-layout-algorithm
+  (is (not (contains? (graph/normalize {:nodes {"a" {}}}) :layout)))
+  (is (= "compact" (:layout (graph/normalize {:layout :compact}))))
+  (is (= "layered" (:layout (graph/normalize {:layout "layered"}))))
+  (is (= "tiled" (:layout (graph/normalize {:layout :tiled}))))
+  (let [g (graph/normalize {:layout :spiral})]
+    (is (not (contains? g :layout)))
+    (is (= [":layout: unknown layout :spiral (layered, compact or tiled), ignored"] (:warnings g)))))

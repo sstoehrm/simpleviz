@@ -324,3 +324,40 @@
       (assert/equal (get-in out [:children 0 :id]) "n:web")
       ;; the input is left alone
       (assert/equal (get-in layout [:children 1 :children 0 :id]) "n:api"))))
+
+(test "a database node is taller by its cylinder's two rims"
+  (fn []
+    (let [g (graph {:nodes {"db" (node "db" "database")
+                            "Db" (node "Db" "Database")
+                            "svc" (node "svc" "service")}})
+          elk (to-elk g measure)
+          by-id (fn [id] (first (filterv (fn [c] (= (:id c) id)) (:children elk))))]
+      (assert/equal (:height (by-id "n:db")) (+ 44 12))
+      (assert/equal (:height (by-id "n:Db")) (+ 44 12) "the type matches in any case")
+      (assert/equal (:height (by-id "n:svc")) 44))))
+
+(test ":text makes a node taller by its lines and as wide as the widest"
+  (fn []
+    (let [g (graph {:nodes {"a" (assoc (node "a" "service") :attrs {"text" "one\ntwo"})
+                            "b" (assoc (node "b") :attrs {"text" "a rather long line of text"})
+                            "c" (node "c")}})
+          elk (to-elk g measure)
+          by-id (fn [id] (first (filterv (fn [c] (= (:id c) id)) (:children elk))))]
+      (assert/equal (:height (by-id "n:a")) (+ 44 4 (* 2 14)))
+      (assert/equal (:height (by-id "n:b")) (+ 30 4 14))
+      (assert/ok (>= (:width (by-id "n:b")) (+ (measure "a rather long line of text" nil) 24)))
+      (assert/equal (:height (by-id "n:c")) 30))))
+
+(test ":text on a box adds top padding and a minimum width"
+  (fn []
+    (let [b {:id "b:g" :name "g" :label "g" :type "" :components ["n:a"] :attrs {"text" "box text"}}
+          plain {:id "b:h" :name "h" :label "h" :type "" :components ["n:c"] :attrs {}}
+          g (graph {:nodes {"a" (node "a") "c" (node "c")} :boxes [b plain]
+                    :parent-of {"n:a" "g" "n:c" "h"}})
+          elk (to-elk g measure)
+          by-id (fn [id] (first (filterv (fn [c] (= (:id c) id)) (:children elk))))
+          opts (:layoutOptions (by-id "b:g"))]
+      (assert/equal (get opts "elk.padding") "[top=58,left=14,bottom=14,right=14]")
+      (assert/equal (get opts "elk.nodeSize.minimum") (str "(" (+ (measure "box text" nil) 24) ", 72)"))
+      (assert/equal (get (:layoutOptions (by-id "b:h")) "elk.padding") "[top=40,left=14,bottom=14,right=14]")
+      (assert/ok (nil? (get (:layoutOptions (by-id "b:h")) "elk.nodeSize.minimum"))))))

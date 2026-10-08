@@ -265,6 +265,17 @@
     (assert/equal (:md-ref? (node-with {:md-ref 3})) false)
     (assert/equal (:md-ref? (node-with {:ref "sub/api.edn"})) false)))
 
+(test "a node of type database is flagged :database?"
+  (fn []
+    (let [typed (fn [t attrs]
+                  (let [g (assoc-in graph [:nodes "b"] {:id "b" :name "b" :type t :attrs attrs})
+                        sc (build-scene {:layout layout :graph g :colors colors})]
+                    (first (filterv (fn [it] (= (:id it) "n:b")) (:items sc)))))]
+      (assert/equal (:database? (typed "database" {})) true)
+      (assert/equal (:database? (typed "DataBase" {})) true)
+      (assert/equal (:database? (typed "db" {})) false)
+      (assert/equal (:database? (typed "" {})) false))))
+
 (defn- box-with [attrs]
   (let [g (assoc-in graph [:boxes-by-name "grp" :attrs] attrs)
         sc (build-scene {:layout layout :graph g :colors colors})]
@@ -297,3 +308,30 @@
       (assert/equal (:pair-problem? (by-id "b:grp")) true)
       (assert/equal (:pair? (by-id "n:b")) false)
       (assert/equal (.-length (:pairs (by-id "n:a"))) 1))))
+
+(def ^:private m7 (fn [text _font] (* 7 (.-length text))))
+
+(test "text-lines: line breaks, vectors, wrapping at TEXT-W"
+  (fn []
+    (assert/deepEqual (scene/text-lines "one\ntwo" m7) ["one" "two"])
+    (assert/deepEqual (scene/text-lines ["a" "b\nc" 3] m7) ["a" "b" "c" "3"])
+    (assert/deepEqual (scene/text-lines nil m7) [])
+    (assert/deepEqual (scene/text-lines "   " m7) [])
+    (assert/deepEqual (scene/text-lines {"a" 1} m7) [] "a map stays an attribute")
+    ;; 7 px a char, 220 px wide: at most 31 chars a line, broken between words
+    (let [lines (scene/text-lines "validates every incoming order and forwards it to billing" m7)]
+      (assert/deepEqual lines ["validates every incoming order" "and forwards it to billing"])
+      (assert/ok (every? (fn [l] (<= (m7 l nil) scene/TEXT-W)) lines)))
+    ;; a word longer than a line keeps a line to itself
+    (assert/deepEqual (scene/text-lines (str "a " (apply str (repeat 40 "x")) " b") m7)
+                      ["a" (apply str (repeat 40 "x")) "b"])
+    ;; a blank line inside the text stays
+    (assert/deepEqual (scene/text-lines "a\n\nb" m7) ["a" "" "b"])))
+
+(test "node and expanded box items carry their :text lines; the box's header grows"
+  (fn []
+    (let [n (node-with {:text "hello\nworld"})]
+      (assert/deepEqual (:text-lines n) ["hello" "world"]))
+    (let [b (box-with {:text "about this box"})]
+      (assert/deepEqual (:text-lines b) ["about this box"])
+      (assert/equal (:title-h b) (+ scene/TITLE-H (scene/text-height ["x"]))))))

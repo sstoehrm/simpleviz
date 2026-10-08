@@ -103,6 +103,21 @@
             :y (- (/ (.-height rect) 2) (* cy k)))
     (request-paint!)))
 
+(defn to-screen
+  "Screen (canvas-wrap) coordinates of the scene point wx, wy."
+  [wx wy]
+  {:x (+ (* wx (:k view)) (:x view))
+   :y (+ (* wy (:k view)) (:y view))})
+
+(defn pin!
+  "Pan (zoom unchanged) so the scene point wx, wy lands on screen point
+  sx, sy."
+  [wx wy sx sy]
+  (assoc! view
+          :x (- sx (* wx (:k view)))
+          :y (- sy (* wy (:k view))))
+  (request-paint!))
+
 (defn- rounded-rect [ctx x y w h r]
   (.beginPath ctx)
   (.roundRect ctx x y w h r))
@@ -144,6 +159,16 @@
   (.stroke ctx)
   (.setLineDash ctx []))
 
+(defn- draw-text-lines!
+  "An element's :text lines from baseline y, LINE-H apart: centred on x
+  with align \"center\", else starting at x."
+  [ctx lines x y align]
+  (set! (.-textAlign ctx) align)
+  (set! (.-font ctx) scene/TEXT-FONT)
+  (set! (.-fillStyle ctx) (:text @palette))
+  (doseq [[i l] (map-indexed (fn [i l] [i l]) lines)]
+    (.fillText ctx l x (+ y (* i scene/LINE-H)))))
+
 (defn- draw-box [ctx item sel? text?]
   (let [removed? (= (:diff item) "removed") c (box-color item)]
   (when removed? (set! (.-globalAlpha ctx) 0.45))
@@ -180,7 +205,11 @@
           ;; only draw the inline type if it fits left of the button
           (when (< (+ 12 nw 5 tw) (- (:w item) 26))
             (set! (.-fillStyle ctx) (:sub @palette))
-            (.fillText ctx label (+ (:x item) 12 nw 5) (+ (:y item) 20)))))))
+            (.fillText ctx label (+ (:x item) 12 nw 5) (+ (:y item) 20)))))
+      ;; :text under the header
+      (when (seq (:text-lines item))
+        (draw-text-lines! ctx (:text-lines item) (+ (:x item) 12)
+                          (+ (:y item) scene/TITLE-H 8) "left"))))
   (when-not (:empty item)
   (let [bx (- (+ (:x item) (:w item)) scene/HIDE-BTN-RIGHT)
         by (+ (:y item) scene/HIDE-BTN-TOP)
@@ -268,18 +297,58 @@
     (set! (.-fillStyle ctx) c)
     (.fillText ctx "⇄" cx (+ cy 3.5))))
 
+(defn- ellipse-arc!
+  "Continue the path along the ellipse at cx, cy (radii rx, ry) from
+  angle a0 to a1 as a polyline — the SVG recorder has no ellipse."
+  [ctx cx cy rx ry a0 a1]
+  (doseq [k (range 1 17)]
+    (let [a (+ a0 (* (- a1 a0) (/ k 16)))]
+      (.lineTo ctx (+ cx (* rx (js/Math.cos a))) (+ cy (* ry (js/Math.sin a)))))))
+
+(defn- cylinder-path
+  "The database cylinder's outline in the box x, y, w, h: the sides, the
+  bottom rim's front curve and the top rim's back curve (ry: the rims'
+  half-height)."
+  [ctx x y w h ry]
+  (let [cx (+ x (/ w 2)) rx (/ w 2)
+        top (+ y ry) bot (- (+ y h) ry)]
+    (.beginPath ctx)
+    (.moveTo ctx x top)
+    (.lineTo ctx x bot)
+    (ellipse-arc! ctx cx bot rx ry js/Math.PI 0)
+    (.lineTo ctx (+ x w) top)
+    (ellipse-arc! ctx cx top rx ry 0 (- js/Math.PI))
+    (.closePath ctx)))
+
+(defn- cylinder-rim
+  "The top rim's front curve, which closes the cylinder's lid."
+  [ctx x y w ry]
+  (.beginPath ctx)
+  (.moveTo ctx x (+ y ry))
+  (ellipse-arc! ctx (+ x (/ w 2)) (+ y ry) (/ w 2) ry js/Math.PI 0))
+
 (defn- draw-node [ctx item sel? text?]
-  (let [removed? (= (:diff item) "removed")]
+  (let [removed? (= (:diff item) "removed")
+        db? (:database? item)
+        ;; a cylinder's text sits under its lid
+        dy (if db? (+ scene/DB-RIM 4) 0)]
     (when removed? (set! (.-globalAlpha ctx) 0.45))
-    (rounded-rect ctx (:x item) (:y item) (:w item) (:h item) 6)
+    (if db?
+      (cylinder-path ctx (:x item) (:y item) (:w item) (:h item) scene/DB-RIM)
+      (rounded-rect ctx (:x item) (:y item) (:w item) (:h item) 6))
     (set! (.-fillStyle ctx) (:node-fill @palette))
     (.fill ctx)
     (set! (.-strokeStyle ctx) (if sel? (:accent @palette) (:node-stroke @palette)))
     (set! (.-lineWidth ctx) (if sel? 2 1))
     (stroke-border ctx item)
+    (when db?
+      (cylinder-rim ctx (:x item) (:y item) (:w item) scene/DB-RIM)
+      (stroke-border ctx item))
     ;; a :ref node reads as a container: a second border inside the first
     (when (:ref? item)
-      (rounded-rect ctx (+ (:x item) 3) (+ (:y item) 3) (- (:w item) 6) (- (:h item) 6) 4)
+      (if db?
+        (cylinder-path ctx (+ (:x item) 3) (+ (:y item) 3) (- (:w item) 6) (- (:h item) 6) (- scene/DB-RIM 1))
+        (rounded-rect ctx (+ (:x item) 3) (+ (:y item) 3) (- (:w item) 6) (- (:h item) 6) 4))
       (set! (.-strokeStyle ctx) (if sel? (:accent @palette) (:sub @palette)))
       (set! (.-lineWidth ctx) 1)
       (.stroke ctx))
@@ -291,12 +360,16 @@
     (set! (.-textAlign ctx) "center")
     (set! (.-font ctx) NODE-FONT)
     (set! (.-fillStyle ctx) (node-color item))
-    (.fillText ctx (:name item) (+ (:x item) (/ (:w item) 2)) (+ (:y item) 19))
+    (.fillText ctx (:name item) (+ (:x item) (/ (:w item) 2)) (+ (:y item) 19 dy))
     (when (pos? (.-length (:type item)))
       (set! (.-font ctx) SUB-FONT)
       (set! (.-fillStyle ctx) (:sub @palette))
       (.fillText ctx (str "(" (:type item) ")")
-                 (+ (:x item) (/ (:w item) 2)) (+ (:y item) 35))))
+                 (+ (:x item) (/ (:w item) 2)) (+ (:y item) 35 dy)))
+    ;; :text under the name and type
+    (when (seq (:text-lines item))
+      (draw-text-lines! ctx (:text-lines item) (+ (:x item) (/ (:w item) 2))
+                        (+ (:y item) (if (pos? (.-length (:type item))) 44 30) dy 10) "center")))
     (when (some? (:diff item))
       (draw-diff-ring ctx item 8 text?))
     (when removed? (set! (.-globalAlpha ctx) 1))))
@@ -350,13 +423,20 @@
     (when removed? (set! (.-globalAlpha ctx) 0.45))
     (set! (.-textAlign ctx) "center")
     (set! (.-font ctx) SUB-FONT)
-    (let [cx (+ (:x item) (/ (:w item) 2))
-          cy (+ (:y item) (:h item) -3)]
-      (set! (.-lineWidth ctx) 3)
-      (set! (.-strokeStyle ctx) (:bg @palette))
-      (.strokeText ctx (:text item) cx cy)
-      (set! (.-fillStyle ctx) (:label @palette))
-      (.fillText ctx (:text item) cx cy))
+    (let [halo! (fn [x y]
+                  (set! (.-lineWidth ctx) 3)
+                  (set! (.-strokeStyle ctx) (:bg @palette))
+                  (.strokeText ctx (:text item) x y)
+                  (set! (.-fillStyle ctx) (:label @palette))
+                  (.fillText ctx (:text item) x y))]
+      (if (:rotated item)
+        ;; turned 90°, reading bottom to top, centred in its tall rect
+        (do (.save ctx)
+            (.translate ctx (+ (:x item) (/ (:w item) 2)) (+ (:y item) (/ (:h item) 2)))
+            (.rotate ctx (/ js/Math.PI -2))
+            (halo! 0 4)
+            (.restore ctx))
+        (halo! (+ (:x item) (/ (:w item) 2)) (+ (:y item) (:h item) -3))))
     (when removed? (set! (.-globalAlpha ctx) 1))))
 
 (defn- paint-items!

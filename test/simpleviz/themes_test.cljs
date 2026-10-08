@@ -58,7 +58,7 @@
 
 (test "NAMES lists each built-in theme once"
   (fn []
-    (assert/equal (count themes/NAMES) 12)
+    (assert/equal (count themes/NAMES) 14)
     (assert/deepEqual (sorted (js/Object.keys themes/THEMES)) (sorted themes/NAMES))))
 
 (test "KEYS and KEY-KINDS agree; CSS-KEYS are theme keys"

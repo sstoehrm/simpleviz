@@ -23,6 +23,62 @@
 
 (def ^:private BBOX-PAD 10)
 
+;; :text on a node or box shows inside it: lines of TEXT-FONT, broken at
+;; "\n" and wrapped past TEXT-W, LINE-H apart. The layout sizes elements
+;; for them and the painter draws them, both from text-lines.
+(def TEXT-FONT "11px system-ui, sans-serif")
+(def TEXT-W 220)
+(def LINE-H 14)
+
+(defn- wrap-line
+  "Line s (no line breaks) as lines no wider than max-w, broken between
+  words; a word wider than that keeps a line to itself."
+  [s measure max-w]
+  (let [words (filterv (fn [w] (pos? (.-length w))) (.split s " "))]
+    (if (empty? words)
+      [""]
+      (loop [ws (rest words) line (first words) acc []]
+        (if (empty? ws)
+          (conj acc line)
+          (let [cand (str line " " (first ws))]
+            (if (<= (measure cand TEXT-FONT) max-w)
+              (recur (rest ws) cand acc)
+              (recur (rest ws) (first ws) (conj acc line)))))))))
+
+(defn text-lines
+  "The lines an element's :text shows as: a string, or a vector of them
+  (numbers and keywords as text), split at line breaks and wrapped at
+  TEXT-W by measure ((fn [text font] width)). [] without text, or for
+  any other value (a map stays an inspector-only attribute)."
+  [text measure]
+  (let [parts (cond (string? text) [text]
+                    (number? text) [(str text)]
+                    (vector? text) (mapv str (filterv (fn [x] (or (string? x) (number? x))) text))
+                    :else [])]
+    (if (every? (fn [p] (= "" (.trim p))) parts)
+      []
+      (vec (mapcat (fn [p] (mapcat (fn [l] (wrap-line l measure TEXT-W)) (.split p "\n")))
+                   parts)))))
+
+(defn text-width
+  "The widest of lines in TEXT-FONT, 0 for none."
+  [lines measure]
+  (reduce (fn [m l] (js/Math.max m (measure l TEXT-FONT))) 0 lines))
+
+(defn text-height
+  "The room lines take: LINE-H each plus a little air below, 0 for none."
+  [lines]
+  (if (empty? lines) 0 (+ 4 (* LINE-H (count lines)))))
+
+;; a :type "database" node is drawn as the database cylinder: an ellipse
+;; of this half-height at top and bottom, the layout adding both rims
+(def DB-RIM 6)
+
+(defn database?
+  "Is a node of type t drawn as a database cylinder?"
+  [t]
+  (= "database" (.toLowerCase (str (or t "")))))
+
 ;; the :state values a node shows as a corner mark; anything else stays an
 ;; ordinary attribute
 (def STATES #{"new" "in-progress" "blocked" "done"})
@@ -78,7 +134,15 @@
      :pair? (pos? (.-length ps))
      :pair-problem? (boolean (some (fn [p] (some? (:problem p))) ps))}))
 
-(defn build-scene [{:keys [layout graph colors]}]
+(defn- naive-measure
+  "A stand-in text measure for callers without a canvas (tests)."
+  [text _font]
+  (* 6 (.-length (str text))))
+
+(defn build-scene
+  "The draw list for layout + graph + type-color slots. `measure`
+  ((fn [text font] width), as the layout used) wraps :text into lines."
+  [{:keys [layout graph colors measure]}]
   (let [boxes (js/Array.)
         nodes (js/Array.)
         origins (js/Map.)]
@@ -92,10 +156,16 @@
                    ;; also has no components but carries :collapsed): draw
                    ;; collapsed-style, but there is nothing to toggle
                    empty? (and (not (:collapsed box))
-                               (zero? (.-length (or (:components box) []))))]
+                               (zero? (.-length (or (:components box) []))))
+                   ;; an expanded box shows its :text under the header
+                   lines (if (or (:collapsed box) empty?)
+                           []
+                           (text-lines (:text (:attrs box)) (or measure naive-measure)))]
                (.push boxes (merge {:kind "box" :id (:id child)
                                     :x x :y y :w (:width child) :h (:height child)
-                                    :title-h TITLE-H
+                                    ;; the header strip, with the text under it
+                                    :title-h (+ TITLE-H (text-height lines))
+                                    :text-lines lines
                                     :collapsed (or (:collapsed box) empty?)
                                     :empty empty?
                                     :bbox (rect-bbox x y (:width child) (:height child))
@@ -116,6 +186,8 @@
                                     :attrs (:attrs node)
                                     :ref? (some? (ref-of node))
                                     :md-ref? (some? (ref-of node :md-ref))
+                                    :text-lines (text-lines (:text (:attrs node)) (or measure naive-measure))
+                                    :database? (database? (:type node))
                                     :state (node-state node)
                                     :diff (:diff node) :changed (:changed node)}
                              (pair-fields node))))))))
@@ -153,6 +225,8 @@
                                   :w (:width lbl) :h (:height lbl)
                                   :bbox (rect-bbox lx ly (:width lbl) (:height lbl))
                                   :text (:text lbl)
+                                  ;; runs along a vertical edge, turned 90°
+                                  :rotated (= true (:rotated lbl))
                                   :diff (when (some? e) (:diff e))})))))
       {:items (.concat boxes edge-items label-items nodes)
        :width (or (:width layout) 0)

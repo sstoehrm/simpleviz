@@ -15,3 +15,6 @@ dist/
 
 # Local feature worktrees
 .worktrees/
+
+# private example, never bundled
+examples/mps-architecture.edn

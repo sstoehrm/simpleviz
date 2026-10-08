@@ -8,7 +8,8 @@
 (def NAMES
   "The built-in themes, in documentation order."
   [:light :dark :print :high-contrast :blueprint :paper
-   :solarized-light :solarized-dark :nord :dracula :carbonfox :one-dark])
+   :solarized-light :solarized-dark :nord :dracula :carbonfox :one-dark
+   :tabak-light :tabak-dark])
 
 (def KEYS
   "Every theme key, in documentation order: page chrome, canvas painter,
@@ -179,4 +180,28 @@
     :diff-added "#98c379" :diff-modified "#e5c07b" :diff-removed "#e06c75"
     :state-new "#5c6370" :state-in-progress "#61afef" :state-blocked "#e06c75" :state-done "#98c379"
     :node-saturation 60 :node-lightness 68 :box-saturation 45 :box-lightness 58
-    :box-fill-alpha 0.12 :neutral-node-lightness 70 :neutral-box-lightness 50}})
+    :box-fill-alpha 0.12 :neutral-node-lightness 70 :neutral-box-lightness 50}
+
+   ;; tabak-theme for Emacs, © 2015-2021 Tim Richardt; each key takes the
+   ;; same palette name in both variants (background, gray, red, …)
+   :tabak-light
+   {:bg "#e8d1c0" :panel "#edd9ca" :panel-border "#d4bfaf" :panel-divider "#d4bfaf"
+    :text "#4f473f" :text-strong "#332d29" :text-muted "#7a6b62" :text-dim "#936543"
+    :hover "#d4bfaf" :hover-plain "#d4bfaf" :accent "#d44a4a" :on-accent "#e8d1c0" :shadow "rgba(79, 71, 63, .15)"
+    :node-fill "#edd9ca" :node-stroke "#d4bfaf" :edge "#7a6b62" :arrow "#7a6b62"
+    :sub "#7a6b62" :label "#4f473f" :btn-fill "#edd9cacc"
+    :diff-added "#217813" :diff-modified "#bd8400" :diff-removed "#d44a4a"
+    :state-new "#7a6b62" :state-in-progress "#129cc4" :state-blocked "#d44a4a" :state-done "#217813"
+    :node-saturation 60 :node-lightness 32 :box-saturation 45 :box-lightness 40
+    :box-fill-alpha 0.1 :neutral-node-lightness 30 :neutral-box-lightness 45}
+
+   :tabak-dark
+   {:bg "#38322e" :panel "#2e2926" :panel-border "#524943" :panel-divider "#524943"
+    :text "#dcd8ca" :text-strong "#faf5ec" :text-muted "#aaa89c" :text-dim "#877064"
+    :hover "#524943" :hover-plain "#524943" :accent "#cc8383" :on-accent "#38322e" :shadow "rgba(0, 0, 0, .4)"
+    :node-fill "#2e2926" :node-stroke "#524943" :edge "#aaa89c" :arrow "#aaa89c"
+    :sub "#aaa89c" :label "#dcd8ca" :btn-fill "#2e2926cc"
+    :diff-added "#7f9f7f" :diff-modified "#ebdda9" :diff-removed "#cc8383"
+    :state-new "#aaa89c" :state-in-progress "#8dacb5" :state-blocked "#cc8383" :state-done "#7f9f7f"
+    :node-saturation 35 :node-lightness 72 :box-saturation 30 :box-lightness 62
+    :box-fill-alpha 0.1 :neutral-node-lightness 75 :neutral-box-lightness 60}})

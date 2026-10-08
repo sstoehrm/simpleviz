@@ -211,10 +211,14 @@ async function navigate(url) {
   await settled();
   await sleep(300);
 }
-async function theme(name) {
-  await js(`(() => { const s = document.getElementById("theme-select");
+async function pick(select, name) {
+  await js(`(() => { const s = document.getElementById(${JSON.stringify(select)});
     s.value = ${JSON.stringify(name)}; s.dispatchEvent(new Event("change", { bubbles: true })); })()`);
 }
+const refit = () => js(`(async () => { const app = await import("/js/simpleviz/app.mjs"), cv = await import("/js/simpleviz/canvas.mjs");
+  cv.refit_next_BANG_(); cv.fit_view_once_BANG_(app.state.val.scene); cv.request_paint_BANG_(); })()`);
+const theme = name => pick("theme-select", name);
+async function layout(name) { await pick("layout-select", name); await sleep(300); await settled(); }
 
 // ---- run -------------------------------------------------------------------
 
@@ -313,12 +317,33 @@ try {
   await moveTo("n:web", 500);
   await sleep(500);
 
+  // 5b — text inside nodes, databases as cylinders: close the inspector
+  // and fit the grown graph first
+  await click(await elAt("#details-close"), 400);
+  await refit();
+  await caption("<code>:text</code> shows inside a node; a <code>database</code> is a cylinder");
+  edit(demo, `:name "Auth"     :type "service"`, `:name "Auth"     :type "service" :text "Issues bearer tokens"`);
+  edit(demo, `:version "16"`, `:version "16" :text ["Orders" "Users"]`);
+  await sleep(1000);
+  await moveTo("n:auth", 500);
+  await sleep(500);
+  await moveTo("n:db", 500);
+  await sleep(1200);
+
   // 6 — themes
-  await caption("Pick one of 12 themes — or set <code>:theme</code> in the file");
+  await caption("Pick one of 14 themes — or set <code>:theme</code> in the file");
   await click(await elAt("#theme-select"));
-  for (const t of ["nord", "dracula", "paper", "blueprint"]) { await theme(t); await sleep(900); }
+  for (const t of ["nord", "dracula", "tabak-dark", "paper", "blueprint"]) { await theme(t); await sleep(900); }
   await theme("");
   await sleep(300);
+
+  // 6b — layouts (tiled looks like compact on a graph this small)
+  await caption("Pick a layout: <code>compact</code> spreads a graph down as well as across");
+  await click(await elAt("#layout-select"));
+  await layout("compact");
+  await sleep(2400);
+  await layout("layered");
+  await sleep(600);
 
   // 7 — pairs
   await caption("Pairs link the same thing across graphs: <kbd>f p</kbd>");
@@ -366,8 +391,7 @@ try {
 
   // 10 — export: close the inspector and fit the whole graph again first
   await click(await elAt("#details-close"), 400);
-  await js(`(async () => { const app = await import("/js/simpleviz/app.mjs"), cv = await import("/js/simpleviz/canvas.mjs");
-    cv.refit_next_BANG_(); cv.fit_view_once_BANG_(app.state.val.scene); cv.request_paint_BANG_(); })()`);
+  await refit();
   await caption("Export a PNG or an SVG, the source embedded");
   await click(await elAt("#export-btn"));
   await sleep(1800);

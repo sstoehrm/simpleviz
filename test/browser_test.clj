@@ -114,6 +114,18 @@
       (is (= before (profiles-in tmp)) "no profile folder left")
       (finally (fs/delete fake)))))
 
+(deftest a-browser-that-never-answers-times-out-with-its-last-stderr-lines
+  ;; starts, says something, never prints the DevTools line
+  (let [fake (str (fs/create-temp-file {:prefix "slow-browser"}))]
+    (spit fake "#!/bin/sh\necho 'still warming up' >&2\nexec sleep 30\n")
+    (fs/set-posix-file-permissions fake "rwx------")
+    (try
+      (with-redefs [browser/launch-timeout-ms 1000]
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                              #"^slow-browser\S* did not start within 1 s: still warming up$"
+                              (browser/with-browser fake (fn [_ _] :unreachable)))))
+      (finally (fs/delete fake)))))
+
 (defn- browser-running? [profile]
   (zero? (:exit (p/shell {:out :string :err :string :continue true} "pgrep" "-f" profile))))
 

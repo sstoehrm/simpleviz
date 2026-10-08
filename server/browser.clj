@@ -58,7 +58,12 @@
 
 ;; --- running the browser ------------------------------------------------
 
-(def start-timeout-ms 15000)
+(def launch-timeout-ms
+  "How long the browser may take to print its DevTools line: a first,
+  cold start of Chrome 154 on a CI runner has taken over 15 s."
+  60000)
+
+(def page-timeout-ms 15000)
 
 (defn- profile-dir!
   "A fresh profile folder the browser at `path` can use."
@@ -119,8 +124,9 @@
                          (catch java.io.IOException e
                            (throw (ex-info (str "could not start " nm ": " (ex-message e)) {})))))
       (drain! @proc url tail)
-      (let [u (deref url start-timeout-ms nil)]
-        (cond (nil? u) (throw (ex-info (str nm " did not start within 15 s") {}))
+      (let [u (deref url launch-timeout-ms nil)]
+        (cond (nil? u) (throw (ex-info (str nm " did not start within " (quot launch-timeout-ms 1000) " s: "
+                                            (str/join " | " @tail)) {}))
               (= :exited u) (throw (ex-info (str "could not start " nm ": " (str/join " | " @tail)) {}))
               :else (f u profile)))
       (finally
@@ -192,10 +198,10 @@
   [{:keys [events] :as page} url]
   (let [loaded (promise)]
     (swap! events assoc "Page.loadEventFired" loaded)
-    (call page "Page.enable" {} start-timeout-ms "the page")
-    (call page "Page.navigate" {:url url} start-timeout-ms "the page")
-    (when (nil? (deref loaded start-timeout-ms nil))
-      (throw (ex-info "the page did not load within 15 s" {})))))
+    (call page "Page.enable" {} page-timeout-ms "the page")
+    (call page "Page.navigate" {:url url} page-timeout-ms "the page")
+    (when (nil? (deref loaded page-timeout-ms nil))
+      (throw (ex-info (str "the page did not load within " (quot page-timeout-ms 1000) " s") {})))))
 
 (defn export-page!
   "Navigate to page-url and return window.simplevizExport's data: base64

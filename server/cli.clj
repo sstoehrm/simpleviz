@@ -20,12 +20,11 @@
 (def latest-jar-url
   "https://github.com/sstoehrm/simpleviz/releases/latest/download/simpleviz.jar")
 
-(def init-template
-  "What `simpleviz init` writes."
-  (str "{:nodes {:web {:name \"Web\" :type \"frontend\"}\n"
-       "         :api {:name \"API\" :type \"service\"}}\n"
-       " :edges {[:web :api] {:direction :-> :name \"calls\" :type \"http\"}}\n"
-       " :boxes {:backend {:type \"zone\" :components #{:api}}}}\n"))
+(def shipped-templates
+  "The files under templates/, without .edn: the ones every install has.
+  A test keeps this equal to the folder, since a jar cannot list a
+  directory."
+  ["default"])
 
 (def usage
   (str/join
@@ -42,7 +41,10 @@
     "       simpleviz fork <graph.edn> <suffix>     copy the graph and every file it refs to"
     "                                               <name>-<suffix>.edn siblings"
     "       simpleviz promote <graph.edn> <suffix>  move each fork over its original file"
-    "       simpleviz init <graph.edn>        write a starter graph file (won't overwrite)"
+    "       simpleviz init <graph.edn> [-t|--template <name>]"
+    "                                         write a starter graph file (won't overwrite)"
+    "                                         from <name>.edn (default: default) in"
+    "                                         ~/.simpleviz/templates (or $SIMPLEVIZ_HOME/templates)"
     "       simpleviz extract <diagram.png|.svg> [out.edn] [--old]   print/extract the embedded EDN"
     "       simpleviz export <graph.edn> [<suffix>] <out.png|out.svg> [--theme <name>] [--force]"
     "                                         write the ⇩ export of the whole graph, made in a"
@@ -81,13 +83,43 @@
     (when-not (.isFile (io/file file)) (die "file not found: " file))
     (fork/-main cmd file suffix)))
 
+(defn- init-args
+  "{:file :template} from init's args, the -t/--template flag anywhere;
+  nil when they don't fit."
+  [args]
+  (loop [args args, pos [], template "default"]
+    (if-let [[a & more] (seq args)]
+      (if (#{"-t" "--template"} a)
+        (when (seq more) (recur (rest more) pos (first more)))
+        (recur more (conj pos a) template))
+      (when (= 1 (count pos)) {:file (first pos) :template template}))))
+
+(defn- template-source
+  "Template `name`: <home>/templates/<name>.edn, where users and tools
+  put theirs, else the shipped one on the classpath; nil if neither."
+  [name]
+  (let [f (io/file (log/home) "templates" (str name ".edn"))]
+    (if (.isFile f) f (io/resource (str "templates/" name ".edn")))))
+
+(defn- available-templates []
+  (->> (.listFiles (io/file (log/home) "templates"))
+       (keep #(second (re-matches #"(.+)\.edn" (.getName %))))
+       (concat (filter template-source shipped-templates))
+       distinct
+       sort))
+
 (defn- init-cmd [args]
-  (when-not (= 1 (count args)) (usage-error))
-  (let [f (first args)]
-    (when (.exists (io/file f)) (die f " already exists"))
-    (try (spit f init-template)
-         (catch java.io.IOException e (die "cannot write " f ": " (ex-message e))))
-    (println (str "created " f " — view it with: simpleviz " f))))
+  (let [{:keys [file template]} (or (init-args args) (usage-error))]
+    (reject-flag! file)
+    (when (re-find #"[/\\]" template)
+      (die "template name must be a plain name, not a path: " template))
+    (let [src (or (template-source template)
+                  (die "unknown template: " template
+                       " (available: " (str/join ", " (available-templates)) ")"))]
+      (when (.exists (io/file file)) (die file " already exists"))
+      (try (with-open [in (io/input-stream src)] (io/copy in (io/file file)))
+           (catch java.io.IOException e (die "cannot write " file ": " (ex-message e))))
+      (println (str "created " file " — view it with: simpleviz " file)))))
 
 (def port-range (range 7370 7470))
 

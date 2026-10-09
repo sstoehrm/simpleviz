@@ -68,16 +68,95 @@
     (is (= 1 (:exit res)))
     (is (= "simpleviz: clean-all needs the install.sh launcher (Linux)" (str/trim (:err res))))))
 
+(defn- home-env
+  "An env pointing SIMPLEVIZ_HOME at <tmp>/home, so the user's own
+  ~/.simpleviz/templates never leaks into a test."
+  [tmp]
+  {"SIMPLEVIZ_HOME" (str (fs/path tmp "home"))})
+
+(defn- template! [tmp name content]
+  (let [f (fs/path tmp "home" "templates" (str name ".edn"))]
+    (fs/create-dirs (fs/parent f))
+    (spit (str f) content)))
+
 (deftest init-writes-a-clean-starter-and-refuses-to-overwrite
   (with-tmp
     (fn [tmp]
-      (let [res (run-cli ["init" "g.edn"] :dir tmp)]
+      (let [res (run-cli ["init" "g.edn"] :dir tmp :env (home-env tmp))]
         (is (= 0 (:exit res)) (:err res))
         (is (= "created g.edn — view it with: simpleviz g.edn" (str/trim (:out res)))))
+      (is (= (slurp (str proc-util/repo-root "/templates/default.edn"))
+             (slurp (str (fs/path tmp "g.edn"))))
+          "no templates folder: the shipped default from the classpath")
       (is (= "ok" (str/trim (:out (run-cli ["check" "g.edn"] :dir tmp)))))
-      (let [res (run-cli ["init" "g.edn"] :dir tmp)]
+      (let [res (run-cli ["init" "g.edn"] :dir tmp :env (home-env tmp))]
         (is (= 1 (:exit res)))
         (is (str/includes? (:err res) "g.edn already exists"))))))
+
+(deftest init-prefers-the-default-in-the-templates-folder
+  (with-tmp
+    (fn [tmp]
+      (template! tmp "default" ";; mine\n{:nodes {:a {}}}\n")
+      (let [res (run-cli ["init" "g.edn"] :dir tmp :env (home-env tmp))]
+        (is (= 0 (:exit res)) (:err res)))
+      (is (= ";; mine\n{:nodes {:a {}}}\n" (slurp (str (fs/path tmp "g.edn"))))))))
+
+(deftest init-copies-a-named-template-with-either-flag-anywhere
+  (with-tmp
+    (fn [tmp]
+      (template! tmp "pipeline" ";; pipeline\n{:nodes {:in {} :out {}}}\n")
+      (doseq [[out args] [["a.edn" ["init" "a.edn" "-t" "pipeline"]]
+                          ["b.edn" ["init" "--template" "pipeline" "b.edn"]]]]
+        (let [res (run-cli args :dir tmp :env (home-env tmp))]
+          (is (= 0 (:exit res)) (:err res))
+          (is (= ";; pipeline\n{:nodes {:in {} :out {}}}\n"
+                 (slurp (str (fs/path tmp out))))))))))
+
+(deftest init-names-the-available-templates-for-an-unknown-one
+  (with-tmp
+    (fn [tmp]
+      (template! tmp "pipeline" "{}")
+      (template! tmp "web" "{}")
+      (let [res (run-cli ["init" "g.edn" "-t" "nope"] :dir tmp :env (home-env tmp))]
+        (is (= 1 (:exit res)))
+        (is (= "simpleviz: unknown template: nope (available: default, pipeline, web)"
+               (str/trim (:err res)))))
+      (is (not (fs/exists? (fs/path tmp "g.edn")))))))
+
+(deftest init-lists-only-the-shipped-templates-it-can-find
+  ;; installed, the classpath is the install dir: a deleted
+  ;; templates/default.edn is gone, not "available"
+  (with-tmp
+    (fn [tmp]
+      (let [res (p/shell {:dir (str tmp) :out :string :err :string :continue true
+                          :extra-env (home-env tmp)}
+                         "bb" "--config" (str proc-util/repo-root "/bb.edn") "-e"
+                         (str "(require 'cli) (alter-var-root #'cli/shipped-templates conj \"ghost\")"
+                              " (cli/-main \"init\" \"g.edn\" \"-t\" \"ghost\")"))]
+        (is (= 1 (:exit res)))
+        (is (= "simpleviz: unknown template: ghost (available: default)"
+               (str/trim (:err res))))))))
+
+(deftest init-rejects-a-template-name-that-is-a-path
+  (with-tmp
+    (fn [tmp]
+      (doseq [name ["../default" "a/b" "a\\b"]]
+        (let [res (run-cli ["init" "g.edn" "-t" name] :dir tmp :env (home-env tmp))]
+          (is (= 1 (:exit res)))
+          (is (= (str "simpleviz: template name must be a plain name, not a path: " name)
+                 (str/trim (:err res)))))))))
+
+(deftest init-without-a-template-name-is-a-usage-error
+  (doseq [args [["init" "g.edn" "-t"] ["init" "-t"] ["init"] ["init" "a.edn" "b.edn"]]]
+    (let [res (run-cli args)]
+      (is (= 1 (:exit res)) (pr-str args))
+      (is (str/includes? (:err res) "usage:")))))
+
+(deftest shipped-templates-match-the-templates-folder
+  ;; a jar cannot list a directory, so unknown-template errors name these
+  (is (= (set (map #(str/replace (str (fs/file-name %)) #"\.edn$" "")
+                   (fs/glob (str proc-util/repo-root "/templates") "*.edn")))
+         (set cli/shipped-templates))))
 
 (deftest fork-and-promote-work-on-relative-paths
   (with-tmp

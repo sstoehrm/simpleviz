@@ -1,0 +1,4 @@
+{:nodes {:web {:name "Web" :type "frontend"}
+         :api {:name "API" :type "service"}}
+ :edges {[:web :api] {:direction :-> :name "calls" :type "http"}}
+ :boxes {:backend {:type "zone" :components #{:api}}}}

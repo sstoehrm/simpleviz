@@ -61,3 +61,34 @@
     (try
       (is (= {:error nil :warnings []} (check/check (str (fs/file dir "g.edn")))))
       (finally (fs/delete-tree dir)))))
+
+(defn- temp-md-folder
+  "A fresh folder (a subfolder of a temp folder, so ../ stays inside the
+  temp tree) holding `files`; [outer folder]."
+  [files]
+  (let [outer (fs/create-temp-dir {:prefix "check-test"})
+        dir (fs/file outer "served")]
+    (fs/create-dirs dir)
+    (doseq [[nm text] files] (spit (fs/file dir nm) text))
+    [outer dir]))
+
+(deftest check-md-reports-broken-links
+  (let [[outer dir] (temp-md-folder
+                     {"notes.md" (str "[ok](g.edn) [gone](nope.md)\n![x](../up.png)\n[r][d] [r2][d]\n\n"
+                                      "[d]: missing.edn\n[web](http://x.md) [pic](p.jpg)\n")
+                      "g.edn" "{:nodes {}}"})]
+    (try
+      (is (= {:error nil :warnings ["line 1: nope.md not found"
+                                    "line 2: ../up.png leaves the served folder"
+                                    "line 5: missing.edn not found"]}
+             (check/check (str (fs/file dir "notes.md")))))
+      (finally (fs/delete-tree outer)))))
+
+(deftest check-md-clean-and-unreadable
+  (let [[outer dir] (temp-md-folder {"ok.md" "[g](g.edn)" "g.edn" "{}"})]
+    (try
+      (is (= {:error nil :warnings []} (check/check (str (fs/file dir "ok.md")))))
+      (spit (fs/file dir "big.md") (apply str (repeat (inc (* 1024 1024)) "x")))
+      (is (re-find #"over 1 MiB" (:error (check/check (str (fs/file dir "big.md"))))))
+      (is (= "no such file: nope.md" (:error (check/check "nope.md"))))
+      (finally (fs/delete-tree outer)))))

@@ -258,6 +258,33 @@ other elements or follow refs.
 - Same path rules as refs: relative to the graph file, never above the
   served folder. Only `.md` files in UTF-8, up to 1 MiB.
 
+## md pages
+
+`simpleviz notes.md` serves a markdown file: the page shows it in the
+doc editor, full window. Link graphs and other docs with plain markdown
+links, which GitHub and every editor understand too:
+
+    The flow is in [the payment graph](pay/flow.edn).
+    See [auth](auth.md) and the [token states][tokens].
+
+    [tokens]: diagrams/tokens.edn
+
+- Each line with a followable link gets a » in the gutter on the right;
+  a line with several shows »2, »3 … and lists them. Following one opens
+  the graph or md file, and the trail at the top leads back.
+- Followable: inline links, images, reference links and their
+  definitions, to `.edn`, `.png`, `.svg` and `.md` files. Relative to
+  the md file, never above the served folder; `#section` and `?query`
+  are ignored. Links in code blocks and code spans, web links and other
+  file types get no ».
+- Unsaved text is saved before the page changes — with a link, a crumb,
+  or the browser's back and forward; if the save fails, the page stays.
+- A `:ref` on a graph element may name an `.md` file: following it
+  opens the md page. `:md-ref` still opens the doc beside the graph,
+  and its links work the same way.
+- md files can't be compared, forked or exported; `simpleviz notes.md
+  next` is refused.
+
 ## Following refs
 
 A `:ref` on a node, box or edge names another graph file by a path relative
@@ -353,6 +380,7 @@ The page shows a file's problems in banners. To get the same report
 without a browser, for example from a script or an agent:
 
     simpleviz check graph.edn                           # works without a server
+    simpleviz check notes.md                            # an md file's broken links
     curl -s http://localhost:7373/api/errors            # the served file
     curl -s 'http://localhost:7373/api/errors?file=sub/api.edn'
 
@@ -360,6 +388,8 @@ without a browser, for example from a script or an agent:
 1, or prints `ok`. The route answers `{"error":null,"warnings":[]}` for a
 clean file. In compare mode `file` names the original, not the fork; the
 report covers both sides, and each warning starts with its file's name.
+
+For an md file, each warning names the line and the link: `line 3: pay.edn not found`, `line 7: ../x.edn leaves the served folder`.
 
 ## Write locks
 

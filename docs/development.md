@@ -62,7 +62,7 @@ folder; `serve/resolve-path` refuses anything above that folder, non
 the trail of followed refs in its query string (`?file=..&trail=..`, see
 `editor/parse-nav`). In suffix mode `serve/sides` pairs the requested path
 with its fork per request, so every route works in compare mode; a
-compare export (PNG or SVG) refuses the parameter.
+compare export (PNG or SVG) refuses the parameter. `/api/root` names the root file, so the page can tell an md root from a graph before it loads anything; md pages read and save through `/api/text`, and `/api/errors` reports an md file's broken links (`serve/md-warnings`, scanned by `server/mdlinks.cljc`, which the page shares).
 
 ## CI and releases
 

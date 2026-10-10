@@ -33,6 +33,7 @@ Without an installer, unpack a tarball from the
 
     simpleviz demo                             # copy the examples to a temp folder, serve them
     simpleviz my-arch.edn                      # serve a graph on a free port 7370-7469
+    simpleviz notes.md                         # an md file, its links to graphs and md files followable
     simpleviz init my-arch.edn                 # write a starter file
     simpleviz init my-arch.edn -t pipeline     # ...from ~/.simpleviz/templates/pipeline.edn
     simpleviz fork my-arch.edn next            # copy to my-arch-next.edn, plus every file it refs
@@ -44,7 +45,7 @@ Without an installer, unpack a tarball from the
 can also edit in the page: click an element to inspect and change its
 attributes, and use the toolbar at the bottom to add, connect, group and
 delete. ⇩ exports a PNG or an SVG, both with the source embedded; simpleviz
-serves either like an EDN file. Press `?` in
+serves either like an EDN file. An `.md` file opens in a plain-text editor; ordinary markdown links to `.edn`, `.png`, `.svg` and `.md` files get a » to follow them. Press `?` in
 the page for controls and shortcuts.
 
 `init` copies a template from `~/.simpleviz/templates` (or

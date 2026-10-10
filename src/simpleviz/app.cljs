@@ -789,10 +789,11 @@
 (defn- trail-view
   "The files followed to reach the one shown, root first, each a
   button back to it; the current file last as plain text. Shown only
-  once a ref has been followed (or the page loaded with a trail)."
+  once a ref has been followed (or the page loaded with a trail) — also
+  when the file failed to open, so the crumbs lead back."
   [st]
   (let [trail (:trail (:nav st))]
-    (when (and (seq trail) (some? (current-path st)))
+    (when (and (seq trail) (some? (or (current-path st) (:file (:nav st)))))
       (into [:div {:id "trail"}]
             (concat
              (apply concat
@@ -1388,9 +1389,12 @@
   re-read the navigation state, drop everything that belongs to the
   previous file — selection, edits in progress, collapsed boxes, cached
   layouts, the graph itself, the md page — and load what the URL now
-  names: an md page or a graph. A docked doc stays open between graphs."
+  names: an md page or a graph. A docked doc stays open between graphs;
+  an md page replaces it (navigate! and on-popstate! saved it), so an
+  open that fails leaves no docked doc that would stop tick's retry."
   []
-  (let [nav (editor/parse-nav js/location.search)]
+  (let [nav (editor/parse-nav js/location.search)
+        md-target? (= "md" (editor/doc-kind (or (:file nav) @root-path)))]
     (reset! shown-query js/location.search)
     (swap! graph-gen inc)
     (swap! state (fn [st]
@@ -1400,7 +1404,7 @@
                           :selected nil :editing nil :edit-error nil :pick nil :pick-hint nil
                           :chord nil :id-entry nil :pending-focus (:focus nav) :focus-center true
                           :collapsed-boxes #{} :export-menu false
-                          :md (when-not (page? st) (:md st)))))
+                          :md (when-not (or (page? st) md-target?) (:md st)))))
     (.clear layout-cache)
     (reset! last-mtime nil)
     (canvas/refit-next!)
@@ -1535,12 +1539,22 @@
             (set! (.-title js/document) (str (format/basename path) " — simpleviz"))
             (swap! state assoc :error nil :disconnected false
                    :md (editor/adopt-doc {:path path :page true :full false :saving false} out))
-            (focus-md!))))
+            (focus-md-start!))))
     (catch :default _
       (swap! state assoc :disconnected true))))
 
 (defn- focus-md! []
   (when-let [el (js/document.getElementById "md-text")] (.focus el)))
+
+(defn- focus-md-start!
+  "Focus a doc just opened at its start: the swap that adopted it has
+  rendered the textarea, whose value — set as a property — left the
+  caret at the end, where focusing would scroll."
+  []
+  (when-let [el (js/document.getElementById "md-text")]
+    (.setSelectionRange el 0 0)
+    (.focus el {:preventScroll true})
+    (set! (.-scrollTop el) 0)))
 
 (defn- ^:async save-md!
   "Write the open doc; `overwrite?` saves over the version the conflict
@@ -1601,7 +1615,7 @@
             (swap! state assoc :nav-error (str "Can't open " path ": " (:error out)))
             (do (swap! md-gen inc)
                 (swap! state assoc :md (editor/adopt-doc {:path path :full false :saving false} out))
-                (focus-md!))))
+                (focus-md-start!))))
         (catch :default _
           (swap! state assoc :nav-error (str "Can't open " path ": not connected")))))))
 

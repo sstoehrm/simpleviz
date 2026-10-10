@@ -1305,16 +1305,20 @@
 
 (defn ^:async tick []
   (cond
-    ;; the md page polls its doc on its own (poll-md!); this only notices
-    ;; the server going away and coming back
-    (page? @state)
-    (let [ok (try (.-ok (js-await (js/fetch "/api/root"))) (catch :default _ false))]
-      (when (not= (not ok) (:disconnected @state))
-        (swap! state assoc :disconnected (not ok))))
-
     ;; the first load could not ask what the root is: try again
     (and (nil? (:file (:nav @state))) (nil? @root-path))
     (when (some? (js-await (root-path!))) (js-await (load-nav!)))
+
+    ;; an md page (decided by the URL, so a failed open stays one): the
+    ;; doc polls itself (poll-md!); this notices the server going away and
+    ;; coming back, and retries an open that failed for want of a server
+    (= "md" (editor/doc-kind (or (:file (:nav @state)) @root-path)))
+    (let [ok (try (.-ok (js-await (js/fetch "/api/root"))) (catch :default _ false))
+          st @state]
+      (when (not= (not ok) (:disconnected st))
+        (swap! state assoc :disconnected (not ok)))
+      (when (and ok (nil? (:md st)) (nil? (:error st)))
+        (js-await (open-page! (or (:file (:nav st)) @root-path)))))
 
     :else
     (let [mtime (try

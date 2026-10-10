@@ -163,8 +163,9 @@ simpleviz just cannot open.
   list, relayout, layout menu, export, undo, the loading spinner.
   Shown: trail, banners, theme menu (your theme; md has no `:theme`),
   help.
-- `tick` in page mode runs `poll-md!` and sets `:disconnected` from
-  whether that fetch failed, instead of the version check.
+- `tick` in page mode only probes the server (`GET /api/root`) and sets
+  `:disconnected` from the answer, instead of the version check; the doc
+  itself is polled by the existing `poll-md!` interval.
 - The tab title is the md file's name (`notes.md`).
 - Saving, conflicts, CRLF round trip, `beforeunload`, Ctrl/Cmd+S: as
   for the docked panel today.
@@ -239,8 +240,8 @@ opens as an md page. `/api/create` is not called for `.md` targets.
   per animation frame, after a text change, on a `ResizeObserver` hit
   on the textarea (window resize, dock ↔ page), and once on
   `document.fonts.ready`. Links are re-parsed 150 ms after the text
-  stops changing (a 1 MiB doc takes about half a second to scan), and
-  once right away when a doc is opened or taken from disk.
+  stops changing (a 1 MiB doc takes up to ~1.5 s to scan), and right
+  away when another doc opens.
 - The gutter is display only; the text never changes.
 
 ### Help

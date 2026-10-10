@@ -1,0 +1,66 @@
+;; md pages: .md files as first-class pages, linked to graphs and other
+;; md files with ordinary markdown links (spec:
+;; docs/superpowers/specs/2026-10-10-md-pages-design.md)
+{:layout :compact
+ :nodes {:md-file {:name "notes.md" :type "file"
+                   :text "[the graph](pay.edn), [auth](auth.md)"}
+         :edn-file {:name "pay.edn" :type "file"}
+
+         :mdlinks {:name "mdlinks.cljc" :type "shared" :state :new
+                   :text "links: inline, image, ref, def\nfollowable?: .md .edn .png .svg"}
+
+         :cli-serve {:name "simpleviz notes.md" :type "cli" :state :new
+                     :text "start!: md root → doc-state check\nsuffix refused"}
+         :cli-check {:name "simpleviz check notes.md" :type "cli" :state :new
+                     :text "not found / leaves the folder\nnot recursive"}
+         :cli-refuse {:name "export / fork / promote / init" :type "cli" :state :new
+                      :text "refuse .md"}
+         :resolve-path {:name "resolve-path" :type "server"}
+         :api-root {:name "/api/root" :type "server" :state :new
+                    :text "root-relative root name"}
+         :api-errors {:name "/api/errors" :type "server" :state :new
+                      :text "md file → link warnings"}
+         :api-graph {:name "/api/graph, /api/version" :type "server"
+                     :text "graph-only, unchanged"}
+         :api-text {:name "/api/text, /api/text/save" :type "server"
+                    :text "unchanged"}
+
+         :nav {:name "load-nav! + trail" :type "page" :state :new
+               :text "doc-kind of ?file= or /api/root\ncurrent-path"}
+         :graph-view {:name "graph view" :type "page"
+                      :text ":ref to .md → md page"}
+         :md-editor {:name "md editor (:md)" :type "page" :state :new
+                     :text ":page true → full window\n:page false → docked (:md-ref)"}
+         :gutter {:name "» gutter" :type "page" :state :new
+                  :text "mirror div measures wrapped lines\n»N menu"}
+         :follow {:name "follow-link!" :type "page" :state :new
+                  :text "save-if-dirty! first\npopstate re-push on failure"}}
+ :edges {[:cli-serve :resolve-path] {:direction :->}
+         [:cli-check :mdlinks] {:direction :->}
+         [:cli-check :resolve-path] {:direction :->}
+         [:api-errors :mdlinks] {:direction :->}
+         [:api-errors :resolve-path] {:direction :->}
+         [:api-graph :resolve-path] {:direction :->}
+         [:api-text :resolve-path] {:direction :->}
+         [:api-graph :edn-file] {:direction :-> :name "reads"}
+         [:api-text :md-file] {:direction :-> :name "reads/writes"}
+         [:nav :api-root] {:direction :-> :name "no ?file="}
+         [:nav :graph-view] {:direction :-> :name ".edn/.png/.svg"}
+         [:nav :md-editor] {:direction :-> :name ".md"}
+         [:graph-view :api-graph] {:direction :->}
+         [:md-editor :api-text] {:direction :->}
+         [:md-editor :gutter] {:direction :->}
+         [:gutter :mdlinks] {:direction :->}
+         [:gutter :follow] {:direction :-> :name "»"}
+         [:follow :nav] {:direction :-> :name "pushState"}
+         [:graph-view :md-editor] {:direction :-> :name ":md-ref (docked)"}}
+ :boxes {:cli {:name "CLI (bb)" :type "zone" :grid [0 0]
+               :components #{:cli-serve :cli-check :cli-refuse}}
+         :server {:name "server (serve.clj)" :type "zone" :grid [1 0]
+                  :components #{:resolve-path :api-root :api-errors :api-graph :api-text}}
+         :page {:name "page (squint)" :type "zone" :grid [1 1]
+                :components #{:nav :graph-view :md-editor :gutter :follow}}
+         :shared {:name "shared (cljc)" :type "zone" :grid [0 1]
+                  :components #{:mdlinks}}
+         :disk {:name "served folder" :type "zone" :grid [2 0]
+                :components #{:md-file :edn-file}}}}

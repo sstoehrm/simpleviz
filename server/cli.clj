@@ -29,11 +29,13 @@
 (def usage
   (str/join
    "\n"
-   ["usage: simpleviz <graph.edn> [<suffix>] [--debug] [--no-open]"
+   ["usage: simpleviz <graph.edn|doc.md> [<suffix>] [--debug] [--no-open]"
     "                                         serve a graph; with a suffix, compare it"
     "                                         against its fork graph-<suffix>.edn (refs follow"
     "                                         into the same comparison of each referenced file)"
-    "                                         exported PNGs and SVGs work in place of EDN files"
+    "                                         exported PNGs and SVGs work in place of EDN files;"
+    "                                         an .md file opens in the doc editor, its links to"
+    "                                         graphs and md files followable"
     (str "                                         --debug logs edits and errors to " log/dir-hint)
     "                                         --no-open prints the URL without opening a browser"
     "       simpleviz demo [--debug] [--no-open]   copy the examples to a temp folder and serve"
@@ -49,8 +51,9 @@
     "       simpleviz export <graph.edn> [<suffix>] <out.png|out.svg> [--theme <name>] [--force]"
     "                                         write the ⇩ export of the whole graph, made in a"
     "                                         headless Chrome/Chromium (SIMPLEVIZ_BROWSER overrides)"
-    "       simpleviz check <graph.edn>       print the parse error or validation warnings"
-    "                                         the page would show; exit 1 if there are any"
+    "       simpleviz check <graph.edn|doc.md> print the parse error or validation warnings"
+    "                                         the page would show, or an md file's broken"
+    "                                         links; exit 1 if there are any"
     "       simpleviz update                  install the latest release (install.sh launcher;"
     "                                         a bbin install prints the bbin command)"
     "       simpleviz clean-all               kill every running simpleviz server"
@@ -80,6 +83,7 @@
   (when-not (= 2 (count args)) (usage-error))
   (let [[file suffix] args]
     (reject-flag! suffix)
+    (when (serve/md-path? file) (die cmd " works on graph files (.edn, .png or .svg)"))
     (when-not (.isFile (io/file file)) (die "file not found: " file))
     (fork/-main cmd file suffix)))
 
@@ -111,6 +115,7 @@
 (defn- init-cmd [args]
   (let [{:keys [file template]} (or (init-args args) (usage-error))]
     (reject-flag! file)
+    (when (serve/md-path? file) (die "init writes graph files (.edn)"))
     (when (re-find #"[/\\]" template)
       (die "template name must be a plain name, not a path: " template))
     (let [src (or (template-source template)
@@ -186,6 +191,7 @@
   [file suffix]
   (when-not (.isFile (io/file file)) (die "file not found: " file))
   (when (some? suffix)
+    (when (serve/md-path? file) (die "compare mode needs a graph file (.edn, .png or .svg)"))
     (when (re-find #"(?i)\.(edn|png|svg)$" suffix)
       (die "two-file compare was replaced: simpleviz fork " file
            " <suffix>, then simpleviz " file " <suffix>"))
@@ -233,6 +239,7 @@
 (defn- export-cmd [args]
   (let [{:keys [error in suffix out format theme force]} (parse-export-args args)]
     (when error (die error))
+    (when (serve/md-path? in) (die "export needs a graph file (.edn, .png or .svg)"))
     (check-input! in suffix)
     (when (and (.exists (io/file out)) (not force))
       (die out " already exists (--force overwrites)"))

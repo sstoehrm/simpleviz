@@ -1,0 +1,50 @@
+;; Chord tree + pop-out toolbar (spec figure)
+{:nodes {:chord-table {:name "chord table"
+                       :type "data"
+                       :text "flat [keys kinds] entries, keys of any length\n+ group labels"}
+         :chord-fns {:name "chord fns"
+                     :type "pure fn"
+                     :text "chord-action · chord-prefix? · chord-for · chord-menu\n(kind, path, available?, pairs)"}
+         :creation-ops {:name "creation-ops"
+                        :type "pure fn"
+                        :text "+ box, box-inbox, sibling, connect-here, incoming, split"}
+         :key-handler {:name "key handler"
+                       :type "ui"
+                       :text ":chord = key path; extends on key press"}
+         :toolbar {:name "toolbar"
+                   :type "ui"
+                   :text "flat: every action · grouped: one button per first key"}
+         :layout-toggle {:name "layout toggle"
+                         :type "ui"
+                         :text "flat | grouped, saved in localStorage"}
+         :inspector-pairs {:name "inspector pair rows"
+                           :type "ui"
+                           :text "numbered: f p 1–9"}
+         :popout {:name "pop-out menu"
+                  :type "ui"
+                  :text "items of chord-menu at :chord; click = key press"}
+         :action-spec {:name "action-spec"
+                       :type "ui"
+                       :text "availability + what an action does; nil hides it"}
+         :id-entry {:name "name prompt" :type "ui"}
+         :server-ops {:name "/api/edit ops"
+                      :type "server"
+                      :text "unchanged: add-node, add-box, add-edge, box-add, retarget-edge"}}
+ :edges {[:chord-fns :chord-table] {:direction :-> :name "reads"}
+         [:key-handler :chord-fns] {:direction :-> :name "chord-action"}
+         [:toolbar :chord-fns] {:direction :-> :name "chord-menu []"}
+         [:popout :chord-fns] {:direction :-> :name "chord-menu path"}
+         [:toolbar :popout] {:direction :-> :name "opens (sets :chord)"}
+         [:layout-toggle :toolbar] {:direction :-> :name "picks layout"}
+         [:key-handler :popout] {:direction :-> :name "same :chord state"}
+         [:popout :action-spec] {:direction :-> :name "filters / runs"}
+         [:toolbar :action-spec] {:direction :-> :name "filters / runs"}
+         [:action-spec :id-entry] {:direction :-> :name "opens"}
+         [:id-entry :creation-ops] {:direction :-> :name "submit"}
+         [:creation-ops :server-ops] {:direction :-> :name "ops"}}
+ :boxes {:editor {:name "editor.cljs" :type "module"
+                  :components #{:chord-table :chord-fns :creation-ops}}
+         :app {:name "app.cljs" :type "module"
+               :components #{:key-handler :toolbar :layout-toggle :popout :action-spec :id-entry :inspector-pairs}}
+         :server {:name "server/edit.clj" :type "module"
+                  :components #{:server-ops}}}}

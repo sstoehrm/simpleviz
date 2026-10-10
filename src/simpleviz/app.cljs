@@ -12,6 +12,7 @@
             [simpleviz.editor :as editor]
             [simpleviz.grid :as grid]
             [simpleviz.compact :as compact]
+            [mdlinks :as mdlinks]
             [themes :as themes]))
 
 (def elk (js/ELK.))
@@ -50,6 +51,20 @@
          (when (some (fn [[n _]] (= v n)) editor/LAYOUTS) v))
        (catch :default _ nil)))
 
+(def ^:private toolbar-key
+  "localStorage key of your toolbar layout."
+  "simpleviz-toolbar")
+
+(defn- stored-toolbar-layout
+  "\"grouped\" when you picked it in this browser, else \"flat\" (also
+  when storage is unavailable)."
+  []
+  (try (if (= "grouped" (js/localStorage.getItem toolbar-key)) "grouped" "flat")
+       (catch :default _ "flat")))
+
+(defn- store-toolbar-layout! [v]
+  (try (js/localStorage.setItem toolbar-key v) (catch :default _ nil)))
+
 (def state (atom {:error nil :notice nil :dismissed-error nil :dismissed-warnings nil
                   :warnings [] :graph nil :layout nil
                   :colors nil :selected nil :collapsed false
@@ -69,11 +84,31 @@
                   :theme-pref (stored-theme)
                   ;; your layout algorithm, for files without :layout
                   :layout-pref (stored-layout)
+                  ;; your toolbar: every tool in a row, or grouped by first key
+                  :toolbar-layout (stored-toolbar-layout)
                   ;; light or dark as the OS has it, when you chose none
                   :theme (if (.-matches (js/window.matchMedia "(prefers-color-scheme: dark)"))
                            "dark"
                            "light")}))
 (def last-mtime (atom nil))
+
+;; the root file's root-relative name (/api/root), asked once
+(def ^:private root-path (atom nil))
+
+;; the query string of what the page shows: back/forward re-push it when
+;; leaving would lose unsaved doc text
+(def ^:private shown-query (atom ""))
+
+(defn- page?
+  "Is the md page showing (not a graph, not just the docked panel)?"
+  [st]
+  (= true (:page (:md st))))
+
+(defn- current-path
+  "The root-relative path of the file the page shows: the md page's,
+  else the graph's."
+  [st]
+  (if (page? st) (:path (:md st)) (:path (:graph st))))
 
 (defn- file-query
   "\"?file=<rel>\" for the graph the page is showing, \"\" for the root."
@@ -90,14 +125,18 @@
 (defn- cancel-pick! []
   (swap! state assoc :pick nil :pick-hint nil))
 
-(defn- start-id-entry! [for-kind]
-  (swap! state assoc :id-entry {:for for-kind :text ""}))
+(defn- start-id-entry!
+  "Open the name prompt for creating a `for-kind`; `extra` carries what
+  creation-ops needs beyond the name (:parent, :direction)."
+  [for-kind extra]
+  (swap! state assoc :id-entry (merge {:for for-kind :text ""} extra)))
 
 (defn- cancel-id-entry! []
   (swap! state assoc :id-entry nil))
 
-(declare relayout! post-edit! delete! current-edit-target-editable? follow-ref! navigate!
-         open-md! save-md! close-md!)
+(declare relayout! post-edit! delete! current-edit-target-editable? follow-ref! navigate! run-chord-action!
+         open-md! save-md! close-md! open-page! root-path! load-nav!
+         save-if-dirty! save-before-leaving! follow-link! sync-gutter-scroll!)
 
 ;; layouts per collapsed-set, so expanding (or re-collapsing a seen
 ;; combination) is instant instead of a multi-second ELK run; demoted
@@ -368,12 +407,18 @@
   target): a pick mode to start, or a name prompt to open. One table for
   the buttons and the chords, so both always agree."
   [sel tgt action]
-  (let [id (:id tgt)]
+  (let [id (:id tgt)
+        pof (:parent-of (:graph @state))
+        here (when (some? sel) (get pof (:elk-id sel)))]
     (if (vector? action)
-      (let [[_ end] action]
-        {:label (str "change " end)
-         :pick {:mode "retarget" :edge id :end (editor/retarget-end sel end)}
-         :hint (str "click the new " end " node or box")})
+      (case (first action)
+        "retarget" (let [end (second action)]
+                     {:label (str "change " end)
+                      :pick {:mode "retarget" :edge id :end (editor/retarget-end sel end)}
+                      :hint (str "click the new " end " node or box")})
+        "follow-pair" (when-let [p (get (working-pairs sel) (second action))]
+                        {:label "follow pair" :go-pair p})
+        nil)
       (case action
         "add-edge" {:label "add edge" :pick {:mode "connect" :from id}
                     :hint "click the target node or box"}
@@ -388,7 +433,15 @@
         "new-node" {:label "new node" :id-entry "node"}
         "new-connected-node" {:label "new node" :id-entry "connect"}
         "new-node-in-box" {:label "new node" :id-entry "inbox"}
-        "new-box" {:label "new box" :id-entry "newbox"}
+        "new-box" {:label "wrap in box" :id-entry "newbox"}
+        "new-free-box" {:label "new box" :id-entry "box"}
+        "new-box-in-box" {:label "new box inside" :id-entry "box-inbox"}
+        "new-sibling" {:label "new sibling node" :id-entry "sibling" :parent (or here nil)}
+        "new-connected-here" {:label "new connected node, same box" :id-entry "connect-here" :parent (or here nil)}
+        "new-incoming" {:label "new incoming node" :id-entry "incoming" :parent (or here nil)}
+        "split-edge" {:label "split edge" :id-entry "split"
+                      :parent (editor/split-parent pof id)
+                      :direction (or (:direction (:attrs sel)) nil)}
         ;; only for a node inside a box: nil hides the button and the chord
         "remove-from-box" (when-let [parent (get (:parent-of (:graph @state)) (:elk-id sel))]
                             {:label "remove from box" :post (editor/box-remove-op parent id)})
@@ -408,38 +461,92 @@
                     {:label "open md" :md true})
         nil))))
 
-;; the action-bar buttons per selection kind, in display order
-(def ^:private toolbar-actions
-  {"edge" [["retarget" "source"] ["retarget" "target"] "follow-ref"]
-   "node" ["add-edge" "add-to-box" "remove-from-box" "new-connected-node" "new-box"
-           "follow-ref" "follow-pair" "open-md"]
-   "box" ["add-edge" "add-node-member" "add-box-member" "remove-node-member"
-          "new-node-in-box" "new-box" "follow-ref" "follow-pair" "open-md"]})
+(defn- available?
+  "Whether `action` does something for selection sel right now — what
+  the toolbar and the pop-out offer, and what a chord may run."
+  [sel tgt action]
+  (or (= action "delete") (= action "rename")
+      (and (vector? action) (= "direction" (first action)))
+      (some? (action-spec sel tgt action))))
 
 (defn- start-action!
   "Do what the toolbar button for `action` does."
   [sel tgt action]
-  (let [{:keys [pick hint id-entry post go go-pair md]} (action-spec sel tgt action)]
+  (let [{:keys [pick hint id-entry post go go-pair md] :as spec} (action-spec sel tgt action)]
     (cond
       (some? pick) (start-pick! pick hint)
-      (some? id-entry) (start-id-entry! id-entry)
+      (some? id-entry) (start-id-entry! id-entry (select-keys spec [:parent :direction]))
       (some? post) (post-edit! post)
       (some? md) (open-md! sel)
       (some? go) (follow-ref! go)
       (some? go-pair) (follow-pair! go-pair))))
 
-(defn- action-btn
-  "The toolbar button for `action`, or nil when it does not apply to
-  this selection right now."
-  [sel tgt action]
-  (when-let [spec (action-spec sel tgt action)]
-    [:button {:class "action-pick" :type "button"
-              :on-click (fn [e] (.stopPropagation e) (start-action! sel tgt action))}
-     (:label spec)
-     (key-hint (editor/chord-for (:kind sel) action))]))
+(defn- avail-fn
+  "available? for selection sel, as the one-argument predicate the
+  chord menus take."
+  [sel]
+  (let [tgt (when (some? sel) (editor/target sel))]
+    (fn [action] (available? sel tgt action))))
 
-(defn- action-buttons [sel tgt]
-  (filterv some? (mapv (fn [a] (action-btn sel tgt a)) (get toolbar-actions (:kind sel)))))
+(defn- toolbar-items
+  "The toolbar's buttons as chord items: every available chord (flat)
+  or one per first key (grouped). Edge direction has its own row, and
+  several pairs are followed by number, so flat leaves both out."
+  [st]
+  (let [sel (:selected st)
+        kind (:kind sel)
+        pairs (working-pairs sel)]
+    (if (= "grouped" (:toolbar-layout st))
+      (filterv (fn [it] (not (and (= kind "edge") (= "e" (first (:keys it))))))
+               (editor/chord-menu kind [] (avail-fn sel) pairs))
+      (filterv (fn [it] (let [a (:action it)]
+                          (not (and (vector? a) (contains? #{"direction" "follow-pair"} (first a))))))
+               (editor/chord-leaves kind (avail-fn sel) pairs)))))
+
+(defn- choose-item!
+  "Act on a toolbar or pop-out item reached from the pending keys
+  `path` (nil from the toolbar): run its chord, or open its group —
+  closing it when it is already the open one."
+  [path item]
+  (let [ks (into (or path []) (:keys item))]
+    (cond
+      (some? (:action item)) (do (swap! state assoc :chord nil)
+                                 (run-chord-action! (:selected @state) (:action item)))
+      (= ks (:chord @state)) (swap! state assoc :chord nil)
+      :else (swap! state assoc :chord ks))))
+
+(defn- item-btn
+  "A toolbar or pop-out button for chord item `it` below `path`."
+  [path it]
+  [:button {:class (if (= "delete" (:action it)) "action-delete" "action-pick") :type "button"
+            :on-click (fn [e] (.stopPropagation e) (choose-item! path it))}
+   (:label it) (key-hint (str (.join (:keys it) " ") (if (= true (:group it)) " ▸" "")))])
+
+(defn- chord-popout
+  "What the pending keys can become, as buttons — the keyboard and the
+  mouse share it."
+  [st]
+  (let [sel (:selected st)
+        path (:chord st)]
+    [:div {:id "chord-popout"}
+     [:div {:class "chord-path"} (.join path " ") " … — Esc cancels"]
+     (into [:div {:class "chord-items"}]
+           (mapv (fn [it] (item-btn path it))
+                 (editor/chord-menu (:kind sel) path (avail-fn sel) (working-pairs sel))))]))
+
+(defn- layout-toggle
+  "Switches the toolbar between flat and grouped; saved in this browser."
+  [st]
+  (let [grouped (= "grouped" (:toolbar-layout st))]
+    [:button {:class "toolbar-layout" :type "button"
+              :title (if grouped
+                       "Grouped by first key — click for every tool in a row"
+                       "Every tool in a row — click to group them by first key")
+              :on-click (fn [e] (.stopPropagation e)
+                          (let [v (if grouped "flat" "grouped")]
+                            (store-toolbar-layout! v)
+                            (swap! state assoc :toolbar-layout v :chord nil)))}
+     (if grouped "grouped" "flat")]))
 
 (defn- submit-id-entry!
   "Create what the open prompt is for (editor/creation-ops); a name that
@@ -453,7 +560,7 @@
   [:div {:class "id-entry"}
    [:input {:class "id-entry-input" :type "text" :value (:text entry)
             :placeholder (case (:for entry)
-                           "newbox" "new box name, or name::type"
+                           ("newbox" "box" "box-inbox") "new box name, or name::type"
                            "edge" "new edge name, or name::type (optional)"
                            "new node name, or name::type")
             :on-render (fn [{:keys [node lifecycle]}]
@@ -465,7 +572,7 @@
                             "Escape" (cancel-id-entry!)
                             nil))}]])
 
-(defn- action-bar [sel tgt]
+(defn- action-bar [st sel tgt]
   (into [:div {:class "details-actions"}]
         (concat
          (when (= (:kind sel) "edge")
@@ -473,20 +580,21 @@
              [(into [:div {:class "dir-group"}]
                     (mapv (fn [[label dir]] (direction-btn tgt current label dir))
                           direction-choices))]))
-         (action-buttons sel tgt)
-         [[:button {:class "action-delete" :type "button"
-                    :on-click (fn [e] (.stopPropagation e) (delete! tgt))}
-           "Delete" (key-hint (editor/chord-for (:kind sel) "delete"))]]
-         (when-let [entry (:id-entry @state)] [(id-entry-row tgt entry)]))))
+         (mapv (fn [it] (item-btn nil it)) (toolbar-items st))
+         [(layout-toggle st)]
+         (when-let [entry (:id-entry st)] [(id-entry-row tgt entry)]))))
 
 (defn- pairs-view
   "The selection's pairs: → for those it declares, ← for those pointing
   at it; a broken one dimmed with its problem. Clicking a row follows it."
   [sel]
-  (let [ps (or (:pairs sel) [])]
+  (let [ps (or (:pairs sel) [])
+        numbered (> (count (working-pairs sel)) 1)
+        num-of (fn [i] (inc (count (filter (fn [q] (nil? (:problem q))) (take i ps)))))]
     (when (pos? (.-length ps))
       (into [:div {:class "details-pairs"} [:div {:class "details-pairs-header"} "pairs"]]
-            (mapv (fn [p]
+            (vec (map-indexed
+                  (fn [i p]
                     (let [in? (= (:dir p) "in")
                           label (str (if in? "← " "→ ") (:file p) "#" (:id p)
                                      (if in? " (points here)" ""))]
@@ -495,8 +603,10 @@
                          label [:div {:class "pair-problem"} (:problem p)]]
                         [:button {:class "pair-row" :type "button"
                                   :on-click (fn [e] (.stopPropagation e) (follow-pair! p))}
+                         (when (and numbered (<= (num-of i) 9))
+                           [:kbd {:class "pair-num" :title (str "f p " (num-of i))} (str (num-of i))])
                          label])))
-                  ps)))))
+                  ps))))))
 
 (defn- details-view [st]
   (let [sel (:selected st)
@@ -540,17 +650,15 @@
      (when editable (attr-add-row sel tgt))]))
 
 (defn- selection-toolbar
-  "Floating bottom-center toolbar: the selection's edit tools, or — with
-  nothing selected — a standalone add-node button. The inspector panel
-  itself stays read/data-only."
+  "Floating bottom-center toolbar: the selection's edit tools (or, with
+  nothing selected, what can be created), the layout toggle, and above
+  them the pop-out while keys are pending. The inspector panel itself
+  stays read/data-only."
   [st]
   (let [sel (:selected st)]
     [:div {:id "selection-toolbar"}
-     (if (some? sel)
-       (action-bar sel (editor/target sel))
-       (into [:div {:class "details-actions"}
-              (action-btn nil nil "new-node")]
-             (when-let [entry (:id-entry st)] [(id-entry-row nil entry)])))]))
+     (when (some? (:chord st)) (chord-popout st))
+     (action-bar st sel (when (some? sel) (editor/target sel)))]))
 
 (defn- banner-close
   "The banner's × — dismisses it without the click reaching the banner."
@@ -681,10 +789,11 @@
 (defn- trail-view
   "The files followed to reach the one shown, root first, each a
   button back to it; the current file last as plain text. Shown only
-  once a ref has been followed (or the page loaded with a trail)."
+  once a ref has been followed (or the page loaded with a trail) — also
+  when the file failed to open, so the crumbs lead back."
   [st]
   (let [trail (:trail (:nav st))]
-    (when (and (seq trail) (some? (:path (:graph st))))
+    (when (and (seq trail) (some? (or (current-path st) (:file (:nav st)))))
       (into [:div {:id "trail"}]
             (concat
              (apply concat
@@ -699,7 +808,7 @@
                         [:span {:class "trail-sep" :key (str "s" i)} "›"]])
                      trail))
              [[:span {:class "trail-current" :key "cur"}
-               (or (:path (:graph st)) (:file (:nav st)))]])))))
+               (or (current-path st) (:file (:nav st)))]])))))
 
 (def ^:private tooltip-el (js/document.getElementById "tooltip"))
 ;; the item the tooltip currently shows — its content is re-rendered only
@@ -815,15 +924,18 @@
      (help-section
       "Navigate"
       "Drag to pan, scroll to zoom. Hover an element to see its name and attributes; click it to inspect and edit them. A node of type database is drawn as a cylinder; :text on a node or box shows inside it. A double border marks a node with a :ref, a dotted border a node or box with an :md-ref (a linked markdown doc — "open md", f m, edits it); the mark on a node's corner is its :state — grey disc new, blue half disc in-progress, red square blocked, green check done. The − in a box header collapses the box to a single node — the panel on the left lists collapsed boxes and re-expands them. Top-level boxes with :grid [col row] sit on that grid cell; the rest arranges itself around them."
-      "A :pair (\"views/deploy.edn#api\", or a vector of them) links a node or box to the same thing in another graph. The ⇄ mark on an element's bottom-left corner shows its pairs — red when one is broken; the inspector lists them, those declared here and those pointing here. Click one, or use \"follow pair\" (f p), to open that graph with the element selected.")
+      "A :pair (\"views/deploy.edn#api\", or a vector of them) links a node or box to the same thing in another graph. The ⇄ mark on an element's bottom-left corner shows its pairs — red when one is broken; the inspector lists them, those declared here and those pointing here. Click one, or use \"follow pair\" (f p, or f p 1–9 with several — the inspector numbers them), to open that graph with the element selected.")
      (help-section
       "Edit"
-      "When the served file is editable EDN, the floating toolbar at the bottom holds the tools for the current selection: delete, edge direction, and pick modes such as \"add edge\" (click the other element on the canvas, then name the edge; Esc cancels). New nodes and boxes are created by name: the prompt types a name, and the id is derived from it — lowercased, illegal characters turned into dashes; name::type also sets the type. With nothing selected it creates a standalone node. A :ref attribute naming another graph file (relative path) makes \"follow ref\" open it — in a suffix comparison (simpleviz graph.edn next) it opens that file's own comparison; the trail at the top leads back. Following a ref to an .edn file that does not exist yet creates it as an empty graph — in a comparison the side picked by the old|new toggle."
+      "When the served file is editable EDN, the floating toolbar at the bottom holds the tools for the current selection — every tool in a row, or grouped by first key with options that pop out (the toggle at its right end switches; saved in this browser): delete, edge direction, and pick modes such as \"add edge\" (click the other element on the canvas, then name the edge; Esc cancels). New nodes and boxes are created by name: the prompt types a name, and the id is derived from it — lowercased, illegal characters turned into dashes; name::type also sets the type. With nothing selected it creates a standalone node or box. A :ref attribute naming another graph file (relative path) makes \"follow ref\" open it — in a suffix comparison (simpleviz graph.edn next) it opens that file's own comparison; the trail at the top leads back. Following a ref to an .edn file that does not exist yet creates it as an empty graph — in a comparison the side picked by the old|new toggle."
       "In the inspector, click a value or its ✎ to edit it inline — Enter commits, Shift+Enter inserts a line break, Escape cancels. × deletes an attribute; the key/value row at the bottom adds one. Ctrl+Z or ↶ undoes the last edit."
       "\"open md\" (f m) opens the markdown file a node's or box's :md-ref names in a text panel on the right; ⤢ makes it fill the window, Esc docks it again. Ctrl+S or Save writes it, and so does closing it (×) or opening another; a missing file is created on the first save. If the file changes on disk while you have unsaved edits, the panel says so — Reload takes the file, Overwrite keeps yours.")
      (help-section
+      "md pages"
+      "simpleviz notes.md opens a markdown file in the doc editor, filling the window. A » in the gutter on the right marks each line with a link this page can follow — [text](sub/graph.edn), ![img](x.png), [text](other.md), reference links too; relative to the md file, never above the served folder. Click » to open it (»2 lists the links of that line); the trail at the top leads back. Unsaved text is saved before you leave the page — when that fails you stay. A :ref to an .md file opens it the same way; the doc panel of :md-ref has the » gutter too.")
+     (help-section
       "Keys"
-      "Two-key chords act on the selection, when no text field has focus (the toolbar buttons show them): d d delete · e 1/2/3/4 edge direction → ← ↔ — · c s / c t change an edge's source / target · a e add edge · a b add to box (node) or add a box as member (box) · a n add a node as member (box) — either moves it out of the box it was in · n n new node (connected to the selected node, or inside the selected box — c n too) · n b new box around the selection · r r rename the id · r n take a node out of the selected box · r b take the selected node out of its box · f r follow the selection's :ref · f p follow the selection's pair · f m open the selection's :md-ref doc (Ctrl+S saves it). Esc cancels a pending chord; ? toggles this help; Ctrl+Z undoes.")
+      "Chords act on the selection, when no text field has focus (the toolbar buttons show them); the first key opens a pop-out of what comes next, which can be clicked too: d d delete · e 1/2/3/4 edge direction → ← ↔ — · c s / c t change an edge's source / target · a e add edge · a b add to box (node) or add a box as member (box) · a n add a node as member (box) — either moves it out of the box it was in · n n n new node (connected to the selected node, or inside the selected box) · n n b new box (inside the selected box) · n n s new node in the selection's box · n n c / n n i new node in the selection's box, connected from / to it · n n e split the selected edge with a new node · n b wrap the selection in a new box · r r rename the id · r n take a node out of the selected box · r b take the selected node out of its box · f r follow the selection's :ref · f p follow the selection's pair (f p 1–9 with several) · f m open the selection's :md-ref doc (Ctrl+S saves it). Esc cancels a pending chord; ? toggles this help; Ctrl+Z undoes.")
      (help-section
       "Compare"
       "Serving a file with a suffix (simpleviz graph.edn next) renders it against its fork graph-next.edn as one merged diagram: added elements get a green +, modified an amber ~ (select for an old → new list), removed ones stay as red dashed ghosts. Click a legend row to jump through the changes; the old|new toggle picks which file edits apply to.")
@@ -843,8 +955,6 @@
     (some? (:flash st))
     [:div {:id "pick-hint"} (:flash st)]
 
-    (some? (:chord st))
-    [:div {:id "pick-hint"} (editor/chord-hint (:kind (:selected st)) (:chord st)) " — Esc cancels"]
     (some? (:pick st))
     [:div {:id "pick-hint"} (:pick-hint st) " — Esc cancels"]
     (= "edge" (:for (:id-entry st)))
@@ -920,25 +1030,66 @@
      (item "SVG" "vector" export-svg!)
      [:div {:class "em-note"} "Both embed the source EDN."]]))
 
+(defn- gutter-view [st]
+  (let [{:keys [marks height]} (:md-marks st)
+        menu (:link-menu st)]
+    [:div {:id "md-gutter"}
+     (into [:div {:class "md-gutter-inner" :style {:height (str (or height 0) "px")}}]
+           (map (fn [m]
+                  (let [ls (:links m)
+                        one (= 1 (count ls))]
+                    [:button {:class (str "md-mark" (when (:bad m) " bad")) :type "button"
+                              :key (str "m" (:line m))
+                              :style {:top (str (:top m) "px")}
+                              :title (:title m)
+                              :on-click (fn [e]
+                                          (.stopPropagation e)
+                                          (if one
+                                            (follow-link! (first ls))
+                                            (let [body (.closest (.-currentTarget e) ".md-body")
+                                                  top (- (.-top (.getBoundingClientRect (.-currentTarget e)))
+                                                         (.-top (.getBoundingClientRect body)))]
+                                              (swap! state assoc :link-menu
+                                                     (when-not (= (:line menu) (:line m)) {:line (:line m) :top top})))))}
+                     (if one "»" (str "»" (count ls)))]))
+                (or marks [])))]))
+
+(defn- link-menu-view [st]
+  (when-let [menu (:link-menu st)]
+    (let [md (:md st)
+          m (some (fn [m] (when (= (:line m) (:line menu)) m)) (:marks (:md-marks st)))]
+      (when (some? m)
+        (into [:div {:class "md-link-menu" :role "menu" :style {:top (str (:top menu) "px")}}]
+              (map-indexed (fn [i l]
+                             [:button {:class (str "md-link-item"
+                                                   (when (some? (:error (editor/link-target (:path md) (:dest l)))) " bad"))
+                                       :type "button" :role "menuitem" :key (str "l" i)
+                                       :title (editor/link-title (:path md) l)
+                                       :on-click (fn [e] (.stopPropagation e) (follow-link! l))}
+                              (str (:label l) " → " (:dest l))])
+                           (:links m)))))))
+
 (defn- md-panel [st]
   (let [md (:md st)]
-    [:aside {:id "md-panel" :class (if (:full md) "full" "")}
+    [:aside {:id "md-panel" :class (cond (:page md) "page" (:full md) "full" :else "")}
      [:div {:class "md-head"}
       [:span {:class "md-path" :title (:path md)} (:path md)]
       (when (editor/md-dirty? md) [:span {:class "md-dirty" :title "unsaved changes"} "●"])
       (when-not (:exists md) [:span {:class "md-new"} "new file"])
       [:span {:class "md-spacer"}]
-      [:button {:class "md-btn" :type "button"
-                :title (if (:full md) "Dock (Esc)" "Fullscreen")
-                :on-click (fn [e] (.stopPropagation e)
-                            (swap! state assoc-in [:md :full] (not (:full (:md @state)))))}
-       (if (:full md) "⤡" "⤢")]
+      (when-not (:page md)
+        [:button {:class "md-btn" :type "button"
+                  :title (if (:full md) "Dock (Esc)" "Fullscreen")
+                  :on-click (fn [e] (.stopPropagation e)
+                              (swap! state assoc-in [:md :full] (not (:full (:md @state)))))}
+         (if (:full md) "⤡" "⤢")])
       [:button {:class "md-btn" :type "button" :title "Save (Ctrl+S)" :disabled (= true (:saving md))
                 :on-click (fn [e] (.stopPropagation e) (save-md!))}
        "Save"]
-      [:button {:class "md-btn" :type "button" :title "Save and close" :aria-label "Save and close"
-                :on-click (fn [e] (.stopPropagation e) (close-md!))}
-       "×"]]
+      (when-not (:page md)
+        [:button {:class "md-btn" :type "button" :title "Save and close" :aria-label "Save and close"
+                  :on-click (fn [e] (.stopPropagation e) (close-md!))}
+         "×"])]
      (when (some? (:error md))
        [:div {:class "md-error"}
         [:span {:class "md-error-text"} (:error md)]
@@ -951,17 +1102,24 @@
           [:button {:class "md-btn" :type "button" :title "Save your text over the file on disk"
                     :on-click (fn [e] (.stopPropagation e) (save-md! true))}
            "Overwrite"])])
-     [:textarea {:id "md-text" :spellcheck "false" :value (:text md)
-                 :on-input (fn [e] (swap! state assoc-in [:md :text] (.. e -target -value)))}]]))
+     [:div {:class "md-body"}
+      [:textarea {:id "md-text" :spellcheck "false" :value (:text md)
+                  :on-scroll (fn [_] (sync-gutter-scroll!) (when (some? (:link-menu @state))
+                                                              (swap! state assoc :link-menu nil)))
+                  :on-input (fn [e] (swap! state assoc-in [:md :text] (.. e -target -value)))}]
+      (gutter-view st)
+      (link-menu-view st)]]))
 
 (defn- app-view [st]
+  (let [page (page? st)]
   [:div {:id "root" :class (str (when (some? (:pick st)) "picking")
-                                (cond (some? (:md st)) " inspecting md-open"
+                                (cond page " md-page"
+                                      (some? (:md st)) " inspecting md-open"
                                       (some? (:selected st)) " inspecting"))}
    (hint-view st)
-   (when (and (nil? (:scene st)) (nil? (:error st)))
+   (when (and (not page) (nil? (:scene st)) (nil? (:error st)))
      (load-view st))
-   (collapsed-view st)
+   (when-not page (collapsed-view st))
    [:div {:id "top-center"}
     (trail-view st)
     (when (some? (:graph st)) (legend-view st))]
@@ -976,15 +1134,16 @@
    [:div {:id "top-right"}
     ;; always there and first, so it never shifts the others; disabled
     ;; until an edit keeps the old arrangement
-    (let [seeded (boolean (:seeded (:layout st)))]
-      [:button {:id "relayout-btn" :type "button" :disabled (not seeded)
-                :title (if seeded
-                         "Re-layout: edits kept the old arrangement, run a fresh layout"
-                         "Re-layout: the layout is already fresh")
-                :on-click (fn [e] (.stopPropagation e) (relayout! true))}
-       "▦"])
+    (when-not page
+      (let [seeded (boolean (:seeded (:layout st)))]
+        [:button {:id "relayout-btn" :type "button" :disabled (not seeded)
+                  :title (if seeded
+                           "Re-layout: edits kept the old arrangement, run a fresh layout"
+                           "Re-layout: the layout is already fresh")
+                  :on-click (fn [e] (.stopPropagation e) (relayout! true))}
+         "▦"]))
     (when (some? (:graph st)) (layout-menu-view (:graph st) (:layout-pref st)))
-    (when (some? (:graph st)) (theme-menu-view (:graph st) (:theme-pref st)))
+    (when (or page (some? (:graph st))) (theme-menu-view (:graph st) (:theme-pref st)))
     (when (current-edit-target-editable? st)
       [:button {:id "undo-btn" :type "button" :title "Undo last edit (Ctrl+Z)"
                 :on-click (fn [e] (.stopPropagation e) (post-edit! [{:op "undo"}]))}
@@ -1004,7 +1163,7 @@
    (when (and (some? (:scene st)) (current-edit-target-editable? st))
      (selection-toolbar st))
    (cond (some? (:md st)) (md-panel st)
-         (some? (:selected st)) (details-view st))])
+         (some? (:selected st)) (details-view st))]))
 
 (defn- paint-now! []
   (when-let [canvas-el (js/document.getElementById "canvas")]
@@ -1195,44 +1354,88 @@
       (swap! state assoc :error (str "Render error: " (or (.-message e) (str e)))))))
 
 (defn ^:async tick []
-  (let [mtime (try
-                (let [resp (js-await (js/fetch (str "/api/version" (file-query))))
-                      v (js-await (.json resp))]
-                  (:mtime v))
-                (catch :default _ nil))]
-    ;; a failed poll means the server is gone (or restarting); the flag
-    ;; clears on the next successful poll, so reconnection needs no action
-    (when (not= (nil? mtime) (:disconnected @state))
-      (swap! state assoc :disconnected (nil? mtime)))
-    (when (and (some? mtime) (not= mtime @last-mtime))
-      (reset! last-mtime mtime)
-      (js-await (reload!)))))
+  (cond
+    ;; the first load could not ask what the root is: try again
+    (and (nil? (:file (:nav @state))) (nil? @root-path))
+    (when (some? (js-await (root-path!))) (js-await (load-nav!)))
+
+    ;; an md page (decided by the URL, so a failed open stays one): the
+    ;; doc polls itself (poll-md!); this notices the server going away and
+    ;; coming back, and retries an open that failed for want of a server
+    (= "md" (editor/doc-kind (or (:file (:nav @state)) @root-path)))
+    (let [ok (try (.-ok (js-await (js/fetch "/api/root"))) (catch :default _ false))
+          st @state]
+      (when (not= (not ok) (:disconnected st))
+        (swap! state assoc :disconnected (not ok)))
+      (when (and ok (nil? (:md st)) (nil? (:error st)))
+        (js-await (open-page! (or (:file (:nav st)) @root-path)))))
+
+    :else
+    (let [mtime (try
+                  (let [resp (js-await (js/fetch (str "/api/version" (file-query))))
+                        v (js-await (.json resp))]
+                    (:mtime v))
+                  (catch :default _ nil))]
+      ;; a failed poll means the server is gone (or restarting); the flag
+      ;; clears on the next successful poll, so reconnection needs no action
+      (when (not= (nil? mtime) (:disconnected @state))
+        (swap! state assoc :disconnected (nil? mtime)))
+      (when (and (some? mtime) (not= mtime @last-mtime))
+        (reset! last-mtime mtime)
+        (js-await (reload!))))))
 
 (defn- ^:async load-nav!
-  "The URL changed (follow, crumb, browser back): re-read the
-  navigation state, drop everything that belongs to the previous file —
-  selection, edits in progress, collapsed boxes, cached layouts, the
-  graph itself — and load the file the URL now names."
+  "The URL changed (follow, crumb, browser back) or the page loaded:
+  re-read the navigation state, drop everything that belongs to the
+  previous file — selection, edits in progress, collapsed boxes, cached
+  layouts, the graph itself, the md page — and load what the URL now
+  names: an md page or a graph. A docked doc stays open between graphs;
+  an md page replaces it (navigate! and on-popstate! saved it), so an
+  open that fails leaves no docked doc that would stop tick's retry."
   []
-  (let [nav (editor/parse-nav js/location.search)]
+  (let [nav (editor/parse-nav js/location.search)
+        md-target? (= "md" (editor/doc-kind (or (:file nav) @root-path)))]
+    (reset! shown-query js/location.search)
     (swap! graph-gen inc)
-    (swap! state assoc :nav nav
-           :nav-error nil :error nil :notice nil :dismissed-error nil :dismissed-warnings nil
-           :graph nil :scene nil :layout nil
-           :selected nil :editing nil :edit-error nil :pick nil :pick-hint nil
-           :chord nil :id-entry nil :pending-focus (:focus nav) :focus-center true
-           :collapsed-boxes #{} :export-menu false)
+    (swap! state (fn [st]
+                   (assoc st :nav nav
+                          :nav-error nil :error nil :notice nil :dismissed-error nil :dismissed-warnings nil
+                          :warnings [] :graph nil :scene nil :layout nil
+                          :selected nil :editing nil :edit-error nil :pick nil :pick-hint nil
+                          :chord nil :id-entry nil :pending-focus (:focus nav) :focus-center true
+                          :collapsed-boxes #{} :export-menu false
+                          :md (when-not (or (page? st) md-target?) (:md st)))))
     (.clear layout-cache)
     (reset! last-mtime nil)
     (canvas/refit-next!)
-    (js-await (tick))))
+    (let [path (or (:file nav) (js-await (root-path!)))]
+      (if (= "md" (editor/doc-kind path))
+        (js-await (open-page! path))
+        (js-await (tick))))))
+
+(defn- ^:async save-before-leaving!
+  "Showing root-relative `target` (nil = the root) closes the open doc
+  when it is the md page, or when an md page replaces the docked panel:
+  save its unsaved text first. True when nothing unsaved is lost."
+  [target]
+  (let [md (:md @state)
+        ;; a session opened on ?file=… has not asked for the root yet
+        target (or target (js-await (root-path!)))]
+    (if (and (some? md) (or (:page md) (= "md" (editor/doc-kind target))))
+      (js-await (save-if-dirty!))
+      true)))
 
 (defn- ^:async navigate!
-  "Show another graph of the served folder: push its query string
-  onto the browser history (so back returns here) and load it."
+  "Show another file of the served folder: push its query string onto
+  the browser history (so back returns here) and load it. A doc that
+  would close with unsaved text is saved first; when that fails nothing
+  moves and the doc panel shows why. Resolves true when it navigated."
   [query]
-  (js/history.pushState nil "" (str js/location.pathname query))
-  (js-await (load-nav!)))
+  (if (js-await (save-before-leaving! (:file (editor/parse-nav query))))
+    (do (js/history.pushState nil "" (str js/location.pathname query))
+        (js-await (load-nav!))
+        true)
+    false))
 
 (defn- ^:async follow-ref!
   "Follow the selection's ref: resolve it against the file shown and
@@ -1248,7 +1451,7 @@
   [ref]
   (let [st @state
         {:keys [trail]} (:nav st)
-        current (:path (:graph st))
+        current (current-path st)
         target (editor/resolve-ref current ref)]
     (cond
       (:following st) nil
@@ -1258,7 +1461,7 @@
       (do
         (swap! state assoc :following true)
         (try
-          (when (current-edit-target-editable? st)
+          (when (and (current-edit-target-editable? st) (= "graph" (editor/doc-kind target)))
             (try
               (js-await (js/fetch "/api/create"
                                   {:method "POST"
@@ -1290,11 +1493,20 @@
     (when-not (:following st)
       (swap! state assoc :following true)
       (try
-        (js-await (navigate! (editor/follow-url (:path (:graph st)) (:trail (:nav st)) (:file p)
+        (js-await (navigate! (editor/follow-url (current-path st) (:trail (:nav st)) (:file p)
                                                 (str (if (= (:kind p) "box") "b:" "n:") (:id p)))))
         (finally (swap! state assoc :following false))))))
 
-(js/window.addEventListener "popstate" (fn [_] (load-nav!)))
+(defn- ^:async on-popstate!
+  "Back or forward moved the URL already: save a doc that would close
+  with unsaved text; when that fails, put back the URL of what is shown
+  and stay — the doc panel shows why."
+  []
+  (if (js-await (save-before-leaving! (:file (editor/parse-nav js/location.search))))
+    (js-await (load-nav!))
+    (js/history.pushState nil "" (str js/location.pathname @shown-query))))
+
+(js/window.addEventListener "popstate" (fn [_] (on-popstate!)))
 
 ;; ---- the doc panel (:md-ref) ----
 
@@ -1305,8 +1517,44 @@
   (let [resp (js-await (js/fetch (str "/api/text?path=" (js/encodeURIComponent path))))]
     (js-await (.json resp))))
 
+(defn- ^:async root-path!
+  "The served root file's root-relative name, nil while the server
+  can't be reached."
+  []
+  (or @root-path
+      (try (let [out (js-await (.json (js-await (js/fetch "/api/root"))))]
+             (reset! root-path (:path out)))
+           (catch :default _ nil))))
+
+(defn- ^:async open-page!
+  "Show md file `path` as the page: the doc editor, full window. A path
+  the server refuses shows as the error banner, the trail intact."
+  [path]
+  (try
+    (let [out (js-await (fetch-doc path))]
+      (if (some? (:error out))
+        (swap! state assoc :md nil :error (str "Doc error: " (:error out)) :dismissed-error nil)
+        (do (swap! md-gen inc)
+            (apply-theme! (effective-theme nil (:theme-pref @state) (:theme @state)))
+            (set! (.-title js/document) (str (format/basename path) " — simpleviz"))
+            (swap! state assoc :error nil :disconnected false
+                   :md (editor/adopt-doc {:path path :page true :full false :saving false} out))
+            (focus-md-start!))))
+    (catch :default _
+      (swap! state assoc :disconnected true))))
+
 (defn- focus-md! []
   (when-let [el (js/document.getElementById "md-text")] (.focus el)))
+
+(defn- focus-md-start!
+  "Focus a doc just opened at its start: the swap that adopted it has
+  rendered the textarea, whose value — set as a property — left the
+  caret at the end, where focusing would scroll."
+  []
+  (when-let [el (js/document.getElementById "md-text")]
+    (.setSelectionRange el 0 0)
+    (.focus el {:preventScroll true})
+    (set! (.-scrollTop el) 0)))
 
 (defn- ^:async save-md!
   "Write the open doc; `overwrite?` saves over the version the conflict
@@ -1367,7 +1615,7 @@
             (swap! state assoc :nav-error (str "Can't open " path ": " (:error out)))
             (do (swap! md-gen inc)
                 (swap! state assoc :md (editor/adopt-doc {:path path :full false :saving false} out))
-                (focus-md!))))
+                (focus-md-start!))))
         (catch :default _
           (swap! state assoc :nav-error (str "Can't open " path ": not connected")))))))
 
@@ -1407,6 +1655,138 @@
                                 :conflict {:text (:text out) :version (:version out)
                                            :exists (:exists out)})
               nil)))))))
+
+;; the open doc's links, re-scanned 150 ms after the text stops changing
+(def ^:private md-links (atom {:path nil :text nil :links []}))
+(def ^:private parse-timer (atom nil))
+(def ^:private measure-queued (atom false))
+(def ^:private observed-ta (atom nil))
+
+(defn- mirror-el
+  "The hidden div that lays doc text out the way the textarea wraps it —
+  outside the app root, so rendering never touches its children."
+  []
+  (or (js/document.getElementById "md-mirror")
+      (let [d (js/document.createElement "div")]
+        (set! (.-id d) "md-mirror")
+        (.setAttribute d "aria-hidden" "true")
+        (.appendChild js/document.body d)
+        d)))
+
+(defn- sync-gutter-scroll!
+  "Scroll the gutter with the textarea."
+  []
+  (let [ta (js/document.getElementById "md-text")
+        g (js/document.getElementById "md-gutter")]
+    (when (and (some? ta) (some? g))
+      (set! (.-scrollTop g) (.-scrollTop ta)))))
+
+(declare queue-measure!)
+
+(def ^:private resize-observer
+  (js/ResizeObserver. (fn [_] (queue-measure!))))
+
+(defn- measure-gutter!
+  "Place the » markers: each logical line of the text is a block in the
+  mirror, styled and sized like the textarea, and a marker sits at its
+  line's block top. Each mark also carries its tooltip and whether its
+  one link leaves the served folder, so rendering doesn't resolve links."
+  []
+  (reset! measure-queued false)
+  (let [ta (js/document.getElementById "md-text")
+        md (:md @state)]
+    (when (and (some? ta) (some? md))
+      (when-not (identical? ta @observed-ta)
+        (.disconnect resize-observer)
+        (.observe resize-observer ta)
+        (reset! observed-ta ta))
+      (let [mirror (mirror-el)
+            cs (js/getComputedStyle ta)
+            lines (.split (:text md) "\n")]
+        (doseq [p ["fontFamily" "fontSize" "fontWeight" "lineHeight" "letterSpacing" "tabSize"
+                   "paddingTop" "paddingRight" "paddingBottom" "paddingLeft"]]
+          (aset (.-style mirror) p (aget cs p)))
+        (set! (.. mirror -style -width) (str (.-clientWidth ta) "px"))
+        (set! (.-textContent mirror) "")
+        (doseq [ln lines]
+          (let [d (js/document.createElement "div")]
+            (set! (.-textContent d) (if (= ln "") "​" ln))
+            (.appendChild mirror d)))
+        (let [kids (.-children mirror)
+              n (.-length kids)
+              marks (vec (keep (fn [m]
+                                 (when (<= (:line m) n)
+                                   (let [ls (:links m)
+                                         one (= 1 (count ls))]
+                                     (assoc m
+                                            :top (.-offsetTop (aget kids (dec (:line m))))
+                                            :bad (and one (some? (:error (editor/link-target (:path md) (:dest (first ls))))))
+                                            :title (if one (editor/link-title (:path md) (first ls))
+                                                       (str (count ls) " links"))))))
+                               (editor/line-markers (:links @md-links))))
+              height (max (.-scrollHeight mirror) (.-scrollHeight ta))]
+          (swap! state assoc :md-marks {:marks marks :height height})
+          (sync-gutter-scroll!))))))
+
+(defn- queue-measure!
+  "Measure the gutter on the next frame, once however often asked."
+  []
+  (when-not @measure-queued
+    (reset! measure-queued true)
+    (js/requestAnimationFrame (fn [_] (measure-gutter!)))))
+
+(defn- reparse-links!
+  "Scan the open doc's links: now when `now?` (another doc), else 150 ms
+  after the last change; then re-measure."
+  [now?]
+  (some-> @parse-timer js/clearTimeout)
+  (let [run (fn []
+              (let [md (:md @state)]
+                (reset! md-links {:path (:path md) :text (:text md)
+                                  :links (if (some? md) (mdlinks/links (:text md)) [])})
+                (queue-measure!)))]
+    (if now? (run) (reset! parse-timer (js/setTimeout run 150)))))
+
+;; keep links and markers in step with the open doc, however it changed
+;; (typing, a doc taken from disk, open, close, dock ↔ page ↔ fullscreen)
+(add-watch state :md-gutter
+  (fn [_ _ old new]
+    (let [o (:md old) n (:md new)]
+      (cond
+        (not= (:path o) (:path n)) (do (when (nil? n) (swap! state assoc :md-marks nil :link-menu nil))
+                                       (reparse-links! true))
+        ;; typing: measure once, after the debounced scan, against fresh links
+        (not= (:text o) (:text n)) (reparse-links! false)
+        (or (not= (:page o) (:page n)) (not= (:full o) (:full n))) (queue-measure!)))))
+
+(defn- ^:async follow-link!
+  "Follow link l (an mdlinks/links entry) of the open doc: its
+  destination resolves against the doc's own path; the page shown joins
+  the trail. An .edn target is first created as an empty graph when
+  missing (from the md page always, from the docked panel when the
+  graph shown is editable) — as follow ref does."
+  [l]
+  (let [st @state
+        md (:md st)
+        {:keys [path kind error]} (editor/link-target (:path md) (:dest l))]
+    (swap! state assoc :link-menu nil)
+    (cond
+      (:following st) nil
+      (some? error) (swap! state assoc :nav-error error)
+      :else
+      (do
+        (swap! state assoc :following true)
+        (try
+          (when (and (= kind "graph") (.endsWith (.toLowerCase path) ".edn")
+                     (or (:page md) (current-edit-target-editable? st)))
+            (try
+              (js-await (js/fetch "/api/create"
+                                  {:method "POST"
+                                   :headers {"Content-Type" "application/json"}
+                                   :body (js/JSON.stringify (editor/create-body (:edit-target st) path))}))
+              (catch :default _ nil)))
+          (js-await (navigate! (editor/follow-url (current-path st) (:trail (:nav st)) path)))
+          (finally (swap! state assoc :following false)))))))
 
 (defn- ^:async post-edit!
   "POST ops to the edit target — or to `file` (\"old\"/\"new\") when given."
@@ -1659,30 +2039,29 @@
 
       (= action "delete") (delete! tgt)
       (= action "rename") (start-editing! ID-FIELD (:id tgt))
-      (and (= action "follow-pair") (> (count (working-pairs sel)) 1))
-      (flash! "several pairs — pick one in the inspector")
-
       :else (start-action! sel tgt action))))
 
 (defn- handle-chord-key!
-  "Feed a plain key press into the two-key chords: the first key opens a
-  group (hint shown), the second runs the action for the selection —
-  or nothing, when it does not apply — and either way closes the group.
-  Bare modifier, arrow and other named keys are not second keys."
+  "Feed a plain key press into the chords: it extends the pending keys
+  (:chord) while they are the start of a longer chord for the
+  selection; a complete chord runs and closes; any other key closes.
+  Bare modifier, arrow and other named keys are not chord keys."
   [e]
   (let [k (.-key e)
-        st @state]
-    (cond
-      (some? (:chord st))
-      (when (= 1 (.-length k))
-        (.preventDefault e)
-        (swap! state assoc :chord nil)
-        (when-let [action (editor/chord-action (:kind (:selected st)) (:chord st) k)]
-          (run-chord-action! (:selected st) action)))
+        st @state
+        sel (:selected st)
+        pairs (working-pairs sel)
+        path (conj (or (:chord st) []) k)]
+    (when (and (= 1 (.-length k)) (nil? (:pick st)) (some? (:scene st)))
+      (cond
+        (editor/chord-prefix? (:kind sel) path (avail-fn sel) pairs)
+        (do (.preventDefault e) (swap! state assoc :chord path))
 
-      (and (editor/chord-group? k) (nil? (:pick st)) (some? (:scene st)))
-      (do (.preventDefault e)
-          (swap! state assoc :chord k)))))
+        (some? (:chord st))
+        (do (.preventDefault e)
+            (swap! state assoc :chord nil)
+            (when-let [action (editor/chord-action (:kind sel) path pairs)]
+              (run-chord-action! sel action)))))))
 
 (js/window.addEventListener "keydown"
   (fn [e]
@@ -1693,7 +2072,7 @@
       (do (.preventDefault e) (save-md!))
 
       (= (.-key e) "Escape") (do (cancel-pick!)
-                                 (swap! state assoc :help false :chord nil :export-menu false)
+                                 (swap! state assoc :help false :chord nil :export-menu false :link-menu nil)
                                  (when (:full (:md @state))
                                    (swap! state assoc-in [:md :full] false)))
       ;; a held key must not complete its own chord
@@ -1713,12 +2092,20 @@
            (current-edit-target-editable? @state))
       (handle-chord-key! e))))
 ;; a press anywhere outside the export menu closes it — ⇩ itself toggles
-;; it (capture phase, so nothing that stops propagation keeps it open)
+;; it — one outside the toolbar closes the pop-out, and one outside the
+;; doc's link menu and its » markers closes that menu (capture phase, so
+;; nothing that stops propagation keeps any of them open)
 (js/document.addEventListener "pointerdown"
   (fn [e]
     (when (and (:export-menu @state)
                (not (.closest (.-target e) "#export-menu, #export-btn")))
-      (swap! state assoc :export-menu false)))
+      (swap! state assoc :export-menu false))
+    (when (and (some? (:chord @state))
+               (not (.closest (.-target e) "#selection-toolbar")))
+      (swap! state assoc :chord nil))
+    (when (and (some? (:link-menu @state))
+               (not (.closest (.-target e) ".md-link-menu, .md-mark")))
+      (swap! state assoc :link-menu nil)))
   true)
 (canvas/set-repaint! paint-now!)
 ;; the headless export's entry point (simpleviz export, server/browser.clj)
@@ -1727,9 +2114,11 @@
 (add-watch state :render (fn [_ _ _ _] (rerender!)))
 (canvas/setup-pan-zoom! (js/document.getElementById "canvas-wrap"))
 (rerender!)
-(tick)
+(load-nav!)
 (js/setInterval tick 1000)
 (js/setInterval poll-md! 1000)
+(js/window.addEventListener "resize" (fn [_] (queue-measure!)))
+(.then (.-ready js/document.fonts) (fn [_] (queue-measure!)))
 ;; unsaved doc edits: the browser asks before the tab closes or reloads
 (js/window.addEventListener "beforeunload"
   (fn [e]

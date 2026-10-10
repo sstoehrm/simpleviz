@@ -20,7 +20,7 @@
                                     {:replace-existing true})
                       (fs/copy-tree "node_modules/squint-cljs" "public/js/vendor/squint-cljs"
                                     {:replace-existing true}))}
-  serve    {:doc "Serve an EDN graph file or exported PNG/SVG: bb serve graph.edn|.png|.svg [suffix] [--port N] (suffix = compare against graph-<suffix>.edn)"
+  serve    {:doc "Serve an EDN graph file, an exported PNG/SVG or an md file: bb serve graph.edn|.png|.svg|doc.md [suffix] [--port N] (suffix = compare against graph-<suffix>.edn)"
             :requires ([serve])
             :task (apply serve/-main *command-line-args*)}
   extract  {:doc "Extract embedded EDN from an exported PNG/SVG: bb extract diagram.png|.svg [out.edn] [--old]"
@@ -29,7 +29,7 @@
   export   {:doc "Export a graph as PNG/SVG via headless Chrome: bb export graph.edn [suffix] out.png|out.svg [--theme t] [--force]"
             :requires ([cli])
             :task (apply cli/-main "export" *command-line-args*)}
-  check    {:doc "Report a graph's parse error or validation warnings (exit 1 on any): bb check graph.edn|.png|.svg"
+  check    {:doc "Report a graph's parse error or validation warnings, or an md file's broken links (exit 1 on any): bb check graph.edn|.png|.svg|doc.md"
             :requires ([check])
             :task (apply check/-main *command-line-args*)}
   fork     {:doc "Fork a graph and every file it refs: bb fork graph.edn <suffix> (writes graph-<suffix>.edn ...)"
@@ -45,8 +45,8 @@
                  :requires ([release])
                  :task (release/check (first *command-line-args*))}
   test:clj {:doc "Run Clojure server tests"
-            :requires ([clojure.test :as t] [server-test] [graph-test] [diff-test] [docs-test] [png-test] [svg-test] [browser-test] [export-test] [edit-test] [log-test] [fork-test] [launcher-test] [install-test] [check-test] [cli-test] [release-test] [notices-test] [paths-test] [pairs-test])
-            :task (let [{:keys [fail error]} (t/run-tests 'graph-test 'server-test 'diff-test 'docs-test 'png-test 'svg-test 'browser-test 'export-test 'edit-test 'log-test 'fork-test 'launcher-test 'install-test 'check-test 'cli-test 'release-test 'notices-test 'paths-test 'pairs-test)]
+            :requires ([clojure.test :as t] [server-test] [graph-test] [diff-test] [docs-test] [png-test] [svg-test] [browser-test] [export-test] [edit-test] [log-test] [fork-test] [launcher-test] [install-test] [check-test] [cli-test] [release-test] [notices-test] [paths-test] [pairs-test] [mdlinks-test])
+            :task (let [{:keys [fail error]} (t/run-tests 'graph-test 'server-test 'diff-test 'docs-test 'png-test 'svg-test 'browser-test 'export-test 'edit-test 'log-test 'fork-test 'launcher-test 'install-test 'check-test 'cli-test 'release-test 'notices-test 'paths-test 'pairs-test 'mdlinks-test)]
                     (when (pos? (+ fail error)) (System/exit 1)))}
   test:js  {:doc "Run JS unit tests (compiled squint output)"
             :requires ([babashka.fs :as fs])
@@ -66,7 +66,7 @@
                         ;; standalone bb.edn: serving only, deps taken from this file
                         release-bb {:paths ["server" "."]
                                     :deps (:deps (edn/read-string (slurp "bb.edn")))
-                                    :tasks (quote {serve {:doc "Serve an EDN graph file or exported PNG/SVG: bb serve graph.edn|.png|.svg [suffix] [--port N] (suffix = compare against graph-<suffix>.edn)"
+                                    :tasks (quote {serve {:doc "Serve an EDN graph file, an exported PNG/SVG or an md file: bb serve graph.edn|.png|.svg|doc.md [suffix] [--port N] (suffix = compare against graph-<suffix>.edn)"
                                                           :requires ([serve])
                                                           :task (apply serve/-main *command-line-args*)}
                                                    extract {:doc "Extract embedded EDN from an exported PNG/SVG: bb extract diagram.png|.svg [out.edn] [--old]"
@@ -75,7 +75,7 @@
                                                    export {:doc "Export a graph as PNG/SVG via headless Chrome: bb export graph.edn [suffix] out.png|out.svg [--theme t] [--force]"
                                                            :requires ([cli])
                                                            :task (apply cli/-main "export" *command-line-args*)}
-                                                   check {:doc "Report a graph's parse error or validation warnings (exit 1 on any): bb check graph.edn|.png|.svg"
+                                                   check {:doc "Report a graph's parse error or validation warnings, or an md file's broken links (exit 1 on any): bb check graph.edn|.png|.svg|doc.md"
                                                           :requires ([check])
                                                           :task (apply check/-main *command-line-args*)}
                                                    fork {:doc "Fork a graph and every file it refs: bb fork graph.edn <suffix> (writes graph-<suffix>.edn ...)"

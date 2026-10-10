@@ -1514,3 +1514,77 @@
       (is (= 400 (first (text-save {:path "latin.md" :text "a\n" :base nil}))))
       (is (= [0x61 0xE4 0x0A] (map (fn [b] (bit-and b 0xff))
                                    (java.nio.file.Files/readAllBytes (.toPath (java.io.File. dir "latin.md")))))))))
+
+;; --- md pages ---------------------------------------------------------
+
+(defn- errors-of [& [query]]
+  (json/parse-string (:body (serve/handler {:uri "/api/errors" :query-string query}))))
+
+(deftest md-path-is-any-case-dot-md
+  (is (serve/md-path? "notes.md"))
+  (is (serve/md-path? "a/B.MD"))
+  (is (not (serve/md-path? "g.edn")))
+  (is (not (serve/md-path? "md"))))
+
+(deftest parse-args-refuses-a-suffix-with-an-md-root
+  (is (clojure.string/includes? (:error (serve/parse-args ["notes.md" "next"]))
+                                "compare mode needs a graph file (.edn, .png or .svg)"))
+  (is (= {:file "notes.md" :suffix nil :port 7373 :debug false} (serve/parse-args ["notes.md"]))))
+
+(deftest startup-check-reads-an-md-root
+  (with-temp-dir*
+    (fn [dir]
+      (let [ok (write! dir "notes.md" "# N\n")
+            big (write! dir "big.md" (apply str (repeat (inc (* 1024 1024)) "x")))
+            bad (write! dir "bad.md" (byte-array [(unchecked-byte 0xff)]))]
+        (serve! ok)
+        (is (nil? (serve/startup-check! ok)))
+        (serve! big)
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"over 1 MiB" (serve/startup-check! big)))
+        (serve! bad)
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"not UTF-8" (serve/startup-check! bad)))
+        (is (:startup-check (try (serve/startup-check! bad) (catch clojure.lang.ExceptionInfo e (ex-data e)))))
+        (let [missing (.getPath (java.io.File. dir "missing.md"))]
+          (serve! missing)
+          (is (thrown-with-msg? clojure.lang.ExceptionInfo #"no such file" (serve/startup-check! missing)))
+          (is (:startup-check (try (serve/startup-check! missing) (catch clojure.lang.ExceptionInfo e (ex-data e))))))))))
+
+(deftest api-root-names-the-root-file
+  (with-temp-dir*
+    (fn [dir]
+      (serve! (write! dir "notes.md" "# N"))
+      (is (= {"path" "notes.md"} (json/parse-string (:body (serve/handler {:uri "/api/root"})))))
+      (serve! (write! dir "g.edn" "{:nodes {}}"))
+      (is (= {"path" "g.edn"} (json/parse-string (:body (serve/handler {:uri "/api/root"}))))))))
+
+(deftest api-errors-reports-an-md-files-broken-links
+  (with-temp-dir*
+    (fn [outer]
+      (let [dir (java.io.File. outer "served")]
+        (serve! (write! dir "notes.md" "[a](a.edn) [m](sub/missing.md)\n[x](../out.md) [w](http://x.md)\n"))
+        (write! dir "a.edn" "{:nodes {}}")
+        (write! dir "sub/x.md" "[up](../a.edn) [no](nope.edn)\n[r][d]\n\n[d]: gone.png\n")
+        (is (= {"error" nil "warnings" ["line 1: sub/missing.md not found"
+                                        "line 2: ../out.md leaves the served folder"]}
+               (errors-of)))
+        (is (= {"error" nil "warnings" ["line 1: nope.edn not found" "line 4: gone.png not found"]}
+               (errors-of "file=sub%2Fx.md")))
+        (is (= "no such file: sub/none.md" (get (errors-of "file=sub%2Fnone.md") "error")))))))
+
+(deftest graph-routes-stay-graph-only-for-md
+  (with-temp-dir*
+    (fn [dir]
+      (serve! (write! dir "g.edn" "{:nodes {}}"))
+      (write! dir "notes.md" "# N")
+      (is (clojure.string/includes?
+           (get (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "file=notes.md"}))) "error")
+           "not an .edn, .png or .svg")))))
+
+(deftest api-text-reads-a-non-ascii-path
+  (with-temp-dir*
+    (fn [dir]
+      (serve! (write! dir "notes.md" "[u](über.md) [s](my%20file.md)"))
+      (write! dir "über.md" "ü")
+      (write! dir "my file.md" "s")
+      (is (= "ü" (get (text-get "über.md") "text")))
+      (is (= "s" (get (text-get "my file.md") "text"))))))

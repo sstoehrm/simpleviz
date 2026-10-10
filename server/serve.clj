@@ -13,6 +13,7 @@
             [log]
             [org.httpkit.server :as srv]
             [embedded]
+            [mdlinks]
             [pairs])
   (:import [clojure.lang LineNumberingPushbackReader]
            [java.io StringReader]))
@@ -35,6 +36,14 @@
 
 ;; an agent may lock a doc before writing it, as it locks a graph
 (def ^:private lockable-extensions (into ref-extensions doc-extensions))
+
+;; what a markdown link may lead to
+(def ^:private link-extensions (into ref-extensions doc-extensions))
+
+(defn md-path?
+  "Does `path` name a markdown file (.md, any case)?"
+  [path]
+  (str/ends-with? (str/lower-case (str path)) ".md"))
 
 (defn- extensions-phrase
   "\"an .edn, .png or .svg\" for #{\"edn\" \"png\" \"svg\"}."
@@ -363,6 +372,8 @@
         {:error (str "two-file compare was replaced: bb fork " f1 " <suffix>, then bb serve " f1 " <suffix>\n" usage)}
         (and (some? suffix) (nil? (re-matches suffix-re suffix)))
         {:error (str "invalid suffix: " suffix "\n" usage)}
+        (and (some? suffix) (md-path? f1))
+        {:error (str "compare mode needs a graph file (.edn, .png or .svg)\n" usage)}
         :else {:file f1 :suffix suffix :port port :debug debug}))
     (catch Exception e
       {:error (str "invalid arguments: " (ex-message e) "\n" usage)})))
@@ -630,13 +641,19 @@
         (log/event! "error" {:route route :error err})))
     body))
 
+(declare md-errors)
+
 (defn- errors-response-body
   "What the page's banners would show for the same query: the graph
-  route's parse error (or nil) and validation warnings, nothing else."
+  route's parse error (or nil) and validation warnings, nothing else —
+  or, for an md file, its read error and broken links."
   [query-string]
-  (let [out (json/parse-string (graph-response-body query-string "/api/errors"))]
-    (json/generate-string {:error (get out "error")
-                           :warnings (get out "warnings" [])})))
+  (let [rel (try (or (nav-rel query-string) (root-rel)) (catch Exception _ nil))]
+    (if (and (some? rel) (md-path? rel))
+      (json/generate-string (md-errors rel))
+      (let [out (json/parse-string (graph-response-body query-string "/api/errors"))]
+        (json/generate-string {:error (get out "error")
+                               :warnings (get out "warnings" [])})))))
 
 (defn- edit-response-body
   "Parse the edit request, apply it, log what was asked and what came of
@@ -693,7 +710,7 @@
   (when-not (string? path) (throw (ex-info "path required" {})))
   (resolve-path @root-dir path false doc-extensions))
 
-(defn- doc-state
+(defn doc-state
   "What is on disk at f: {:text :version :exists}; a missing file is
   empty with version nil. Refuses a file over max-doc-bytes or not
   valid UTF-8."
@@ -738,6 +755,39 @@
   (json/generate-string
    (try (doc-state (doc-file (query-param query-string "path")))
         (catch Exception e {:error (ex-message e)}))))
+
+(defn md-warnings
+  "The broken links of md file `rel` (root-relative, under folder `root`)
+  holding `text`: one \"line N: <dest> not found\", \"line N: <dest>
+  leaves the served folder\" (or another problem the path check names
+  it by) or \"line N: <dest>: <message>\" per followable link whose
+  target is no file below `root`; one link's failure never fails the
+  rest. A reference use is checked once, at its definition."
+  [root rel text]
+  (let [dir (some-> (.getParent (io/file rel)) (str/replace "\\" "/"))]
+    (vec
+     (keep (fn [{:keys [line dest kind]}]
+             (when (and (not= kind "ref") (mdlinks/followable? dest))
+               (let [target (if (some? dir) (str dir "/" dest) dest)]
+                 (try (when-not (.isFile (resolve-path root target false link-extensions))
+                        (str "line " line ": " dest " not found"))
+                      (catch Exception e
+                        ;; resolve-path names the path it checked: say dest instead
+                        (let [msg (str (ex-message e))]
+                          (if (str/starts-with? msg (str target " "))
+                            (str "line " line ": " dest (subs msg (count target)))
+                            (str "line " line ": " dest ": " msg))))))))
+           (mdlinks/links text)))))
+
+(defn- md-errors
+  "The /api/errors report for md file `rel`: its read error, or its
+  broken links."
+  [rel]
+  (try (let [{:keys [text exists]} (doc-state (doc-file rel))]
+         (if exists
+           {:error nil :warnings (md-warnings @root-dir rel text)}
+           {:error (str "no such file: " rel) :warnings []}))
+       (catch Exception e {:error (ex-message e) :warnings []})))
 
 (defn- text-save
   "Write {path text base}: only while the file's version is still `base`
@@ -786,6 +836,7 @@
     "/api/create"  (post-only req #(json-response (create-response-body body)))
     "/api/lock"    (post-only req #(lock-response acquire-lock! body))
     "/api/unlock"  (post-only req #(lock-response release-lock! body))
+    "/api/root"      (json-response (json/generate-string {:path (root-rel)}))
     "/api/text"      (json-response (text-response-body query-string))
     "/api/text/save" (post-only req #(text-save-response body))
     "/api/version" (json-response
@@ -854,6 +905,20 @@
     (str/trim (slurp r))
     "dev"))
 
+(defn startup-check!
+  "Read what serving `file` needs, so a bad file fails at startup with a
+  clear message (ex-info {:startup-check true}) instead of an empty page:
+  both sides of a graph, or the md file itself."
+  [file]
+  (try
+    (if (md-path? file)
+      (when-not (:exists (doc-state (.getCanonicalFile (io/file file))))
+        (throw (ex-info (str "no such file: " file) {})))
+      (let [{:keys [old new]} (sides nil)]
+        (doseq [f (remove nil? [old new])] (read-source (.getPath f)))))
+    (catch Exception e
+      (throw (ex-info (or (ex-message e) (.getName (class e))) {:startup-check true})))))
+
 (defn start!
   "Serve `file` — compared with its `suffix` fork when one is given — on
   127.0.0.1:`port`. Checks that every side resolves and reads first
@@ -868,11 +933,7 @@
   ;; resolve both sides once so a missing fork or an export without
   ;; embedded EDN fails at startup with a clear message instead of an
   ;; empty diagram in the browser
-  (try
-    (let [{:keys [old new]} (sides nil)]
-      (doseq [f (remove nil? [old new])] (read-source (.getPath f))))
-    (catch Exception e
-      (throw (ex-info (or (ex-message e) (.getName (class e))) {:startup-check true}))))
+  (startup-check! file)
   (let [served (cond
                  suffix (str file " → " (fork-name file suffix) " (compare)")
                  (embedded-compare?) (str file " (embedded compare)")

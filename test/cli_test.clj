@@ -401,3 +401,39 @@
     (is (= (str "simpleviz: example missing from the classpath: nope.edn"
                 " — the install looks incomplete; reinstall simpleviz")
            (str/trim (:err res))))))
+
+(deftest md-files-are-refused-by-graph-only-commands
+  (with-tmp
+    (fn [tmp]
+      (spit (str (fs/path tmp "notes.md")) "# n")
+      (doseq [[args msg] [[["export" "notes.md" "out.png"] "export needs a graph file (.edn, .png or .svg)"]
+                          [["fork" "notes.md" "next"] "fork works on graph files (.edn, .png or .svg)"]
+                          [["promote" "notes.md" "next"] "promote works on graph files (.edn, .png or .svg)"]
+                          [["init" "new.md"] "init writes graph files (.edn)"]
+                          [["notes.md" "next"] "compare mode needs a graph file (.edn, .png or .svg)"]]]
+        (let [res (run-cli args :dir tmp)]
+          (is (= 1 (:exit res)) (str args))
+          (is (str/includes? (:err res) msg) (str args " " (:err res))))))))
+
+(deftest check-md-exits-1-on-a-broken-link
+  (with-tmp
+    (fn [tmp]
+      (spit (str (fs/path tmp "notes.md")) "[g](g.edn)\n")
+      (let [res (run-cli ["check" "notes.md"] :dir tmp)]
+        (is (= 1 (:exit res)))
+        (is (= "warning: line 1: g.edn not found" (str/trim (:out res)))))
+      (spit (str (fs/path tmp "g.edn")) "{:nodes {}}")
+      (is (= "ok" (str/trim (:out (run-cli ["check" "notes.md"] :dir tmp))))))))
+
+(deftest an-md-root-is-served
+  (with-tmp
+    (fn [tmp]
+      (spit (str (fs/path tmp "notes.md")) "[g](g.edn)\n")
+      (let [proc (serve-cli ["notes.md" "--no-open"] (str tmp))]
+        (try
+          (let [[_ url] (proc-util/await-line proc url-line 60000)]
+            (is (some? url))
+            (is (= {"path" "notes.md"} (json/parse-string (slurp (str url "/api/root")))))
+            (is (= {"error" nil "warnings" ["line 1: g.edn not found"]}
+                   (json/parse-string (slurp (str url "/api/errors"))))))
+          (finally (p/destroy-tree proc)))))))

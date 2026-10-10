@@ -6,12 +6,13 @@
                                       delete-op direction-op pick-ops
                                       add-node-ops add-connected-ops wrap-in-box-ops
                                       edit-body create-body rename-op blur-text retarget-end
-                                      chord-action chord-group? chord-for chord-hint
+                                      chord-action chord-prefix? chord-for chord-menu chord-leaves
                                       add-node-in-box-ops box-remove-op
                                       name->id derived-id named-edge-ops creation-ops parse-entry
                                       resolve-ref parse-nav nav-query follow-url crumb-url ref-of banner-visible?
                                       theme-menu layout-menu effective-layout top-box-of load-readiness export-readiness
-                                      md-target from-disk to-disk md-dirty? adopt-doc gone-doc poll-outcome save-result]]))
+                                      md-target from-disk to-disk md-dirty? adopt-doc gone-doc poll-outcome save-result
+                                      parent-box split-parent doc-kind link-target line-markers link-title]]))
 
 (test "target maps selection payloads to op targets"
   (fn []
@@ -255,61 +256,6 @@
     (assert/ok (nil? (blur-text {:attr "name" :text "x"} "$id")))
     (assert/equal (blur-text {:attr "$id" :text " gw "} "$id") " gw ")))
 
-(test "chord-action resolves a two-key chord for the selection kind"
-  (fn []
-    (assert/equal (chord-action "node" "d" "d") "delete")
-    (assert/equal (chord-action "edge" "d" "d") "delete")
-    (assert/deepEqual (chord-action "edge" "e" "3") ["direction" "<->"])
-    (assert/deepEqual (chord-action "edge" "c" "t") ["retarget" "target"])
-    (assert/equal (chord-action "node" "a" "b") "add-to-box")
-    (assert/equal (chord-action "box" "a" "b") "add-box-member")
-    (assert/equal (chord-action "box" "a" "n") "add-node-member")
-    (assert/equal (chord-action nil "n" "n") "new-node")
-    (assert/equal (chord-action "node" "n" "n") "new-connected-node")
-    (assert/equal (chord-action "box" "n" "b") "new-box")
-    (assert/equal (chord-action "box" "r" "r") "rename")
-    ;; not available for this kind, or no such chord
-    (assert/ok (nil? (chord-action "edge" "a" "e")))
-    (assert/ok (nil? (chord-action "node" "e" "1")))
-    (assert/ok (nil? (chord-action nil "d" "d")))
-    (assert/ok (nil? (chord-action "node" "z" "z")))))
-
-(test "chord-group? knows the first keys"
-  (fn []
-    (assert/ok (chord-group? "d"))
-    (assert/ok (chord-group? "a"))
-    (assert/ok (not (chord-group? "z")))))
-
-(test "chord-for finds the chord behind an action, for the toolbar hints"
-  (fn []
-    (assert/equal (chord-for "node" "delete") "d d")
-    (assert/equal (chord-for "edge" ["direction" "<-"]) "e 2")
-    (assert/equal (chord-for "box" "add-box-member") "a b")
-    (assert/ok (nil? (chord-for "edge" "add-to-box")))))
-
-(test "chord-hint lists the completions of a pending group for the selection"
-  (fn []
-    (assert/equal (chord-hint "edge" "c") "c … s change source · t change target")
-    (assert/equal (chord-hint "box" "a") "a … e add edge · b add box · n add node")
-    (assert/equal (chord-hint nil "n") "n … n new node")
-    (assert/equal (chord-hint "edge" "a") "a … nothing for an edge")))
-
-(test "chords for box membership: remove node, new node in box, remove from box"
-  (fn []
-    (assert/equal (chord-action "box" "r" "n") "remove-node-member")
-    (assert/equal (chord-action "box" "c" "n") "new-node-in-box")
-    (assert/equal (chord-action "node" "r" "b") "remove-from-box")
-    (assert/ok (nil? (chord-action "node" "c" "n")))
-    (assert/equal (chord-for "box" "remove-node-member") "r n")
-    (assert/equal (chord-hint "box" "r") "r … r rename · n remove node")))
-
-(test "n n on a box is new node inside it, as c n is (#105)"
-  (fn []
-    (assert/equal (chord-action "box" "n" "n") "new-node-in-box")
-    (assert/equal (chord-action "box" "c" "n") "new-node-in-box")
-    (assert/equal (chord-for "box" "new-node-in-box") "n n")
-    (assert/equal (chord-hint "box" "n") "n … n new node · b new box")))
-
 (test "pick-ops box-drop accepts only a node whose parent is the box"
   (fn []
     (let [pick {:mode "box-drop" :box "g"}]
@@ -377,15 +323,6 @@
     (assert/ok (nil? (ref-of {:kind "box" :attrs {:ref "sub/api.edn"}} :md-ref)))
     (assert/ok (nil? (ref-of {:kind "node" :attrs {:md-ref " "}} :md-ref)))))
 
-(test "chord f r follows a ref for every selection kind"
-  (fn []
-    (assert/ok (chord-group? "f"))
-    (assert/equal (chord-action "node" "f" "r") "follow-ref")
-    (assert/equal (chord-action "edge" "f" "r") "follow-ref")
-    (assert/equal (chord-action "box" "f" "r") "follow-ref")
-    (assert/ok (nil? (chord-action nil "f" "r")))
-    (assert/equal (chord-for "node" "follow-ref") "f r")))
-
 (test "focus rides along in the URL, and only when there is one"
   (fn []
     (assert/equal (nav-query "views/d.edn" ["o.edn"] "n:api-svc")
@@ -396,13 +333,6 @@
     (assert/equal (follow-url "o.edn" [] "views/d.edn" "b:grp")
                   "?file=views%2Fd.edn&trail=o.edn&focus=b%3Agrp")
     (assert/equal (follow-url "o.edn" [] "x.edn") "?file=x.edn&trail=o.edn")))
-
-(test "f p follows a node's or a box's pair"
-  (fn []
-    (assert/equal (chord-action "node" "f" "p") "follow-pair")
-    (assert/equal (chord-action "box" "f" "p") "follow-pair")
-    (assert/ok (nil? (chord-action "edge" "f" "p")))
-    (assert/equal (chord-hint "node" "f") "f … r follow ref · p follow pair · m open md")))
 
 (test "theme-menu shows your theme unless the file sets its own (#115)"
   (fn []
@@ -532,9 +462,9 @@
 
 (test "f m opens the md of a node or box"
   (fn []
-    (assert/equal (chord-action "node" "f" "m") "open-md")
-    (assert/equal (chord-action "box" "f" "m") "open-md")
-    (assert/ok (nil? (chord-action "edge" "f" "m")))
+    (assert/equal (chord-action "node" ["f" "m"] []) "open-md")
+    (assert/equal (chord-action "box" ["f" "m"] []) "open-md")
+    (assert/ok (nil? (chord-action "edge" ["f" "m"] [])))
     (assert/equal (chord-for "node" "open-md") "f m")))
 
 (test "save-result applies a save's response to the doc it saved, only"
@@ -580,3 +510,205 @@
   (fn []
     (assert/equal (effective-layout {} "tiled") "tiled")
     (assert/equal (:value (layout-menu {:layout "tiled"} nil)) "tiled")))
+
+(test "parent-box and split-parent place an element next to the selection"
+  (fn []
+    (let [pof {"n:a" "grp" "n:b" "grp" "n:c" "other" "b:grp" "outer"}]
+      (assert/equal (parent-box pof "a") "grp")
+      (assert/equal (parent-box pof "grp") "outer")
+      (assert/ok (nil? (parent-box pof "top")))
+      (assert/equal (split-parent pof ["a" "b"]) "grp")
+      ;; ends in different boxes, or one at top level: X goes to top level
+      (assert/ok (nil? (split-parent pof ["a" "c"])))
+      (assert/ok (nil? (split-parent pof ["a" "top"])))
+      (assert/ok (nil? (split-parent pof ["top" "top2"]))))))
+
+(test "creation-ops: boxes, siblings, here-connected and incoming nodes"
+  (fn []
+    (let [node {:section "nodes" :id "api"}
+          box {:section "boxes" :id "grp"}
+          nm (fn [section id v] {:op "set-attr" :section section :id id :attr "name" :value (str "\"" v "\"") :fallback false})]
+      (assert/deepEqual (creation-ops {:for "box" :text "Zone"} nil)
+                        {:ops [{:op "add-box" :id "zone"} (nm "boxes" "zone" "Zone")] :focus "b:zone"})
+      (assert/deepEqual (creation-ops {:for "box-inbox" :text "Zone"} box)
+                        {:ops [{:op "add-box" :id "zone"} (nm "boxes" "zone" "Zone")
+                               {:op "box-add" :box "grp" :member "zone"}]
+                         :focus "b:zone"})
+      (assert/deepEqual (creation-ops {:for "sibling" :text "DB" :parent "grp"} node)
+                        {:ops [{:op "add-node" :id "db"} (nm "nodes" "db" "DB")
+                               {:op "box-add" :box "grp" :member "db"}]
+                         :focus "n:db"})
+      ;; at top level: no box-add (a nil box would fail the whole batch)
+      (assert/deepEqual (:ops (creation-ops {:for "sibling" :text "DB" :parent nil} node))
+                        [{:op "add-node" :id "db"} (nm "nodes" "db" "DB")])
+      (assert/deepEqual (:ops (creation-ops {:for "connect-here" :text "DB" :parent "grp"} node))
+                        [{:op "add-node" :id "db"} (nm "nodes" "db" "DB")
+                         {:op "add-edge" :from "api" :to "db" :direction "->"}
+                         {:op "box-add" :box "grp" :member "db"}])
+      (assert/deepEqual (:ops (creation-ops {:for "incoming" :text "DB" :parent nil} node))
+                        [{:op "add-node" :id "db"} (nm "nodes" "db" "DB")
+                         {:op "add-edge" :from "db" :to "api" :direction "->"}])
+      ;; name::type still sets the type, last
+      (assert/deepEqual (last (:ops (creation-ops {:for "box" :text "Zone::infra"} nil)))
+                        {:op "set-attr" :section "boxes" :id "zone" :attr "type" :value "\"infra\"" :fallback false})
+      (assert/ok (nil? (creation-ops {:for "sibling" :text "((("} node))))))
+
+(test "creation-ops: split puts the new node between the edge's ends"
+  (fn []
+    (let [edge {:section "edges" :id ["a" "b"]}
+          nm {:op "set-attr" :section "nodes" :id "x" :attr "name" :value "\"X\"" :fallback false}]
+      (assert/deepEqual (creation-ops {:for "split" :text "X" :parent "grp" :direction "->"} edge)
+                        {:ops [{:op "add-node" :id "x"} nm
+                               {:op "box-add" :box "grp" :member "x"}
+                               {:op "retarget-edge" :edge ["a" "b"] :end "target" :to "x"}
+                               {:op "add-edge" :from "x" :to "b" :direction "->"}]
+                         :focus "n:x"})
+      ;; no direction on the original: none on the new half; top level: no box-add
+      (assert/deepEqual (:ops (creation-ops {:for "split" :text "X" :parent nil :direction nil} edge))
+                        [{:op "add-node" :id "x"} nm
+                         {:op "retarget-edge" :edge ["a" "b"] :end "target" :to "x"}
+                         {:op "add-edge" :from "x" :to "b"}]))))
+
+(def ^:private all (fn [_] true))
+(def ^:private two-pairs [{:file "a.edn" :id "x"} {:file "b.edn" :id "y"}])
+
+(test "chord-action resolves complete chords of any length"
+  (fn []
+    (assert/equal (chord-action "node" ["d" "d"] []) "delete")
+    (assert/deepEqual (chord-action "edge" ["e" "3"] []) ["direction" "<->"])
+    (assert/deepEqual (chord-action "edge" ["c" "t"] []) ["retarget" "target"])
+    (assert/equal (chord-action "node" ["a" "b"] []) "add-to-box")
+    (assert/equal (chord-action "box" ["a" "b"] []) "add-box-member")
+    (assert/equal (chord-action "box" ["a" "n"] []) "add-node-member")
+    (assert/equal (chord-action nil ["n" "n" "n"] []) "new-node")
+    (assert/equal (chord-action "node" ["n" "n" "n"] []) "new-connected-node")
+    (assert/equal (chord-action "box" ["n" "n" "n"] []) "new-node-in-box")
+    (assert/equal (chord-action nil ["n" "n" "b"] []) "new-free-box")
+    (assert/equal (chord-action "box" ["n" "n" "b"] []) "new-box-in-box")
+    (assert/equal (chord-action "node" ["n" "n" "s"] []) "new-sibling")
+    (assert/equal (chord-action "box" ["n" "n" "c"] []) "new-connected-here")
+    (assert/equal (chord-action "node" ["n" "n" "i"] []) "new-incoming")
+    (assert/equal (chord-action "edge" ["n" "n" "e"] []) "split-edge")
+    (assert/equal (chord-action "node" ["n" "b"] []) "new-box")
+    (assert/equal (chord-action "box" ["r" "r"] []) "rename")
+    (assert/equal (chord-action "box" ["r" "n"] []) "remove-node-member")
+    (assert/equal (chord-action "node" ["r" "b"] []) "remove-from-box")
+    (assert/equal (chord-action "edge" ["f" "r"] []) "follow-ref")
+    (assert/equal (chord-action "node" ["f" "m"] []) "open-md")
+    ;; n n is a group now, c n is gone, and kinds still matter
+    (assert/ok (nil? (chord-action "box" ["n" "n"] [])))
+    (assert/ok (nil? (chord-action "box" ["c" "n"] [])))
+    (assert/ok (nil? (chord-action "node" ["n" "n" "b"] [])))
+    (assert/ok (nil? (chord-action "edge" ["a" "e"] [])))
+    (assert/ok (nil? (chord-action nil ["d" "d"] [])))
+    (assert/ok (nil? (chord-action "node" ["z" "z"] [])))))
+
+(test "f p follows the one pair, or numbers several"
+  (fn []
+    (assert/equal (chord-action "node" ["f" "p"] [{:file "a.edn" :id "x"}]) "follow-pair")
+    (assert/ok (nil? (chord-action "edge" ["f" "p"] [{:file "a.edn" :id "x"}])))
+    (assert/ok (nil? (chord-action "box" ["f" "p"] two-pairs)))
+    (assert/ok (chord-prefix? "box" ["f" "p"] all two-pairs))
+    (assert/deepEqual (chord-action "box" ["f" "p" "2"] two-pairs) ["follow-pair" 1])
+    (assert/ok (nil? (chord-action "box" ["f" "p" "3"] two-pairs)))))
+
+(test "chord-prefix? knows the groups for the selection"
+  (fn []
+    (assert/ok (chord-prefix? nil ["n"] all []))
+    (assert/ok (chord-prefix? nil ["n" "n"] all []))
+    (assert/ok (chord-prefix? "edge" ["n"] all []))
+    (assert/ok (not (chord-prefix? nil ["d"] all [])))
+    (assert/ok (not (chord-prefix? "node" ["n" "n" "n"] all [])))
+    (assert/ok (not (chord-prefix? "node" ["f" "p"] all [{:file "a.edn" :id "x"}])))
+    (assert/ok (not (chord-prefix? "node" ["z"] all [])))))
+
+(test "chord-prefix? is false for a group with nothing available under it"
+  (fn []
+    ;; a node without :ref, pair or :md-ref: f would open an empty pop-out
+    (let [no-follow (fn [a] (not (contains? #{"follow-ref" "follow-pair" "open-md"} a)))]
+      (assert/ok (not (chord-prefix? "node" ["f"] no-follow [])))
+      (assert/ok (chord-prefix? "node" ["n"] no-follow [])))))
+
+(test "chord-for finds the chord behind an action, for the button hints"
+  (fn []
+    (assert/equal (chord-for "node" "delete") "d d")
+    (assert/equal (chord-for "edge" ["direction" "<-"]) "e 2")
+    (assert/equal (chord-for nil "new-free-box") "n n b")
+    (assert/equal (chord-for "box" "new-node-in-box") "n n n")
+    (assert/equal (chord-for "node" "new-box") "n b")
+    (assert/ok (nil? (chord-for "edge" "add-to-box")))))
+
+(test "chord-menu lists what comes next, collapsing chains and single chords"
+  (fn []
+    ;; nothing selected: n → n n is a chain, so the root shows both chords
+    (assert/deepEqual (chord-menu nil [] all [])
+                      [{:keys ["n" "n" "n"] :label "new node" :action "new-node"}
+                       {:keys ["n" "n" "b"] :label "new box" :action "new-free-box"}])
+    (assert/deepEqual (chord-menu nil ["n"] all [])
+                      [{:keys ["n" "n"] :label "new node" :action "new-node"}
+                       {:keys ["n" "b"] :label "new box" :action "new-free-box"}])
+    ;; a node: n holds a group and a chord
+    (assert/deepEqual (chord-menu "node" ["n"] all [])
+                      [{:keys ["n"] :label "new element" :group true}
+                       {:keys ["b"] :label "wrap in box" :action "new-box"}])
+    (assert/deepEqual (mapv :action (chord-menu "node" ["n" "n"] all []))
+                      ["new-connected-node" "new-sibling" "new-connected-here" "new-incoming"])
+    ;; root for a node, with only some actions available: a group with one
+    ;; available chord shows the chord itself; empty groups vanish
+    (let [avail (fn [a] (contains? #{"add-edge" "add-to-box" "rename" "delete"
+                                     "new-connected-node" "new-sibling" "new-box"} a))]
+      (assert/deepEqual (chord-menu "node" [] avail [])
+                        [{:keys ["a"] :label "add" :group true}
+                         {:keys ["n"] :label "new" :group true}
+                         {:keys ["r" "r"] :label "rename" :action "rename"}
+                         {:keys ["d" "d"] :label "delete" :action "delete"}]))))
+
+(test "chord-menu numbers pairs, nine at most"
+  (fn []
+    (assert/deepEqual (chord-menu "box" ["f" "p"] all two-pairs)
+                      [{:keys ["1"] :label "a.edn#x" :action ["follow-pair" 0]}
+                       {:keys ["2"] :label "b.edn#y" :action ["follow-pair" 1]}])
+    (let [many (mapv (fn [i] {:file "v.edn" :id (str "e" i)}) (range 12))]
+      (assert/equal (count (chord-menu "box" ["f" "p"] all many)) 9)
+      (assert/ok (nil? (chord-action "box" ["f" "p" "0"] many))))))
+
+(test "chord-leaves lists every available chord with its full keys"
+  (fn []
+    (assert/deepEqual (chord-leaves nil all [])
+                      [{:keys ["n" "n" "n"] :label "new node" :action "new-node"}
+                       {:keys ["n" "n" "b"] :label "new box" :action "new-free-box"}])
+    (assert/deepEqual (mapv :action (chord-leaves "edge" (fn [a] (not= a "follow-ref")) []))
+                      [["direction" "->"] ["direction" "<-"] ["direction" "<->"] ["direction" "-"]
+                       ["retarget" "source"] ["retarget" "target"] "split-edge" "delete"])))
+
+(test "doc-kind: .md in any case is an md page, everything else a graph"
+  (fn []
+    (assert/equal (doc-kind "notes.md") "md")
+    (assert/equal (doc-kind "a/B.MD") "md")
+    (assert/equal (doc-kind "g.edn") "graph")
+    (assert/equal (doc-kind "x.png") "graph")
+    (assert/equal (doc-kind nil) "graph")))
+
+(test "link-target resolves against the md file holding the link"
+  (fn []
+    (assert/deepEqual (link-target "docs/notes.md" "../pay.edn") {:path "pay.edn" :kind "graph"})
+    (assert/deepEqual (link-target "docs/notes.md" "sub/a.MD") {:path "docs/sub/a.MD" :kind "md"})
+    (assert/deepEqual (link-target "notes.md" "x.png") {:path "x.png" :kind "graph"})
+    (assert/deepEqual (link-target "notes.md" "../out.md")
+                      {:error "link \"../out.md\" leaves the served folder"})))
+
+(test "line-markers: one marker per line with followable links"
+  (fn []
+    (let [a {:line 1 :label "a" :dest "a.md" :kind "inline"}
+          b {:line 1 :label "b" :dest "b.edn" :kind "inline"}
+          web {:line 2 :label "w" :dest "http://x.md" :kind "inline"}
+          ref-use {:line 3 :label "u" :dest "c.svg" :kind "ref"}
+          ref-def {:line 5 :label "u" :dest "c.svg" :kind "def"}]
+      (assert/deepEqual (line-markers [a b web ref-use ref-def])
+                        [{:line 1 :links [a b]} {:line 3 :links [ref-use]} {:line 5 :links [ref-def]}])
+      (assert/deepEqual (line-markers []) []))))
+
+(test "link-title names label and target, and a refused one says why"
+  (fn []
+    (assert/equal (link-title "notes.md" {:label "the graph" :dest "pay.edn"}) "the graph → pay.edn")
+    (assert/equal (link-title "notes.md" {:label "x" :dest "../o.md"}) "x → ../o.md — leaves the served folder")))

@@ -89,6 +89,9 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
             border-left: 1px solid var(--panel-border); z-index: 5;
             box-shadow: -2px 0 8px var(--shadow); }
 #md-panel.full { left: 0; width: auto; z-index: 20; border-left: none; }
+/* the md page: the doc editor filling the window under the top bar */
+#md-panel.page { top: 52px; left: 0; width: auto; border-left: none; box-shadow: none;
+                 border-top: 1px solid var(--panel-divider); }
 #md-panel .md-head { display: flex; align-items: center; gap: 6px; padding: 8px 10px 8px 14px;
                      border-bottom: 1px solid var(--panel-divider); font-size: 13px; }
 #md-panel .md-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -106,9 +109,32 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
 /* the toolbar centres on the canvas left of the panel, not under it */
 #root.md-open #selection-toolbar { left: calc((100vw - var(--inspector-w)) / 2);
                                    max-width: calc(100vw - var(--inspector-w) - 24px); }
-#md-text { flex: 1 1 auto; border: none; outline: none; resize: none; padding: 12px 14px;
+#md-text { flex: 1 1 auto; min-width: 0; border: none; outline: none; resize: none; padding: 12px 14px;
            background: var(--panel); color: var(--text);
            font: 13px/1.5 ui-monospace, "Cascadia Mono", monospace; }
+/* the doc's text and its » gutter, side by side */
+#md-panel .md-body { position: relative; flex: 1 1 auto; display: flex; min-height: 0; }
+#md-gutter { flex: none; width: 28px; overflow: hidden; position: relative;
+             border-left: 1px solid var(--panel-divider); background: var(--panel); }
+#md-gutter .md-gutter-inner { position: relative; }
+#md-gutter .md-mark { position: absolute; left: 0; right: 0; padding: 0; border: none;
+                      background: none; color: var(--accent); cursor: pointer;
+                      font: 13px/1.5 ui-monospace, "Cascadia Mono", monospace; }
+#md-gutter .md-mark:hover { background: var(--hover-plain); }
+#md-gutter .md-mark.bad, .md-link-item.bad { opacity: .45; }
+.md-link-menu { position: absolute; right: 30px; z-index: 7; display: flex; flex-direction: column;
+                max-width: 60%; padding: 4px; background: var(--panel);
+                border: 1px solid var(--panel-border); border-radius: 6px;
+                box-shadow: 0 2px 8px var(--shadow); }
+.md-link-item { text-align: left; border: none; background: none; color: var(--text);
+                padding: 4px 8px; border-radius: 4px; cursor: pointer; white-space: nowrap;
+                overflow: hidden; text-overflow: ellipsis;
+                font: 12px ui-monospace, "Cascadia Mono", monospace; }
+.md-link-item:hover { background: var(--hover-plain); }
+/* lays doc text out as the textarea wraps it, to place the markers */
+#md-mirror { position: absolute; top: 0; left: -10000px; visibility: hidden;
+             white-space: pre-wrap; overflow-wrap: break-word; box-sizing: border-box;
+             border: none; }
 .attr-btn { flex: none; border: none; background: none; color: var(--text-dim);
             cursor: pointer; font-size: 13px; line-height: 1.2;
             padding: 1px 4px; border-radius: 4px; }
@@ -144,6 +170,20 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
                  padding: 3px 10px; border-radius: 999px; cursor: pointer; }
 .action-delete:hover { border-color: var(--diff-removed);
                        background: var(--diff-removed); color: #fff; }
+/* pending chord: what the keys typed (or clicked) so far can become */
+#chord-popout { position: absolute; bottom: calc(100% + 8px); left: 50%;
+                transform: translateX(-50%); min-width: 200px; max-width: 80vw;
+                background: var(--panel); border: 1px solid var(--panel-border);
+                border-radius: 10px; padding: 6px; box-shadow: 0 2px 8px var(--shadow); }
+#chord-popout .chord-path { font-size: 11px; color: var(--text-muted); padding: 2px 6px 6px;
+                            font-family: ui-monospace, monospace; }
+#chord-popout .chord-items { display: flex; flex-direction: column; gap: 4px; }
+#chord-popout .action-pick, #chord-popout .action-delete { margin: 0; text-align: left;
+                                                           display: flex; justify-content: space-between;
+                                                           gap: 16px; white-space: nowrap; }
+.toolbar-layout { margin-left: 8px; border: none; background: none; color: var(--text-muted);
+                  font-size: 10.5px; cursor: pointer; padding: 3px 6px; border-radius: 6px; }
+.toolbar-layout:hover { color: var(--accent); background: var(--hover-plain); }
 .dir-group { display: flex; border: 1px solid var(--panel-border);
              border-radius: 999px; overflow: hidden; }
 .dir-btn { border: none; background: none; color: var(--text-muted);
@@ -340,6 +380,10 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
 /* keyboard chord shown inside a toolbar button */
 .key-hint { margin-left: 6px; font-family: ui-monospace, monospace; font-size: 9.5px;
             opacity: .55; letter-spacing: .04em; }
+/* f p n: which pair a number key follows */
+.pair-num { margin-right: 6px; font-family: ui-monospace, monospace; font-size: 10px;
+            padding: 0 4px; border: 1px solid var(--panel-border); border-radius: 4px;
+            opacity: .75; }
 
 #tooltip { position: fixed; z-index: 20; pointer-events: none; max-width: 320px;
            background: var(--panel); color: var(--text); border: 1px solid var(--panel-border);

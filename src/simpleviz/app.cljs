@@ -134,7 +134,8 @@
   (swap! state assoc :id-entry nil))
 
 (declare relayout! post-edit! delete! current-edit-target-editable? follow-ref! navigate! run-chord-action!
-         open-md! save-md! close-md! open-page! root-path! load-nav!)
+         open-md! save-md! close-md! open-page! root-path! load-nav!
+         save-if-dirty! save-before-leaving!)
 
 ;; layouts per collapsed-set, so expanding (or re-collapsing a seen
 ;; combination) is instant instead of a multi-second ELK run; demoted
@@ -1360,12 +1361,29 @@
         (js-await (open-page! path))
         (js-await (tick))))))
 
+(defn- ^:async save-before-leaving!
+  "Showing root-relative `target` (nil = the root) closes the open doc
+  when it is the md page, or when an md page replaces the docked panel:
+  save its unsaved text first. True when nothing unsaved is lost."
+  [target]
+  (let [md (:md @state)
+        ;; a session opened on ?file=… has not asked for the root yet
+        target (or target (js-await (root-path!)))]
+    (if (and (some? md) (or (:page md) (= "md" (editor/doc-kind target))))
+      (js-await (save-if-dirty!))
+      true)))
+
 (defn- ^:async navigate!
-  "Show another graph of the served folder: push its query string
-  onto the browser history (so back returns here) and load it."
+  "Show another file of the served folder: push its query string onto
+  the browser history (so back returns here) and load it. A doc that
+  would close with unsaved text is saved first; when that fails nothing
+  moves and the doc panel shows why. Resolves true when it navigated."
   [query]
-  (js/history.pushState nil "" (str js/location.pathname query))
-  (js-await (load-nav!)))
+  (if (js-await (save-before-leaving! (:file (editor/parse-nav query))))
+    (do (js/history.pushState nil "" (str js/location.pathname query))
+        (js-await (load-nav!))
+        true)
+    false))
 
 (defn- ^:async follow-ref!
   "Follow the selection's ref: resolve it against the file shown and
@@ -1391,7 +1409,7 @@
       (do
         (swap! state assoc :following true)
         (try
-          (when (current-edit-target-editable? st)
+          (when (and (current-edit-target-editable? st) (= "graph" (editor/doc-kind target)))
             (try
               (js-await (js/fetch "/api/create"
                                   {:method "POST"
@@ -1427,7 +1445,16 @@
                                                 (str (if (= (:kind p) "box") "b:" "n:") (:id p)))))
         (finally (swap! state assoc :following false))))))
 
-(js/window.addEventListener "popstate" (fn [_] (load-nav!)))
+(defn- ^:async on-popstate!
+  "Back or forward moved the URL already: save a doc that would close
+  with unsaved text; when that fails, put back the URL of what is shown
+  and stay — the doc panel shows why."
+  []
+  (if (js-await (save-before-leaving! (:file (editor/parse-nav js/location.search))))
+    (js-await (load-nav!))
+    (js/history.pushState nil "" (str js/location.pathname @shown-query))))
+
+(js/window.addEventListener "popstate" (fn [_] (on-popstate!)))
 
 ;; ---- the doc panel (:md-ref) ----
 

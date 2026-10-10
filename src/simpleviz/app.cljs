@@ -1027,19 +1027,17 @@
      [:div {:class "em-note"} "Both embed the source EDN."]]))
 
 (defn- gutter-view [st]
-  (let [md (:md st)
-        {:keys [marks height]} (:md-marks st)
+  (let [{:keys [marks height]} (:md-marks st)
         menu (:link-menu st)]
     [:div {:id "md-gutter"}
      (into [:div {:class "md-gutter-inner" :style {:height (str (or height 0) "px")}}]
            (map (fn [m]
                   (let [ls (:links m)
-                        one (= 1 (count ls))
-                        bad (and one (some? (:error (editor/link-target (:path md) (:dest (first ls))))))]
-                    [:button {:class (str "md-mark" (when bad " bad")) :type "button"
+                        one (= 1 (count ls))]
+                    [:button {:class (str "md-mark" (when (:bad m) " bad")) :type "button"
                               :key (str "m" (:line m))
                               :style {:top (str (:top m) "px")}
-                              :title (if one (editor/link-title (:path md) (first ls)) (str (count ls) " links"))
+                              :title (:title m)
                               :on-click (fn [e]
                                           (.stopPropagation e)
                                           (if one
@@ -1674,7 +1672,8 @@
 (defn- measure-gutter!
   "Place the » markers: each logical line of the text is a block in the
   mirror, styled and sized like the textarea, and a marker sits at its
-  line's block top."
+  line's block top. Each mark also carries its tooltip and whether its
+  one link leaves the served folder, so rendering doesn't resolve links."
   []
   (reset! measure-queued false)
   (let [ta (js/document.getElementById "md-text")
@@ -1700,7 +1699,13 @@
               n (.-length kids)
               marks (vec (keep (fn [m]
                                  (when (<= (:line m) n)
-                                   (assoc m :top (.-offsetTop (aget kids (dec (:line m)))))))
+                                   (let [ls (:links m)
+                                         one (= 1 (count ls))]
+                                     (assoc m
+                                            :top (.-offsetTop (aget kids (dec (:line m))))
+                                            :bad (and one (some? (:error (editor/link-target (:path md) (:dest (first ls))))))
+                                            :title (if one (editor/link-title (:path md) (first ls))
+                                                       (str (count ls) " links"))))))
                                (editor/line-markers (:links @md-links))))
               height (max (.-scrollHeight mirror) (.-scrollHeight ta))]
           (swap! state assoc :md-marks {:marks marks :height height})
@@ -1733,7 +1738,8 @@
       (cond
         (not= (:path o) (:path n)) (do (when (nil? n) (swap! state assoc :md-marks nil :link-menu nil))
                                        (reparse-links! true))
-        (not= (:text o) (:text n)) (do (reparse-links! false) (queue-measure!))
+        ;; typing: measure once, after the debounced scan, against fresh links
+        (not= (:text o) (:text n)) (reparse-links! false)
         (or (not= (:page o) (:page n)) (not= (:full o) (:full n))) (queue-measure!)))))
 
 (defn- ^:async follow-link!

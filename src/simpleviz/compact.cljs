@@ -10,27 +10,16 @@
   (:require [simpleviz.grid :as grid]))
 
 (defn- top-boxes
-  "Names of the top-level boxes, in the graph's order."
+  "Elk ids of the top-level boxes, in the graph's order."
   [graph]
   (let [po (:parent-of graph)]
-    (vec (keep (fn [b] (when (nil? (get po (str "b:" (:name b)))) (:name b))) (:boxes graph)))))
-
-(defn- node-cells
-  "{\"n:id\" cell} of the gridded top-level nodes."
-  [graph]
-  (let [out {}]
-    (doseq [[id c] (js/Object.entries (grid/grid-cells graph))]
-      (when (.startsWith id "n:") (assoc! out id c)))
-    out))
+    (vec (keep (fn [b] (let [id (str "b:" (:name b))] (when (nil? (get po id)) id))) (:boxes graph)))))
 
 (defn- box-weights
-  "{box {other n}}: how many edges join a top-level box to another, or
-  to a gridded node (keyed by its elk id, \"n:id\")."
-  [graph]
+  "{id {other-id n}}: how many edges join two of `ids` (elk ids of
+  top-level elements)."
+  [graph ids]
   (let [po (:parent-of graph)
-        pinned (node-cells graph)
-        key-of (fn [t] (cond (.startsWith t "b:") (.slice t 2)
-                             (some? (get pinned t)) t))
         out {}
         bump! (fn [a b] (let [m (or (get out a) (let [m {}] (assoc! out a m) m))]
                           (assoc! m b (inc (or (get m b) 0)))))]
@@ -38,10 +27,9 @@
       (let [[s t] (grid/edge-ends e)
             ts (grid/top-of po s)
             tt (grid/top-of po t)]
-        (when (and (not= ts tt) (some? (key-of ts)) (some? (key-of tt))
-                   (or (.startsWith ts "b:") (.startsWith tt "b:")))
-          (bump! (key-of ts) (key-of tt))
-          (bump! (key-of tt) (key-of ts)))))
+        (when (and (not= ts tt) (.has ids ts) (.has ids tt))
+          (bump! ts tt)
+          (bump! tt ts))))
     out))
 
 (defn auto-cells
@@ -54,21 +42,18 @@
   each the free cell closest (by edges × distance) to the boxes it is
   joined to, else the first free one in reading order."
   [graph & [ncols]]
-  (let [names (top-boxes graph)
-        by-name (into {} (map (fn [b] [(:name b) b])) (:boxes graph))
-        pinned (node-cells graph)
-        ;; fixed cells by key: boxes by name, nodes by elk id
-        fixed (into (into {} (keep (fn [n] (when-let [g (:grid (get by-name n))] [n g]))) names)
-                    (js/Object.entries pinned))
-        auto (filterv (fn [n] (nil? (:grid (get by-name n)))) names)
+  (let [ids (top-boxes graph)
+        ;; keys are elk ids throughout: gridded boxes and nodes are fixed
+        fixed (grid/grid-cells graph)
+        auto (filterv (fn [id] (nil? (get fixed id))) ids)
         taken (js/Set.)
         _ (doseq [{:keys [col row w h]} (js/Object.values fixed)]
             (doseq [c (range col (+ col w)) r (range row (+ row h))] (.add taken (str c "," r))))
-        ncols (max (or ncols (js/Math.ceil (js/Math.sqrt (count names))))
+        ncols (max (or ncols (js/Math.ceil (js/Math.sqrt (count ids))))
                    (reduce max 1 (map (fn [g] (+ (:col g) (:w g))) (js/Object.values fixed))))
         ;; as few rows as hold every box; one more only when they're full
         nrows (atom (js/Math.ceil (/ (+ (count auto) (.-size taken)) ncols)))
-        weights (box-weights graph)
+        weights (box-weights graph (js/Set. (into ids (js/Object.keys fixed))))
         degree (fn [n] (reduce + 0 (js/Object.values (or (get weights n) {}))))
         at {}
         _ (doseq [[k g] (js/Object.entries fixed)] (assoc! at k {:col (:col g) :row (:row g)}))
@@ -104,7 +89,7 @@
           (.add placed n)
           (.add taken (str (:col best) "," (:row best)))
           (assoc! at n best)
-          (assoc! out n (assoc best :w 1 :h 1))
+          (assoc! out (.slice n 2) (assoc best :w 1 :h 1))
           (recur))))
     out))
 
@@ -121,10 +106,8 @@
   1.6)
 
 (defn- columns-used [graph cells]
-  (reduce max 1 (into (mapv (fn [b] (let [g (or (get cells (:name b)) (:grid b))]
-                                      (if (some? g) (+ (:col g) (:w g)) 0)))
-                            (:boxes graph))
-                      (map (fn [g] (+ (:col g) (:w g))) (js/Object.values (node-cells graph))))))
+  (reduce max 1 (map (fn [g] (+ (:col g) (:w g)))
+                     (into (vec (js/Object.values cells)) (js/Object.values (grid/grid-cells graph))))))
 
 (defn estimate
   "[width height] of the grid with `ncols` columns, given each top-level
@@ -134,7 +117,8 @@
   cell."
   [graph sizes ncols]
   (let [cells (merge (auto-cells graph ncols)
-                     (into {} (keep (fn [b] (when (some? (:grid b)) [(:name b) (:grid b)]))) (:boxes graph)))
+                     (into {} (keep (fn [[id c]] (when (.startsWith id "b:") [(.slice id 2) c])))
+                           (js/Object.entries (grid/grid-cells graph))))
         cw {} rh {}]
     (doseq [[n c] (js/Object.entries cells)]
       (when-let [sz (get sizes n)]
@@ -150,7 +134,8 @@
   (let [n (max 1 (count (top-boxes graph)))
         off (fn [k] (let [[w h] (estimate graph sizes k)]
                       (js/Math.abs (- (js/Math.log (/ (max 1 w) (max 1 h))) (js/Math.log ASPECT)))))]
-    (reduce (fn [best k] (if (< (off k) (off best)) k best)) 1 (range 2 (inc n)))))
+    (first (reduce (fn [[bk bo] k] (let [o (off k)] (if (< o bo) [k o] [bk bo])))
+                   [1 (off 1)] (range 2 (inc n))))))
 
 (defn ^:async layout-compact
   "The compact layout of `graph` (collapse applied) as an ELK-shaped

@@ -43,25 +43,22 @@
   them, a node before a box of the same name: the server already drops
   overlaps, but a comparison's union can bring two onto one cell."
   [graph]
-  (let [po (:parent-of graph)
+  (let [boxes {}
+        _ (doseq [b (:boxes graph)] (assoc! boxes (:name b) b))
+        grid-of (fn [id] (:grid (if (.startsWith id "n:")
+                                  (get (:nodes graph) (.slice id 2))
+                                  (get boxes (.slice id 2)))))
         taken (js/Set.)
-        out {}
-        elems (into (vec (keep (fn [nd] (when (some? (:grid nd))
-                                          {:id (str "n:" (:id nd)) :name (:id nd) :rank 0 :grid (:grid nd)}))
-                               (js/Object.values (:nodes graph))))
-                    (keep (fn [b] (when (some? (:grid b))
-                                    {:id (str "b:" (:name b)) :name (:name b) :rank 1 :grid (:grid b)})))
-                    (:boxes graph))]
-    (doseq [el (sort (fn [a b] (cond (< (:name a) (:name b)) -1
-                                     (> (:name a) (:name b)) 1
-                                     :else (- (:rank a) (:rank b))))
-                     (filterv (fn [el] (nil? (get po (:id el)))) elems))]
-      (let [{:keys [col row w h]} (:grid el)
+        out {}]
+    ;; top-items lists nodes before boxes and the sort is stable, so a
+    ;; node comes before a box of the same name
+    (doseq [id (sort-by (fn [id] (.slice id 2)) (filterv grid-of (top-items graph)))]
+      (let [{:keys [col row w h] :as cell} (grid-of id)
             ks (vec (mapcat (fn [c] (mapv (fn [r] (str c "," r)) (range row (+ row h))))
                             (range col (+ col w))))]
         (when-not (some (fn [k] (.has taken k)) ks)
           (doseq [k ks] (.add taken k))
-          (assoc! out (:id el) (:grid el)))))
+          (assoc! out id cell))))
     out))
 
 (defn grid-mode?

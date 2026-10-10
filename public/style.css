@@ -340,6 +340,10 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
 /* keyboard chord shown inside a toolbar button */
 .key-hint { margin-left: 6px; font-family: ui-monospace, monospace; font-size: 9.5px;
             opacity: .55; letter-spacing: .04em; }
+/* f p n: which pair a number key follows */
+.pair-num { margin-right: 6px; font-family: ui-monospace, monospace; font-size: 10px;
+            padding: 0 4px; border: 1px solid var(--panel-border); border-radius: 4px;
+            opacity: .75; }
 
 #tooltip { position: fixed; z-index: 20; pointer-events: none; max-width: 320px;
            background: var(--panel); color: var(--text); border: 1px solid var(--panel-border);

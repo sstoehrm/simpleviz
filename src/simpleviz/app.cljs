@@ -90,13 +90,16 @@
 (defn- cancel-pick! []
   (swap! state assoc :pick nil :pick-hint nil))
 
-(defn- start-id-entry! [for-kind]
-  (swap! state assoc :id-entry {:for for-kind :text ""}))
+(defn- start-id-entry!
+  "Open the name prompt for creating a `for-kind`; `extra` carries what
+  creation-ops needs beyond the name (:parent, :direction)."
+  [for-kind extra]
+  (swap! state assoc :id-entry (merge {:for for-kind :text ""} extra)))
 
 (defn- cancel-id-entry! []
   (swap! state assoc :id-entry nil))
 
-(declare relayout! post-edit! delete! current-edit-target-editable? follow-ref! navigate!
+(declare relayout! post-edit! delete! current-edit-target-editable? follow-ref! navigate! run-chord-action!
          open-md! save-md! close-md!)
 
 ;; layouts per collapsed-set, so expanding (or re-collapsing a seen
@@ -368,12 +371,18 @@
   target): a pick mode to start, or a name prompt to open. One table for
   the buttons and the chords, so both always agree."
   [sel tgt action]
-  (let [id (:id tgt)]
+  (let [id (:id tgt)
+        pof (:parent-of (:graph @state))
+        here (when (some? sel) (get pof (:elk-id sel)))]
     (if (vector? action)
-      (let [[_ end] action]
-        {:label (str "change " end)
-         :pick {:mode "retarget" :edge id :end (editor/retarget-end sel end)}
-         :hint (str "click the new " end " node or box")})
+      (case (first action)
+        "retarget" (let [end (second action)]
+                     {:label (str "change " end)
+                      :pick {:mode "retarget" :edge id :end (editor/retarget-end sel end)}
+                      :hint (str "click the new " end " node or box")})
+        "follow-pair" (when-let [p (get (working-pairs sel) (second action))]
+                        {:label "follow pair" :go-pair p})
+        nil)
       (case action
         "add-edge" {:label "add edge" :pick {:mode "connect" :from id}
                     :hint "click the target node or box"}
@@ -388,7 +397,15 @@
         "new-node" {:label "new node" :id-entry "node"}
         "new-connected-node" {:label "new node" :id-entry "connect"}
         "new-node-in-box" {:label "new node" :id-entry "inbox"}
-        "new-box" {:label "new box" :id-entry "newbox"}
+        "new-box" {:label "wrap in box" :id-entry "newbox"}
+        "new-free-box" {:label "new box" :id-entry "box"}
+        "new-box-in-box" {:label "new box inside" :id-entry "box-inbox"}
+        "new-sibling" {:label "new sibling node" :id-entry "sibling" :parent (or here nil)}
+        "new-connected-here" {:label "new connected node, same box" :id-entry "connect-here" :parent (or here nil)}
+        "new-incoming" {:label "new incoming node" :id-entry "incoming" :parent (or here nil)}
+        "split-edge" {:label "split edge" :id-entry "split"
+                      :parent (editor/split-parent pof id)
+                      :direction (or (:direction (:attrs sel)) nil)}
         ;; only for a node inside a box: nil hides the button and the chord
         "remove-from-box" (when-let [parent (get (:parent-of (:graph @state)) (:elk-id sel))]
                             {:label "remove from box" :post (editor/box-remove-op parent id)})
@@ -408,6 +425,14 @@
                     {:label "open md" :md true})
         nil))))
 
+(defn- available?
+  "Whether `action` does something for selection sel right now — what
+  the toolbar and the pop-out offer, and what a chord may run."
+  [sel tgt action]
+  (or (= action "delete") (= action "rename")
+      (and (vector? action) (= "direction" (first action)))
+      (some? (action-spec sel tgt action))))
+
 ;; the action-bar buttons per selection kind, in display order
 (def ^:private toolbar-actions
   {"edge" [["retarget" "source"] ["retarget" "target"] "follow-ref"]
@@ -419,10 +444,10 @@
 (defn- start-action!
   "Do what the toolbar button for `action` does."
   [sel tgt action]
-  (let [{:keys [pick hint id-entry post go go-pair md]} (action-spec sel tgt action)]
+  (let [{:keys [pick hint id-entry post go go-pair md] :as spec} (action-spec sel tgt action)]
     (cond
       (some? pick) (start-pick! pick hint)
-      (some? id-entry) (start-id-entry! id-entry)
+      (some? id-entry) (start-id-entry! id-entry (select-keys spec [:parent :direction]))
       (some? post) (post-edit! post)
       (some? md) (open-md! sel)
       (some? go) (follow-ref! go)
@@ -453,7 +478,7 @@
   [:div {:class "id-entry"}
    [:input {:class "id-entry-input" :type "text" :value (:text entry)
             :placeholder (case (:for entry)
-                           "newbox" "new box name, or name::type"
+                           ("newbox" "box" "box-inbox") "new box name, or name::type"
                            "edge" "new edge name, or name::type (optional)"
                            "new node name, or name::type")
             :on-render (fn [{:keys [node lifecycle]}]
@@ -483,10 +508,13 @@
   "The selection's pairs: → for those it declares, ← for those pointing
   at it; a broken one dimmed with its problem. Clicking a row follows it."
   [sel]
-  (let [ps (or (:pairs sel) [])]
+  (let [ps (or (:pairs sel) [])
+        numbered (> (count (working-pairs sel)) 1)
+        num-of (fn [i] (inc (count (filter (fn [q] (nil? (:problem q))) (take i ps)))))]
     (when (pos? (.-length ps))
       (into [:div {:class "details-pairs"} [:div {:class "details-pairs-header"} "pairs"]]
-            (mapv (fn [p]
+            (vec (map-indexed
+                  (fn [i p]
                     (let [in? (= (:dir p) "in")
                           label (str (if in? "← " "→ ") (:file p) "#" (:id p)
                                      (if in? " (points here)" ""))]
@@ -495,8 +523,10 @@
                          label [:div {:class "pair-problem"} (:problem p)]]
                         [:button {:class "pair-row" :type "button"
                                   :on-click (fn [e] (.stopPropagation e) (follow-pair! p))}
+                         (when (and numbered (<= (num-of i) 9))
+                           [:kbd {:class "pair-num" :title (str "f p " (num-of i))} (str (num-of i))])
                          label])))
-                  ps)))))
+                  ps))))))
 
 (defn- details-view [st]
   (let [sel (:selected st)
@@ -1659,9 +1689,6 @@
 
       (= action "delete") (delete! tgt)
       (= action "rename") (start-editing! ID-FIELD (:id tgt))
-      (and (= action "follow-pair") (> (count (working-pairs sel)) 1))
-      (flash! "several pairs — pick one in the inspector")
-
       :else (start-action! sel tgt action))))
 
 (defn- handle-chord-key!

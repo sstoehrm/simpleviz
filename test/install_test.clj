@@ -111,3 +111,74 @@
       (is (= "v0.0.1\n" (slurp (str (fs/path home "VERSION")))))
       (is (not (fs/exists? (fs/path tmp "bin"))) "install_files leaves the launcher alone")
       (finally (fs/delete-tree tmp)))))
+
+(deftest install-keeps-the-users-templates
+  ;; reinstalls replace the install dir; templates are the user's (and
+  ;; their tools') — added ones and edits to a shipped one survive
+  (let [tmp (fs/create-temp-dir {:prefix "simpleviz-install"})
+        home (fs/path tmp "home")
+        tpl #(str (fs/path home "templates" %))]
+    (try
+      (fs/create-dirs (fs/path home "templates"))
+      (spit (tpl "default.edn") ";; edited\n")
+      (spit (tpl "mine.edn") ";; mine\n")
+      (spit (str (fs/path home "stale.txt")) "old")
+      (let [res (install-files tmp (tarball! tmp {"server/cli.clj" "(ns cli)\n"
+                                                  "templates/default.edn" ";; shipped\n"
+                                                  "templates/new.edn" ";; new\n"}))]
+        (is (= 0 (:exit res)) (:err res)))
+      (is (= ";; edited\n" (slurp (tpl "default.edn"))))
+      (is (= ";; mine\n" (slurp (tpl "mine.edn"))))
+      (is (= ";; new\n" (slurp (tpl "new.edn"))))
+      (is (not (fs/exists? (fs/path home "stale.txt"))) "the rest is still replaced")
+      (finally (fs/delete-tree tmp)))))
+
+(deftest install-writes-through-a-symlinked-templates-folder
+  ;; e.g. templates kept in a dotfiles repo and linked in
+  (let [tmp (fs/create-temp-dir {:prefix "simpleviz-install"})
+        home (fs/path tmp "home")
+        dots (fs/path tmp "dots")]
+    (try
+      (fs/create-dirs home)
+      (fs/create-dirs dots)
+      (spit (str (fs/path dots "mine.edn")) ";; mine\n")
+      (fs/create-sym-link (fs/path home "templates") dots)
+      (fs/create-sym-link (fs/path dots "gone.edn") (fs/path tmp "nowhere.edn"))
+      (let [res (install-files tmp (tarball! tmp {"server/cli.clj" "(ns cli)\n"
+                                                  "templates/default.edn" ";; shipped\n"
+                                                  "templates/gone.edn" ";; shipped\n"}))]
+        (is (= 0 (:exit res)) (:err res)))
+      (is (fs/sym-link? (fs/path home "templates")) "the link stays a link")
+      (is (= ";; mine\n" (slurp (str (fs/path dots "mine.edn")))))
+      (is (= ";; shipped\n" (slurp (str (fs/path dots "default.edn")))))
+      (is (fs/sym-link? (fs/path dots "gone.edn")) "a dangling link is the user's too")
+      (is (fs/exists? (fs/path home "server" "cli.clj")))
+      (finally (fs/delete-tree tmp)))))
+
+(deftest install-refuses-a-templates-file-before-deleting-anything
+  (let [tmp (fs/create-temp-dir {:prefix "simpleviz-install"})
+        home (fs/path tmp "home")]
+    (try
+      (fs/create-dirs home)
+      (spit (str (fs/path home "VERSION")) "v0.0.0\n")
+      (spit (str (fs/path home "templates")) "not a folder")
+      (let [res (install-files tmp (tarball! tmp {"server/cli.clj" "(ns cli)\n"
+                                                  "templates/default.edn" ";; shipped\n"}))]
+        (is (= 1 (:exit res)))
+        (is (= (str "install: " home "/templates is not a directory — move it away and rerun")
+               (str/trim (:err res)))))
+      (is (= "v0.0.0\n" (slurp (str (fs/path home "VERSION")))) "the existing install is untouched")
+      (finally (fs/delete-tree tmp)))))
+
+(deftest install-cleans-a-symlinked-home
+  (let [tmp (fs/create-temp-dir {:prefix "simpleviz-install"})
+        real (fs/path tmp "real")]
+    (try
+      (fs/create-dirs real)
+      (spit (str (fs/path real "stale.txt")) "old")
+      (fs/create-sym-link (fs/path tmp "home") real)
+      (let [res (install-files tmp (tarball! tmp {"server/cli.clj" "(ns cli)\n"}))]
+        (is (= 0 (:exit res)) (:err res)))
+      (is (not (fs/exists? (fs/path real "stale.txt"))))
+      (is (fs/exists? (fs/path real "server" "cli.clj")))
+      (finally (fs/delete-tree tmp)))))

@@ -82,6 +82,9 @@ With the `simpleviz` command, installed by `install.sh` (files in `~/.simpleviz`
                                      # the referenced file's own comparison)
     simpleviz promote graph.edn next # move each fork over its original
     simpleviz init graph.edn         # write a starter graph file (refuses to overwrite)
+    simpleviz init graph.edn -t web  # ...from ~/.simpleviz/templates/web.edn (or
+                                     # $SIMPLEVIZ_HOME/templates); drop .edn files there
+                                     # to add templates — updates keep them
     simpleviz check graph.edn        # print what the warning/error banners would say
     simpleviz update                 # install the latest release if newer
     simpleviz --version              # print the installed version

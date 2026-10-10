@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # simpleviz installer — installs the latest GitHub release into
 # ~/.simpleviz (a directory this installer fully manages: reinstalls
-# replace it) and a launcher into ~/.local/bin/simpleviz.
+# replace it, all but templates/) and a launcher into
+# ~/.local/bin/simpleviz.
 #
 #   curl -fsSL https://raw.githubusercontent.com/sstoehrm/simpleviz/main/install.sh | bash
 #
@@ -69,8 +70,23 @@ install_files() {
   # from before it needs the installer it shipped with
   [ -f "$dir/server/cli.clj" ] \
     || die "release $TAG predates this installer — install it with its own: curl -fsSL https://raw.githubusercontent.com/$REPO/$TAG/install.sh | bash"
-  rm -rf "$SIMPLEVIZ_HOME"
-  mkdir -p "$SIMPLEVIZ_HOME"
+  # templates/ is the user's (and their tools'): keep it, edits to a
+  # shipped template included, and add only the templates it lacks.
+  # It may be a symlink (to a dotfiles repo, say): copy through it.
+  local templates="$SIMPLEVIZ_HOME/templates" f
+  [ ! -e "$templates" ] && [ ! -L "$templates" ] || [ -d "$templates" ] \
+    || die "$templates is not a directory — move it away and rerun"
+  mkdir -p "$templates"
+  find -H "$SIMPLEVIZ_HOME" -mindepth 1 -maxdepth 1 ! -name templates -exec rm -rf {} +
+  if [ -d "$dir/templates" ]; then
+    for f in "$dir"/templates/*; do
+      [ -e "$f" ] || continue
+      if [ ! -e "$templates/${f##*/}" ] && [ ! -L "$templates/${f##*/}" ]; then
+        cp "$f" "$templates"/
+      fi
+    done
+    rm -rf "$dir/templates"
+  fi
   cp -R "$dir"/. "$SIMPLEVIZ_HOME"/
   echo "$TAG" >"$SIMPLEVIZ_HOME/VERSION"
 }

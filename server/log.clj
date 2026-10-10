@@ -13,12 +13,16 @@
 
 (def dir-hint "~/.simpleviz/logs (or $SIMPLEVIZ_HOME/logs)")
 
-(defn default-dir
-  "Where logs go: the launcher's install dir when set, else ~/.simpleviz."
+(defn home
+  "The launcher's install dir when set, else ~/.simpleviz."
   []
-  (str (io/file (or (not-empty (System/getenv "SIMPLEVIZ_HOME"))
-                    (io/file (System/getProperty "user.home") ".simpleviz"))
-                "logs")))
+  (io/file (or (not-empty (System/getenv "SIMPLEVIZ_HOME"))
+               (io/file (System/getProperty "user.home") ".simpleviz"))))
+
+(defn default-dir
+  "Where logs go: logs/ in home."
+  []
+  (str (io/file (home) "logs")))
 
 (defn clear! []
   (clojure.core/reset! state {:dir nil :file nil :header nil}))

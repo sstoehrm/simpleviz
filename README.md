@@ -34,6 +34,7 @@ Without an installer, unpack a tarball from the
     simpleviz demo                             # copy the examples to a temp folder, serve them
     simpleviz my-arch.edn                      # serve a graph on a free port 7370-7469
     simpleviz init my-arch.edn                 # write a starter file
+    simpleviz init my-arch.edn -t pipeline     # ...from ~/.simpleviz/templates/pipeline.edn
     simpleviz fork my-arch.edn next            # copy to my-arch-next.edn, plus every file it refs
     simpleviz my-arch.edn next                 # compare my-arch.edn → my-arch-next.edn
     simpleviz promote my-arch.edn next         # make the forks the new originals
@@ -45,6 +46,12 @@ attributes, and use the toolbar at the bottom to add, connect, group and
 delete. ⇩ exports a PNG or an SVG, both with the source embedded; simpleviz
 serves either like an EDN file. Press `?` in
 the page for controls and shortcuts.
+
+`init` copies a template from `~/.simpleviz/templates` (or
+`$SIMPLEVIZ_HOME/templates`): `default.edn` without `-t`, `<name>.edn`
+with `-t <name>`. Add your own there, or edit `default.edn`; updates keep
+the folder as it is and only add templates it lacks, so delete a shipped
+one to get its newest version on the next `simpleviz update`.
 
 The [guide](https://github.com/sstoehrm/simpleviz/blob/main/docs/guide.md)
 covers comparing, editing, refs between graphs, exporting, checking files

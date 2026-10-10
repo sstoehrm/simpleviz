@@ -86,7 +86,7 @@
                                                             :task (apply fork/-main "promote" *command-line-args*)}})}]
                     (fs/delete-tree dir)
                     (fs/create-dirs dir)
-                    (doseq [p ["public" "server" "examples"]]
+                    (doseq [p ["public" "server" "examples" "templates"]]
                       (fs/copy-tree p (fs/path dir p)))
                     (doseq [f (fs/glob dir "public/js/simpleviz/*_test.mjs")]
                       (fs/delete f))
@@ -111,6 +111,7 @@
                     (doseq [f (fs/glob res "public/js/simpleviz/*_test.mjs")]
                       (fs/delete f))
                     (fs/copy-tree "examples" (fs/path res "examples"))
+                    (fs/copy-tree "templates" (fs/path res "templates"))
                     (spit (str (fs/path res "VERSION")) (str version "\n"))
                     (doseq [f ["LICENSE" "THIRD-PARTY-NOTICES.md"]]
                       (fs/copy f (fs/path res f)))
@@ -175,7 +176,8 @@
                                          "(apply simpleviz.main/-main *command-line-args*)\n"))
                          (with-open [z (java.util.zip.ZipFile. jar)]
                            (doseq [e ["LICENSE" "THIRD-PARTY-NOTICES.md" "VERSION"
-                                      "public/index.html" "examples/demo.edn" "cli.clj" "simpleviz/main.clj"]]
+                                      "public/index.html" "examples/demo.edn" "templates/default.edn"
+                                      "cli.clj" "simpleviz/main.clj"]]
                              (when-not (.getEntry z e) (fail "the jar lacks " e))))
                          (let [{:keys [out err]} (run "--version")]
                            (when-not (= version-line (str/trim out))

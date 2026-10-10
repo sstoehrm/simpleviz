@@ -37,8 +37,9 @@
     (is (pos? (count (:edges g))) (str source " example keeps its edges"))
     (is (pos? (count (:boxes g))) (str source " example keeps its boxes"))))
 
-(deftest init-template-is-functional
-  (assert-example-clean "cli init template" cli/init-template))
+(deftest shipped-templates-are-functional
+  (doseq [t cli/shipped-templates]
+    (assert-example-clean (str "template " t) (slurp (str "templates/" t ".edn")))))
 
 (deftest third-party-notices-cover-vendored-components
   (let [notices (slurp "THIRD-PARTY-NOTICES.md")
@@ -59,6 +60,13 @@
         "bundle task must copy THIRD-PARTY-NOTICES.md")
     (is (str/includes? bb "\"LICENSE\"")
         "bundle task must copy LICENSE")))
+
+(deftest bundle-and-jar-ship-the-templates
+  (let [bb (slurp "bb.edn")]
+    (is (str/includes? bb "[\"public\" \"server\" \"examples\" \"templates\"]")
+        "bundle task must copy templates/")
+    (is (str/includes? bb "(fs/copy-tree \"templates\" (fs/path res \"templates\"))")
+        "jar task must copy templates/")))
 
 (deftest readme-data-format-example-is-functional
   (assert-example-clean

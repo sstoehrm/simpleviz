@@ -503,70 +503,120 @@
 
 ;; ---- keyboard chords ----
 
-;; Two-key chords, in the order the hints list them. Each entry maps a
-;; selection kind ("node" "edge" "box", or "none" with nothing selected)
-;; to [action label]; the action is what app.cljs dispatches on, the
-;; label what the pending-chord hint shows.
+;; Chords of any length, in the order the toolbar and the pop-out list
+;; them (d d last, so Delete ends the row). Each entry maps a selection
+;; kind ("node" "edge" "box", or "none" with nothing selected) to
+;; [action label]; the action is what app.cljs dispatches on, the label
+;; what the buttons and the pop-out show.
 (def ^:private chord-table
-  [["d" "d" {"node" ["delete" "delete"] "edge" ["delete" "delete"] "box" ["delete" "delete"]}]
-   ["e" "1" {"edge" [["direction" "->"] "→"]}]
-   ["e" "2" {"edge" [["direction" "<-"] "←"]}]
-   ["e" "3" {"edge" [["direction" "<->"] "↔"]}]
-   ["e" "4" {"edge" [["direction" "-"] "—"]}]
-   ["c" "s" {"edge" [["retarget" "source"] "change source"]}]
-   ["c" "t" {"edge" [["retarget" "target"] "change target"]}]
-   ["a" "e" {"node" ["add-edge" "add edge"] "box" ["add-edge" "add edge"]}]
-   ["a" "b" {"node" ["add-to-box" "add to box"] "box" ["add-box-member" "add box"]}]
-   ["a" "n" {"box" ["add-node-member" "add node"]}]
-   ["n" "n" {"none" ["new-node" "new node"] "node" ["new-connected-node" "new node"]
-             "box" ["new-node-in-box" "new node"]}]
-   ;; after n n, so a box's "new node" button shows n n (chord-for takes the first)
-   ["c" "n" {"box" ["new-node-in-box" "new node"]}]
-   ["n" "b" {"node" ["new-box" "new box"] "box" ["new-box" "new box"]}]
-   ["r" "r" {"node" ["rename" "rename"] "box" ["rename" "rename"]}]
-   ["r" "n" {"box" ["remove-node-member" "remove node"]}]
-   ["r" "b" {"node" ["remove-from-box" "remove from box"]}]
-   ["f" "r" {"node" ["follow-ref" "follow ref"] "edge" ["follow-ref" "follow ref"] "box" ["follow-ref" "follow ref"]}]
-   ["f" "p" {"node" ["follow-pair" "follow pair"] "box" ["follow-pair" "follow pair"]}]
-   ["f" "m" {"node" ["open-md" "open md"] "box" ["open-md" "open md"]}]])
+  [[["e" "1"] {"edge" [["direction" "->"] "→"]}]
+   [["e" "2"] {"edge" [["direction" "<-"] "←"]}]
+   [["e" "3"] {"edge" [["direction" "<->"] "↔"]}]
+   [["e" "4"] {"edge" [["direction" "-"] "—"]}]
+   [["c" "s"] {"edge" [["retarget" "source"] "change source"]}]
+   [["c" "t"] {"edge" [["retarget" "target"] "change target"]}]
+   [["a" "e"] {"node" ["add-edge" "add edge"] "box" ["add-edge" "add edge"]}]
+   [["a" "b"] {"node" ["add-to-box" "add to box"] "box" ["add-box-member" "add box"]}]
+   [["a" "n"] {"box" ["add-node-member" "add node"]}]
+   [["n" "n" "n"] {"none" ["new-node" "new node"] "node" ["new-connected-node" "new connected node"]
+                   "box" ["new-node-in-box" "new node inside"]}]
+   [["n" "n" "b"] {"none" ["new-free-box" "new box"] "box" ["new-box-in-box" "new box inside"]}]
+   [["n" "n" "s"] {"node" ["new-sibling" "new sibling node"] "box" ["new-sibling" "new sibling node"]}]
+   [["n" "n" "c"] {"node" ["new-connected-here" "new connected node, same box"]
+                   "box" ["new-connected-here" "new connected node, same box"]}]
+   [["n" "n" "i"] {"node" ["new-incoming" "new incoming node"] "box" ["new-incoming" "new incoming node"]}]
+   [["n" "n" "e"] {"edge" ["split-edge" "split edge"]}]
+   [["n" "b"] {"node" ["new-box" "wrap in box"] "box" ["new-box" "wrap in box"]}]
+   [["r" "r"] {"node" ["rename" "rename"] "box" ["rename" "rename"]}]
+   [["r" "n"] {"box" ["remove-node-member" "remove node"]}]
+   [["r" "b"] {"node" ["remove-from-box" "remove from box"]}]
+   [["f" "r"] {"node" ["follow-ref" "follow ref"] "edge" ["follow-ref" "follow ref"] "box" ["follow-ref" "follow ref"]}]
+   [["f" "p"] {"node" ["follow-pair" "follow pair"] "box" ["follow-pair" "follow pair"]}]
+   [["f" "m"] {"node" ["open-md" "open md"] "box" ["open-md" "open md"]}]
+   [["d" "d"] {"node" ["delete" "delete"] "edge" ["delete" "delete"] "box" ["delete" "delete"]}]])
+
+;; what a group button and a group item in the pop-out are called, by
+;; their keys joined with spaces
+(def ^:private chord-groups
+  {"n" "new" "n n" "new element" "a" "add" "r" "rename / remove"
+   "c" "change" "e" "direction" "f" "follow" "f p" "follow pair" "d" "delete"})
 
 (defn- kind-key [kind] (if (nil? kind) "none" kind))
 
-(defn chord-group?
-  "True when k opens a chord (is the first key of one)."
-  [k]
-  (some? (some (fn [[g _ _]] (when (= g k) true)) chord-table)))
+(defn- entries
+  "The chords open to a selection of `kind` whose working pairs are
+  `pairs`, as [keys action label] in table order. With several pairs
+  f p turns into a group: f p 1 … f p 9 follow pair n (action
+  [\"follow-pair\" index], label file#id); later pairs are followed
+  from the inspector."
+  [kind pairs]
+  (let [n-pairs (count (or pairs []))]
+    (vec (mapcat (fn [[ks kinds]]
+                   (when-let [[action label] (get kinds (kind-key kind))]
+                     (if (and (= action "follow-pair") (> n-pairs 1))
+                       (map-indexed (fn [i p] [(conj ks (str (inc i))) ["follow-pair" i] (str (:file p) "#" (:id p))])
+                                    (take 9 pairs))
+                       [[ks action label]])))
+                 chord-table))))
+
+(defn- under?
+  "True when chord keys `ks` are longer than `path` and start with it."
+  [ks path]
+  (and (> (count ks) (count path)) (= path (vec (.slice ks 0 (count path))))))
 
 (defn chord-action
-  "The action for chord `k1 k2` with a selection of `kind` (nil
-  for none), or nil when the chord does not exist or does not apply."
-  [kind k1 k2]
-  (some (fn [[g k kinds]]
-          (when (and (= g k1) (= k k2))
-            (first (get kinds (kind-key kind)))))
-        chord-table))
+  "The action for chord `path` (keys, [\"n\" \"n\" \"b\"]) with a
+  selection of `kind` (nil for none) whose working pairs are `pairs`;
+  nil when no chord is exactly `path`."
+  [kind path pairs]
+  (some (fn [[ks action _]] (when (= ks path) action)) (entries kind pairs)))
+
+(defn chord-prefix?
+  "True when `path` is the start of a longer chord for this selection —
+  a group to keep typing (or clicking) in."
+  [kind path pairs]
+  (some? (some (fn [[ks _ _]] (when (under? ks path) true)) (entries kind pairs))))
 
 (defn chord-for
-  "The chord (\"d d\") that triggers `action` for `kind`, for the
-  toolbar's key hints; nil when none does."
+  "The chord (\"n n b\") that triggers `action` for `kind`, for the
+  button hints; nil when none does."
   [kind action]
-  (some (fn [[g k kinds]]
-          (when (= action (first (get kinds (kind-key kind)))) (str g " " k)))
+  (some (fn [[ks kinds]]
+          (when (= action (first (get kinds (kind-key kind)))) (.join ks " ")))
         chord-table))
 
-(defn chord-hint
-  "What the pending group `g` can complete to for `kind`, e.g.
-  \"c … s change source · t change target\"."
-  [kind g]
-  (let [opts (keep (fn [[g' k kinds]]
-                     (when (= g' g)
-                       (when-let [[_ label] (get kinds (kind-key kind))]
-                         (str k " " label))))
-                   chord-table)]
-    (str g " … "
-         (if (seq opts)
-           (.join (vec opts) " · ")
-           (if (nil? kind) "nothing without a selection" (str "nothing for a" (if (= kind "edge") "n " " ") kind))))))
+(defn chord-menu
+  "The items after the pending keys `path` for a selection of `kind`
+  with working `pairs`, keeping only actions `available?` accepts:
+  {:keys keys-still-to-type :label .. :action ..} for a chord,
+  {:keys [k] :label .. :group true} for a group. A group with a single
+  available chord under it shows as that chord; a menu whose only item
+  is a group shows that group's items instead, their keys prefixed."
+  [kind path available? pairs]
+  (let [n (count path)
+        leaves (filterv (fn [[ks action _]] (and (under? ks path) (available? action)))
+                        (entries kind pairs))
+        items (mapv (fn [k]
+                      (let [here (filterv (fn [[ks _ _]] (= k (nth ks n))) leaves)]
+                        (if (= 1 (count here))
+                          (let [[ks action label] (first here)]
+                            {:keys (vec (.slice ks n)) :label label :action action})
+                          {:keys [k] :label (get chord-groups (.join (conj path k) " ")) :group true})))
+                    (distinct (map (fn [[ks _ _]] (nth ks n)) leaves)))]
+    (if (and (= 1 (count items)) (= true (:group (first items))))
+      (let [k (first (:keys (first items)))]
+        (mapv (fn [it] (assoc it :keys (into [k] (:keys it))))
+              (chord-menu kind (conj path k) available? pairs)))
+      items)))
+
+(defn chord-leaves
+  "Every available chord for a selection of `kind` with working
+  `pairs`, as items with their full keys, in table order — the flat
+  toolbar's buttons."
+  [kind available? pairs]
+  (vec (keep (fn [[ks action label]]
+               (when (available? action) {:keys ks :label label :action action}))
+             (entries kind pairs))))
 
 (defn load-readiness
   "Where the first load stands for a headless export: {:ready true} once a

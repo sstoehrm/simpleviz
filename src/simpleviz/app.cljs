@@ -844,7 +844,7 @@
     [:div {:id "pick-hint"} (:flash st)]
 
     (some? (:chord st))
-    [:div {:id "pick-hint"} (editor/chord-hint (:kind (:selected st)) (:chord st)) " — Esc cancels"]
+    [:div {:id "pick-hint"} (.join (:chord st) " ") " … — Esc cancels"]
     (some? (:pick st))
     [:div {:id "pick-hint"} (:pick-hint st) " — Esc cancels"]
     (= "edge" (:for (:id-entry st)))
@@ -1665,24 +1665,26 @@
       :else (start-action! sel tgt action))))
 
 (defn- handle-chord-key!
-  "Feed a plain key press into the two-key chords: the first key opens a
-  group (hint shown), the second runs the action for the selection —
-  or nothing, when it does not apply — and either way closes the group.
-  Bare modifier, arrow and other named keys are not second keys."
+  "Feed a plain key press into the chords: it extends the pending keys
+  (:chord) while they are the start of a longer chord for the
+  selection; a complete chord runs and closes; any other key closes.
+  Bare modifier, arrow and other named keys are not chord keys."
   [e]
   (let [k (.-key e)
-        st @state]
-    (cond
-      (some? (:chord st))
-      (when (= 1 (.-length k))
-        (.preventDefault e)
-        (swap! state assoc :chord nil)
-        (when-let [action (editor/chord-action (:kind (:selected st)) (:chord st) k)]
-          (run-chord-action! (:selected st) action)))
+        st @state
+        sel (:selected st)
+        pairs (working-pairs sel)
+        path (conj (or (:chord st) []) k)]
+    (when (and (= 1 (.-length k)) (nil? (:pick st)) (some? (:scene st)))
+      (cond
+        (editor/chord-prefix? (:kind sel) path pairs)
+        (do (.preventDefault e) (swap! state assoc :chord path))
 
-      (and (editor/chord-group? k) (nil? (:pick st)) (some? (:scene st)))
-      (do (.preventDefault e)
-          (swap! state assoc :chord k)))))
+        (some? (:chord st))
+        (do (.preventDefault e)
+            (swap! state assoc :chord nil)
+            (when-let [action (editor/chord-action (:kind sel) path pairs)]
+              (run-chord-action! sel action)))))))
 
 (js/window.addEventListener "keydown"
   (fn [e]

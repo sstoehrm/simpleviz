@@ -909,7 +909,8 @@
   [file]
   (try
     (if (md-path? file)
-      (do (doc-state (.getCanonicalFile (io/file file))) nil)
+      (when-not (:exists (doc-state (.getCanonicalFile (io/file file))))
+        (throw (ex-info (str "no such file: " file) {})))
       (let [{:keys [old new]} (sides nil)]
         (doseq [f (remove nil? [old new])] (read-source (.getPath f)))))
     (catch Exception e

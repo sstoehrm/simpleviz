@@ -1543,7 +1543,11 @@
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"over 1 MiB" (serve/startup-check! big)))
         (serve! bad)
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"not UTF-8" (serve/startup-check! bad)))
-        (is (:startup-check (try (serve/startup-check! bad) (catch clojure.lang.ExceptionInfo e (ex-data e)))))))))
+        (is (:startup-check (try (serve/startup-check! bad) (catch clojure.lang.ExceptionInfo e (ex-data e)))))
+        (let [missing (.getPath (java.io.File. dir "missing.md"))]
+          (serve! missing)
+          (is (thrown-with-msg? clojure.lang.ExceptionInfo #"no such file" (serve/startup-check! missing)))
+          (is (:startup-check (try (serve/startup-check! missing) (catch clojure.lang.ExceptionInfo e (ex-data e))))))))))
 
 (deftest api-root-names-the-root-file
   (with-temp-dir*

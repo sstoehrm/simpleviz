@@ -77,7 +77,7 @@ inspector's order:
 | --- | --- |
 | 0 | not offered |
 | 1 | follows it (as today) |
-| ≥ 2 | a group: `f p 1`…`f p 9` follow pair *n*; the pop-out labels each `file#id`; pairs past 9 appear in the pop-out without a key |
+| ≥ 2 | a group: `f p 1`…`f p 9` follow pair *n*; the pop-out labels each `file#id`; pairs past 9 are followed from the inspector only |
 
 The inspector's pair rows show the number of each working pair, so the
 key is visible there too. The "several pairs — pick one in the
@@ -92,8 +92,11 @@ and **grouped**. The choice is yours, saved in this browser
 (localStorage, like the theme and layout menus); default flat.
 
 - **Flat** — today's layout: one button per available action, each
-  showing its full chord (`new node n n n`, `sibling n n s`, …).
-  Edge direction stays an inline row.
+  showing its full chord (`new node n n n`, `new sibling node n n s`,
+  …), in chord-table order (`d d` is last, so Delete stays at the
+  end). Edge direction stays an inline row; `follow pair` shows only
+  with exactly one pair (several are followed by `f p n`, the pop-out
+  or the inspector). `rename r r` is new in this row.
 - **Grouped** — one button per first key with at least one available
   action. A group with exactly one available action shows that action
   directly (`Delete d d`; `rename r r` on a node outside any box).
@@ -103,16 +106,25 @@ and **grouped**. The choice is yours, saved in this browser
 
 Group labels: `n` new · `n n` new element · `a` add · `r`
 rename / remove · `c` change · `f` follow · `f p` follow pair. Order
-of buttons follows the chord table.
+of buttons follows the chord table. Action labels come from the chord
+table and are the same in both layouts and the pop-out; `n b` is now
+labelled "wrap in box" (it was "new box", which `n n b` now is).
+
+With nothing selected the grouped toolbar collapses the `n` chain
+(below) and shows `new node n n n` and `new box n n b` directly —
+the same two buttons as the flat layout.
 
 ### Pop-out
 
 - One state for keys and clicks: `:chord` holds the pending key path
-  (`[]` closed, `["n"]`, `["n" "n"]`). A key press or a click on a
+  (nil closed, `["n"]`, `["n" "n"]`). A key press or a click on a
   pop-out item appends to it; reaching an action runs it and clears
   the path; a key with no matching child clears it (as today).
 - The pop-out sits above the toolbar and lists the children of the
-  current path: actions as `<label> <key>`, subgroups as
+  current path — one panel whose content is replaced as the path
+  grows, not cascading submenus. A line on top shows the keys so far
+  (`n n … — Esc cancels`). Clicking an open group's toolbar button
+  again closes it. Items: actions as `<label> <key>`, subgroups as
   `<label> <key> ▸`. It appears in both layouts whenever the path is
   non-empty, replacing today's text hint (`n … n new node · …`).
 - A group whose only child is a subgroup is skipped: the pop-out lists
@@ -123,8 +135,8 @@ of buttons follows the chord table.
 - Availability uses `action-spec` (nil hides an action), so the
   pop-out never offers what would do nothing; empty groups are not
   shown.
-- Esc, a click on the canvas, a selection change or a navigation
-  closes it.
+- Esc, a press outside the toolbar and pop-out, a selection change or
+  a navigation closes it.
 
 ## Code
 
@@ -142,7 +154,11 @@ of buttons follows the chord table.
     pairs, which decide whether `f p` is an action (1) or a group
     (≥ 2, action `["follow-pair" n]`). `chord-action` and
     `chord-prefix?` take the same `pairs`.
-  - `chord-hint` goes (the pop-out replaces it).
+  - `chord-leaves [kind available? pairs]` → every available chord as
+    an item with its full keys — the flat toolbar.
+  - `parent-box [parent-of id]` and `split-parent [parent-of [a b]]`
+    → where "next to the selection" and a split place the new element.
+  - `chord-group?` and `chord-hint` go (the pop-out replaces them).
   - `creation-ops` gains `:for` kinds `"box"` (top-level empty box),
     `"box-inbox"`, `"sibling"`, `"connect-here"`, `"incoming"`,
     `"split"`; the entry carries the parent box (from `:parent-of`)

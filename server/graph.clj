@@ -398,37 +398,45 @@
         {:col col :row row :w w :h h}))))
 
 (defn- resolve-grids
-  "Each box with its :grid as {:col :row :w :h}, or nil: only top-level
-  boxes, well-formed values, and — where cells overlap — the box first
-  by sorted name keeps them. Everything else warns and is ignored."
-  [boxes parent-of warn!]
-  (let [raw (into {} (map (fn [b] [(:name b) (get-in b [:attrs :grid])])) boxes)
-        cells (into {}
-                    (keep (fn [b]
-                            (let [v (get raw (:name b))]
-                              (when (some? v)
-                                (cond
-                                  (some? (get parent-of (:id b)))
-                                  (do (warn! (str "box \"" (:name b) "\": :grid only applies to top-level boxes, ignored"))
-                                      nil)
-                                  (nil? (grid-cell v))
-                                  (do (warn! (str "box \"" (:name b) "\": :grid must be [col row] or [col row w h]"
-                                                  " (integers, col/row 0–99, w/h ≥ 1, within 100 columns/rows), ignored"))
-                                      nil)
-                                  :else [(:name b) (grid-cell v)])))))
-                    boxes)
+  "[nodes boxes] with each top-level node's and box's :grid as
+  {:col :row :w :h}, or nil: only top-level elements, well-formed
+  values, and — where cells overlap — the element first by sorted name
+  (a node before a box of the same name) keeps them. Everything else
+  warns and is ignored."
+  [nodes boxes parent-of warn!]
+  (let [elems (concat (map (fn [n] {:kind "node" :name (:id n) :pid (str "n:" (:id n))
+                                    :v (get-in n [:attrs :grid])})
+                           (vals nodes))
+                      (map (fn [b] {:kind "box" :name (:name b) :pid (:id b)
+                                    :v (get-in b [:attrs :grid])})
+                           boxes))
+        label (fn [el] (str (:kind el) " \"" (:name el) "\""))
+        cells (keep (fn [el]
+                      (let [v (:v el)]
+                        (when (some? v)
+                          (cond
+                            (some? (get parent-of (:pid el)))
+                            (do (warn! (str (label el) ": :grid only applies to top-level " (:kind el) (if (= "box" (:kind el)) "es" "s") ", ignored"))
+                                nil)
+                            (nil? (grid-cell v))
+                            (do (warn! (str (label el) ": :grid must be [col row] or [col row w h]"
+                                            " (integers, col/row 0–99, w/h ≥ 1, within 100 columns/rows), ignored"))
+                                nil)
+                            :else (assoc el :cell (grid-cell v))))))
+                    elems)
         kept (first
-              (reduce (fn [[kept taken] nm]
-                        (let [{:keys [col row w h]} (get cells nm)
+              (reduce (fn [[kept taken] el]
+                        (let [{:keys [col row w h]} (:cell el)
                               ks (for [c (range col (+ col w)) r (range row (+ row h))] [c r])]
                           (if-let [other (some taken ks)]
-                            (do (warn! (str "box \"" nm "\": :grid " (pr-str (get raw nm))
-                                            " overlaps box \"" other "\", ignored"))
+                            (do (warn! (str (label el) ": :grid " (pr-str (:v el))
+                                            " overlaps " (label other) ", ignored"))
                                 [kept taken])
-                            [(assoc kept nm (get cells nm)) (into taken (map (fn [k] [k nm])) ks)])))
+                            [(assoc kept (:pid el) (:cell el)) (into taken (map (fn [k] [k el])) ks)])))
                       [{} {}]
-                      (sort (keys cells))))]
-    (mapv (fn [b] (assoc b :grid (get kept (:name b)))) boxes)))
+                      (sort-by (juxt :name #(if (= "node" (:kind %)) 0 1)) cells)))]
+    [(update-vals nodes (fn [n] (if-let [c (get kept (str "n:" (:id n)))] (assoc n :grid c) n)))
+     (mapv (fn [b] (assoc b :grid (get kept (:id b)))) boxes)]))
 
 (def LAYOUTS
   "The layout algorithms a file's top-level :layout can pick."
@@ -470,7 +478,7 @@
         [boxes1 parents1] (resolve-membership boxes0 nodes warn!)
         [boxes parent-of] (break-cycles boxes1 parents1 warn!)
         edges (drop-containment-edges edges0 parent-of warn!)
-        boxes (resolve-grids boxes parent-of warn!)
+        [nodes boxes] (resolve-grids nodes boxes parent-of warn!)
         theme (resolve-theme (:theme raw) warn!)
         layout (resolve-layout (:layout raw) warn!)
         ;; the built-in's name when the file names one (the page's theme

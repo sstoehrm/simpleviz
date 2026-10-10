@@ -404,25 +404,27 @@
   (a node before a box of the same name) keeps them. Everything else
   warns and is ignored."
   [nodes boxes parent-of warn!]
-  (let [elems (concat (map (fn [n] {:kind "node" :name (:id n) :pid (str "n:" (:id n))
+  (let [node-pid (fn [n] (str "n:" (:id n)))
+        elems (concat (map (fn [n] {:kind "node" :kinds "nodes" :rank 0 :name (:id n) :pid (node-pid n)
                                     :v (get-in n [:attrs :grid])})
                            (vals nodes))
-                      (map (fn [b] {:kind "box" :name (:name b) :pid (:id b)
+                      (map (fn [b] {:kind "box" :kinds "boxes" :rank 1 :name (:name b) :pid (:id b)
                                     :v (get-in b [:attrs :grid])})
                            boxes))
         label (fn [el] (str (:kind el) " \"" (:name el) "\""))
         cells (keep (fn [el]
-                      (let [v (:v el)]
+                      (let [v (:v el)
+                            cell (grid-cell v)]
                         (when (some? v)
                           (cond
                             (some? (get parent-of (:pid el)))
-                            (do (warn! (str (label el) ": :grid only applies to top-level " (:kind el) (if (= "box" (:kind el)) "es" "s") ", ignored"))
+                            (do (warn! (str (label el) ": :grid only applies to top-level " (:kinds el) ", ignored"))
                                 nil)
-                            (nil? (grid-cell v))
+                            (nil? cell)
                             (do (warn! (str (label el) ": :grid must be [col row] or [col row w h]"
                                             " (integers, col/row 0–99, w/h ≥ 1, within 100 columns/rows), ignored"))
                                 nil)
-                            :else (assoc el :cell (grid-cell v))))))
+                            :else (assoc el :cell cell)))))
                     elems)
         kept (first
               (reduce (fn [[kept taken] el]
@@ -434,8 +436,8 @@
                                 [kept taken])
                             [(assoc kept (:pid el) (:cell el)) (into taken (map (fn [k] [k el])) ks)])))
                       [{} {}]
-                      (sort-by (juxt :name #(if (= "node" (:kind %)) 0 1)) cells)))]
-    [(update-vals nodes (fn [n] (if-let [c (get kept (str "n:" (:id n)))] (assoc n :grid c) n)))
+                      (sort-by (juxt :name :rank) cells)))]
+    [(update-vals nodes (fn [n] (if-let [c (get kept (node-pid n))] (assoc n :grid c) n)))
      (mapv (fn [b] (assoc b :grid (get kept (:id b)))) boxes)]))
 
 (def LAYOUTS

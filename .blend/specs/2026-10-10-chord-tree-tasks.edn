@@ -1,13 +1,13 @@
 ;; Chord tree plan: tasks (docs/superpowers/plans/2026-10-10-chord-tree.md)
-{:nodes {:t1 {:name "1. Creation ops for the new kinds" :state :new
+{:nodes {:t1 {:name "1. Creation ops for the new kinds" :state :done
               :text "box, box-inbox, sibling, connect-here, incoming, split\n+ parent-box, split-parent"}
-         :t2 {:name "2. Chord tree and key handler" :state :new
+         :t2 {:name "2. Chord tree and key handler" :state :done
               :text "chord-action/prefix?/for/menu/leaves; :chord = key path"}
-         :t3 {:name "3. New actions, availability, numbered pairs" :state :new
+         :t3 {:name "3. New actions, availability, numbered pairs" :state :done
               :text "action-spec, available?, f p n, inspector numbers"}
-         :t4 {:name "4. Pop-out and flat/grouped toolbar" :state :new
+         :t4 {:name "4. Pop-out and flat/grouped toolbar" :state :done
               :text "chord-popout, toolbar-items, layout toggle"}
-         :t5 {:name "5. Docs and help text" :state :new}}
+         :t5 {:name "5. Docs and help text" :state :done}}
  :edges {[:t1 :t3] {:direction :->}
          [:t2 :t3] {:direction :->}
          [:t3 :t4] {:direction :->}

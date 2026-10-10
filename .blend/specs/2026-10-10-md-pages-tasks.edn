@@ -1,0 +1,28 @@
+;; md pages — implementation tasks (plan:
+;; docs/superpowers/plans/2026-10-10-md-pages.md). Set :state per task as
+;; it moves: :in-progress, :done once its review is clean, :blocked + :reason.
+{:nodes {:t1 {:name "1. Shared link scanner" :state :new
+              :text "server/mdlinks.cljc + cases run by both suites"}
+         :t2 {:name "2. Server: md root, /api/root, /api/errors" :state :new}
+         :t3 {:name "3. check + CLI for md files" :state :new}
+         :t4 {:name "4. Page logic: kinds, link targets, markers" :state :new}
+         :t5 {:name "5. md page mode" :state :new}
+         :t6 {:name "6. Navigation: save before leaving, back/forward, :ref → md" :state :new}
+         :t7 {:name "7. » gutter" :state :new}
+         :t8 {:name "8. Docs, help, plugin skill" :state :new}}
+ :edges {[:t1 :t2] {:direction :->}
+         [:t2 :t3] {:direction :->}
+         [:t1 :t4] {:direction :->}
+         [:t2 :t5] {:direction :->}
+         [:t4 :t5] {:direction :->}
+         [:t5 :t6] {:direction :->}
+         [:t6 :t7] {:direction :->}
+         [:t3 :t8] {:direction :->}
+         [:t7 :t8] {:direction :->}}
+ :boxes {:shared {:name "shared (cljc)" :type "zone" :ref "2026-10-10-md-pages.edn"
+                  :components #{:t1}}
+         :cli-server {:name "CLI + server" :type "zone" :ref "2026-10-10-md-pages.edn"
+                      :components #{:t2 :t3}}
+         :page {:name "page (squint)" :type "zone" :ref "2026-10-10-md-pages.edn"
+                :components #{:t4 :t5 :t6 :t7}}
+         :docs {:name "docs" :type "zone" :components #{:t8}}}}

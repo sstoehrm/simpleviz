@@ -44,8 +44,8 @@ md files as compare roots, forking or exporting md files.
 
 Shared by the server (`check`) and the page (gutter): squint already
 compiles `server/` (as it does `themes.cljc`). Written as a character
-scanner without regexes and without reader conditionals, so it behaves
-the same on both platforms.
+scanner without regexes, so it behaves the same on both platforms; one
+reader conditional turns a decoded code point into a string.
 
 `(links text)` → a vector of `{:line n :label s :dest s :kind k}` in
 text order:
@@ -76,7 +76,8 @@ Recognized:
   the same character at least as long, or the end of the text) and code
   spans (backtick runs of equal length). Indented code blocks are
   scanned (telling them from list continuations needs a full parser).
-- Not links: autolinks (`<http://…>`), raw URLs, HTML tags.
+- Not links: autolinks (`<http://…>`), raw URLs, HTML tags, and any
+  link whose destination is empty (`[a]()`, `[a](<>)`).
 
 `(followable? dest)` — true when `dest` is non-empty, has no URL
 scheme (`[a-zA-Z][a-zA-Z0-9+.-]*:`), does not start with `/`, and ends
@@ -237,8 +238,9 @@ opens as an md page. `/api/create` is not called for `.md` targets.
   textarea's `scroll` event (no measuring). Measuring runs at most once
   per animation frame, after a text change, on a `ResizeObserver` hit
   on the textarea (window resize, dock ↔ page), and once on
-  `document.fonts.ready`. Links are re-parsed only when the text
-  changed.
+  `document.fonts.ready`. Links are re-parsed 150 ms after the text
+  stops changing (a 1 MiB doc takes about half a second to scan), and
+  once right away when a doc is opened or taken from disk.
 - The gutter is display only; the text never changes.
 
 ### Help

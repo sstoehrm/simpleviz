@@ -1,4 +1,5 @@
-(ns simpleviz.editor)
+(ns simpleviz.editor
+  (:require [mdlinks :as mdlinks]))
 
 ;; Pure op-payload builders — the DOM-facing code in app.cljs stays thin.
 
@@ -437,6 +438,40 @@
         (nil? p) {:error (str ":md-ref " (pr-str r) " leaves the served folder")}
         (not (.endsWith (.toLowerCase p) ".md")) {:error (str ":md-ref " (pr-str r) " is not an .md file")}
         :else {:path p}))))
+
+(defn doc-kind
+  "What the page shows for root-relative `path`: \"md\" for an .md file
+  (any case), else \"graph\"."
+  [path]
+  (if (and (some? path) (.endsWith (.toLowerCase path) ".md")) "md" "graph"))
+
+(defn link-target
+  "Where following markdown link destination `dest` in the md file at
+  `md-path` leads: {:path root-relative :kind \"md\"|\"graph\"}, or
+  {:error msg} when it climbs above the served folder."
+  [md-path dest]
+  (let [p (resolve-ref md-path dest)]
+    (if (nil? p)
+      {:error (str "link " (pr-str dest) " leaves the served folder")}
+      {:path p :kind (doc-kind p)})))
+
+(defn line-markers
+  "The » gutter's markers for `links` (mdlinks/links of the doc text):
+  one per line holding followable links, in line order."
+  [links]
+  (reduce (fn [acc l]
+            (let [n (count acc)]
+              (if (and (pos? n) (= (:line (nth acc (dec n))) (:line l)))
+                (assoc acc (dec n) (update (nth acc (dec n)) :links conj l))
+                (conj acc {:line (:line l) :links [l]}))))
+          []
+          (filterv (fn [l] (mdlinks/followable? (:dest l))) links)))
+
+(defn link-title
+  "A marker's tooltip for link l of the md file at `md-path`."
+  [md-path l]
+  (str (:label l) " → " (:dest l)
+       (when (some? (:error (link-target md-path (:dest l)))) " — leaves the served folder")))
 
 (defn from-disk
   "Doc text as a textarea holds it: \\r\\n line ends become \\n."

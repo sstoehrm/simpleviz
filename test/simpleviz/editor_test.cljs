@@ -12,7 +12,7 @@
                                       resolve-ref parse-nav nav-query follow-url crumb-url ref-of banner-visible?
                                       theme-menu layout-menu effective-layout top-box-of load-readiness export-readiness
                                       md-target from-disk to-disk md-dirty? adopt-doc gone-doc poll-outcome save-result
-                                      parent-box split-parent]]))
+                                      parent-box split-parent doc-kind link-target line-markers link-title]]))
 
 (test "target maps selection payloads to op targets"
   (fn []
@@ -680,3 +680,35 @@
     (assert/deepEqual (mapv :action (chord-leaves "edge" (fn [a] (not= a "follow-ref")) []))
                       [["direction" "->"] ["direction" "<-"] ["direction" "<->"] ["direction" "-"]
                        ["retarget" "source"] ["retarget" "target"] "split-edge" "delete"])))
+
+(test "doc-kind: .md in any case is an md page, everything else a graph"
+  (fn []
+    (assert/equal (doc-kind "notes.md") "md")
+    (assert/equal (doc-kind "a/B.MD") "md")
+    (assert/equal (doc-kind "g.edn") "graph")
+    (assert/equal (doc-kind "x.png") "graph")
+    (assert/equal (doc-kind nil) "graph")))
+
+(test "link-target resolves against the md file holding the link"
+  (fn []
+    (assert/deepEqual (link-target "docs/notes.md" "../pay.edn") {:path "pay.edn" :kind "graph"})
+    (assert/deepEqual (link-target "docs/notes.md" "sub/a.MD") {:path "docs/sub/a.MD" :kind "md"})
+    (assert/deepEqual (link-target "notes.md" "x.png") {:path "x.png" :kind "graph"})
+    (assert/deepEqual (link-target "notes.md" "../out.md")
+                      {:error "link \"../out.md\" leaves the served folder"})))
+
+(test "line-markers: one marker per line with followable links"
+  (fn []
+    (let [a {:line 1 :label "a" :dest "a.md" :kind "inline"}
+          b {:line 1 :label "b" :dest "b.edn" :kind "inline"}
+          web {:line 2 :label "w" :dest "http://x.md" :kind "inline"}
+          ref-use {:line 3 :label "u" :dest "c.svg" :kind "ref"}
+          ref-def {:line 5 :label "u" :dest "c.svg" :kind "def"}]
+      (assert/deepEqual (line-markers [a b web ref-use ref-def])
+                        [{:line 1 :links [a b]} {:line 3 :links [ref-use]} {:line 5 :links [ref-def]}])
+      (assert/deepEqual (line-markers []) []))))
+
+(test "link-title names label and target, and a refused one says why"
+  (fn []
+    (assert/equal (link-title "notes.md" {:label "the graph" :dest "pay.edn"}) "the graph → pay.edn")
+    (assert/equal (link-title "notes.md" {:label "x" :dest "../o.md"}) "x → ../o.md — leaves the served folder")))

@@ -12,6 +12,7 @@
             [simpleviz.editor :as editor]
             [simpleviz.grid :as grid]
             [simpleviz.compact :as compact]
+            [mdlinks :as mdlinks]
             [themes :as themes]))
 
 (def elk (js/ELK.))
@@ -135,7 +136,7 @@
 
 (declare relayout! post-edit! delete! current-edit-target-editable? follow-ref! navigate! run-chord-action!
          open-md! save-md! close-md! open-page! root-path! load-nav!
-         save-if-dirty! save-before-leaving!)
+         save-if-dirty! save-before-leaving! follow-link! sync-gutter-scroll!)
 
 ;; layouts per collapsed-set, so expanding (or re-collapsing a seen
 ;; combination) is instant instead of a multi-second ELK run; demoted
@@ -1025,6 +1026,47 @@
      (item "SVG" "vector" export-svg!)
      [:div {:class "em-note"} "Both embed the source EDN."]]))
 
+(defn- gutter-view [st]
+  (let [md (:md st)
+        {:keys [marks height]} (:md-marks st)
+        menu (:link-menu st)]
+    [:div {:id "md-gutter"}
+     (into [:div {:class "md-gutter-inner" :style {:height (str (or height 0) "px")}}]
+           (map (fn [m]
+                  (let [ls (:links m)
+                        one (= 1 (count ls))
+                        bad (and one (some? (:error (editor/link-target (:path md) (:dest (first ls))))))]
+                    [:button {:class (str "md-mark" (when bad " bad")) :type "button"
+                              :key (str "m" (:line m))
+                              :style {:top (str (:top m) "px")}
+                              :title (if one (editor/link-title (:path md) (first ls)) (str (count ls) " links"))
+                              :on-click (fn [e]
+                                          (.stopPropagation e)
+                                          (if one
+                                            (follow-link! (first ls))
+                                            (let [body (.closest (.-currentTarget e) ".md-body")
+                                                  top (- (.-top (.getBoundingClientRect (.-currentTarget e)))
+                                                         (.-top (.getBoundingClientRect body)))]
+                                              (swap! state assoc :link-menu
+                                                     (when-not (= (:line menu) (:line m)) {:line (:line m) :top top})))))}
+                     (if one "»" (str "»" (count ls)))]))
+                (or marks [])))]))
+
+(defn- link-menu-view [st]
+  (when-let [menu (:link-menu st)]
+    (let [md (:md st)
+          m (some (fn [m] (when (= (:line m) (:line menu)) m)) (:marks (:md-marks st)))]
+      (when (some? m)
+        (into [:div {:class "md-link-menu" :role "menu" :style {:top (str (:top menu) "px")}}]
+              (map-indexed (fn [i l]
+                             [:button {:class (str "md-link-item"
+                                                   (when (some? (:error (editor/link-target (:path md) (:dest l)))) " bad"))
+                                       :type "button" :role "menuitem" :key (str "l" i)
+                                       :title (editor/link-title (:path md) l)
+                                       :on-click (fn [e] (.stopPropagation e) (follow-link! l))}
+                              (str (:label l) " → " (:dest l))])
+                           (:links m)))))))
+
 (defn- md-panel [st]
   (let [md (:md st)]
     [:aside {:id "md-panel" :class (cond (:page md) "page" (:full md) "full" :else "")}
@@ -1058,8 +1100,13 @@
           [:button {:class "md-btn" :type "button" :title "Save your text over the file on disk"
                     :on-click (fn [e] (.stopPropagation e) (save-md! true))}
            "Overwrite"])])
-     [:textarea {:id "md-text" :spellcheck "false" :value (:text md)
-                 :on-input (fn [e] (swap! state assoc-in [:md :text] (.. e -target -value)))}]]))
+     [:div {:class "md-body"}
+      [:textarea {:id "md-text" :spellcheck "false" :value (:text md)
+                  :on-scroll (fn [_] (sync-gutter-scroll!) (when (some? (:link-menu @state))
+                                                              (swap! state assoc :link-menu nil)))
+                  :on-input (fn [e] (swap! state assoc-in [:md :text] (.. e -target -value)))}]
+      (gutter-view st)
+      (link-menu-view st)]]))
 
 (defn- app-view [st]
   (let [page (page? st)]
@@ -1594,6 +1641,130 @@
                                            :exists (:exists out)})
               nil)))))))
 
+;; the open doc's links, re-scanned 150 ms after the text stops changing
+(def ^:private md-links (atom {:path nil :text nil :links []}))
+(def ^:private parse-timer (atom nil))
+(def ^:private measure-queued (atom false))
+(def ^:private observed-ta (atom nil))
+
+(defn- mirror-el
+  "The hidden div that lays doc text out the way the textarea wraps it —
+  outside the app root, so rendering never touches its children."
+  []
+  (or (js/document.getElementById "md-mirror")
+      (let [d (js/document.createElement "div")]
+        (set! (.-id d) "md-mirror")
+        (.setAttribute d "aria-hidden" "true")
+        (.appendChild js/document.body d)
+        d)))
+
+(defn- sync-gutter-scroll!
+  "Scroll the gutter with the textarea."
+  []
+  (let [ta (js/document.getElementById "md-text")
+        g (js/document.getElementById "md-gutter")]
+    (when (and (some? ta) (some? g))
+      (set! (.-scrollTop g) (.-scrollTop ta)))))
+
+(declare queue-measure!)
+
+(def ^:private resize-observer
+  (js/ResizeObserver. (fn [_] (queue-measure!))))
+
+(defn- measure-gutter!
+  "Place the » markers: each logical line of the text is a block in the
+  mirror, styled and sized like the textarea, and a marker sits at its
+  line's block top."
+  []
+  (reset! measure-queued false)
+  (let [ta (js/document.getElementById "md-text")
+        md (:md @state)]
+    (when (and (some? ta) (some? md))
+      (when-not (identical? ta @observed-ta)
+        (.disconnect resize-observer)
+        (.observe resize-observer ta)
+        (reset! observed-ta ta))
+      (let [mirror (mirror-el)
+            cs (js/getComputedStyle ta)
+            lines (.split (:text md) "\n")]
+        (doseq [p ["fontFamily" "fontSize" "fontWeight" "lineHeight" "letterSpacing" "tabSize"
+                   "paddingTop" "paddingRight" "paddingBottom" "paddingLeft"]]
+          (aset (.-style mirror) p (aget cs p)))
+        (set! (.. mirror -style -width) (str (.-clientWidth ta) "px"))
+        (set! (.-textContent mirror) "")
+        (doseq [ln lines]
+          (let [d (js/document.createElement "div")]
+            (set! (.-textContent d) (if (= ln "") "​" ln))
+            (.appendChild mirror d)))
+        (let [kids (.-children mirror)
+              n (.-length kids)
+              marks (vec (keep (fn [m]
+                                 (when (<= (:line m) n)
+                                   (assoc m :top (.-offsetTop (aget kids (dec (:line m)))))))
+                               (editor/line-markers (:links @md-links))))
+              height (max (.-scrollHeight mirror) (.-scrollHeight ta))]
+          (swap! state assoc :md-marks {:marks marks :height height})
+          (sync-gutter-scroll!))))))
+
+(defn- queue-measure!
+  "Measure the gutter on the next frame, once however often asked."
+  []
+  (when-not @measure-queued
+    (reset! measure-queued true)
+    (js/requestAnimationFrame (fn [_] (measure-gutter!)))))
+
+(defn- reparse-links!
+  "Scan the open doc's links: now when `now?` (another doc), else 150 ms
+  after the last change; then re-measure."
+  [now?]
+  (some-> @parse-timer js/clearTimeout)
+  (let [run (fn []
+              (let [md (:md @state)]
+                (reset! md-links {:path (:path md) :text (:text md)
+                                  :links (if (some? md) (mdlinks/links (:text md)) [])})
+                (queue-measure!)))]
+    (if now? (run) (reset! parse-timer (js/setTimeout run 150)))))
+
+;; keep links and markers in step with the open doc, however it changed
+;; (typing, a doc taken from disk, open, close, dock ↔ page ↔ fullscreen)
+(add-watch state :md-gutter
+  (fn [_ _ old new]
+    (let [o (:md old) n (:md new)]
+      (cond
+        (not= (:path o) (:path n)) (do (when (nil? n) (swap! state assoc :md-marks nil :link-menu nil))
+                                       (reparse-links! true))
+        (not= (:text o) (:text n)) (do (reparse-links! false) (queue-measure!))
+        (or (not= (:page o) (:page n)) (not= (:full o) (:full n))) (queue-measure!)))))
+
+(defn- ^:async follow-link!
+  "Follow link l (an mdlinks/links entry) of the open doc: its
+  destination resolves against the doc's own path; the page shown joins
+  the trail. An .edn target is first created as an empty graph when
+  missing (from the md page always, from the docked panel when the
+  graph shown is editable) — as follow ref does."
+  [l]
+  (let [st @state
+        md (:md st)
+        {:keys [path kind error]} (editor/link-target (:path md) (:dest l))]
+    (swap! state assoc :link-menu nil)
+    (cond
+      (:following st) nil
+      (some? error) (swap! state assoc :nav-error error)
+      :else
+      (do
+        (swap! state assoc :following true)
+        (try
+          (when (and (= kind "graph") (.endsWith (.toLowerCase path) ".edn")
+                     (or (:page md) (current-edit-target-editable? st)))
+            (try
+              (js-await (js/fetch "/api/create"
+                                  {:method "POST"
+                                   :headers {"Content-Type" "application/json"}
+                                   :body (js/JSON.stringify (editor/create-body (:edit-target st) path))}))
+              (catch :default _ nil)))
+          (js-await (navigate! (editor/follow-url (current-path st) (:trail (:nav st)) path)))
+          (finally (swap! state assoc :following false)))))))
+
 (defn- ^:async post-edit!
   "POST ops to the edit target — or to `file` (\"old\"/\"new\") when given."
   [ops & [file]]
@@ -1878,7 +2049,7 @@
       (do (.preventDefault e) (save-md!))
 
       (= (.-key e) "Escape") (do (cancel-pick!)
-                                 (swap! state assoc :help false :chord nil :export-menu false)
+                                 (swap! state assoc :help false :chord nil :export-menu false :link-menu nil)
                                  (when (:full (:md @state))
                                    (swap! state assoc-in [:md :full] false)))
       ;; a held key must not complete its own chord
@@ -1898,8 +2069,9 @@
            (current-edit-target-editable? @state))
       (handle-chord-key! e))))
 ;; a press anywhere outside the export menu closes it — ⇩ itself toggles
-;; it — and one outside the toolbar closes the pop-out (capture phase,
-;; so nothing that stops propagation keeps either open)
+;; it — one outside the toolbar closes the pop-out, and one outside the
+;; doc's link menu and its » markers closes that menu (capture phase, so
+;; nothing that stops propagation keeps any of them open)
 (js/document.addEventListener "pointerdown"
   (fn [e]
     (when (and (:export-menu @state)
@@ -1907,7 +2079,10 @@
       (swap! state assoc :export-menu false))
     (when (and (some? (:chord @state))
                (not (.closest (.-target e) "#selection-toolbar")))
-      (swap! state assoc :chord nil)))
+      (swap! state assoc :chord nil))
+    (when (and (some? (:link-menu @state))
+               (not (.closest (.-target e) ".md-link-menu, .md-mark")))
+      (swap! state assoc :link-menu nil)))
   true)
 (canvas/set-repaint! paint-now!)
 ;; the headless export's entry point (simpleviz export, server/browser.clj)
@@ -1919,6 +2094,8 @@
 (load-nav!)
 (js/setInterval tick 1000)
 (js/setInterval poll-md! 1000)
+(js/window.addEventListener "resize" (fn [_] (queue-measure!)))
+(.then (.-ready js/document.fonts) (fn [_] (queue-measure!)))
 ;; unsaved doc edits: the browser asks before the tab closes or reloads
 (js/window.addEventListener "beforeunload"
   (fn [e]

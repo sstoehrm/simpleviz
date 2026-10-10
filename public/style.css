@@ -109,9 +109,32 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
 /* the toolbar centres on the canvas left of the panel, not under it */
 #root.md-open #selection-toolbar { left: calc((100vw - var(--inspector-w)) / 2);
                                    max-width: calc(100vw - var(--inspector-w) - 24px); }
-#md-text { flex: 1 1 auto; border: none; outline: none; resize: none; padding: 12px 14px;
+#md-text { flex: 1 1 auto; min-width: 0; border: none; outline: none; resize: none; padding: 12px 14px;
            background: var(--panel); color: var(--text);
            font: 13px/1.5 ui-monospace, "Cascadia Mono", monospace; }
+/* the doc's text and its » gutter, side by side */
+#md-panel .md-body { position: relative; flex: 1 1 auto; display: flex; min-height: 0; }
+#md-gutter { flex: none; width: 28px; overflow: hidden; position: relative;
+             border-left: 1px solid var(--panel-divider); background: var(--panel); }
+#md-gutter .md-gutter-inner { position: relative; }
+#md-gutter .md-mark { position: absolute; left: 0; right: 0; padding: 0; border: none;
+                      background: none; color: var(--accent); cursor: pointer;
+                      font: 13px/1.5 ui-monospace, "Cascadia Mono", monospace; }
+#md-gutter .md-mark:hover { background: var(--hover-plain); }
+#md-gutter .md-mark.bad, .md-link-item.bad { opacity: .45; }
+.md-link-menu { position: absolute; right: 30px; z-index: 7; display: flex; flex-direction: column;
+                max-width: 60%; padding: 4px; background: var(--panel);
+                border: 1px solid var(--panel-border); border-radius: 6px;
+                box-shadow: 0 2px 8px var(--shadow); }
+.md-link-item { text-align: left; border: none; background: none; color: var(--text);
+                padding: 4px 8px; border-radius: 4px; cursor: pointer; white-space: nowrap;
+                overflow: hidden; text-overflow: ellipsis;
+                font: 12px ui-monospace, "Cascadia Mono", monospace; }
+.md-link-item:hover { background: var(--hover-plain); }
+/* lays doc text out as the textarea wraps it, to place the markers */
+#md-mirror { position: absolute; top: 0; left: -10000px; visibility: hidden;
+             white-space: pre-wrap; overflow-wrap: break-word; box-sizing: border-box;
+             border: none; }
 .attr-btn { flex: none; border: none; background: none; color: var(--text-dim);
             cursor: pointer; font-size: 13px; line-height: 1.2;
             padding: 1px 4px; border-radius: 4px; }

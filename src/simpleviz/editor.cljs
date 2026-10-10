@@ -572,10 +572,12 @@
   (some (fn [[ks action _]] (when (= ks path) action)) (entries kind pairs)))
 
 (defn chord-prefix?
-  "True when `path` is the start of a longer chord for this selection —
-  a group to keep typing (or clicking) in."
-  [kind path pairs]
-  (some? (some (fn [[ks _ _]] (when (under? ks path) true)) (entries kind pairs))))
+  "True when `path` is the start of a longer chord for this selection
+  whose action `available?` accepts — a group to keep typing (or
+  clicking) in, never an empty one."
+  [kind path available? pairs]
+  (some? (some (fn [[ks action _]] (when (and (under? ks path) (available? action)) true))
+               (entries kind pairs))))
 
 (defn chord-for
   "The chord (\"n n b\") that triggers `action` for `kind`, for the

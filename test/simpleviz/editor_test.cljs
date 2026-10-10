@@ -608,19 +608,26 @@
     (assert/equal (chord-action "node" ["f" "p"] [{:file "a.edn" :id "x"}]) "follow-pair")
     (assert/ok (nil? (chord-action "edge" ["f" "p"] [{:file "a.edn" :id "x"}])))
     (assert/ok (nil? (chord-action "box" ["f" "p"] two-pairs)))
-    (assert/ok (chord-prefix? "box" ["f" "p"] two-pairs))
+    (assert/ok (chord-prefix? "box" ["f" "p"] all two-pairs))
     (assert/deepEqual (chord-action "box" ["f" "p" "2"] two-pairs) ["follow-pair" 1])
     (assert/ok (nil? (chord-action "box" ["f" "p" "3"] two-pairs)))))
 
 (test "chord-prefix? knows the groups for the selection"
   (fn []
-    (assert/ok (chord-prefix? nil ["n"] []))
-    (assert/ok (chord-prefix? nil ["n" "n"] []))
-    (assert/ok (chord-prefix? "edge" ["n"] []))
-    (assert/ok (not (chord-prefix? nil ["d"] [])))
-    (assert/ok (not (chord-prefix? "node" ["n" "n" "n"] [])))
-    (assert/ok (not (chord-prefix? "node" ["f" "p"] [{:file "a.edn" :id "x"}])))
-    (assert/ok (not (chord-prefix? "node" ["z"] [])))))
+    (assert/ok (chord-prefix? nil ["n"] all []))
+    (assert/ok (chord-prefix? nil ["n" "n"] all []))
+    (assert/ok (chord-prefix? "edge" ["n"] all []))
+    (assert/ok (not (chord-prefix? nil ["d"] all [])))
+    (assert/ok (not (chord-prefix? "node" ["n" "n" "n"] all [])))
+    (assert/ok (not (chord-prefix? "node" ["f" "p"] all [{:file "a.edn" :id "x"}])))
+    (assert/ok (not (chord-prefix? "node" ["z"] all [])))))
+
+(test "chord-prefix? is false for a group with nothing available under it"
+  (fn []
+    ;; a node without :ref, pair or :md-ref: f would open an empty pop-out
+    (let [no-follow (fn [a] (not (contains? #{"follow-ref" "follow-pair" "open-md"} a)))]
+      (assert/ok (not (chord-prefix? "node" ["f"] no-follow [])))
+      (assert/ok (chord-prefix? "node" ["n"] no-follow [])))))
 
 (test "chord-for finds the chord behind an action, for the button hints"
   (fn []

@@ -144,7 +144,7 @@ the same two buttons as the flat layout.
   - `chord-table` entries become `[["n" "n" "b"] {kind [action label]}]`;
     a `chord-groups` map labels prefixes.
   - `chord-action [kind path pairs]` → the action when `path` is a complete
-    chord; `chord-prefix? [kind path pairs]` → true when it is a group.
+    chord; `chord-prefix? [kind path available? pairs]` → true when it is a group with an available chord under it.
   - `chord-for [kind action]` → `"n n b"`.
   - `chord-menu [kind path available? pairs]` → the pop-out items:
     `{:keys :label :action | :group}` (`:keys` = the keys still to

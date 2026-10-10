@@ -1760,7 +1760,7 @@
         path (conj (or (:chord st) []) k)]
     (when (and (= 1 (.-length k)) (nil? (:pick st)) (some? (:scene st)))
       (cond
-        (editor/chord-prefix? (:kind sel) path pairs)
+        (editor/chord-prefix? (:kind sel) path (avail-fn sel) pairs)
         (do (.preventDefault e) (swap! state assoc :chord path))
 
         (some? (:chord st))

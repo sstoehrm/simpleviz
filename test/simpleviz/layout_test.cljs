@@ -291,6 +291,42 @@
                    (let [sc (build-scene {:layout l :graph grid-g :colors {:node {} :box {}}})]
                      (assert/equal (.-length (filterv (fn [it] (= (:kind it) "edge")) (:items sc))) 6))))))))
 
+(test "layout-grid puts a gridded node on its cell, beside gridded boxes or alone"
+  (fn []
+    ;; user on [2 0]: right of backend, top-aligned; s1 joins it, beside it
+    (let [g (-> grid-g
+                (assoc-in [:nodes "user"] (assoc (node "user" "") :grid {:col 2 :row 0 :w 1 :h 1}))
+                (assoc-in [:nodes "s1"] (assoc (node "s1" "") :grid {:col 0 :row 2 :w 1 :h 1})))]
+      (-> (layout-grid g (to-elk g measure) run-elk nil)
+          (.then (fn [l]
+                   (let [fe (by-id l "b:frontend") be (by-id l "b:backend") da (by-id l "b:data")
+                         us (by-id l "n:user") s1 (by-id l "n:s1") s2 (by-id l "n:s2")]
+                     (assert/ok (> (:x us) (+ (:x be) (:width be))))
+                     (assert/equal (:y us) (:y be))
+                     (assert/ok (> (:y s1) (+ (:y da) (:height da))))
+                     (assert/ok (< (js/Math.abs (- (:x s1) (:x fe))) 1))
+                     ;; s2 hangs off s1 (s1 → s2: right of it, its row)
+                     (assert/ok (> (:x s2) (+ (:x s1) (:width s1))))
+                     (assert/equal (:y s2) (:y s1))
+                     (assert/equal (.-length (:edges l)) 6)
+                     (doseq [e (:edges l)] (assert/ok (>= (count (pts e)) 2) (:id e))))))))))
+
+(test "layout-grid: nodes alone on a grid"
+  (fn []
+    (let [g (graph {:nodes {"a" (assoc (node "a" "") :grid {:col 0 :row 0 :w 1 :h 1})
+                            "b" (assoc (node "b" "") :grid {:col 1 :row 1 :w 1 :h 1})
+                            "c" (node "c" "")}
+                    :edges [(edge 0 "a" "b" {:source false :target true})
+                            (edge 1 "c" "a" {:source false :target true})]})]
+      (-> (layout-grid g (to-elk g measure) run-elk nil)
+          (.then (fn [l]
+                   (let [a (by-id l "n:a") b (by-id l "n:b") c (by-id l "n:c")]
+                     (assert/ok (> (:x b) (+ (:x a) (:width a))))
+                     (assert/ok (> (:y b) (+ (:y a) (:height a))))
+                     ;; c points into a: left of it
+                     (assert/ok (< (+ (:x c) (:width c)) (:x a)))
+                     (assert/equal (.-length (:edges l)) 2))))))))
+
 (test "layout-grid: a collapsed gridded box is a leaf in its cell"
   (fn []
     (let [g (-> grid-g

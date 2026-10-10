@@ -44,6 +44,24 @@
     (let [nested (assoc g :parent-of (assoc (:parent-of g) "b:back" "front"))]
       (assert/deepEqual (js/Object.keys (grid-cells nested)) ["b:front"]))))
 
+(test "grid-cells takes top-level gridded nodes too, a node before a box of the same name"
+  (fn []
+    (let [ng (-> g
+                 (assoc-in [:nodes "user"] (assoc (n "user") :grid {:col 0 :row 1 :w 1 :h 1}))
+                 ;; web sits in front: not a cell
+                 (assoc-in [:nodes "web"] (assoc (n "web") :grid {:col 3 :row 3 :w 1 :h 1})))]
+      (assert/deepEqual (js/Object.keys (grid-cells ng)) ["b:back" "b:front" "n:user"])
+      (assert/deepEqual (get (grid-cells ng) "n:user") {:col 0 :row 1 :w 1 :h 1}))
+    (let [tie (-> g
+                  (assoc-in [:nodes "back"] (assoc (n "back") :grid {:col 1 :row 0 :w 1 :h 1})))]
+      (assert/deepEqual (js/Object.keys (grid-cells tie)) ["n:back" "b:front"]))
+    ;; nodes alone switch the grid on
+    (let [only {:nodes {"a" (assoc (n "a") :grid {:col 1 :row 0 :w 1 :h 1}) "b" (n "b")}
+                :boxes [] :parent-of {} :edges [(e "a" "b")]}]
+      (assert/ok (grid-mode? only))
+      (assert/deepEqual (get (:attached (attach-loose only (grid-cells only))) "n:b")
+                        {:anchor "n:a" :side "right"}))))
+
 (test "attach-loose: beside the box with most edges, chains, the rest in the strip"
   (fn []
     (let [{:keys [attached strip]} (attach-loose g (grid-cells g))]

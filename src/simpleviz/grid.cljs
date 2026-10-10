@@ -1,7 +1,8 @@
 (ns simpleviz.grid
-  "Grid layout (:grid on top-level boxes): gridded boxes on exact cells,
-  ELK inside each box, loose elements beside the box they connect to,
-  edges between cells routed through the gaps. Pure: ELK is passed in."
+  "Grid layout (:grid on top-level nodes and boxes): gridded elements on
+  exact cells, ELK inside each box, loose elements beside the gridded
+  element they connect to, edges between cells routed through the gaps.
+  Pure: ELK is passed in."
   (:require [simpleviz.editor :refer [top-box-of]]
             [simpleviz.transform :refer [element-run layout-positions seed-layout seedable?]]))
 
@@ -37,28 +38,34 @@
     out))
 
 (defn grid-cells
-  "{elk-id {:col :row :w :h}} of the top-level boxes with a :grid. Where
-  cells overlap the box first by sorted name keeps them: the server
-  already drops overlaps, but a comparison's union can bring two boxes
-  onto one cell."
+  "{elk-id {:col :row :w :h}} of the top-level nodes and boxes with a
+  :grid. Where cells overlap the element first by sorted name keeps
+  them, a node before a box of the same name: the server already drops
+  overlaps, but a comparison's union can bring two onto one cell."
   [graph]
   (let [po (:parent-of graph)
         taken (js/Set.)
-        out {}]
-    (doseq [b (sort-by (fn [b] (:name b))
-                       (filterv (fn [b] (and (some? (:grid b))
-                                             (nil? (get po (str "b:" (:name b))))))
-                                (:boxes graph)))]
-      (let [{:keys [col row w h]} (:grid b)
+        out {}
+        elems (into (vec (keep (fn [nd] (when (some? (:grid nd))
+                                          {:id (str "n:" (:id nd)) :name (:id nd) :rank 0 :grid (:grid nd)}))
+                               (js/Object.values (:nodes graph))))
+                    (keep (fn [b] (when (some? (:grid b))
+                                    {:id (str "b:" (:name b)) :name (:name b) :rank 1 :grid (:grid b)})))
+                    (:boxes graph))]
+    (doseq [el (sort (fn [a b] (cond (< (:name a) (:name b)) -1
+                                     (> (:name a) (:name b)) 1
+                                     :else (- (:rank a) (:rank b))))
+                     (filterv (fn [el] (nil? (get po (:id el)))) elems))]
+      (let [{:keys [col row w h]} (:grid el)
             ks (vec (mapcat (fn [c] (mapv (fn [r] (str c "," r)) (range row (+ row h))))
                             (range col (+ col w))))]
         (when-not (some (fn [k] (.has taken k)) ks)
           (doseq [k ks] (.add taken k))
-          (assoc! out (str "b:" (:name b)) (:grid b)))))
+          (assoc! out (:id el) (:grid el)))))
     out))
 
 (defn grid-mode?
-  "Does any top-level box have a grid cell?"
+  "Does any top-level node or box have a grid cell?"
   [graph]
   (pos? (.-length (js/Object.keys (grid-cells graph)))))
 

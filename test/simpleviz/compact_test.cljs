@@ -60,6 +60,35 @@
         (assert/ok (pos? (:row c)) "nothing on the row a spans"))
       (assert/deepEqual (:grid (first (:boxes (with-cells g)))) {:col 0 :row 0 :w 2 :h 1}))))
 
+(test "auto-cells keeps off a gridded node's cells and pulls boxes toward it"
+  (fn []
+    ;; hub on [1 1]: joined to a only; four boxes, two columns
+    (let [g (-> four
+                (assoc-in [:nodes "hub"] (assoc (node "hub") :grid {:col 1 :row 1 :w 1 :h 1}))
+                (assoc :edges (conj (:edges four) (edge 9 "hub" "a1") (edge 10 "a1" "hub"))))
+          cells (auto-cells g)]
+      (assert/equal (count cells) 4)
+      (doseq [c (js/Object.values cells)]
+        (assert/ok (not (and (= 1 (:col c)) (= 1 (:row c)))) "hub's cell stays free"))
+      (assert/equal (dist (get cells "a") {:col 1 :row 1}) 1))
+    ;; a spanning node widens the grid to its columns
+    (let [g (assoc-in four [:nodes "wide"] (assoc (node "wide") :grid {:col 0 :row 0 :w 3 :h 1}))]
+      (doseq [c (js/Object.values (auto-cells g))]
+        (assert/ok (pos? (:row c)) "nothing on the row wide spans")))))
+
+(test "layout-compact puts gridded nodes on cells when there are no boxes"
+  (fn []
+    (let [g (graph {:nodes {"a" (assoc (node "a") :grid {:col 0 :row 0 :w 1 :h 1})
+                            "b" (assoc (node "b") :grid {:col 0 :row 1 :w 1 :h 1})}
+                    :edges [(edge 0 "a" "b")]})]
+      (-> (layout-compact g (to-elk g measure) run-elk nil)
+          (.then (fn [l]
+                   (let [a (first (filterv (fn [c] (= (:id c) "n:a")) (:children l)))
+                         b (first (filterv (fn [c] (= (:id c) "n:b")) (:children l)))]
+                     ;; left to right would put b beside a; the grid puts it under
+                     (assert/ok (> (:y b) (+ (:y a) (:height a))))
+                     (assert/ok (< (js/Math.abs (- (:x a) (:x b))) 1)))))))))
+
 (test "label-at turns a label on a vertical segment when asked"
   (fn []
     (let [down [{:x 0 :y 0} {:x 0 :y 100}]]

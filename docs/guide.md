@@ -27,8 +27,8 @@ The README example shows every attribute simpleviz reads.
   [Editing docs](#editing-docs)).
 - `:pair` links a node or box to the same thing in another graph file
   (see [Pairs](#pairs)). A paired element gets a ⇄ mark.
-- `:grid [col row]` or `[col row w h]` puts a top-level box on a grid cell
-  (see [Grid layout](#grid-layout)).
+- `:grid [col row]` or `[col row w h]` puts a top-level node or box on a
+  grid cell (see [Grid layout](#grid-layout)).
 - `:theme` at the top level sets the graph's colors (see [Themes](#themes)).
 - `:layout` at the top level picks the layout algorithm, `:layered`,
   `:compact` or `:tiled` (see [Layouts](#layouts)).
@@ -193,7 +193,8 @@ The layout menu at the top picks how graphs are laid out:
 - **compact**: big diagrams spread down as well as across.
   - Every top-level box gets a cell of a grid, connected boxes side by
     side, with as many columns as bring the whole closest to a screen's
-    shape. A box's own `:grid` cell is kept and the rest fill in around it.
+    shape. A box's or node's own `:grid` cell is kept and the rest fill in
+    around it.
   - Edges between boxes leave on whichever side faces their other end,
     the top and bottom too (see [Grid layout](#grid-layout) for the
     routing).
@@ -219,25 +220,28 @@ new file's.
 
 ## Grid layout
 
-Give top-level boxes a `:grid` cell and they are placed exactly there:
+Give top-level boxes or nodes a `:grid` cell and they are placed exactly
+there:
 
+    :nodes {:user {:grid [2 0]} ...}                          ; a node takes a cell too
     :boxes {:frontend {:grid [0 0] :components #{:web}}
             :backend  {:grid [1 0] :components #{:api :auth}}
             :data     {:grid [0 1 2 1] :components #{:db}}}  ; spans 2 columns
 
-- Columns and rows count from 0, up to 99. A column is as wide as its widest box, a
-  row as tall as its tallest; boxes sit top-left in their cell. An empty
+- Columns and rows count from 0, up to 99. A column is as wide as its widest
+  element, a row as tall as its tallest; each sits top-left in its cell. An empty
   column or row still leaves its gap.
 - Inside each box the usual layout runs; edges leave a box on the side
   facing their other end.
-- Nodes and boxes without a cell go beside the gridded box they have the
-  most edges to — left when their edges point into it, else right. What
-  reaches no gridded box sits in a strip under the grid.
+- Nodes and boxes without a cell go beside the gridded element they have
+  the most edges to — left when their edges point into it, else right.
+  What reaches no gridded element sits in a strip under the grid.
 - Edges between cells run through the gaps at right angles; edges sharing
   a gap get their own lanes.
-- Only top-level boxes take a cell. A nested box, a malformed value, or a
-  cell another box already has warns and is ignored (the box first by
-  sorted name keeps an overlapping cell).
+- Only top-level nodes and boxes take a cell. A nested node or box, a
+  malformed value, or a cell another element already has warns and is
+  ignored (the element first by sorted name keeps an overlapping cell, a
+  node before a box of the same name).
 
 ## Editing docs
 

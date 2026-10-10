@@ -293,8 +293,8 @@ that graph in place. The trail at the top leads back, and so does the
 browser's back button.
 
 - Refs may use `..` but can't leave the folder of the file the server
-  started with. They must point at an `.edn` file or an exported `.png` or
-  `.svg`.
+  started with. They must point at an `.edn` file, an exported `.png` or
+  `.svg`, or an `.md` file (which opens as an md page).
 - Following a ref to a missing `.edn` file creates it as an empty graph,
   folders included. In a comparison, only the side picked by the old|new
   toggle is created.

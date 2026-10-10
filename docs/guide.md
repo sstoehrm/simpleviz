@@ -141,12 +141,16 @@ edit is rejected. A name with no usable characters leaves the id alone.
 Edges have no id; change their endpoints from the toolbar.
 
 **Toolbar.** The toolbar at the bottom shows the tools for the current
-selection, or "new node" when nothing is selected. Creation prompts derive
+selection, or "new node" and "new box" when nothing is selected. Creation prompts derive
 the id from the name as above and accept `name::type`, so
 `Web Server::frontend` creates `web-server` with type "frontend". Pick modes
-wait for a click on the canvas. Every tool has a two-key chord, shown on its
-button. Chords work while no text field has focus, and Esc cancels a pending
-chord or pick.
+wait for a click on the canvas. Every tool has a chord, shown on its button.
+Chords work while no text field has focus; typing the first key opens a
+pop-out above the toolbar listing what comes next, and its entries can be
+clicked too. Esc cancels a pending chord or pick. The toggle at the
+toolbar's right end switches between **flat** (every tool in a row) and
+**grouped** (one button per first key — `new`, `add`, `rename / remove`,
+`follow` — whose options pop out); the choice is saved in this browser.
 
 | Chord | Selection | Action |
 | --- | --- | --- |
@@ -158,12 +162,16 @@ chord or pick.
 | `a n` | box | add a node as member (click it); it leaves the box it was in |
 | `r n` | box | remove node (click a member; it moves to the enclosing box or out) |
 | `r b` | node | remove from box (it moves to the enclosing box or out) |
-| `n n` | none / node / box | new node / new node connected to the selection / new node inside the box |
-| `c n` | box | new node inside the box, as `n n` |
-| `n b` | node, box | new box around the selection, in the selection's place |
+| `n n n` | none / node / box | new node / new node connected to the selection / new node inside the box |
+| `n n b` | none / box | new empty box / new empty box inside the box |
+| `n n s` | node, box | new node next to the selection (same box), unconnected |
+| `n n c` | node, box | new node connected from the selection, in the same box |
+| `n n i` | node, box | new node connected to the selection (new → selected), in the same box |
+| `n n e` | edge | split the edge: A→B becomes A→X→B; A→X keeps the edge's attributes, X→B gets its direction |
+| `n b` | node, box | wrap the selection in a new box, in the selection's place |
 | `r r` | node, box | rename the id |
 | `f r` | node, edge, box | follow the `:ref` |
-| `f p` | node, box | follow the pair (with several, pick one in the inspector) |
+| `f p` | node, box | follow the pair; with several, `f p 1`…`f p 9` (numbered in the inspector) |
 | `f m` | node, box | open the `:md-ref` doc in the text panel |
 | `?` | any | toggle the help panel |
 
@@ -281,7 +289,8 @@ limit, and a fork is refused.
 - The ⇄ mark shows elements with pairs; a red ⇄ marks one with a broken
   pair. The inspector lists them: `→` for
   pairs declared here, `←` for pairs in other files that point here, so
-  declaring one side is enough. Click one, or use "follow pair" (`f p`),
+  declaring one side is enough. Click one, or use "follow pair" (`f p`;
+  with several, `f p 1`…`f p 9`, as the inspector numbers them),
   to open that graph with the element selected; the trail leads back.
 - The server finds pairs pointing here by reading every `.edn` under the
   served root's folder, except dot-folders, `node_modules` and forks. A

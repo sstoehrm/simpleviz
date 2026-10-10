@@ -11,7 +11,8 @@
                                       name->id derived-id named-edge-ops creation-ops parse-entry
                                       resolve-ref parse-nav nav-query follow-url crumb-url ref-of banner-visible?
                                       theme-menu layout-menu effective-layout top-box-of load-readiness export-readiness
-                                      md-target from-disk to-disk md-dirty? adopt-doc gone-doc poll-outcome save-result]]))
+                                      md-target from-disk to-disk md-dirty? adopt-doc gone-doc poll-outcome save-result
+                                      parent-box split-parent]]))
 
 (test "target maps selection payloads to op targets"
   (fn []
@@ -580,3 +581,61 @@
   (fn []
     (assert/equal (effective-layout {} "tiled") "tiled")
     (assert/equal (:value (layout-menu {:layout "tiled"} nil)) "tiled")))
+
+(test "parent-box and split-parent place an element next to the selection"
+  (fn []
+    (let [pof {"n:a" "grp" "n:b" "grp" "n:c" "other" "b:grp" "outer"}]
+      (assert/equal (parent-box pof "a") "grp")
+      (assert/equal (parent-box pof "grp") "outer")
+      (assert/ok (nil? (parent-box pof "top")))
+      (assert/equal (split-parent pof ["a" "b"]) "grp")
+      ;; ends in different boxes, or one at top level: X goes to top level
+      (assert/ok (nil? (split-parent pof ["a" "c"])))
+      (assert/ok (nil? (split-parent pof ["a" "top"])))
+      (assert/ok (nil? (split-parent pof ["top" "top2"]))))))
+
+(test "creation-ops: boxes, siblings, here-connected and incoming nodes"
+  (fn []
+    (let [node {:section "nodes" :id "api"}
+          box {:section "boxes" :id "grp"}
+          nm (fn [section id v] {:op "set-attr" :section section :id id :attr "name" :value (str "\"" v "\"") :fallback false})]
+      (assert/deepEqual (creation-ops {:for "box" :text "Zone"} nil)
+                        {:ops [{:op "add-box" :id "zone"} (nm "boxes" "zone" "Zone")] :focus "b:zone"})
+      (assert/deepEqual (creation-ops {:for "box-inbox" :text "Zone"} box)
+                        {:ops [{:op "add-box" :id "zone"} (nm "boxes" "zone" "Zone")
+                               {:op "box-add" :box "grp" :member "zone"}]
+                         :focus "b:zone"})
+      (assert/deepEqual (creation-ops {:for "sibling" :text "DB" :parent "grp"} node)
+                        {:ops [{:op "add-node" :id "db"} (nm "nodes" "db" "DB")
+                               {:op "box-add" :box "grp" :member "db"}]
+                         :focus "n:db"})
+      ;; at top level: no box-add (a nil box would fail the whole batch)
+      (assert/deepEqual (:ops (creation-ops {:for "sibling" :text "DB" :parent nil} node))
+                        [{:op "add-node" :id "db"} (nm "nodes" "db" "DB")])
+      (assert/deepEqual (:ops (creation-ops {:for "connect-here" :text "DB" :parent "grp"} node))
+                        [{:op "add-node" :id "db"} (nm "nodes" "db" "DB")
+                         {:op "add-edge" :from "api" :to "db" :direction "->"}
+                         {:op "box-add" :box "grp" :member "db"}])
+      (assert/deepEqual (:ops (creation-ops {:for "incoming" :text "DB" :parent nil} node))
+                        [{:op "add-node" :id "db"} (nm "nodes" "db" "DB")
+                         {:op "add-edge" :from "db" :to "api" :direction "->"}])
+      ;; name::type still sets the type, last
+      (assert/deepEqual (last (:ops (creation-ops {:for "box" :text "Zone::infra"} nil)))
+                        {:op "set-attr" :section "boxes" :id "zone" :attr "type" :value "\"infra\"" :fallback false})
+      (assert/ok (nil? (creation-ops {:for "sibling" :text "((("} node))))))
+
+(test "creation-ops: split puts the new node between the edge's ends"
+  (fn []
+    (let [edge {:section "edges" :id ["a" "b"]}
+          nm {:op "set-attr" :section "nodes" :id "x" :attr "name" :value "\"X\"" :fallback false}]
+      (assert/deepEqual (creation-ops {:for "split" :text "X" :parent "grp" :direction "->"} edge)
+                        {:ops [{:op "add-node" :id "x"} nm
+                               {:op "box-add" :box "grp" :member "x"}
+                               {:op "retarget-edge" :edge ["a" "b"] :end "target" :to "x"}
+                               {:op "add-edge" :from "x" :to "b" :direction "->"}]
+                         :focus "n:x"})
+      ;; no direction on the original: none on the new half; top level: no box-add
+      (assert/deepEqual (:ops (creation-ops {:for "split" :text "X" :parent nil :direction nil} edge))
+                        [{:op "add-node" :id "x"} nm
+                         {:op "retarget-edge" :edge ["a" "b"] :end "target" :to "x"}
+                         {:op "add-edge" :from "x" :to "b"}]))))

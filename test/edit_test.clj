@@ -291,6 +291,26 @@
                                         {:op "add-edge" :from "a" :to "x" :direction "->"}])]
     (is (clojure.string/includes? text "[:a :x] {:direction :->}"))))
 
+(deftest split-edge-batch-keeps-attrs-on-the-first-half
+  ;; the batch creation-ops builds for n n e on [:a :b] (tri-file: :-> named "x")
+  (let [{:keys [text error]} (edit/apply-ops tri-file
+                                             [{:op "add-node" :id "m"}
+                                              {:op "retarget-edge" :edge ["a" "b"] :end "target" :to "m"}
+                                              {:op "add-edge" :from "m" :to "b" :direction "->"}])
+        edges (:edges (clojure.edn/read-string text))]
+    (is (nil? error))
+    (is (= {:direction :-> :name "x"} (get edges [:a :m])))
+    (is (= {:direction :->} (get edges [:m :b])))
+    (is (not (contains? edges [:a :b]))))
+  (let [{:keys [text error]} (edit/apply-ops "{:nodes {:a nil :b nil}\n :edges {[:a :b] nil}}"
+                                             [{:op "add-node" :id "m"}
+                                              {:op "retarget-edge" :edge ["a" "b"] :end "target" :to "m"}
+                                              {:op "add-edge" :from "m" :to "b"}])
+        edges (:edges (clojure.edn/read-string text))]
+    (is (nil? error))
+    (is (contains? edges [:a :m]))
+    (is (nil? (get edges [:m :b])))))
+
 (deftest apply-ops-normalizes-string-payloads
   (let [{:keys [text]} (edit/apply-ops small-file
                                        [{:op "set-attr" :section "nodes" :id "a"

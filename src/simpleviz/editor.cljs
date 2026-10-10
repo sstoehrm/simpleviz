@@ -126,6 +126,26 @@
   [ops section id tp]
   (if (nil? tp) ops (conj (vec ops) (text-attr-op section id "type" tp))))
 
+(defn- into-box
+  "ops with the new element `id` put into box `box` appended — nothing
+  at top level (box nil), where a box-add would fail the batch."
+  [ops box id]
+  (if (some? box) (conj (vec ops) {:op "box-add" :box box :member id}) ops))
+
+(defn- add-box-ops [id nm]
+  [{:op "add-box" :id id} (name-op "boxes" id nm)])
+
+(defn- split-ops
+  "Ops putting new node `id` between the ends of edge [a b] (file
+  order): the edge keeps its attrs and becomes [a id]; [id b] gets
+  only the direction."
+  [[a b] id nm parent direction]
+  (-> (add-node-ops id nm)
+      (into-box parent id)
+      (conj {:op "retarget-edge" :edge [a b] :end "target" :to id})
+      (conj (cond-> {:op "add-edge" :from id :to b}
+              (some? direction) (assoc :direction direction)))))
+
 (defn creation-ops
   "What the toolbar's creation prompt `entry` ({:for kind :text text},
   an edge prompt also carrying the pick's :ops) submits for the
@@ -133,7 +153,9 @@
   element to select once it lands (nil for an edge). The text is
   `name` or `name::type` (parse-entry); the id is derived from the
   name (name->id); nil when the name yields none, so the prompt stays
-  open. An edge is created unnamed on an empty name."
+  open. An edge is created unnamed on an empty name. `:parent` (a box
+  name or nil) places sibling/connect-here/incoming/split; a split
+  also carries the edge's `:direction`."
   [entry tgt]
   (let [{nm :name tp :type} (parse-entry (:text entry))
         id (name->id nm)
@@ -148,6 +170,19 @@
           "newbox" {:ops (with-type (wrap-in-box-ops from id nm) "boxes" id tp) :focus (str "b:" id)}
           "inbox" {:ops (with-type (add-node-in-box-ops from id nm) "nodes" id tp) :focus (str "n:" id)}
           "node" {:ops (with-type (add-node-ops id nm) "nodes" id tp) :focus (str "n:" id)}
+          "box" {:ops (with-type (add-box-ops id nm) "boxes" id tp) :focus (str "b:" id)}
+          "box-inbox" {:ops (with-type (into-box (add-box-ops id nm) from id) "boxes" id tp) :focus (str "b:" id)}
+          "sibling" {:ops (with-type (into-box (add-node-ops id nm) (:parent entry) id) "nodes" id tp)
+                     :focus (str "n:" id)}
+          "connect-here" {:ops (with-type (into-box (add-connected-ops from id nm) (:parent entry) id) "nodes" id tp)
+                          :focus (str "n:" id)}
+          "incoming" {:ops (with-type (into-box (conj (vec (add-node-ops id nm))
+                                                      {:op "add-edge" :from id :to from :direction "->"})
+                                                (:parent entry) id)
+                                      "nodes" id tp)
+                      :focus (str "n:" id)}
+          "split" {:ops (with-type (split-ops from id nm (:parent entry) (:direction entry)) "nodes" id tp)
+                   :focus (str "n:" id)}
           nil)))))
 
 (defn wrap-in-box-ops
@@ -316,6 +351,20 @@
     (when (some? box)
       (let [up (get parent-of (str "b:" box))]
         (if (some? up) (recur up) box)))))
+
+(defn parent-box
+  "The box directly containing element `id` — the node of that name,
+  else the box — nil at top level. `parent-of` maps scene ids to box
+  names."
+  [parent-of id]
+  (or (get parent-of (str "n:" id)) (get parent-of (str "b:" id)) nil))
+
+(defn split-parent
+  "Where a node splitting edge [a b] goes: the ends' box when both sit
+  directly in the same one, else top level (nil)."
+  [parent-of [a b]]
+  (let [pa (parent-box parent-of a)]
+    (when (= pa (parent-box parent-of b)) pa)))
 
 (defn parse-nav
   "The page's navigation state from its query string: {:file

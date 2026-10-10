@@ -50,6 +50,20 @@
          (when (some (fn [[n _]] (= v n)) editor/LAYOUTS) v))
        (catch :default _ nil)))
 
+(def ^:private toolbar-key
+  "localStorage key of your toolbar layout."
+  "simpleviz-toolbar")
+
+(defn- stored-toolbar-layout
+  "\"grouped\" when you picked it in this browser, else \"flat\" (also
+  when storage is unavailable)."
+  []
+  (try (if (= "grouped" (js/localStorage.getItem toolbar-key)) "grouped" "flat")
+       (catch :default _ "flat")))
+
+(defn- store-toolbar-layout! [v]
+  (try (js/localStorage.setItem toolbar-key v) (catch :default _ nil)))
+
 (def state (atom {:error nil :notice nil :dismissed-error nil :dismissed-warnings nil
                   :warnings [] :graph nil :layout nil
                   :colors nil :selected nil :collapsed false
@@ -69,6 +83,8 @@
                   :theme-pref (stored-theme)
                   ;; your layout algorithm, for files without :layout
                   :layout-pref (stored-layout)
+                  ;; your toolbar: every tool in a row, or grouped by first key
+                  :toolbar-layout (stored-toolbar-layout)
                   ;; light or dark as the OS has it, when you chose none
                   :theme (if (.-matches (js/window.matchMedia "(prefers-color-scheme: dark)"))
                            "dark"
@@ -433,14 +449,6 @@
       (and (vector? action) (= "direction" (first action)))
       (some? (action-spec sel tgt action))))
 
-;; the action-bar buttons per selection kind, in display order
-(def ^:private toolbar-actions
-  {"edge" [["retarget" "source"] ["retarget" "target"] "follow-ref"]
-   "node" ["add-edge" "add-to-box" "remove-from-box" "new-connected-node" "new-box"
-           "follow-ref" "follow-pair" "open-md"]
-   "box" ["add-edge" "add-node-member" "add-box-member" "remove-node-member"
-          "new-node-in-box" "new-box" "follow-ref" "follow-pair" "open-md"]})
-
 (defn- start-action!
   "Do what the toolbar button for `action` does."
   [sel tgt action]
@@ -453,18 +461,72 @@
       (some? go) (follow-ref! go)
       (some? go-pair) (follow-pair! go-pair))))
 
-(defn- action-btn
-  "The toolbar button for `action`, or nil when it does not apply to
-  this selection right now."
-  [sel tgt action]
-  (when-let [spec (action-spec sel tgt action)]
-    [:button {:class "action-pick" :type "button"
-              :on-click (fn [e] (.stopPropagation e) (start-action! sel tgt action))}
-     (:label spec)
-     (key-hint (editor/chord-for (:kind sel) action))]))
+(defn- avail-fn
+  "available? for selection sel, as the one-argument predicate the
+  chord menus take."
+  [sel]
+  (let [tgt (when (some? sel) (editor/target sel))]
+    (fn [action] (available? sel tgt action))))
 
-(defn- action-buttons [sel tgt]
-  (filterv some? (mapv (fn [a] (action-btn sel tgt a)) (get toolbar-actions (:kind sel)))))
+(defn- toolbar-items
+  "The toolbar's buttons as chord items: every available chord (flat)
+  or one per first key (grouped). Edge direction has its own row, and
+  several pairs are followed by number, so flat leaves both out."
+  [st]
+  (let [sel (:selected st)
+        kind (:kind sel)
+        pairs (working-pairs sel)]
+    (if (= "grouped" (:toolbar-layout st))
+      (filterv (fn [it] (not (and (= kind "edge") (= "e" (first (:keys it))))))
+               (editor/chord-menu kind [] (avail-fn sel) pairs))
+      (filterv (fn [it] (let [a (:action it)]
+                          (not (and (vector? a) (contains? #{"direction" "follow-pair"} (first a))))))
+               (editor/chord-leaves kind (avail-fn sel) pairs)))))
+
+(defn- choose-item!
+  "Act on a toolbar or pop-out item reached from the pending keys
+  `path` (nil from the toolbar): run its chord, or open its group —
+  closing it when it is already the open one."
+  [path item]
+  (let [ks (into (or path []) (:keys item))]
+    (cond
+      (some? (:action item)) (do (swap! state assoc :chord nil)
+                                 (run-chord-action! (:selected @state) (:action item)))
+      (= ks (:chord @state)) (swap! state assoc :chord nil)
+      :else (swap! state assoc :chord ks))))
+
+(defn- item-btn
+  "A toolbar or pop-out button for chord item `it` below `path`."
+  [path it]
+  [:button {:class (if (= "delete" (:action it)) "action-delete" "action-pick") :type "button"
+            :on-click (fn [e] (.stopPropagation e) (choose-item! path it))}
+   (:label it) (key-hint (str (.join (:keys it) " ") (if (= true (:group it)) " ▸" "")))])
+
+(defn- chord-popout
+  "What the pending keys can become, as buttons — the keyboard and the
+  mouse share it."
+  [st]
+  (let [sel (:selected st)
+        path (:chord st)]
+    [:div {:id "chord-popout"}
+     [:div {:class "chord-path"} (.join path " ") " … — Esc cancels"]
+     (into [:div {:class "chord-items"}]
+           (mapv (fn [it] (item-btn path it))
+                 (editor/chord-menu (:kind sel) path (avail-fn sel) (working-pairs sel))))]))
+
+(defn- layout-toggle
+  "Switches the toolbar between flat and grouped; saved in this browser."
+  [st]
+  (let [grouped (= "grouped" (:toolbar-layout st))]
+    [:button {:class "toolbar-layout" :type "button"
+              :title (if grouped
+                       "Grouped by first key — click for every tool in a row"
+                       "Every tool in a row — click to group them by first key")
+              :on-click (fn [e] (.stopPropagation e)
+                          (let [v (if grouped "flat" "grouped")]
+                            (store-toolbar-layout! v)
+                            (swap! state assoc :toolbar-layout v :chord nil)))}
+     (if grouped "grouped" "flat")]))
 
 (defn- submit-id-entry!
   "Create what the open prompt is for (editor/creation-ops); a name that
@@ -490,7 +552,7 @@
                             "Escape" (cancel-id-entry!)
                             nil))}]])
 
-(defn- action-bar [sel tgt]
+(defn- action-bar [st sel tgt]
   (into [:div {:class "details-actions"}]
         (concat
          (when (= (:kind sel) "edge")
@@ -498,11 +560,9 @@
              [(into [:div {:class "dir-group"}]
                     (mapv (fn [[label dir]] (direction-btn tgt current label dir))
                           direction-choices))]))
-         (action-buttons sel tgt)
-         [[:button {:class "action-delete" :type "button"
-                    :on-click (fn [e] (.stopPropagation e) (delete! tgt))}
-           "Delete" (key-hint (editor/chord-for (:kind sel) "delete"))]]
-         (when-let [entry (:id-entry @state)] [(id-entry-row tgt entry)]))))
+         (mapv (fn [it] (item-btn nil it)) (toolbar-items st))
+         [(layout-toggle st)]
+         (when-let [entry (:id-entry st)] [(id-entry-row tgt entry)]))))
 
 (defn- pairs-view
   "The selection's pairs: → for those it declares, ← for those pointing
@@ -570,17 +630,15 @@
      (when editable (attr-add-row sel tgt))]))
 
 (defn- selection-toolbar
-  "Floating bottom-center toolbar: the selection's edit tools, or — with
-  nothing selected — a standalone add-node button. The inspector panel
-  itself stays read/data-only."
+  "Floating bottom-center toolbar: the selection's edit tools (or, with
+  nothing selected, what can be created), the layout toggle, and above
+  them the pop-out while keys are pending. The inspector panel itself
+  stays read/data-only."
   [st]
   (let [sel (:selected st)]
     [:div {:id "selection-toolbar"}
-     (if (some? sel)
-       (action-bar sel (editor/target sel))
-       (into [:div {:class "details-actions"}
-              (action-btn nil nil "new-node")]
-             (when-let [entry (:id-entry st)] [(id-entry-row nil entry)])))]))
+     (when (some? (:chord st)) (chord-popout st))
+     (action-bar st sel (when (some? sel) (editor/target sel)))]))
 
 (defn- banner-close
   "The banner's × — dismisses it without the click reaching the banner."
@@ -873,8 +931,6 @@
     (some? (:flash st))
     [:div {:id "pick-hint"} (:flash st)]
 
-    (some? (:chord st))
-    [:div {:id "pick-hint"} (.join (:chord st) " ") " … — Esc cancels"]
     (some? (:pick st))
     [:div {:id "pick-hint"} (:pick-hint st) " — Esc cancels"]
     (= "edge" (:for (:id-entry st)))
@@ -1742,12 +1798,16 @@
            (current-edit-target-editable? @state))
       (handle-chord-key! e))))
 ;; a press anywhere outside the export menu closes it — ⇩ itself toggles
-;; it (capture phase, so nothing that stops propagation keeps it open)
+;; it — and one outside the toolbar closes the pop-out (capture phase,
+;; so nothing that stops propagation keeps either open)
 (js/document.addEventListener "pointerdown"
   (fn [e]
     (when (and (:export-menu @state)
                (not (.closest (.-target e) "#export-menu, #export-btn")))
-      (swap! state assoc :export-menu false)))
+      (swap! state assoc :export-menu false))
+    (when (and (some? (:chord @state))
+               (not (.closest (.-target e) "#selection-toolbar")))
+      (swap! state assoc :chord nil)))
   true)
 (canvas/set-repaint! paint-now!)
 ;; the headless export's entry point (simpleviz export, server/browser.clj)

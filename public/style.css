@@ -144,6 +144,20 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
                  padding: 3px 10px; border-radius: 999px; cursor: pointer; }
 .action-delete:hover { border-color: var(--diff-removed);
                        background: var(--diff-removed); color: #fff; }
+/* pending chord: what the keys typed (or clicked) so far can become */
+#chord-popout { position: absolute; bottom: calc(100% + 8px); left: 50%;
+                transform: translateX(-50%); min-width: 200px; max-width: 80vw;
+                background: var(--panel); border: 1px solid var(--panel-border);
+                border-radius: 10px; padding: 6px; box-shadow: 0 2px 8px var(--shadow); }
+#chord-popout .chord-path { font-size: 11px; color: var(--text-muted); padding: 2px 6px 6px;
+                            font-family: ui-monospace, monospace; }
+#chord-popout .chord-items { display: flex; flex-direction: column; gap: 4px; }
+#chord-popout .action-pick, #chord-popout .action-delete { margin: 0; text-align: left;
+                                                           display: flex; justify-content: space-between;
+                                                           gap: 16px; white-space: nowrap; }
+.toolbar-layout { margin-left: 8px; border: none; background: none; color: var(--text-muted);
+                  font-size: 10.5px; cursor: pointer; padding: 3px 6px; border-radius: 6px; }
+.toolbar-layout:hover { color: var(--accent); background: var(--hover-plain); }
 .dir-group { display: flex; border: 1px solid var(--panel-border);
              border-radius: 999px; overflow: hidden; }
 .dir-btn { border: none; background: none; color: var(--text-muted);

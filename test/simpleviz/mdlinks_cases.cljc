@@ -27,7 +27,17 @@
    ["crlf cr" "a\r\n[b](b.md)\rc\r\n[d](d.md)" [{:line 2 :label "b" :dest "b.md" :kind "inline"} {:line 4 :label "d" :dest "d.md" :kind "inline"}]]
    ["not links" "<http://x.md> http://y.md [z] (w.md) [] (v.md)" []]
    ["empty dest" "[a]() [b](<>)" []]
-   ["parens in dest" "[a](f(1).md)" [{:line 1 :label "a" :dest "f(1).md" :kind "inline"}]]])
+   ["parens in dest" "[a](f(1).md)" [{:line 1 :label "a" :dest "f(1).md" :kind "inline"}]]
+   ;; a blank line ends a paragraph: no label, code span, destination or
+   ;; title reaches across it
+   ["lone backtick" "Press the ` key.\n\n[a](a.md) then `[no](no.md)` and [b](b.edn)\n\nmore [c](c.md)"
+    [{:line 3 :label "a" :dest "a.md" :kind "inline"} {:line 3 :label "b" :dest "b.edn" :kind "inline"}
+     {:line 5 :label "c" :dest "c.md" :kind "inline"}]]
+   ["label across a blank line" "[ref section\n\nmore text](x.md)" []]
+   ["label across a blank line of blanks" "[ref section\n \t\nmore text](x.md) [ok](o.md)"
+    [{:line 3 :label "ok" :dest "o.md" :kind "inline"}]]
+   ["dest across a blank line" "[a](\n\nx.md)" []]
+   ["title across a blank line" "[a](x.md \"t\n\nu\")" []]])
 
 (def FOLLOWABLE
   "[dest expected]"

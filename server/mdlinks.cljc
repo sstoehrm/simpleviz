@@ -130,17 +130,42 @@
             (and newline? (not seen) (= c "\n")) (recur (inc i) true)
             :else i))))
 
-(defn- label-end
-  "The offset of the ] closing the [ at i (brackets nest, \\ escapes),
-  or nil."
+(defn- blank-line-at?
+  "Does a blank line start at offset i: a \\n, then only spaces and tabs
+  up to another \\n or the end of the text? CommonMark's paragraph
+  bound, which no label, code span or title crosses."
   [s i]
-  (loop [k (inc i) depth 0]
-    (let [c (ch s k)]
-      (cond (= c "") nil
-            (= c "\\") (recur (+ k 2) depth)
-            (= c "[") (recur (inc k) (inc depth))
-            (= c "]") (if (zero? depth) k (recur (inc k) (dec depth)))
-            :else (recur (inc k) depth)))))
+  (and (= (ch s i) "\n")
+       (let [k (skip-blanks s (inc i) false)]
+         (or (= (ch s k) "\n") (>= k (count s))))))
+
+(defn- next-bound
+  "The offset of the first blank line at or after `from`, else the
+  text's length."
+  [s from]
+  (loop [k (.indexOf s "\n" from)]
+    (cond (neg? k) (count s)
+          (blank-line-at? s k) k
+          :else (recur (.indexOf s "\n" (inc k))))))
+
+(defn- bracket-pairs
+  "The ] closing each [ of s, as {open close}: brackets nest, \\ escapes
+  (but not a line break), and a blank line closes every [ still open.
+  One pass, so an unmatched [ costs nothing per later one."
+  [s]
+  (let [n (count s)]
+    ;; the stack of open offsets as nested [top rest] pairs, nil when empty
+    (loop [k 0 stack nil pairs (transient {})]
+      (if (>= k n)
+        (persistent! pairs)
+        (let [c (ch s k)]
+          (cond (= c "\\") (recur (if (= (ch s (inc k)) "\n") (inc k) (+ k 2)) stack pairs)
+                (= c "[") (recur (inc k) [k stack] pairs)
+                (= c "]") (if (some? stack)
+                            (recur (inc k) (second stack) (assoc! pairs (first stack) k))
+                            (recur (inc k) stack pairs))
+                (blank-line-at? s k) (recur (inc k) nil pairs)
+                :else (recur (inc k) stack pairs)))))))
 
 (defn- parse-dest
   "The destination starting at i: [raw end] — <…> form or a run without
@@ -174,7 +199,7 @@
       i
       (loop [k (inc i)]
         (let [c (ch s k)]
-          (cond (= c "") nil
+          (cond (or (= c "") (blank-line-at? s k)) nil
                 (= c "\\") (recur (+ k 2))
                 (= c close) (inc k)
                 :else (recur (inc k))))))))
@@ -205,7 +230,7 @@
   [line]
   (let [k (skip-blanks line 0 false)]
     (when (and (<= k 3) (= (ch line k) "["))
-      (when-let [e (label-end line k)]
+      (when-let [e (get (bracket-pairs line) k)]
         (when (and (> e (inc k)) (= (ch line (inc e)) ":"))
           (when-let [[raw d] (parse-dest line (skip-blanks line (+ e 2) false))]
             (let [t (skip-blanks line d false)
@@ -267,50 +292,54 @@
         {:keys [code defs def-lines]} (scan-lines t starts)
         s (blank-lines t starts code)
         n (count s)
-        found (loop [i 0 acc []]
+        pairs (bracket-pairs s)
+        ;; `bound`: the next blank line at or after i, which no code span
+        ;; crosses (kept in step as i moves, so finding it stays linear)
+        found (loop [i 0 bound (next-bound s 0) acc []]
                 (if (>= i n)
                   acc
-                  (let [c (ch s i)]
+                  (let [c (ch s i)
+                        bound (if (> i bound) (next-bound s i) bound)]
                     (cond
-                      (= c "\\") (recur (+ i 2) acc)
+                      (= c "\\") (recur (+ i 2) bound acc)
                       (= c "`")
                       (let [run (loop [k i] (if (= (ch s k) "`") (recur (inc k)) (- k i)))
                             ticks (apply str (repeat run "`"))
                             close (loop [from (+ i run)]
                                     (let [k (.indexOf s ticks from)]
-                                      (cond (neg? k) nil
+                                      (cond (or (neg? k) (>= k bound)) nil
                                             (= (ch s (+ k run)) "`")
                                             (recur (loop [j k] (if (= (ch s j) "`") (recur (inc j)) j)))
                                             :else k)))]
-                        (recur (if (some? close) (+ close run) (+ i run)) acc))
+                        (recur (if (some? close) (+ close run) (+ i run)) bound acc))
                       (or (= c "[") (and (= c "!") (= (ch s (inc i)) "[")))
                       (let [img (= c "!")
                             open (if img (inc i) i)
-                            e (label-end s open)]
+                            e (get pairs open)]
                         (if (nil? e)
-                          (recur (inc open) acc)
+                          (recur (inc open) bound acc)
                           (let [label (subs s (inc open) e)
                                 line (line-at starts i)
                                 nxt (ch s (inc e))]
                             (cond
                               (= nxt "(")
                               (if-let [[raw end] (inline-tail s (inc e))]
-                                (recur end (conj acc {:line line :label label :dest (clean-dest raw)
+                                (recur end bound (conj acc {:line line :label label :dest (clean-dest raw)
                                                       :kind (if img "image" "inline")}))
-                                (recur (inc open) acc))
+                                (recur (inc open) bound acc))
                               (= nxt "[")
-                              (let [e2 (label-end s (inc e))
+                              (let [e2 (get pairs (inc e))
                                     id (when (some? e2) (subs s (+ e 2) e2))
                                     d (when (some? id)
                                         (get defs (normalize-label (if (= id "") label id))))]
                                 (if (some? d)
-                                  (recur (inc e2) (conj acc {:line line :label label :dest (:dest d) :kind "ref"}))
-                                  (recur (inc open) acc)))
+                                  (recur (inc e2) bound (conj acc {:line line :label label :dest (:dest d) :kind "ref"}))
+                                  (recur (inc open) bound acc)))
                               :else
                               (if-let [d (get defs (normalize-label label))]
-                                (recur (inc e) (conj acc {:line line :label label :dest (:dest d) :kind "ref"}))
-                                (recur (inc open) acc))))))
-                      :else (recur (inc i) acc)))))]
+                                (recur (inc e) bound (conj acc {:line line :label label :dest (:dest d) :kind "ref"}))
+                                (recur (inc open) bound acc))))))
+                      :else (recur (inc i) bound acc)))))]
     (vec (remove (fn [l] (= "" (:dest l))) (sort-by :line (concat found def-lines))))))
 
 (defn- scheme? [d]

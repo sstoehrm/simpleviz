@@ -758,22 +758,25 @@
 
 (defn md-warnings
   "The broken links of md file `rel` (root-relative, under folder `root`)
-  holding `text`: one \"line N: <dest> not found\" or \"line N: <dest>
-  leaves the served folder\" per followable link whose target is no file
-  below `root`. A reference use is checked once, at its definition."
+  holding `text`: one \"line N: <dest> not found\", \"line N: <dest>
+  leaves the served folder\" (or another problem the path check names
+  it by) or \"line N: <dest>: <message>\" per followable link whose
+  target is no file below `root`; one link's failure never fails the
+  rest. A reference use is checked once, at its definition."
   [root rel text]
   (let [dir (some-> (.getParent (io/file rel)) (str/replace "\\" "/"))]
     (vec
      (keep (fn [{:keys [line dest kind]}]
              (when (and (not= kind "ref") (mdlinks/followable? dest))
-               (let [target (if (some? dir) (str dir "/" dest) dest)
-                     why (try (when-not (.isFile (resolve-path root target false link-extensions))
-                                "not found")
-                              (catch clojure.lang.ExceptionInfo e
-                                (if (str/includes? (ex-message e) "leaves the served folder")
-                                  "leaves the served folder"
-                                  (ex-message e))))]
-                 (when (some? why) (str "line " line ": " dest " " why)))))
+               (let [target (if (some? dir) (str dir "/" dest) dest)]
+                 (try (when-not (.isFile (resolve-path root target false link-extensions))
+                        (str "line " line ": " dest " not found"))
+                      (catch Exception e
+                        ;; resolve-path names the path it checked: say dest instead
+                        (let [msg (str (ex-message e))]
+                          (if (str/starts-with? msg (str target " "))
+                            (str "line " line ": " dest (subs msg (count target)))
+                            (str "line " line ": " dest ": " msg))))))))
            (mdlinks/links text)))))
 
 (defn- md-errors

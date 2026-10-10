@@ -58,6 +58,20 @@
            @warnings))
     (fs/delete-tree root)))
 
+(deftest closure-skips-md-refs-quietly
+  ;; a :ref may name an md file, which forking never copies: no warning,
+  ;; wherever it points (missing, above the root, any case)
+  (let [root (tree! {"root.edn" "{:nodes {:a {:ref \"notes.md\"} :b {:ref \"../up.MD\"} :c {:ref \"g.edn\"}}}"
+                     "notes.md" "# notes"
+                     "g.edn" "{:nodes {:d {:ref \"gone.md\"}}}"})
+        warnings (atom [])]
+    (is (= ["root.edn" "g.edn"] (fork/closure "root.edn" (reader root) #(swap! warnings conj %))))
+    (is (= [] @warnings))
+    (is (= [(.getPath (io/file root "root-next.edn")) (.getPath (io/file root "g-next.edn"))]
+           (fork/fork! (.getPath (io/file root "root.edn")) "next" (fn [m] (swap! warnings conj m)))))
+    (is (= [] @warnings))
+    (fs/delete-tree root)))
+
 (deftest fork-copies-a-pair-target-to-its-fork
   (let [root (tree! {"overview.edn" "{:nodes {:api {:pair \"views/deploy.edn#api-svc\"}}}"
                      "views/deploy.edn" "{:nodes {:api-svc {}}}"})

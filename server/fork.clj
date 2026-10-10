@@ -29,7 +29,8 @@
   `start` first, depth-first, each once. `read-rel` returns the EDN text of a
   root-relative path or throws; `warn!` takes one message. A link that
   leaves the root or whose file cannot be read is reported and skipped;
-  a parse error propagates as ex-info \"<rel>: <msg>\"."
+  a ref to an md file (any case) is skipped quietly, since md files are
+  never forked; a parse error propagates as ex-info \"<rel>: <msg>\"."
   [start read-rel warn!]
   (let [seen (atom [])]
     (letfn [(targets [rel text]
@@ -40,6 +41,8 @@
               (doseq [r (targets rel text)]
                 (let [target (paths/resolve-ref rel r)]
                   (cond
+                    (str/ends-with? (str/lower-case r) ".md") nil
+
                     (nil? target)
                     (warn! (str rel ": link " (pr-str r) " leaves the root folder, skipped"))
 

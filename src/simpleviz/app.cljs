@@ -91,6 +91,24 @@
                            "light")}))
 (def last-mtime (atom nil))
 
+;; the root file's root-relative name (/api/root), asked once
+(def ^:private root-path (atom nil))
+
+;; the query string of what the page shows: back/forward re-push it when
+;; leaving would lose unsaved doc text
+(def ^:private shown-query (atom ""))
+
+(defn- page?
+  "Is the md page showing (not a graph, not just the docked panel)?"
+  [st]
+  (= true (:page (:md st))))
+
+(defn- current-path
+  "The root-relative path of the file the page shows: the md page's,
+  else the graph's."
+  [st]
+  (if (page? st) (:path (:md st)) (:path (:graph st))))
+
 (defn- file-query
   "\"?file=<rel>\" for the graph the page is showing, \"\" for the root."
   []
@@ -116,7 +134,7 @@
   (swap! state assoc :id-entry nil))
 
 (declare relayout! post-edit! delete! current-edit-target-editable? follow-ref! navigate! run-chord-action!
-         open-md! save-md! close-md!)
+         open-md! save-md! close-md! open-page! root-path! load-nav!)
 
 ;; layouts per collapsed-set, so expanding (or re-collapsing a seen
 ;; combination) is instant instead of a multi-second ELK run; demoted
@@ -772,7 +790,7 @@
   once a ref has been followed (or the page loaded with a trail)."
   [st]
   (let [trail (:trail (:nav st))]
-    (when (and (seq trail) (some? (:path (:graph st))))
+    (when (and (seq trail) (some? (current-path st)))
       (into [:div {:id "trail"}]
             (concat
              (apply concat
@@ -787,7 +805,7 @@
                         [:span {:class "trail-sep" :key (str "s" i)} "›"]])
                      trail))
              [[:span {:class "trail-current" :key "cur"}
-               (or (:path (:graph st)) (:file (:nav st)))]])))))
+               (or (current-path st) (:file (:nav st)))]])))))
 
 (def ^:private tooltip-el (js/document.getElementById "tooltip"))
 ;; the item the tooltip currently shows — its content is re-rendered only
@@ -1008,23 +1026,25 @@
 
 (defn- md-panel [st]
   (let [md (:md st)]
-    [:aside {:id "md-panel" :class (if (:full md) "full" "")}
+    [:aside {:id "md-panel" :class (cond (:page md) "page" (:full md) "full" :else "")}
      [:div {:class "md-head"}
       [:span {:class "md-path" :title (:path md)} (:path md)]
       (when (editor/md-dirty? md) [:span {:class "md-dirty" :title "unsaved changes"} "●"])
       (when-not (:exists md) [:span {:class "md-new"} "new file"])
       [:span {:class "md-spacer"}]
-      [:button {:class "md-btn" :type "button"
-                :title (if (:full md) "Dock (Esc)" "Fullscreen")
-                :on-click (fn [e] (.stopPropagation e)
-                            (swap! state assoc-in [:md :full] (not (:full (:md @state)))))}
-       (if (:full md) "⤡" "⤢")]
+      (when-not (:page md)
+        [:button {:class "md-btn" :type "button"
+                  :title (if (:full md) "Dock (Esc)" "Fullscreen")
+                  :on-click (fn [e] (.stopPropagation e)
+                              (swap! state assoc-in [:md :full] (not (:full (:md @state)))))}
+         (if (:full md) "⤡" "⤢")])
       [:button {:class "md-btn" :type "button" :title "Save (Ctrl+S)" :disabled (= true (:saving md))
                 :on-click (fn [e] (.stopPropagation e) (save-md!))}
        "Save"]
-      [:button {:class "md-btn" :type "button" :title "Save and close" :aria-label "Save and close"
-                :on-click (fn [e] (.stopPropagation e) (close-md!))}
-       "×"]]
+      (when-not (:page md)
+        [:button {:class "md-btn" :type "button" :title "Save and close" :aria-label "Save and close"
+                  :on-click (fn [e] (.stopPropagation e) (close-md!))}
+         "×"])]
      (when (some? (:error md))
        [:div {:class "md-error"}
         [:span {:class "md-error-text"} (:error md)]
@@ -1041,13 +1061,15 @@
                  :on-input (fn [e] (swap! state assoc-in [:md :text] (.. e -target -value)))}]]))
 
 (defn- app-view [st]
+  (let [page (page? st)]
   [:div {:id "root" :class (str (when (some? (:pick st)) "picking")
-                                (cond (some? (:md st)) " inspecting md-open"
+                                (cond page " md-page"
+                                      (some? (:md st)) " inspecting md-open"
                                       (some? (:selected st)) " inspecting"))}
    (hint-view st)
-   (when (and (nil? (:scene st)) (nil? (:error st)))
+   (when (and (not page) (nil? (:scene st)) (nil? (:error st)))
      (load-view st))
-   (collapsed-view st)
+   (when-not page (collapsed-view st))
    [:div {:id "top-center"}
     (trail-view st)
     (when (some? (:graph st)) (legend-view st))]
@@ -1062,15 +1084,16 @@
    [:div {:id "top-right"}
     ;; always there and first, so it never shifts the others; disabled
     ;; until an edit keeps the old arrangement
-    (let [seeded (boolean (:seeded (:layout st)))]
-      [:button {:id "relayout-btn" :type "button" :disabled (not seeded)
-                :title (if seeded
-                         "Re-layout: edits kept the old arrangement, run a fresh layout"
-                         "Re-layout: the layout is already fresh")
-                :on-click (fn [e] (.stopPropagation e) (relayout! true))}
-       "▦"])
+    (when-not page
+      (let [seeded (boolean (:seeded (:layout st)))]
+        [:button {:id "relayout-btn" :type "button" :disabled (not seeded)
+                  :title (if seeded
+                           "Re-layout: edits kept the old arrangement, run a fresh layout"
+                           "Re-layout: the layout is already fresh")
+                  :on-click (fn [e] (.stopPropagation e) (relayout! true))}
+         "▦"]))
     (when (some? (:graph st)) (layout-menu-view (:graph st) (:layout-pref st)))
-    (when (some? (:graph st)) (theme-menu-view (:graph st) (:theme-pref st)))
+    (when (or page (some? (:graph st))) (theme-menu-view (:graph st) (:theme-pref st)))
     (when (current-edit-target-editable? st)
       [:button {:id "undo-btn" :type "button" :title "Undo last edit (Ctrl+Z)"
                 :on-click (fn [e] (.stopPropagation e) (post-edit! [{:op "undo"}]))}
@@ -1090,7 +1113,7 @@
    (when (and (some? (:scene st)) (current-edit-target-editable? st))
      (selection-toolbar st))
    (cond (some? (:md st)) (md-panel st)
-         (some? (:selected st)) (details-view st))])
+         (some? (:selected st)) (details-view st))]))
 
 (defn- paint-now! []
   (when-let [canvas-el (js/document.getElementById "canvas")]
@@ -1281,37 +1304,57 @@
       (swap! state assoc :error (str "Render error: " (or (.-message e) (str e)))))))
 
 (defn ^:async tick []
-  (let [mtime (try
-                (let [resp (js-await (js/fetch (str "/api/version" (file-query))))
-                      v (js-await (.json resp))]
-                  (:mtime v))
-                (catch :default _ nil))]
-    ;; a failed poll means the server is gone (or restarting); the flag
-    ;; clears on the next successful poll, so reconnection needs no action
-    (when (not= (nil? mtime) (:disconnected @state))
-      (swap! state assoc :disconnected (nil? mtime)))
-    (when (and (some? mtime) (not= mtime @last-mtime))
-      (reset! last-mtime mtime)
-      (js-await (reload!)))))
+  (cond
+    ;; the md page polls its doc on its own (poll-md!); this only notices
+    ;; the server going away and coming back
+    (page? @state)
+    (let [ok (try (.-ok (js-await (js/fetch "/api/root"))) (catch :default _ false))]
+      (when (not= (not ok) (:disconnected @state))
+        (swap! state assoc :disconnected (not ok))))
+
+    ;; the first load could not ask what the root is: try again
+    (and (nil? (:file (:nav @state))) (nil? @root-path))
+    (when (some? (js-await (root-path!))) (js-await (load-nav!)))
+
+    :else
+    (let [mtime (try
+                  (let [resp (js-await (js/fetch (str "/api/version" (file-query))))
+                        v (js-await (.json resp))]
+                    (:mtime v))
+                  (catch :default _ nil))]
+      ;; a failed poll means the server is gone (or restarting); the flag
+      ;; clears on the next successful poll, so reconnection needs no action
+      (when (not= (nil? mtime) (:disconnected @state))
+        (swap! state assoc :disconnected (nil? mtime)))
+      (when (and (some? mtime) (not= mtime @last-mtime))
+        (reset! last-mtime mtime)
+        (js-await (reload!))))))
 
 (defn- ^:async load-nav!
-  "The URL changed (follow, crumb, browser back): re-read the
-  navigation state, drop everything that belongs to the previous file —
-  selection, edits in progress, collapsed boxes, cached layouts, the
-  graph itself — and load the file the URL now names."
+  "The URL changed (follow, crumb, browser back) or the page loaded:
+  re-read the navigation state, drop everything that belongs to the
+  previous file — selection, edits in progress, collapsed boxes, cached
+  layouts, the graph itself, the md page — and load what the URL now
+  names: an md page or a graph. A docked doc stays open between graphs."
   []
   (let [nav (editor/parse-nav js/location.search)]
+    (reset! shown-query js/location.search)
     (swap! graph-gen inc)
-    (swap! state assoc :nav nav
-           :nav-error nil :error nil :notice nil :dismissed-error nil :dismissed-warnings nil
-           :graph nil :scene nil :layout nil
-           :selected nil :editing nil :edit-error nil :pick nil :pick-hint nil
-           :chord nil :id-entry nil :pending-focus (:focus nav) :focus-center true
-           :collapsed-boxes #{} :export-menu false)
+    (swap! state (fn [st]
+                   (assoc st :nav nav
+                          :nav-error nil :error nil :notice nil :dismissed-error nil :dismissed-warnings nil
+                          :warnings [] :graph nil :scene nil :layout nil
+                          :selected nil :editing nil :edit-error nil :pick nil :pick-hint nil
+                          :chord nil :id-entry nil :pending-focus (:focus nav) :focus-center true
+                          :collapsed-boxes #{} :export-menu false
+                          :md (when-not (page? st) (:md st)))))
     (.clear layout-cache)
     (reset! last-mtime nil)
     (canvas/refit-next!)
-    (js-await (tick))))
+    (let [path (or (:file nav) (js-await (root-path!)))]
+      (if (= "md" (editor/doc-kind path))
+        (js-await (open-page! path))
+        (js-await (tick))))))
 
 (defn- ^:async navigate!
   "Show another graph of the served folder: push its query string
@@ -1334,7 +1377,7 @@
   [ref]
   (let [st @state
         {:keys [trail]} (:nav st)
-        current (:path (:graph st))
+        current (current-path st)
         target (editor/resolve-ref current ref)]
     (cond
       (:following st) nil
@@ -1376,7 +1419,7 @@
     (when-not (:following st)
       (swap! state assoc :following true)
       (try
-        (js-await (navigate! (editor/follow-url (:path (:graph st)) (:trail (:nav st)) (:file p)
+        (js-await (navigate! (editor/follow-url (current-path st) (:trail (:nav st)) (:file p)
                                                 (str (if (= (:kind p) "box") "b:" "n:") (:id p)))))
         (finally (swap! state assoc :following false))))))
 
@@ -1390,6 +1433,32 @@
 (defn- ^:async fetch-doc [path]
   (let [resp (js-await (js/fetch (str "/api/text?path=" (js/encodeURIComponent path))))]
     (js-await (.json resp))))
+
+(defn- ^:async root-path!
+  "The served root file's root-relative name, nil while the server
+  can't be reached."
+  []
+  (or @root-path
+      (try (let [out (js-await (.json (js-await (js/fetch "/api/root"))))]
+             (reset! root-path (:path out)))
+           (catch :default _ nil))))
+
+(defn- ^:async open-page!
+  "Show md file `path` as the page: the doc editor, full window. A path
+  the server refuses shows as the error banner, the trail intact."
+  [path]
+  (try
+    (let [out (js-await (fetch-doc path))]
+      (if (some? (:error out))
+        (swap! state assoc :md nil :error (str "Doc error: " (:error out)) :dismissed-error nil)
+        (do (swap! md-gen inc)
+            (apply-theme! (effective-theme nil (:theme-pref @state) (:theme @state)))
+            (set! (.-title js/document) (str (format/basename path) " — simpleviz"))
+            (swap! state assoc :error nil :disconnected false
+                   :md (editor/adopt-doc {:path path :page true :full false :saving false} out))
+            (focus-md!))))
+    (catch :default _
+      (swap! state assoc :disconnected true))))
 
 (defn- focus-md! []
   (when-let [el (js/document.getElementById "md-text")] (.focus el)))
@@ -1816,7 +1885,7 @@
 (add-watch state :render (fn [_ _ _ _] (rerender!)))
 (canvas/setup-pan-zoom! (js/document.getElementById "canvas-wrap"))
 (rerender!)
-(tick)
+(load-nav!)
 (js/setInterval tick 1000)
 (js/setInterval poll-md! 1000)
 ;; unsaved doc edits: the browser asks before the tab closes or reloads

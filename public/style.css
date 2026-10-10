@@ -89,6 +89,9 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
             border-left: 1px solid var(--panel-border); z-index: 5;
             box-shadow: -2px 0 8px var(--shadow); }
 #md-panel.full { left: 0; width: auto; z-index: 20; border-left: none; }
+/* the md page: the doc editor filling the window under the top bar */
+#md-panel.page { top: 52px; left: 0; width: auto; border-left: none; box-shadow: none;
+                 border-top: 1px solid var(--panel-divider); }
 #md-panel .md-head { display: flex; align-items: center; gap: 6px; padding: 8px 10px 8px 14px;
                      border-bottom: 1px solid var(--panel-divider); font-size: 13px; }
 #md-panel .md-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;

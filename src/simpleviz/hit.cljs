@@ -34,6 +34,35 @@
                  (range (dec (.-length pts)))))
          sections)))
 
+(defn- near-bbox?
+  "Could p be within tol of an item in bounding box bb? True without one
+  (hand-built scenes)."
+  [p bb tol]
+  (or (nil? bb)
+      (and (<= (- (:x0 bb) tol) (:x p) (+ (:x1 bb) tol))
+           (<= (- (:y0 bb) tol) (:y p) (+ (:y1 bb) tol)))))
+
+;; hit-test runs on every pointermove: a scene's items split by kind once,
+;; not per event (scenes are replaced, never changed in place)
+(def ^:private parts-cache (js/WeakMap.))
+
+(defn- parts [scene]
+  (or (.get parts-cache scene)
+      (let [nodes [] edges [] labels [] boxes []
+            edge-by-id (js/Map.)
+            labeled (js/Set.)]
+        (doseq [it (:items scene)]
+          (case (:kind it)
+            "node" (.push nodes it)
+            "edge" (do (.push edges it) (.set edge-by-id (:id it) it))
+            "edge-label" (do (.push labels it) (.add labeled (:edge-id it)))
+            "box" (.push boxes it)
+            nil))
+        (let [v {:nodes nodes :edges edges :labels labels :boxes-rev (.reverse boxes)
+                 :labeled labeled :edge-by-id edge-by-id}]
+          (.set parts-cache scene v)
+          v))))
+
 (defn- box-hit?
   "Header strip or 4px border band only — never the interior content area."
   [p item]
@@ -82,21 +111,15 @@
   tol (the app passes tol = 8/k)."
   ([scene p tol] (hit-test scene p tol (/ 8 tol)))
   ([scene p tol k]
-  (let [items (:items scene)
-        by-kind (fn [k] (filterv (fn [it] (= (:kind it) k)) items))
-        edges (by-kind "edge")
-        labels (by-kind "edge-label")
-        ;; looked up lazily on an actual label hit — building an id map on
-        ;; every click is the dominant cost at 10k edges
-        edge-of (fn [id] (some (fn [e] (when (= (:id e) id) e)) edges))
-        labeled (js/Set. (mapv (fn [l] (:edge-id l)) labels))]
+  (let [{:keys [nodes edges labels boxes-rev labeled edge-by-id]} (parts scene)]
     (or (some (fn [it] (when (in-rect? p (:x it) (:y it) (:w it) (:h it)) it))
-              (by-kind "node"))
+              nodes)
         (some (fn [l] (when (in-rect? p (- (:x l) 3) (- (:y l) 3)
                                       (+ (:w l) 6) (+ (:h l) 6))
-                        (edge-of (:edge-id l))))
+                        (.get edge-by-id (:edge-id l))))
               labels)
         (some (fn [it] (when (and (not (.has labeled (:id it)))
+                                  (near-bbox? p (:bbox it) tol)
                                   (near-sections? p (:sections it) tol))
                          it))
               edges)
@@ -110,4 +133,4 @@
                                            scene/HIDE-BTN-SIZE scene/HIDE-BTN-SIZE))
                         {:kind "collapse-button" :box-id (:id it)})
                       (when (box-hit? p it) it)))
-                (reverse (by-kind "box"))))))))
+                boxes-rev))))))

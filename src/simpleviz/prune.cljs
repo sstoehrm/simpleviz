@@ -1,4 +1,5 @@
-(ns simpleviz.prune)
+(ns simpleviz.prune
+  (:require [simpleviz.transform :refer [edge-ends]]))
 
 ;; Collapse transform: a collapsed box keeps its place in the graph but
 ;; loses its contents; edges that crossed its boundary re-attach to the
@@ -24,10 +25,10 @@
     (doseq [b box-names] (mark b))
     {:boxes dead-boxes :nodes dead-nodes}))
 
-(defn- endpoint-id
-  "Prefixed endpoint id; hand-built fixtures without ids default to node."
-  [id nm]
-  (if (some? id) id (str "n:" nm)))
+(defn- marked?
+  "Is elk id `eid` in mark-dead's sets?"
+  [{:keys [boxes nodes]} eid]
+  (.has (if (.startsWith eid "b:") boxes nodes) (.slice eid 2)))
 
 (defn- contents-changed
   "Sorted array of the :diff statuses present in box b's transitive
@@ -35,7 +36,7 @@
   none — never an empty array (empty arrays are truthy in JS and the
   canvas dot / stop expansion rely on nil = no hidden changes)."
   [graph b]
-  (let [{bs' :boxes ns' :nodes} (mark-dead graph [b])
+  (let [{bs' :boxes ns' :nodes :as inside} (mark-dead graph [b])
         acc (js/Set.)]
     (doseq [nm (js/Array.from bs')]
       (let [d (:diff (get (:boxes-by-name graph) nm))]
@@ -44,14 +45,8 @@
       (let [d (:diff (get (:nodes graph) n))]
         (when (some? d) (.add acc d))))
     (doseq [e (:edges graph)]
-      (let [inside? (fn [id nm]
-                      (let [eid (endpoint-id id nm)]
-                        (if (.startsWith eid "b:")
-                          (.has bs' (.slice eid 2))
-                          (.has ns' (.slice eid 2)))))]
-        (when (and (some? (:diff e))
-                   (inside? (:source-id e) (:source e))
-                   (inside? (:target-id e) (:target e)))
+      (let [[s t] (edge-ends e)]
+        (when (and (some? (:diff e)) (marked? inside s) (marked? inside t))
           (.add acc (:diff e)))))
     (when (pos? (.-size acc))
       (.sort (js/Array.from acc)))))
@@ -81,7 +76,7 @@
   (let [effective (effective-collapsed graph collapsed-names)]
     (if (zero? (.-length effective))
       graph
-      (let [{dead-boxes :boxes dead-nodes :nodes} (mark-dead graph effective)
+      (let [{dead-boxes :boxes dead-nodes :nodes :as dead} (mark-dead graph effective)
             ;; the collapsed boxes themselves survive
             _ (doseq [b effective] (.delete dead-boxes b))
             owner (js/Map.)
@@ -105,34 +100,23 @@
                                  (assoc b :collapsed true :components []
                                         :diff-inside (contents-changed graph (:name b)))
                                  (assoc b :components
-                                        (filterv (fn [c]
-                                                   (if (.startsWith c "n:")
-                                                     (not (.has dead-nodes (.slice c 2)))
-                                                     (not (.has dead-boxes (.slice c 2)))))
-                                                 (:components b)))))))
+                                        (filterv #(not (marked? dead %)) (:components b)))))))
             by-name (let [o {}] (doseq [b boxes] (assoc! o (:name b) b)) o)
             parent-of (let [o {}]
                         (doseq [[k v] (js/Object.entries (:parent-of graph))]
-                          (when (and (not (.has dead-boxes v))
-                                     (if (.startsWith k "n:")
-                                       (not (.has dead-nodes (.slice k 2)))
-                                       (not (.has dead-boxes (.slice k 2)))))
+                          (when (and (not (.has dead-boxes v)) (not (marked? dead k)))
                             (assoc! o k v)))
                         o)
-            resolve-end (fn [id nm]
-                          (let [eid (endpoint-id id nm)]
-                            (if (.startsWith eid "b:")
-                              (if-let [b (.get box-owner (.slice eid 2))]
-                                {:id (str "b:" b) :name b}
-                                {:id eid :name nm})
-                              (if-let [b (.get owner (.slice eid 2))]
-                                {:id (str "b:" b) :name b}
-                                {:id eid :name nm}))))
+            resolve-end (fn [eid nm]
+                          (if-let [b (.get (if (.startsWith eid "b:") box-owner owner) (.slice eid 2))]
+                            {:id (str "b:" b) :name b}
+                            {:id eid :name nm}))
             merged (js/Map.)
             order (js/Array.)
             _ (doseq [e (:edges graph)]
-                (let [s (resolve-end (:source-id e) (:source e))
-                      t (resolve-end (:target-id e) (:target e))]
+                (let [[sid tid] (edge-ends e)
+                      s (resolve-end sid (:source e))
+                      t (resolve-end tid (:target e))]
                   (when (not= (:id s) (:id t))
                     (let [k (str (:id s) "→" (:id t)
                                  "|" (:source (:arrows e)) (:target (:arrows e)))]
@@ -169,7 +153,7 @@
   (let [effective (effective-collapsed graph collapsed-names)]
     (if (zero? (.-length effective))
       sc
-      (let [{dead-boxes :boxes dead-nodes :nodes} (mark-dead graph effective)
+      (let [{dead-boxes :boxes :as dead} (mark-dead graph effective)
             _ (doseq [b effective] (.delete dead-boxes b))
             eff-set (js/Set. effective)
             dead-edges (js/Set.)
@@ -177,16 +161,10 @@
                       (.filter
                        (fn [it]
                          (case (:kind it)
-                           "box" (not (.has dead-boxes (.slice (:id it) 2)))
-                           "node" (not (.has dead-nodes (.slice (:id it) 2)))
+                           ("box" "node") (not (marked? dead (:id it)))
                            "edge"
-                           (let [gone? (fn [id nm]
-                                         (let [eid (endpoint-id id nm)]
-                                           (if (.startsWith eid "b:")
-                                             (.has dead-boxes (.slice eid 2))
-                                             (.has dead-nodes (.slice eid 2)))))]
-                             (if (and (gone? (:source-id it) (:source it))
-                                      (gone? (:target-id it) (:target it)))
+                           (let [[s t] (edge-ends it)]
+                             (if (and (marked? dead s) (marked? dead t))
                                (do (.add dead-edges (:id it)) false)
                                true))
                            "edge-label" (not (.has dead-edges (:edge-id it)))

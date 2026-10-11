@@ -11,3 +11,10 @@
   (is (nil? (paths/resolve-ref "root.edn" "/etc/x.edn")))
   (is (nil? (paths/resolve-ref "root.edn" "  ")))
   (is (nil? (paths/resolve-ref "root.edn" nil))))
+
+(deftest md-path-is-any-case-dot-md
+  (is (paths/md-path? "notes.md"))
+  (is (paths/md-path? "a/B.MD"))
+  (is (not (paths/md-path? "g.edn")))
+  (is (not (paths/md-path? "md")))
+  (is (not (paths/md-path? nil))))

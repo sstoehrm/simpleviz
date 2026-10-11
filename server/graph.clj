@@ -15,11 +15,12 @@
 (def ^:private edge-shape-valid? (m/validator EdgeShape))
 (def ^:private edge-shape-explainer (m/explainer EdgeShape))
 
-(def ^:private directions
+(def directions
+  "Every spelling of an edge :direction -> its canonical keyword."
   {:-> :-> :<- :<- :<-> :<-> :- :-
    "->" :-> "<-" :<- "<->" :<-> "-" :-})
 
-(defn- ident->str
+(defn ident->str
   "Coerce a node/box/component identifier to a display string. Keywords lose
   their leading colon but keep their namespace (matching the old
   EDN->cheshire->frontend pipeline); anything else falls back to str."
@@ -63,7 +64,7 @@
   entries; :name is both the identity and the display label."
   [boxes-in warn!]
   (->> boxes-in
-       (map-indexed
+       (keep-indexed
         (fn [i b]
           (if-not (map? b)
             (do (warn! (str "box " i ": not a map, skipped")) nil)
@@ -71,7 +72,6 @@
               (if (str/blank? nm)
                 (do (warn! (str "box " i ": missing :name, skipped")) nil)
                 {:name nm :label nm :attrs b})))))
-       (remove nil?)
        vec))
 
 (defn- edges-map->seq
@@ -141,7 +141,7 @@
               is-box {:name x :eid (str "b:" x)}
               :else nil)))]
     (->> edges-in
-         (map-indexed
+         (keep-indexed
           (fn [i e]
             (if-not (map? e)
               (do (warn! (str "edge " i ": not a map, skipped")) nil)
@@ -178,7 +178,6 @@
                        :name (coerce-str (:name e) "")
                        :type (coerce-str (:type e) "")
                        :attrs e})))))))
-         (remove nil?)
          vec)))
 
 (defn- build-boxes

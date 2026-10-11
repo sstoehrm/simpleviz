@@ -1,5 +1,6 @@
 (ns simpleviz.editor
-  (:require [mdlinks :as mdlinks]))
+  (:require [mdlinks :as mdlinks]
+            [paths :refer [md-path? resolve-ref]]))
 
 ;; Pure op-payload builders — the DOM-facing code in app.cljs stays thin.
 
@@ -166,24 +167,23 @@
             {:keys [from to]} (first ops)]
         {:ops (with-type (named-edge-ops ops nm) "edges" [from to] tp) :focus nil})
       (when (not= id "")
-        (case (:for entry)
-          "connect" {:ops (with-type (add-connected-ops from id nm) "nodes" id tp) :focus (str "n:" id)}
-          "newbox" {:ops (with-type (wrap-in-box-ops from id nm) "boxes" id tp) :focus (str "b:" id)}
-          "inbox" {:ops (with-type (add-node-in-box-ops from id nm) "nodes" id tp) :focus (str "n:" id)}
-          "node" {:ops (with-type (add-node-ops id nm) "nodes" id tp) :focus (str "n:" id)}
-          "box" {:ops (with-type (add-box-ops id nm) "boxes" id tp) :focus (str "b:" id)}
-          "box-inbox" {:ops (with-type (into-box (add-box-ops id nm) from id) "boxes" id tp) :focus (str "b:" id)}
-          "sibling" {:ops (with-type (into-box (add-node-ops id nm) (:parent entry) id) "nodes" id tp)
-                     :focus (str "n:" id)}
-          "connect-here" {:ops (with-type (into-box (add-connected-ops from id nm) (:parent entry) id) "nodes" id tp)
-                          :focus (str "n:" id)}
-          "incoming" {:ops (with-type (into-box (conj (vec (add-node-ops id nm))
-                                                      {:op "add-edge" :from id :to from :direction "->"})
-                                                (:parent entry) id)
-                                      "nodes" id tp)
-                      :focus (str "n:" id)}
-          "split" {:ops (with-type (split-ops from id nm (:parent entry) (:direction entry)) "nodes" id tp)
-                   :focus (str "n:" id)}
+        (if-let [[ops section]
+                 (case (:for entry)
+                   "connect" [(add-connected-ops from id nm) "nodes"]
+                   "newbox" [(wrap-in-box-ops from id nm) "boxes"]
+                   "inbox" [(add-node-in-box-ops from id nm) "nodes"]
+                   "node" [(add-node-ops id nm) "nodes"]
+                   "box" [(add-box-ops id nm) "boxes"]
+                   "box-inbox" [(into-box (add-box-ops id nm) from id) "boxes"]
+                   "sibling" [(into-box (add-node-ops id nm) (:parent entry) id) "nodes"]
+                   "connect-here" [(into-box (add-connected-ops from id nm) (:parent entry) id) "nodes"]
+                   "incoming" [(into-box (conj (vec (add-node-ops id nm))
+                                               {:op "add-edge" :from id :to from :direction "->"})
+                                         (:parent entry) id)
+                               "nodes"]
+                   "split" [(split-ops from id nm (:parent entry) (:direction entry)) "nodes"]
+                   nil)]
+          {:ops (with-type ops section id tp) :focus (str (if (= section "boxes") "b:" "n:") id)}
           nil)))))
 
 (defn wrap-in-box-ops
@@ -322,27 +322,6 @@
 
 ;; ---- refs between graphs ----
 
-(defn resolve-ref
-  "The root-relative path a `ref` on the file `current-path` (itself
-  root-relative) points to, with `.`/`..`/empty segments collapsed;
-  nil when the ref is blank, absolute, or climbs above the root (more
-  `..` than `current-path` has directories)."
-  [current-path ref]
-  (let [ref (.trim (str (if (nil? ref) "" ref)))]
-    (when (and (not= ref "")
-               (not (.startsWith ref "/"))
-               (nil? (re-find (js/RegExp. "^[A-Za-z]:") ref)))
-      (loop [acc (vec (.slice (.split (str current-path) "/") 0 -1))
-             segs (vec (.split ref "/"))]
-        (if (empty? segs)
-          (when (seq acc) (.join acc "/"))
-          (let [seg (first segs)
-                more (vec (rest segs))]
-            (cond
-              (or (= seg "") (= seg ".")) (recur acc more)
-              (= seg "..") (when (seq acc) (recur (pop acc) more))
-              :else (recur (conj acc seg) more))))))))
-
 (defn top-box-of
   "The outermost box around scene id `scene-id` (\"n:api\", \"b:grp\"):
   walks `parent-of` (scene id -> box name) up to the last box; nil when
@@ -436,14 +415,14 @@
     (let [p (resolve-ref current-path r)]
       (cond
         (nil? p) {:error (str ":md-ref " (pr-str r) " leaves the served folder")}
-        (not (.endsWith (.toLowerCase p) ".md")) {:error (str ":md-ref " (pr-str r) " is not an .md file")}
+        (not (md-path? p)) {:error (str ":md-ref " (pr-str r) " is not an .md file")}
         :else {:path p}))))
 
 (defn doc-kind
   "What the page shows for root-relative `path`: \"md\" for an .md file
   (any case), else \"graph\"."
   [path]
-  (if (and (some? path) (.endsWith (.toLowerCase path) ".md")) "md" "graph"))
+  (if (md-path? path) "md" "graph"))
 
 (defn link-target
   "Where following markdown link destination `dest` in the md file at

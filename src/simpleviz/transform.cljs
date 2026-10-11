@@ -7,7 +7,16 @@
 (def NODE-FONT "bold 14px system-ui, sans-serif")
 (def SUB-FONT "11px system-ui, sans-serif")
 
-(def ^:private diff-glyphs {"added" "+" "removed" "−" "modified" "~"})
+(defn edge-ends
+  "An edge's [source target] elk ids; hand-built fixtures without ids
+  default to nodes."
+  [e]
+  [(or (:source-id e) (str "n:" (:source e)))
+   (or (:target-id e) (str "n:" (:target e)))])
+
+(def diff-glyphs
+  "Each compare status's mark, on the canvas, in ELK labels and the legend."
+  {"added" "+" "removed" "−" "modified" "~"})
 
 ;; room inside a box: header on top, hairline elsewhere. Shared with the
 ;; seeding below, which derives a new box's origin from its contents.

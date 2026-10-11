@@ -4,7 +4,8 @@
   element they connect to, edges between cells routed through the gaps.
   Pure: ELK is passed in."
   (:require [simpleviz.editor :refer [top-box-of]]
-            [simpleviz.transform :refer [element-run layout-positions seed-layout seedable?]]))
+            [simpleviz.scene :refer [section-points]]
+            [simpleviz.transform :refer [edge-ends element-run layout-positions seed-layout seedable?]]))
 
 (def MARGIN 20)
 (def GAP 80)
@@ -18,12 +19,6 @@
   "The top-level element (elk id) that contains elk id `id`, or `id`."
   [parent-of id]
   (if-let [b (top-box-of parent-of id)] (str "b:" b) id))
-
-(defn edge-ends
-  "An edge's [source target] elk ids."
-  [e]
-  [(or (:source-id e) (str "n:" (:source e)))
-   (or (:target-id e) (str "n:" (:target e)))])
 
 (defn top-items
   "Elk ids of the top-level elements: nodes, then boxes, in the order the
@@ -436,7 +431,7 @@
   [e rp ox oy]
   (let [o (or (get rp (:container e)) {:x 0 :y 0})
         tx (fn [p] {:x (+ ox (:x o) (:x p)) :y (+ oy (:y o) (:y p))})]
-    (vec (mapcat (fn [s] (mapv tx (into (into [(:startPoint s)] (or (:bendPoints s) [])) [(:endPoint s)])))
+    (vec (mapcat (fn [s] (mapv tx (section-points s)))
                  (or (:sections e) [])))))
 
 (defn- abs-labels [e rp ox oy]
@@ -469,16 +464,21 @@
       "SOUTH" {:x (+ x (* w f)) :y (+ y h)}
       {:x (+ x (* w f)) :y y})))
 
+(defn json-copy
+  "A deep copy of plain JSON data, as ELK input must be (ELK mutates it)."
+  [x]
+  (js/JSON.parse (js/JSON.stringify x)))
+
 (defn- with-direction
   "A copy of ELK input `run` laid out in direction `dir`."
   [run dir]
-  (let [c (js/JSON.parse (js/JSON.stringify run))]
+  (let [c (json-copy run)]
     (assoc c :layoutOptions (assoc (:layoutOptions c) "elk.direction" dir))))
 
 (defn- portless
   "A copy of element run `run` without its ports and the edges to them."
   [run]
-  (let [c (js/JSON.parse (js/JSON.stringify run))]
+  (let [c (json-copy run)]
     (assoc c
            :children (mapv (fn [ch] (assoc ch :ports [])) (:children c))
            :edges (filterv (fn [e] (not (:port e))) (:edges c)))))
@@ -504,12 +504,17 @@
   their text is long, as wide as a line — for a top-to-bottom layout, so
   each label runs along its vertical edge."
   [run]
-  (let [c (js/JSON.parse (js/JSON.stringify run))]
+  (let [c (json-copy run)]
     (assoc c :edges (mapv (fn [e] (if (seq (:labels e))
                                     (assoc e :labels (mapv (fn [lb] (assoc lb :width (:height lb) :height (:width lb)))
                                                            (:labels e)))
                                     e))
                           (or (:edges c) [])))))
+
+(defn- push-at!
+  "Append x to the array under k in mutable map m, starting it if absent."
+  [m k x]
+  (if-let [a (get m k)] (.push a x) (assoc! m k [x])))
 
 (defn- select-keys*
   "Map m restricted to keys ks (JS-object keys)."
@@ -560,7 +565,7 @@
           (= ts tt) (cond
                       ;; inside a strip box, or a loop in the strip: the strip run
                       (.has in-strip ts) (.push strip-edges (canon e))
-                      (compound? ts) (assoc! inner ts (conj (or (get inner ts) []) (canon e)))
+                      (compound? ts) (push-at! inner ts (canon e))
                       ;; a loop on a placed leaf: drawn beside it below
                       :else (.push loops e))
           (and (.has in-strip ts) (.has in-strip tt)) (.push strip-edges (canon e))
@@ -571,24 +576,22 @@
                    :tside (port-side (get sl tt) (get sl ts))}]
             (.push cross c)
             (when (compound? ts)
-              (assoc! ports ts (conj (or (get ports ts) []) {:id (str "p:" k ":s") :side (:sside c)}))
+              (push-at! ports ts {:id (str "p:" k ":s") :side (:sside c)})
               (when (not= s ts)
                 (.add port-edge-ids (str k ":s"))
-                (assoc! inner ts (conj (or (get inner ts) [])
-                                       {:id (str k ":s") :port true :sources [s] :targets [(str "p:" k ":s")]}))))
+                (push-at! inner ts {:id (str k ":s") :port true :sources [s] :targets [(str "p:" k ":s")]})))
             (when (compound? tt)
-              (assoc! ports tt (conj (or (get ports tt) []) {:id (str "p:" k ":t") :side (:tside c)}))
+              (push-at! ports tt {:id (str "p:" k ":t") :side (:tside c)})
               (when (not= t tt)
                 (.add port-edge-ids (str k ":t"))
-                (assoc! inner tt (conj (or (get inner tt) [])
-                                       {:id (str k ":t") :port true :sources [(str "p:" k ":t")] :targets [t]}))))))))
+                (push-at! inner tt {:id (str k ":t") :port true :sources [(str "p:" k ":t")] :targets [t]})))))))
     ;; one ELK run per placed compound element, one for the strip
     (let [run-ids (filterv compound? (into (vec (js/Object.keys cells)) loose))
           runs {}
           solve (fn [input run]
                   ;; ELK writes into its input: hand it a copy, so the
                   ;; caller's elk-graph (and the next call's keys) stay clean
-                  (-> (run-elk (js/JSON.parse (js/JSON.stringify input)))
+                  (-> (run-elk (json-copy input))
                       ;; some port mixes make ELK throw in one direction
                       ;; and not in another (sides stay fixed); last
                       ;; resort: no ports, the edges leave from the border
@@ -648,7 +651,7 @@
           stacks {}
           _ (doseq [id loose]
               (let [k (str (:c0 (get sl id)) "," (:r0 (get sl id)))]
-                (assoc! stacks k (conj (or (get stacks k) []) id))))
+                (push-at! stacks k id)))
           col-items (into (mapv (fn [[id s]] {:t0 (:c0 s) :t1 (:c1 s) :size (:width (node-of id))})
                                 (js/Object.entries (select-keys* sl (js/Object.keys cells))))
                           (mapv (fn [[k ids]] {:t0 (:c0 (get sl (first ids))) :t1 (:c0 (get sl (first ids)))
@@ -698,7 +701,7 @@
               (doseq [[id side key] [[(:ts c) (:sside c) (str (:cid c) ":s")]
                                      [(:tt c) (:tside c) (str (:cid c) ":t")]]]
                 (let [k (str id "|" side)]
-                  (assoc! leaf-ends k (conj (or (get leaf-ends k) []) key)))))
+                  (push-at! leaf-ends k key))))
           ;; run results translated to final coordinates: element at p
           run-offset (fn [id p] (let [ch (node-of id)] {:ox (- (:x p) (:x ch)) :oy (- (:y p) (:y ch))}))
           inner-points (fn [id p eid]

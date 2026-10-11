@@ -1520,12 +1520,6 @@
 (defn- errors-of [& [query]]
   (json/parse-string (:body (serve/handler {:uri "/api/errors" :query-string query}))))
 
-(deftest md-path-is-any-case-dot-md
-  (is (serve/md-path? "notes.md"))
-  (is (serve/md-path? "a/B.MD"))
-  (is (not (serve/md-path? "g.edn")))
-  (is (not (serve/md-path? "md"))))
-
 (deftest parse-args-refuses-a-suffix-with-an-md-root
   (is (clojure.string/includes? (:error (serve/parse-args ["notes.md" "next"]))
                                 "compare mode needs a graph file (.edn, .png or .svg)"))

@@ -147,10 +147,9 @@ the id from the name as above and accept `name::type`, so
 wait for a click on the canvas. Every tool has a chord, shown on its button.
 Chords work while no text field has focus; typing the first key opens a
 pop-out above the toolbar listing what comes next, and its entries can be
-clicked too. Esc cancels a pending chord or pick. The toggle at the
-toolbar's right end switches between **flat** (every tool in a row) and
-**grouped** (one button per first key — `new`, `add`, `rename / remove`,
-`follow` — whose options pop out); the choice is saved in this browser.
+clicked too. Esc cancels a pending chord or pick. The toolbar shows one
+button per first key — `new`, `add`, `rename / remove`, `follow` — whose
+options pop out the same way.
 
 | Chord | Selection | Action |
 | --- | --- | --- |

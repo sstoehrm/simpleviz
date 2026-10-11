@@ -133,6 +133,19 @@
       (is (not (fs/exists? (fs/path home "stale.txt"))) "the rest is still replaced")
       (finally (fs/delete-tree tmp)))))
 
+(deftest install-keeps-the-users-prefs
+  ;; your theme and layout choices outlive `simpleviz update`
+  (let [tmp (fs/create-temp-dir {:prefix "simpleviz-install"})
+        home (fs/path tmp "home")
+        prefs (str (fs/path home "prefs.edn"))]
+    (try
+      (fs/create-dirs home)
+      (spit prefs "{:theme \"dark\"}")
+      (let [res (install-files tmp (tarball! tmp {"server/cli.clj" "(ns cli)\n"}))]
+        (is (= 0 (:exit res)) (:err res)))
+      (is (= "{:theme \"dark\"}" (slurp prefs)))
+      (finally (fs/delete-tree tmp)))))
+
 (deftest install-writes-through-a-symlinked-templates-folder
   ;; e.g. templates kept in a dotfiles repo and linked in
   (let [tmp (fs/create-temp-dir {:prefix "simpleviz-install"})

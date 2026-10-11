@@ -77,7 +77,8 @@ install_files() {
   [ ! -e "$templates" ] && [ ! -L "$templates" ] || [ -d "$templates" ] \
     || die "$templates is not a directory — move it away and rerun"
   mkdir -p "$templates"
-  find -H "$SIMPLEVIZ_HOME" -mindepth 1 -maxdepth 1 ! -name templates -exec rm -rf {} +
+  # prefs.edn (your page choices: theme, layout) is the user's too
+  find -H "$SIMPLEVIZ_HOME" -mindepth 1 -maxdepth 1 ! -name templates ! -name prefs.edn -exec rm -rf {} +
   if [ -d "$dir/templates" ]; then
     for f in "$dir"/templates/*; do
       [ -e "$f" ] || continue

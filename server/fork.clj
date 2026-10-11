@@ -41,7 +41,7 @@
               (doseq [r (targets rel text)]
                 (let [target (paths/resolve-ref rel r)]
                   (cond
-                    (str/ends-with? (str/lower-case r) ".md") nil
+                    (serve/md-path? r) nil
 
                     (nil? target)
                     (warn! (str rel ": link " (pr-str r) " leaves the root folder, skipped"))

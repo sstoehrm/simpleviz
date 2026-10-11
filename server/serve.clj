@@ -62,26 +62,29 @@
   "What a file created by the server holds: map form, so it is editable."
   "{:nodes {} :edges {} :boxes {}}\n")
 
+(defn- split-ext
+  "[stem ext] of path `rel`, ext with its dot (\"a/b.edn\" -> [\"a/b\" \".edn\"]);
+  ext is \"\" when the last segment has no dot."
+  [rel]
+  (let [dot (str/last-index-of rel ".")
+        slash (or (str/last-index-of rel "/") -1)]
+    (if (and (some? dot) (> dot slash))
+      [(subs rel 0 dot) (subs rel dot)]
+      [rel ""])))
+
 (defn fork-name
   "The fork of path `rel` for `suffix`: the suffix goes before the
   extension (\"a/b.edn\" \"next\" -> \"a/b-next.edn\"); a name without
   an extension gets \"-suffix\" appended."
   [rel suffix]
-  (let [dot (str/last-index-of rel ".")
-        slash (or (str/last-index-of rel "/") -1)]
-    (if (and (some? dot) (> dot slash))
-      (str (subs rel 0 dot) "-" suffix (subs rel dot))
-      (str rel "-" suffix))))
+  (let [[stem ext] (split-ext rel)]
+    (str stem "-" suffix ext)))
 
 (defn fork-base
   "The path `rel` is the fork of under `suffix` (\"a/b-next.edn\"
   \"next\" -> \"a/b.edn\"), or nil when it carries no such suffix."
   [rel suffix]
-  (let [dot (str/last-index-of rel ".")
-        slash (or (str/last-index-of rel "/") -1)
-        [stem ext] (if (and (some? dot) (> dot slash))
-                     [(subs rel 0 dot) (subs rel dot)]
-                     [rel ""])
+  (let [[stem ext] (split-ext rel)
         tail (str "-" suffix)]
     (when (and (str/ends-with? stem tail) (> (count stem) (count tail)))
       (str (subs stem 0 (- (count stem) (count tail))) ext))))
@@ -201,6 +204,19 @@
   []
   (.getName (.getCanonicalFile (io/file (:root @files)))))
 
+(defn- refuse-fork!
+  "Throw when `rel` is the fork of another file under `suffix`: refs name
+  the original."
+  [rel suffix]
+  (when-let [base (and (some? suffix) (fork-base rel suffix))]
+    (throw (ex-info (str rel " is the fork of " base " — ref the original") {}))))
+
+(defn- refuse-embedded-compare!
+  "Throw on an embedded compare, which has no folder to navigate."
+  []
+  (when (embedded-compare?)
+    (throw (ex-info "refs are not available in an embedded compare" {}))))
+
 (defn sides
   "The files behind the root-relative path `rel` (nil = the root file)
   as {:old <canonical File or nil> :new <canonical File>}: without a
@@ -215,8 +231,7 @@
     (if (nil? suffix)
       {:old nil :new (resolve-path root-c rel)}
       (let [fk (fork-name rel suffix)
-            _ (when-let [base (fork-base rel suffix)]
-                (throw (ex-info (str rel " is the fork of " base " — ref the original") {})))
+            _ (refuse-fork! rel suffix)
             ;; escape/extension refusals first, existence checked here so
             ;; the message can name the missing side
             old (resolve-path root-c rel false)
@@ -266,14 +281,12 @@
   compare, which has no folder to navigate."
   [query-string]
   (when-let [rel (query-param query-string "file")]
-    (when (embedded-compare?)
-      (throw (ex-info "refs are not available in an embedded compare" {})))
+    (refuse-embedded-compare!)
     rel))
 
 (defn- edit-response [{:keys [file ops path]}]
   (try
-    (when (and (some? path) (embedded-compare?))
-      (throw (ex-info "refs are not available in an embedded compare" {})))
+    (when (some? path) (refuse-embedded-compare!))
     (let [{:keys [old new] :as pair} (sides path)
           target (if (= file "old") old new)
           path (some-> target .getPath)
@@ -310,13 +323,11 @@
   original would show everything as removed. Never overwrites."
   [{:keys [file path]}]
   (try
-    (when (embedded-compare?)
-      (throw (ex-info "refs are not available in an embedded compare" {})))
+    (refuse-embedded-compare!)
     (when-not (string? path)
       (throw (ex-info "path required" {})))
     (let [{:keys [suffix]} @files
-          _ (when-let [b (and (some? suffix) (fork-base path suffix))]
-              (throw (ex-info (str path " is the fork of " b " — ref the original") {})))
+          _ (refuse-fork! path suffix)
           base (resolve-path @root-dir path false)
           fk (when (some? suffix) (fork-name path suffix))
           fork (when (some? fk) (resolve-path @root-dir fk false))
@@ -589,6 +600,12 @@
                 url)
         nil))))
 
+(defn- text-response [status body]
+  {:status status
+   :headers {"Content-Type" "text/plain; charset=utf-8"
+             "Cache-Control" "no-store"}
+   :body body})
+
 (defn- static-response [uri]
   (let [path (if (= uri "/") "/index.html" uri)
         url (static-resource path)]
@@ -599,10 +616,7 @@
                                      "application/octet-stream")
                  "Cache-Control" "no-store"}
        :body (io/input-stream url)}
-      {:status 404
-       :headers {"Content-Type" "text/plain; charset=utf-8"
-                 "Cache-Control" "no-store"}
-       :body "not found"})))
+      (text-response 404 "not found"))))
 
 (defn- graph-response-body
   "The /api/graph JSON for the query; a debug run logs its error under
@@ -655,12 +669,17 @@
         (json/generate-string {:error (get out "error")
                                :warnings (get out "warnings" [])})))))
 
+(defn- read-json-body
+  "The request body's JSON, keys keywordized, or {:parse-error msg}."
+  [body-stream]
+  (try (json/parse-string (slurp body-stream) true)
+       (catch Exception e {:parse-error (ex-message e)})))
+
 (defn- edit-response-body
   "Parse the edit request, apply it, log what was asked and what came of
   it, and return the JSON reply."
   [body-stream]
-  (let [parsed (try (json/parse-string (slurp body-stream) true)
-                    (catch Exception e {:parse-error (ex-message e)}))
+  (let [parsed (read-json-body body-stream)
         out (if-let [err (:parse-error parsed)]
               {:error err}
               (edit-response parsed))]
@@ -685,8 +704,7 @@
     (assoc (json-response (json/generate-string out)) :status status)))
 
 (defn- create-response-body [body-stream]
-  (let [parsed (try (json/parse-string (slurp body-stream) true)
-                    (catch Exception e {:parse-error (ex-message e)}))
+  (let [parsed (read-json-body body-stream)
         out (if-let [err (:parse-error parsed)]
               {:error err}
               (create-response parsed))]
@@ -810,8 +828,7 @@
                 [200 {:version (sha1-hex bytes)}])))))))
 
 (defn- text-save-response [body-stream]
-  (let [parsed (try (json/parse-string (slurp body-stream) true)
-                    (catch Exception e {:parse-error (ex-message e)}))
+  (let [parsed (read-json-body body-stream)
         [status out] (try
                        (if-let [err (:parse-error parsed)]
                          [400 {:error err}]
@@ -850,8 +867,7 @@
                                ;; reloads once and shows the graph route's error
                                (catch Exception _ 0))}))
     "/api/source"
-    (let [which (when (some? query-string)
-                  (second (re-find #"(?:^|&)which=(old|new)(?:&|$)" query-string)))
+    (let [which (query-param query-string "which")
           body (try
                  (if (embedded-compare?)
                    (do (nav-rel query-string)
@@ -863,14 +879,8 @@
                        (side-source pair which))))
                  (catch Exception _ nil))]
       (if (some? body)
-        {:status 200
-         :headers {"Content-Type" "text/plain; charset=utf-8"
-                   "Cache-Control" "no-store"}
-         :body body}
-        {:status 404
-         :headers {"Content-Type" "text/plain; charset=utf-8"
-                   "Cache-Control" "no-store"}
-         :body "not found"}))
+        (text-response 200 body)
+        (text-response 404 "not found")))
     (static-response uri)))
 
 (defn- request-line [req]

@@ -3,7 +3,8 @@
   per-element :diff status (\"added\"/\"removed\"/\"modified\"; absent key =
   unchanged) and :changed {attr {:old v :new v}}. Layout structure follows
   the new graph; removed elements keep their old parent, which always
-  exists in the union because removed boxes are included too.")
+  exists in the union because removed boxes are included too."
+  (:require [graph :refer [ident->str]]))
 
 (defn- changed-attrs
   "attr -> {:old v :new v} for keys whose values differ (missing key = nil).
@@ -88,23 +89,16 @@
   own order for members that still live here, append removed members that
   point here (sorted for determinism)."
   [boxes parent-of]
-  (mapv (fn [b]
-          (let [kept (filterv (fn [cid] (= (:name b) (get parent-of cid)))
-                              (:components b))
-                kept-set (set kept)
-                extra (vec (sort (for [[cid p] parent-of
-                                       :when (and (= p (:name b))
-                                                  (not (contains? kept-set cid)))]
-                                   cid)))]
-            (assoc b :components (into kept extra))))
-        boxes))
+  (let [members (update-vals (group-by val parent-of) #(mapv key %))]
+    (mapv (fn [b]
+            (let [kept (filterv (fn [cid] (= (:name b) (get parent-of cid)))
+                                (:components b))
+                  kept-set (set kept)
+                  extra (vec (sort (remove kept-set (get members (:name b)))))]
+              (assoc b :components (into kept extra))))
+          boxes)))
 
 (defn- edge-key [e] (vec (sort [(:source e) (:target e)])))
-
-(def ^:private canon-dir
-  {:-> :-> :<- :<- :<-> :<-> :- :- "->" :-> "<-" :<- "<->" :<-> "-" :-})
-
-(defn- ident->str [x] (if (keyword? x) (subs (str x) 1) (str x)))
 
 (defn- edge-cmp-attrs
   "Edge attrs with :nodes and :direction canonicalized, so equivalent
@@ -116,7 +110,7 @@
     (update :nodes (fn [ns] (mapv ident->str ns)))
     true
     (assoc :direction (let [d (get (:attrs e) :direction)]
-                         (if (nil? d) :- (get canon-dir d d))))))
+                         (if (nil? d) :- (get graph/directions d d))))))
 
 (defn- diff-edges
   "Match by unordered endpoint pair. Several edges may share a pair (both

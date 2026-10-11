@@ -134,12 +134,13 @@
   ["demo.edn" "demo-next.edn" "states.edn" "big-5k.edn"
    "api/internals.edn" "api/internals-next.edn"])
 
+(def ^:private flag? #{"--debug" "--no-open"})
+
 (defn- split-flags
   "[positional args, set of flags]: --debug and --no-open may sit
   anywhere on the line."
   [args]
-  (let [flag? #{"--debug" "--no-open"}]
-    [(vec (remove flag? args)) (set (filter flag? args))]))
+  [(vec (remove flag? args)) (set (filter flag? args))])
 
 (defn- bindable? [port]
   (try (with-open [_ (java.net.ServerSocket. port 0 (java.net.InetAddress/getByName "127.0.0.1"))]
@@ -301,6 +302,6 @@
       "check" (do (when-not (= 1 (count more)) (usage-error))
                   (check/-main (first more)))
       "demo" (demo-cmd more)
-      (if (and (str/starts-with? cmd "-") (not (#{"--debug" "--no-open"} cmd)))
+      (if (and (str/starts-with? cmd "-") (not (flag? cmd)))
         (usage-error)
         (serve-cmd args)))))

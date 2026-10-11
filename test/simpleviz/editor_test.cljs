@@ -6,7 +6,7 @@
                                       delete-op direction-op pick-ops
                                       add-node-ops add-connected-ops wrap-in-box-ops
                                       edit-body create-body rename-op blur-text retarget-end
-                                      chord-action chord-prefix? chord-for chord-menu chord-leaves
+                                      chord-action chord-prefix? chord-for chord-menu
                                       add-node-in-box-ops box-remove-op
                                       name->id derived-id named-edge-ops creation-ops parse-entry
                                       parse-nav nav-query follow-url crumb-url ref-of banner-visible?
@@ -672,15 +672,6 @@
     (let [many (mapv (fn [i] {:file "v.edn" :id (str "e" i)}) (range 12))]
       (assert/equal (count (chord-menu "box" ["f" "p"] all many)) 9)
       (assert/ok (nil? (chord-action "box" ["f" "p" "0"] many))))))
-
-(test "chord-leaves lists every available chord with its full keys"
-  (fn []
-    (assert/deepEqual (chord-leaves nil all [])
-                      [{:keys ["n" "n" "n"] :label "new node" :action "new-node"}
-                       {:keys ["n" "n" "b"] :label "new box" :action "new-free-box"}])
-    (assert/deepEqual (mapv :action (chord-leaves "edge" (fn [a] (not= a "follow-ref")) []))
-                      [["direction" "->"] ["direction" "<-"] ["direction" "<->"] ["direction" "-"]
-                       ["retarget" "source"] ["retarget" "target"] "split-edge" "delete"])))
 
 (test "doc-kind: .md in any case is an md page, everything else a graph"
   (fn []

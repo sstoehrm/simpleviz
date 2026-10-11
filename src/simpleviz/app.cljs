@@ -20,10 +20,9 @@
 (def app-el (js/document.getElementById "app"))
 
 ;; localStorage keys of your choices in this browser: theme (the old
-;; light/dark toggle used it too), layout algorithm, toolbar layout
+;; light/dark toggle used it too), layout algorithm
 (def ^:private theme-key "simpleviz-theme")
 (def ^:private layout-key "simpleviz-layout")
-(def ^:private toolbar-key "simpleviz-toolbar")
 
 (defn- read-pref
   "The value stored under k when (valid? v), else default — also when
@@ -63,8 +62,6 @@
                   :theme-pref (read-pref theme-key (fn [v] (some #(= v %) themes/NAMES)) nil)
                   ;; your layout algorithm, for files without :layout
                   :layout-pref (read-pref layout-key (fn [v] (some (fn [[n _]] (= v n)) editor/LAYOUTS)) nil)
-                  ;; your toolbar: every tool in a row, or grouped by first key
-                  :toolbar-layout (read-pref toolbar-key #(= "grouped" %) "flat")
                   ;; light or dark as the OS has it, when you chose none
                   :theme (if (.-matches (js/window.matchMedia "(prefers-color-scheme: dark)"))
                            "dark"
@@ -477,19 +474,14 @@
     (fn [action] (available? sel tgt action))))
 
 (defn- toolbar-items
-  "The toolbar's buttons as chord items: every available chord (flat)
-  or one per first key (grouped). Edge direction has its own row, and
-  several pairs are followed by number, so flat leaves both out."
+  "The toolbar's buttons as chord items: one per first key, whose
+  options pop out. Edge direction has its own row, so an edge's \"e\"
+  group is left out."
   [st]
   (let [sel (:selected st)
-        kind (:kind sel)
-        pairs (working-pairs sel)]
-    (if (= "grouped" (:toolbar-layout st))
-      (filterv (fn [it] (not (and (= kind "edge") (= "e" (first (:keys it))))))
-               (editor/chord-menu kind [] (avail-fn sel) pairs))
-      (filterv (fn [it] (let [a (:action it)]
-                          (not (and (vector? a) (contains? #{"direction" "follow-pair"} (first a))))))
-               (editor/chord-leaves kind (avail-fn sel) pairs)))))
+        kind (:kind sel)]
+    (filterv (fn [it] (not (and (= kind "edge") (= "e" (first (:keys it))))))
+             (editor/chord-menu kind [] (avail-fn sel) (working-pairs sel)))))
 
 (defn- choose-item!
   "Act on a toolbar or pop-out item reached from the pending keys
@@ -521,20 +513,6 @@
      (into [:div {:class "chord-items"}]
            (mapv (fn [it] (item-btn path it))
                  (editor/chord-menu (:kind sel) path (avail-fn sel) (working-pairs sel))))]))
-
-(defn- layout-toggle
-  "Switches the toolbar between flat and grouped; saved in this browser."
-  [st]
-  (let [grouped (= "grouped" (:toolbar-layout st))]
-    [:button {:class "toolbar-layout" :type "button"
-              :title (if grouped
-                       "Grouped by first key — click for every tool in a row"
-                       "Every tool in a row — click to group them by first key")
-              :on-click (fn [e] (.stopPropagation e)
-                          (let [v (if grouped "flat" "grouped")]
-                            (write-pref! toolbar-key v)
-                            (swap! state assoc :toolbar-layout v :chord nil)))}
-     (if grouped "grouped" "flat")]))
 
 (defn- submit-id-entry!
   "Create what the open prompt is for (editor/creation-ops); a name that
@@ -569,7 +547,6 @@
                     (mapv (fn [[label dir]] (direction-btn tgt current label dir))
                           direction-choices))]))
          (mapv (fn [it] (item-btn nil it)) (toolbar-items st))
-         [(layout-toggle st)]
          (when-let [entry (:id-entry st)] [(id-entry-row tgt entry)]))))
 
 (defn- pairs-view
@@ -917,7 +894,7 @@
       "A :pair (\"views/deploy.edn#api\", or a vector of them) links a node or box to the same thing in another graph. The ⇄ mark on an element's bottom-left corner shows its pairs — red when one is broken; the inspector lists them, those declared here and those pointing here. Click one, or use \"follow pair\" (f p, or f p 1–9 with several — the inspector numbers them), to open that graph with the element selected.")
      (help-section
       "Edit"
-      "When the served file is editable EDN, the floating toolbar at the bottom holds the tools for the current selection — every tool in a row, or grouped by first key with options that pop out (the toggle at its right end switches; saved in this browser): delete, edge direction, and pick modes such as \"add edge\" (click the other element on the canvas, then name the edge; Esc cancels). New nodes and boxes are created by name: the prompt types a name, and the id is derived from it — lowercased, illegal characters turned into dashes; name::type also sets the type. With nothing selected it creates a standalone node or box. A :ref attribute naming another graph file (relative path) makes \"follow ref\" open it — in a suffix comparison (simpleviz graph.edn next) it opens that file's own comparison; the trail at the top leads back. Following a ref to an .edn file that does not exist yet creates it as an empty graph — in a comparison the side picked by the old|new toggle."
+      "When the served file is editable EDN, the floating toolbar at the bottom holds the tools for the current selection, grouped by first key with options that pop out: delete, edge direction, and pick modes such as \"add edge\" (click the other element on the canvas, then name the edge; Esc cancels). New nodes and boxes are created by name: the prompt types a name, and the id is derived from it — lowercased, illegal characters turned into dashes; name::type also sets the type. With nothing selected it creates a standalone node or box. A :ref attribute naming another graph file (relative path) makes \"follow ref\" open it — in a suffix comparison (simpleviz graph.edn next) it opens that file's own comparison; the trail at the top leads back. Following a ref to an .edn file that does not exist yet creates it as an empty graph — in a comparison the side picked by the old|new toggle."
       "In the inspector, click a value or its ✎ to edit it inline — Enter commits, Shift+Enter inserts a line break, Escape cancels. × deletes an attribute; the key/value row at the bottom adds one. Ctrl+Z or ↶ undoes the last edit."
       "\"open md\" (f m) opens the markdown file a node's or box's :md-ref names in a text panel on the right; ⤢ makes it fill the window, Esc docks it again. Ctrl+S or Save writes it, and so does closing it (×) or opening another; a missing file is created on the first save. If the file changes on disk while you have unsaved edits, the panel says so — Reload takes the file, Overwrite keeps yours.")
      (help-section

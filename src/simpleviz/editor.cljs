@@ -625,15 +625,6 @@
               (chord-menu kind (conj path k) available? pairs)))
       items)))
 
-(defn chord-leaves
-  "Every available chord for a selection of `kind` with working
-  `pairs`, as items with their full keys, in table order — the flat
-  toolbar's buttons."
-  [kind available? pairs]
-  (vec (keep (fn [[ks action label]]
-               (when (available? action) {:keys ks :label label :action action}))
-             (entries kind pairs))))
-
 (defn load-readiness
   "Where the first load stands for a headless export: {:ready true} once a
   graph arrived, {:error msg} when only an error did, nil while waiting."

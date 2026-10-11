@@ -143,3 +143,31 @@
       (Thread/sleep 500)
       (is (not (browser-running? profile)) "browser stopped")
       (is (not (fs/exists? profile)) "profile deleted"))))
+
+(deftest the-doc-panel-scrolls-and-the-canvas-does-not-zoom
+  ;; the panel sits inside #canvas-wrap; its wheel must stay the textarea's
+  (with-real-browser
+    (let [dir (fs/create-temp-dir {:prefix "md-scroll"})
+          port (proc-util/free-port)
+          _ (spit (str (fs/path dir "notes.md")) (str/join "\n" (map #(str "line " %) (range 300))))
+          srv (proc-util/start ["bb" "--config" (str proc-util/repo-root "/bb.edn") "serve" "notes.md"
+                                "--port" (str port)]
+                               :dir dir)]
+      (try
+        (is (proc-util/await-line srv #"serving" 20000))
+        (browser/with-browser path
+          (fn [ws-url _]
+            (let [page (browser/open-page ws-url)]
+              (try
+                (browser/navigate! page (str "http://127.0.0.1:" port "/"))
+                (is (= {:prevented false :overflows true}
+                       (browser/evaluate page
+                         (str "new Promise(ok => { const t = setInterval(() => {"
+                              " const ta = document.getElementById('md-text');"
+                              " if (!ta || !ta.value) return; clearInterval(t);"
+                              " const w = new WheelEvent('wheel', {deltaY: 100, bubbles: true, cancelable: true});"
+                              " ta.dispatchEvent(w);"
+                              " ok({prevented: w.defaultPrevented, overflows: ta.scrollHeight > ta.clientHeight}); }, 50); })")
+                         10000)))
+                (finally (browser/close-page page))))))
+        (finally (p/destroy-tree srv) (fs/delete-tree dir))))))

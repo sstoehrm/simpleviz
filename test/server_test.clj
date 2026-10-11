@@ -1582,3 +1582,40 @@
       (write! dir "my file.md" "s")
       (is (= "ü" (get (text-get "über.md") "text")))
       (is (= "s" (get (text-get "my file.md") "text"))))))
+
+(defn- prefs-post [body & [opts]]
+  (let [r (serve/handler (assoc (edit-req body opts) :uri "/api/prefs"))]
+    [(:status r) (try (json/parse-string (:body r)) (catch Exception _ (:body r)))]))
+
+(defn- prefs-get []
+  (json/parse-string (:body (serve/handler {:uri "/api/prefs" :request-method :get}))))
+
+(deftest prefs-are-kept-in-one-file-for-every-port
+  (with-temp-dir*
+    (fn [dir]
+      (let [f (java.io.File. dir "prefs.edn")]
+        (with-redefs [serve/prefs-file (constantly f)]
+          (try
+            (reset! serve/prefs-on true)
+            (is (= {} (prefs-get)) "nothing stored yet")
+            (is (= [200 {"theme" "dark"}] (prefs-post {:theme "dark"})))
+            (is (= [200 {"theme" "dark" "layout" "tiled"}] (prefs-post {:layout "tiled"}))
+                "a save merges")
+            (is (= {:theme "dark" :layout "tiled"} (edn/read-string (slurp f))))
+            (is (= [200 {"layout" "tiled"}] (prefs-post {:theme ""})) "\"\" forgets")
+            (is (= [200 {}] (prefs-post {:layout nil})) "so does null")
+            (is (= 400 (first (prefs-post {:theme "neon"}))))
+            (is (= 400 (first (prefs-post {:font "serif"}))))
+            (is (= 400 (first (prefs-post [1]))))
+            (is (= 403 (first (prefs-post {:theme "dark"} {:headers {"origin" "http://evil.example"}}))))
+            (is (= {} (prefs-get)) "a refused save stores nothing")
+            (spit f "{:theme \"neon\" :layout \"tiled\" :x 1}")
+            (is (= {"layout" "tiled"} (prefs-get)) "a hand-edited file: the valid choices")
+            (spit f "{:theme")
+            (is (= {} (prefs-get)) "an unreadable file: none")
+            (reset! serve/prefs-on false)
+            (spit f "{:theme \"dark\"}")
+            (is (= {} (prefs-get)) "off (an export): the defaults")
+            (is (= [200 {}] (prefs-post {:theme "nord"})))
+            (is (= "{:theme \"dark\"}" (slurp f)) "and nothing written")
+            (finally (reset! serve/prefs-on false))))))))

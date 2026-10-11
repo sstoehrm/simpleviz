@@ -19,24 +19,16 @@
 (def elk (js/ELK.))
 (def app-el (js/document.getElementById "app"))
 
-;; localStorage keys of your choices in this browser: theme (the old
-;; light/dark toggle used it too), layout algorithm
-(def ^:private theme-key "simpleviz-theme")
-(def ^:private layout-key "simpleviz-layout")
-
-(defn- read-pref
-  "The value stored under k when (valid? v), else default — also when
-  storage is unavailable (private windows)."
-  [k valid? default]
-  (try (let [v (js/localStorage.getItem k)] (if (valid? v) v default))
-       (catch :default _ default)))
-
-(defn- write-pref!
-  "Store v under k (\"\" forgets it); storage failures only mean the
-  choice doesn't outlive the page."
-  [k v]
-  (try (if (seq v) (js/localStorage.setItem k v) (js/localStorage.removeItem k))
-       (catch :default _ nil)))
+;; your choices (theme, layout) live on the server (/api/prefs), the same
+;; for every port — localStorage is per origin, and the port is random
+(defn- save-pref!
+  "Store your choices, {:theme v} or {:layout v} (\"\" forgets one); a
+  failed save only means the choice doesn't outlive the page."
+  [m]
+  (-> (js/fetch "/api/prefs" {:method "POST"
+                              :headers {"Content-Type" "application/json"}
+                              :body (js/JSON.stringify m)})
+      (.catch (fn [_] nil))))
 
 (def ^:private per-file
   "The state that belongs to the file shown, as it starts: load-nav!
@@ -58,10 +50,10 @@
                   ;; the open :md-ref doc (open-md!), nil when the panel is closed
                   :md nil
                   :nav (editor/parse-nav js/location.search) :nav-error nil
-                  ;; your theme (#115), for files without :theme
-                  :theme-pref (read-pref theme-key (fn [v] (some #(= v %) themes/NAMES)) nil)
+                  ;; your theme (#115), for files without :theme (load-prefs!)
+                  :theme-pref nil
                   ;; your layout algorithm, for files without :layout
-                  :layout-pref (read-pref layout-key (fn [v] (some (fn [[n _]] (= v n)) editor/LAYOUTS)) nil)
+                  :layout-pref nil
                   ;; light or dark as the OS has it, when you chose none
                   :theme (if (.-matches (js/window.matchMedia "(prefers-color-scheme: dark)"))
                            "dark"
@@ -911,8 +903,8 @@
       "⇩ opens the export menu: PNG downloads the diagram as an image, SVG as a vector drawing, both with the source EDN embedded. Either can be served again, compared, or turned back into EDN with \"simpleviz extract\".")
      (help-section
       "Layout and theme"
-      "The layout menu at the top picks the layout: layered (left to right), compact — top-level boxes on a grid, edges leaving at the top and bottom too, wide boxes turned top to bottom, labels on vertical edges turned — or tiled, the same grid with every box left to right inside; compact and tiled spread big diagrams down as well as across. Your choice is saved in this browser; a file's :layout wins."
-      "The theme menu at the top picks your theme, one of the twelve built-ins, for every graph without :theme; it's saved in this browser, and default follows your system's light or dark. A graph file can set its own theme instead — :theme :nord, or overrides on one such as {:base :nord :accent \"#b58900\"} — which wins: the menu then shows it, marked (file), and you change it in the file.")]))
+      "The layout menu at the top picks the layout: layered (left to right), compact — top-level boxes on a grid, edges leaving at the top and bottom too, wide boxes turned top to bottom, labels on vertical edges turned — or tiled, the same grid with every box left to right inside; compact and tiled spread big diagrams down as well as across. Your choice is kept for every graph you open, in ~/.simpleviz; a file's :layout wins."
+      "The theme menu at the top picks your theme, one of the twelve built-ins, for every graph without :theme; it's kept in ~/.simpleviz, and default follows your system's light or dark. A graph file can set its own theme instead — :theme :nord, or overrides on one such as {:base :nord :accent \"#b58900\"} — which wins: the menu then shows it, marked (file), and you change it in the file.")]))
 
 (defn- hint-view
   "The line above the toolbar: the pending chord's completions, else the
@@ -929,7 +921,7 @@
 
 (defn- theme-menu-view
   "Your theme, for every graph without :theme (see editor/theme-menu):
-  picking one saves it in this browser and repaints. A file's :theme
+  picking one saves it for every graph and repaints. A file's :theme
   wins — the menu then shows it, marked (file), disabled. Options carry
   :selected — reagami sets it as a property, so the menu follows."
   [g pref]
@@ -942,7 +934,7 @@
                     :on-change (fn [e]
                                  (let [el (.-target e)
                                        v (.-value el)]
-                                   (write-pref! theme-key v)
+                                   (save-pref! {:theme v})
                                    ;; paint first: the swap re-renders synchronously
                                    (apply-theme! (effective-theme (:graph @state) v (:theme @state)))
                                    (swap! state assoc :theme-pref (if (seq v) v nil))
@@ -954,7 +946,7 @@
 
 (defn- layout-menu-view
   "Your layout algorithm, for every graph without :layout (see
-  editor/layout-menu): picking one saves it in this browser and lays the
+  editor/layout-menu): picking one saves it for every graph and lays the
   graph out again, fitted to the window. A file's :layout wins — the
   menu then shows it, marked (file), disabled."
   [g pref]
@@ -964,7 +956,7 @@
                     :on-change (fn [e]
                                  (let [el (.-target e)
                                        v (.-value el)]
-                                   (write-pref! layout-key v)
+                                   (save-pref! {:layout v})
                                    (swap! state assoc :layout-pref v)
                                    (canvas/refit-next!)
                                    (relayout!)
@@ -1844,6 +1836,17 @@
   (canvas/set-theme! theme)
   (canvas/request-paint!))
 
+(defn- ^:async load-prefs!
+  "Take your stored choices (/api/prefs) into state and paint the theme;
+  the valid ones only, and none when the server can't say."
+  []
+  (let [p (try (js-await (.json (js-await (js/fetch "/api/prefs"))))
+               (catch :default _ {}))
+        theme (some #(when (= (:theme p) %) %) themes/NAMES)
+        layout (some (fn [[n _]] (when (= (:layout p) n) n)) editor/LAYOUTS)]
+    (apply-theme! (effective-theme (:graph @state) theme (:theme @state)))
+    (swap! state assoc :theme-pref theme :layout-pref layout)))
+
 (defn- ^:async fetch-source
   "Raw EDN text from /api/source (which = \"old\"|\"new\"|nil), or nil on
   any failure — a failed fetch degrades the export to metadata-less."
@@ -2045,7 +2048,8 @@
 (add-watch state :render (fn [_ _ _ _] (rerender!)))
 (canvas/setup-pan-zoom! (js/document.getElementById "canvas-wrap"))
 (rerender!)
-(load-nav!)
+;; the layout pref must be in before the first layout
+(.then (load-prefs!) (fn [_] (load-nav!)))
 (js/setInterval tick 1000)
 (js/setInterval poll-md! 1000)
 (js/window.addEventListener "resize" (fn [_] (queue-measure!)))

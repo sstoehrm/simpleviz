@@ -177,7 +177,7 @@
   "Start on a free port, print the URL, open a browser unless `no-open`,
   and block."
   [opts no-open]
-  (let [[port {:keys [served log-path]}] (start! opts)
+  (let [[port {:keys [served log-path]}] (start! (assoc opts :prefs true))
         url (str "http://localhost:" port)]
     (println (str "simpleviz: serving " served " at " url))
     (when log-path (println (str "simpleviz: debug log at " log-path)))

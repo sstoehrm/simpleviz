@@ -15,7 +15,8 @@
             [embedded]
             [mdlinks]
             [pairs]
-            [paths])
+            [paths]
+            [themes])
   (:import [clojure.lang LineNumberingPushbackReader]
            [java.io StringReader]))
 
@@ -28,6 +29,8 @@
 (def root-dir (atom nil)) ; canonical File of the served folder (single-file mode)
 
 (def locks (atom {})) ; canonical path -> {:owner s :expires ms}
+
+(def prefs-on (atom false)) ; /api/prefs reads and writes prefs-file (start! :prefs)
 
 (def lock-ttl-ms 60000)
 
@@ -564,7 +567,7 @@
 
 (defn- edit-guard
   "HTTP-level rejection response for a write (/api/edit, /api/create,
-  /api/lock, /api/unlock, /api/text/save), or nil when the
+  /api/lock, /api/unlock, /api/text/save, POST /api/prefs), or nil when the
   request may proceed: 403 on a foreign Origin (cross-origin write
   attempt), 415 when Content-Type isn't application/json."
   [{:keys [headers server-port]}]
@@ -834,6 +837,59 @@
                              :result (dissoc out :text)})
     (assoc (json-response (json/generate-string out)) :status status)))
 
+;; ---- your choices in the page (theme, layout): one file for every
+;; port, so they outlive the server — the page's localStorage did not,
+;; being per origin and the port random
+
+(defn prefs-file
+  "Where your page choices are kept: prefs.edn in log/home."
+  []
+  (io/file (log/home) "prefs.edn"))
+
+(def ^:private pref-valid?
+  {:theme (set (map name themes/NAMES))
+   :layout graph/LAYOUTS})
+
+;; one write at a time: the read and the merge must not interleave
+(def ^:private prefs-monitor (Object.))
+
+(defn read-prefs
+  "Your stored choices, {:theme s :layout s} with the valid ones only; {}
+  when prefs are off, the file is missing or unreadable."
+  []
+  (if @prefs-on
+    (let [m (try (edn/read-string (slurp (prefs-file))) (catch Exception _ nil))]
+      (if (map? m)
+        (into {} (filter (fn [[k v]] (some-> (get pref-valid? k) (contains? v))) m))
+        {}))
+    {}))
+
+(defn- prefs-save
+  "Merge the request's choices into the file: a key with \"\" or null
+  forgets it. [status reply]; the reply is every choice now stored."
+  [parsed]
+  (let [bad (when (map? parsed)
+              (first (remove (fn [[k v]] (or (nil? v) (= "" v) (some-> (get pref-valid? k) (contains? v))))
+                             parsed)))]
+    (cond
+      (not (map? parsed)) [400 {:error "expected a JSON object"}]
+      bad [400 {:error (str "bad pref: " (name (key bad)) " " (pr-str (val bad)))}]
+      (not @prefs-on) [200 {}]
+      :else (locking prefs-monitor
+              (let [m (reduce (fn [m [k v]] (if (seq v) (assoc m k v) (dissoc m k)))
+                              (read-prefs) parsed)]
+                (write-atomically! (prefs-file) (.getBytes (pr-str m) "UTF-8"))
+                [200 m])))))
+
+(defn- prefs-save-response [body-stream]
+  (let [parsed (read-json-body body-stream)
+        [status out] (try
+                       (if-let [err (when (map? parsed) (:parse-error parsed))]
+                         [400 {:error err}]
+                         (prefs-save parsed))
+                       (catch Exception e [500 {:error (ex-message e)}]))]
+    (assoc (json-response (json/generate-string out)) :status status)))
+
 (defn- post-only
   "The response of (f) for a guarded POST; 405 for any other method."
   [{:keys [request-method] :as req} f]
@@ -852,6 +908,9 @@
     "/api/root"      (json-response (json/generate-string {:path (root-rel)}))
     "/api/text"      (json-response (text-response-body query-string))
     "/api/text/save" (post-only req #(text-save-response body))
+    "/api/prefs"     (if (= :post (:request-method req))
+                       (post-only req #(prefs-save-response body))
+                       (json-response (json/generate-string (read-prefs))))
     "/api/version" (json-response
                     (json/generate-string
                      {:mtime (try
@@ -932,9 +991,12 @@
   otherwise), starts http-kit, then opens the run log:
   java.net.BindException passes through when the port is taken, before
   any log file is written (the CLI retries another port).
+  `prefs` true serves your stored choices (/api/prefs); off, as for an
+  export, the page starts from the defaults.
   Returns {:served <description> :log-path <path or nil>}."
-  [{:keys [file suffix port debug]}]
+  [{:keys [file suffix port debug prefs]}]
   (reset! files {:root file :suffix suffix})
+  (reset! prefs-on (boolean prefs))
   (reset! root-dir (.getParentFile (.getCanonicalFile (io/file file))))
   ;; resolve both sides once so a missing fork or an export without
   ;; embedded EDN fails at startup with a clear message instead of an
@@ -965,7 +1027,7 @@
       (println (str "file not found: " file))
       (System/exit 1))
     (try
-      (let [{:keys [served log-path]} (start! {:file file :suffix suffix :port port :debug debug})]
+      (let [{:keys [served log-path]} (start! {:file file :suffix suffix :port port :debug debug :prefs true})]
         (println (str "simpleviz: serving " served " at http://localhost:" port))
         (when log-path (println (str "simpleviz: debug log at " log-path)))
         @(promise))

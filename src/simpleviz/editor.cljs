@@ -202,7 +202,7 @@
 
 (defn theme-menu
   "The theme menu's state. It is yours: `pref`, the built-in you picked
-  (saved in this browser; nil or \"\" follows the OS), for every graph
+  (kept on the server; nil or \"\" follows the OS), for every graph
   without :theme. A :theme in graph g's file wins (#115): the menu then
   shows the file's theme (\"custom\" for a :theme map), marked :file,
   and is disabled — change it in the file."
@@ -212,7 +212,7 @@
       {:value (or (:theme-name g) "custom") :file true :disabled true
        :title "This graph sets its own theme (:theme in the file); edit the file to change it"}
       {:value (or pref "") :file false :disabled false
-       :title "Your theme, for every graph without :theme (saved in this browser)"})))
+       :title "Your theme, for every graph without :theme"})))
 
 (def LAYOUTS
   "The layout algorithms, as the menu lists them: [name label]."
@@ -222,7 +222,7 @@
 
 (defn effective-layout
   "The layout algorithm graph g is laid out with: the file's :layout,
-  else yours (`pref`, saved in this browser), else layered."
+  else yours (`pref`, kept on the server), else layered."
   [g pref]
   (or (:layout g) (when (layout-name? pref) pref) "layered"))
 
@@ -235,7 +235,7 @@
     {:value (:layout g) :file true :disabled true
      :title "This graph sets its own layout (:layout in the file); edit the file to change it"}
     {:value (effective-layout g pref) :file false :disabled false
-     :title "Layout algorithm, for every graph without :layout (saved in this browser)"}))
+     :title "Layout algorithm, for every graph without :layout"}))
 
 (defn create-body
   "The /api/create POST body: the served-folder path a followed ref

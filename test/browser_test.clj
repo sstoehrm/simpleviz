@@ -146,14 +146,16 @@
 
 (defn- eval-on-served-page
   "Serve `file` (holding `text`) from a fresh folder, open it in the
-  browser at `path` and evaluate `js` there; its value."
-  [path file text js]
+  browser at `path` and evaluate `js` there; its value. The server keeps
+  your choices in `home` (default: a fresh one), never in ~/.simpleviz."
+  [path file text js & {:keys [home]}]
   (let [dir (fs/create-temp-dir {:prefix "served-page"})
         port (proc-util/free-port)
         _ (spit (str (fs/path dir file)) text)
         srv (proc-util/start ["bb" "--config" (str proc-util/repo-root "/bb.edn") "serve" file
                               "--port" (str port)]
-                             :dir dir)]
+                             :dir dir
+                             :env {"SIMPLEVIZ_HOME" (str (or home (fs/path dir "home")))})]
     (try
       (is (proc-util/await-line srv #"serving" 20000))
       (browser/with-browser path
@@ -190,3 +192,33 @@
                  " if (!document.getElementById('help-btn')) return; clearInterval(t);"
                  " document.dispatchEvent(new KeyboardEvent('keydown', {key: '?', bubbles: true}));"
                  " setTimeout(() => ok({help: !!document.getElementById('help-panel'), errors}), 200); }, 50); })"))))))
+
+(deftest your-theme-outlives-the-port
+  ;; localStorage is per origin and every run picks a random port: the
+  ;; choice has to live on the server
+  (with-real-browser
+    (let [home (fs/create-temp-dir {:prefix "prefs-home"})]
+      (try
+        (is (= "dark"
+               (eval-on-served-page
+                path "g.edn" "{:nodes {:a {}}}"
+                (str "new Promise(ok => { const t = setInterval(async () => {"
+                     " const s = document.getElementById('theme-select');"
+                     " if (!s) return; clearInterval(t);"
+                     " s.value = 'dark'; s.dispatchEvent(new Event('change', {bubbles: true}));"
+                     " for (let i = 0; i < 50; i++) {"
+                     "  const p = await (await fetch('/api/prefs')).json();"
+                     "  if (p.theme) return ok(p.theme);"
+                     "  await new Promise(r => setTimeout(r, 100)); }"
+                     " ok(null); }, 50); })")
+                :home home)))
+        (is (= {:value "dark" :bg "#111827"}
+               (eval-on-served-page
+                path "g.edn" "{:nodes {:a {}}}"
+                (str "new Promise(ok => { let n = 0; const t = setInterval(() => {"
+                     " const s = document.getElementById('theme-select');"
+                     " if (!(s && s.value === 'dark') && ++n < 100) return; clearInterval(t);"
+                     " ok({value: s && s.value, bg: getComputedStyle(document.documentElement)"
+                     ".getPropertyValue('--bg').trim()}); }, 50); })")
+                :home home)))
+        (finally (fs/delete-tree home))))))

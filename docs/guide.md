@@ -62,7 +62,8 @@ The file's theme carries into PNG and SVG exports. A comparison shows the
 new file's theme.
 
 The theme menu at the top of the page picks your theme for every graph
-without `:theme`. It's saved in this browser, not in any file, and
+without `:theme`. It's kept in `~/.simpleviz/prefs.edn`, not in any graph
+file, so every page and every run of `simpleviz` shows it, and
 "default" follows the operating system's light or dark setting. A file's
 `:theme` wins over it: the menu then shows the file's theme, marked
 "(file)", and is disabled; change that theme in the file.
@@ -210,10 +211,10 @@ The layout menu at the top picks how graphs are laid out:
   inside, left to right. (Like `:grid` files, a box ELK can't lay out left
   to right with its edge ends goes top to bottom instead.)
 
-Your choice is saved in this browser and applies to every graph without
-`:layout`. A file can pick its own with a top-level `:layout :compact` (or
-`:tiled`), which wins: the menu then shows it, marked "(file)", and is
-disabled.
+Your choice is kept in `~/.simpleviz/prefs.edn` and applies to every
+graph without `:layout`. A file can pick its own with a top-level
+`:layout :compact` (or `:tiled`), which wins: the menu then shows it,
+marked "(file)", and is disabled.
 Exports from the terminal use the file's `:layout`. A comparison uses the
 new file's.
 

@@ -14,6 +14,7 @@
             [fork]
             [embedded]
             [log]
+            [paths]
             [serve]
             [themes]))
 
@@ -83,7 +84,7 @@
   (when-not (= 2 (count args)) (usage-error))
   (let [[file suffix] args]
     (reject-flag! suffix)
-    (when (serve/md-path? file) (die cmd " works on graph files (.edn, .png or .svg)"))
+    (when (paths/md-path? file) (die cmd " works on graph files (.edn, .png or .svg)"))
     (when-not (.isFile (io/file file)) (die "file not found: " file))
     (fork/-main cmd file suffix)))
 
@@ -115,7 +116,7 @@
 (defn- init-cmd [args]
   (let [{:keys [file template]} (or (init-args args) (usage-error))]
     (reject-flag! file)
-    (when (serve/md-path? file) (die "init writes graph files (.edn)"))
+    (when (paths/md-path? file) (die "init writes graph files (.edn)"))
     (when (re-find #"[/\\]" template)
       (die "template name must be a plain name, not a path: " template))
     (let [src (or (template-source template)
@@ -134,12 +135,13 @@
   ["demo.edn" "demo-next.edn" "states.edn" "big-5k.edn"
    "api/internals.edn" "api/internals-next.edn"])
 
+(def ^:private flag? #{"--debug" "--no-open"})
+
 (defn- split-flags
   "[positional args, set of flags]: --debug and --no-open may sit
   anywhere on the line."
   [args]
-  (let [flag? #{"--debug" "--no-open"}]
-    [(vec (remove flag? args)) (set (filter flag? args))]))
+  [(vec (remove flag? args)) (set (filter flag? args))])
 
 (defn- bindable? [port]
   (try (with-open [_ (java.net.ServerSocket. port 0 (java.net.InetAddress/getByName "127.0.0.1"))]
@@ -191,7 +193,7 @@
   [file suffix]
   (when-not (.isFile (io/file file)) (die "file not found: " file))
   (when (some? suffix)
-    (when (serve/md-path? file) (die "compare mode needs a graph file (.edn, .png or .svg)"))
+    (when (paths/md-path? file) (die "compare mode needs a graph file (.edn, .png or .svg)"))
     (when (re-find #"(?i)\.(edn|png|svg)$" suffix)
       (die "two-file compare was replaced: simpleviz fork " file
            " <suffix>, then simpleviz " file " <suffix>"))
@@ -239,7 +241,7 @@
 (defn- export-cmd [args]
   (let [{:keys [error in suffix out format theme force]} (parse-export-args args)]
     (when error (die error))
-    (when (serve/md-path? in) (die "export needs a graph file (.edn, .png or .svg)"))
+    (when (paths/md-path? in) (die "export needs a graph file (.edn, .png or .svg)"))
     (check-input! in suffix)
     (when (and (.exists (io/file out)) (not force))
       (die out " already exists (--force overwrites)"))
@@ -301,6 +303,6 @@
       "check" (do (when-not (= 1 (count more)) (usage-error))
                   (check/-main (first more)))
       "demo" (demo-cmd more)
-      (if (and (str/starts-with? cmd "-") (not (#{"--debug" "--no-open"} cmd)))
+      (if (and (str/starts-with? cmd "-") (not (flag? cmd)))
         (usage-error)
         (serve-cmd args)))))

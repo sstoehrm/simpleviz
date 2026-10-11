@@ -95,7 +95,7 @@
   (when (pos? (.-length (:type el)))
     (get idx-by-type (:type el))))
 
-(defn- section-points [sec]
+(defn section-points [sec]
   (into [(:startPoint sec)]
         (conj (vec (or (:bendPoints sec) [])) (:endPoint sec))))
 

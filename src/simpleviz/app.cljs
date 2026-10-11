@@ -3,7 +3,7 @@
             [simpleviz.colors :as colors]
             [simpleviz.format :as format]
             [simpleviz.transform :refer [to-elk elk-fingerprint layout-positions seed-layout seedable?
-                                         rename-layout-ids]]
+                                         rename-layout-ids diff-glyphs]]
             [simpleviz.prune :refer [collapse-boxes collapse-scene]]
             [simpleviz.scene :as scene]
             [simpleviz.hit :as hit]
@@ -13,83 +13,62 @@
             [simpleviz.grid :as grid]
             [simpleviz.compact :as compact]
             [mdlinks :as mdlinks]
+            [paths :as paths]
             [themes :as themes]))
 
 (def elk (js/ELK.))
 (def app-el (js/document.getElementById "app"))
 
-(def ^:private theme-key
-  "localStorage key of your theme (the old light/dark toggle used it too)."
-  "simpleviz-theme")
+;; localStorage keys of your choices in this browser: theme (the old
+;; light/dark toggle used it too), layout algorithm, toolbar layout
+(def ^:private theme-key "simpleviz-theme")
+(def ^:private layout-key "simpleviz-layout")
+(def ^:private toolbar-key "simpleviz-toolbar")
 
-(defn- stored-theme
-  "Your theme from this browser: a built-in name, else nil (follow the
-  OS). Storage can be unavailable (private windows) — then nil."
-  []
-  (try (let [v (js/localStorage.getItem theme-key)]
-         (when (some #(= v %) themes/NAMES) v))
+(defn- read-pref
+  "The value stored under k when (valid? v), else default — also when
+  storage is unavailable (private windows)."
+  [k valid? default]
+  (try (let [v (js/localStorage.getItem k)] (if (valid? v) v default))
+       (catch :default _ default)))
+
+(defn- write-pref!
+  "Store v under k (\"\" forgets it); storage failures only mean the
+  choice doesn't outlive the page."
+  [k v]
+  (try (if (seq v) (js/localStorage.setItem k v) (js/localStorage.removeItem k))
        (catch :default _ nil)))
 
-(defn- store-theme!
-  "Save your theme (\"\" forgets it: follow the OS); storage failures
-  only mean the choice doesn't outlive the page."
-  [v]
-  (try (if (seq v)
-         (js/localStorage.setItem theme-key v)
-         (js/localStorage.removeItem theme-key))
-       (catch :default _ nil)))
+(def ^:private per-file
+  "The state that belongs to the file shown, as it starts: load-nav!
+  restores it on every navigation."
+  {:nav-error nil :error nil :notice nil :dismissed-error nil :dismissed-warnings nil
+   :graph nil :scene nil :layout nil
+   :selected nil :editing nil :edit-error nil :pick nil :pick-hint nil
+   :chord nil :id-entry nil :focus-center true
+   :collapsed-boxes #{} :export-menu false})
 
-(def ^:private layout-key
-  "localStorage key of your layout algorithm."
-  "simpleviz-layout")
-
-(defn- stored-layout
-  "Your layout algorithm from this browser, nil when none (or storage
-  is unavailable)."
-  []
-  (try (let [v (js/localStorage.getItem layout-key)]
-         (when (some (fn [[n _]] (= v n)) editor/LAYOUTS) v))
-       (catch :default _ nil)))
-
-(def ^:private toolbar-key
-  "localStorage key of your toolbar layout."
-  "simpleviz-toolbar")
-
-(defn- stored-toolbar-layout
-  "\"grouped\" when you picked it in this browser, else \"flat\" (also
-  when storage is unavailable)."
-  []
-  (try (if (= "grouped" (js/localStorage.getItem toolbar-key)) "grouped" "flat")
-       (catch :default _ "flat")))
-
-(defn- store-toolbar-layout! [v]
-  (try (js/localStorage.setItem toolbar-key v) (catch :default _ nil)))
-
-(def state (atom {:error nil :notice nil :dismissed-error nil :dismissed-warnings nil
-                  :warnings [] :graph nil :layout nil
-                  :colors nil :selected nil :collapsed false
-                  :collapsed-boxes #{} :layouting false
+(def state (atom (merge per-file
+                 {:colors nil :collapsed false :layouting false
                   :diff-cursors {}
-                  :edit-target "new" :edit-error nil :editing nil
-                  :pick nil :pick-hint nil
-                  :id-entry nil :chord nil
+                  :edit-target "new"
                   ;; a URL naming an element (focus=n:api) selects and centers it
                   :pending-focus (:focus (editor/parse-nav js/location.search))
-                  :focus-center true :flash nil
-                  :help false :export-menu false :disconnected false
+                  :flash nil
+                  :help false :disconnected false
                   ;; the open :md-ref doc (open-md!), nil when the panel is closed
                   :md nil
                   :nav (editor/parse-nav js/location.search) :nav-error nil
                   ;; your theme (#115), for files without :theme
-                  :theme-pref (stored-theme)
+                  :theme-pref (read-pref theme-key (fn [v] (some #(= v %) themes/NAMES)) nil)
                   ;; your layout algorithm, for files without :layout
-                  :layout-pref (stored-layout)
+                  :layout-pref (read-pref layout-key (fn [v] (some (fn [[n _]] (= v n)) editor/LAYOUTS)) nil)
                   ;; your toolbar: every tool in a row, or grouped by first key
-                  :toolbar-layout (stored-toolbar-layout)
+                  :toolbar-layout (read-pref toolbar-key #(= "grouped" %) "flat")
                   ;; light or dark as the OS has it, when you chose none
                   :theme (if (.-matches (js/window.matchMedia "(prefers-color-scheme: dark)"))
                            "dark"
-                           "light")}))
+                           "light")})))
 (def last-mtime (atom nil))
 
 ;; the root file's root-relative name (/api/root), asked once
@@ -109,6 +88,12 @@
   else the graph's."
   [st]
   (if (page? st) (:path (:md st)) (:path (:graph st))))
+
+(defn- shown-path
+  "The root-relative path navigation state `nav` names: its file, else
+  the root's (nil until /api/root has answered)."
+  [nav]
+  (or (:file nav) @root-path))
 
 (defn- file-query
   "\"?file=<rel>\" for the graph the page is showing, \"\" for the root."
@@ -404,8 +389,9 @@
 
 (defn- action-spec
   "What toolbar action `action` does for selection sel (tgt its op
-  target): a pick mode to start, or a name prompt to open. One table for
-  the buttons and the chords, so both always agree."
+  target): a pick mode to start, a name prompt to open, ops to post, a
+  file to follow or a thunk to run; nil when it does nothing for sel.
+  One table for the buttons and the chords, so both always agree."
   [sel tgt action]
   (let [id (:id tgt)
         pof (:parent-of (:graph @state))
@@ -418,8 +404,11 @@
                       :hint (str "click the new " end " node or box")})
         "follow-pair" (when-let [p (get (working-pairs sel) (second action))]
                         {:label "follow pair" :go-pair p})
+        "direction" {:post [(editor/direction-op tgt (second action))]}
         nil)
       (case action
+        "delete" {:run #(delete! tgt)}
+        "rename" {:run #(start-editing! ID-FIELD id)}
         "add-edge" {:label "add edge" :pick {:mode "connect" :from id}
                     :hint "click the target node or box"}
         "add-to-box" {:label "add to box" :pick {:mode "into-box" :member id}
@@ -465,15 +454,14 @@
   "Whether `action` does something for selection sel right now — what
   the toolbar and the pop-out offer, and what a chord may run."
   [sel tgt action]
-  (or (= action "delete") (= action "rename")
-      (and (vector? action) (= "direction" (first action)))
-      (some? (action-spec sel tgt action))))
+  (some? (action-spec sel tgt action)))
 
 (defn- start-action!
   "Do what the toolbar button for `action` does."
   [sel tgt action]
-  (let [{:keys [pick hint id-entry post go go-pair md] :as spec} (action-spec sel tgt action)]
+  (let [{:keys [pick hint id-entry post go go-pair md run] :as spec} (action-spec sel tgt action)]
     (cond
+      (some? run) (run)
       (some? pick) (start-pick! pick hint)
       (some? id-entry) (start-id-entry! id-entry (select-keys spec [:parent :direction]))
       (some? post) (post-edit! post)
@@ -544,7 +532,7 @@
                        "Every tool in a row — click to group them by first key")
               :on-click (fn [e] (.stopPropagation e)
                           (let [v (if grouped "flat" "grouped")]
-                            (store-toolbar-layout! v)
+                            (write-pref! toolbar-key v)
                             (swap! state assoc :toolbar-layout v :chord nil)))}
      (if grouped "grouped" "flat")]))
 
@@ -681,9 +669,9 @@
   connected\" can be dismissed: an edit, navigation or notice error
   clears; the graph error and the warnings hide until their text changes
   (editor/banner-visible?)."
-  [{:keys [error warnings collapsed edit-error disconnected nav-error notice
+  [{:keys [error graph collapsed edit-error disconnected nav-error notice
            dismissed-error dismissed-warnings]}]
-  (let [warn-text (.join warnings "\n")]
+  (let [warn-text (.join (or (:warnings graph) []) "\n")]
     (cond
       disconnected
       (banner "error" "Not connected: the simpleviz server is not running. Restart it to resume live reload." nil)
@@ -744,7 +732,7 @@
                            (assoc :selected (item->payload item)))))
         (canvas/center-on! item)))))
 
-(defn- legend-row [st status glyph cls stops]
+(defn- legend-row [st status stops]
   (let [n (.-length stops)
         idx (get (:diff-cursors st) status)]
     [:button {:key status :type "button"
@@ -754,7 +742,7 @@
                        (str "no " status " elements")
                        (str "jump to the next " status " element"))
               :on-click (fn [e] (.stopPropagation e) (cycle-diff! status))}
-     [:span {:class (str "dl-key " cls)} glyph]
+     [:span {:class (str "dl-key dl-" status)} (get diff-glyphs status)]
      [:span {:class "dl-label"} status]
      [:span {:class "dl-count"}
       (if (some? idx) (str (inc idx) "/" n) (str n))]]))
@@ -781,9 +769,9 @@
       [:div {:id "diff-legend"}
        [:div {:class "dl-files"}
         (str (format/basename (:old cmp)) " → " (format/basename (:new cmp)))]
-       (legend-row st "added" "+" "dl-added" (get stops "added"))
-       (legend-row st "modified" "~" "dl-modified" (get stops "modified"))
-       (legend-row st "removed" "−" "dl-removed" (get stops "removed"))
+       (legend-row st "added" (get stops "added"))
+       (legend-row st "modified" (get stops "modified"))
+       (legend-row st "removed" (get stops "removed"))
        (edit-target-row st (:graph st))])))
 
 (defn- trail-view
@@ -840,22 +828,33 @@
     (set! (.-left (.-style tooltip-el)) (str (js/Math.max 0 x) "px"))
     (set! (.-top (.-style tooltip-el)) (str (js/Math.max 0 y) "px"))))
 
+(defn- item-at
+  "The scene item (or collapse button) under the canvas pointer event e."
+  [e]
+  (when-let [s (:scene @state)]
+    (let [rect (.getBoundingClientRect (.-currentTarget e))
+          k (:k canvas/view)]
+      (hit/hit-test s (hit/client->graph canvas/view
+                                         (- (.-clientX e) (.-left rect))
+                                         (- (.-clientY e) (.-top rect)))
+                    (/ 8 k) k))))
+
 (defn- update-hover!
   "Show the hovered element's name and attrs in the tooltip. Direct DOM
-  writes: no state, no re-render of the app."
-  [mx my cx cy]
-  (let [p (hit/client->graph canvas/view mx my)
-        s (:scene @state)
-        item (when (some? s)
-               (hit/hit-test s p (/ 8 (:k canvas/view)) (:k canvas/view)))
-        tip (hit/hover-tip item)]
-    (if (some? tip)
-      (do (when-not (identical? item @tooltip-item)
-            (reset! tooltip-item item)
-            (render tooltip-el (tooltip-view tip)))
-          (set! (.-hidden tooltip-el) false)
-          (place-tooltip! cx cy))
-      (hide-tooltip!))))
+  writes: no state, no re-render of the app; the tip is rebuilt only
+  when the hovered item changes."
+  [e]
+  (let [item (item-at e)
+        ;; tooltip-item is set only while the tip shows it
+        same? (and (some? item) (identical? item @tooltip-item))
+        tip (when-not same? (hit/hover-tip item))]
+    (cond
+      same? (place-tooltip! (.-clientX e) (.-clientY e))
+      (some? tip) (do (reset! tooltip-item item)
+                      (render tooltip-el (tooltip-view tip))
+                      (set! (.-hidden tooltip-el) false)
+                      (place-tooltip! (.-clientX e) (.-clientY e)))
+      :else (hide-tooltip!))))
 
 (defn- canvas-view []
   [:canvas
@@ -865,22 +864,13 @@
       ;; a held button is a pan or a click in progress — no tooltip then
       (if (pos? (.-buttons e))
         (hide-tooltip!)
-        (let [rect (.getBoundingClientRect (.-currentTarget e))]
-          (update-hover! (- (.-clientX e) (.-left rect))
-                         (- (.-clientY e) (.-top rect))
-                         (.-clientX e) (.-clientY e)))))
+        (update-hover! e)))
     :on-pointerleave (fn [_] (hide-tooltip!))
     :on-click
     (fn [e]
       ;; drag-ending clicks never arrive here: pointer capture (acquired
       ;; only mid-drag) retargets them to the wrap
-      (let [rect (.getBoundingClientRect (.-currentTarget e))
-            p (hit/client->graph canvas/view
-                                 (- (.-clientX e) (.-left rect))
-                                 (- (.-clientY e) (.-top rect)))
-            tol (/ 8 (:k canvas/view))
-            s (:scene @state)
-            item (when (some? s) (hit/hit-test s p tol (:k canvas/view)))
+      (let [item (item-at e)
             pick (:pick @state)]
         (if (some? pick)
           ;; picking: a collapse-button hit is not a valid target (ignore,
@@ -975,7 +965,7 @@
                     :on-change (fn [e]
                                  (let [el (.-target e)
                                        v (.-value el)]
-                                   (store-theme! v)
+                                   (write-pref! theme-key v)
                                    ;; paint first: the swap re-renders synchronously
                                    (apply-theme! (effective-theme (:graph @state) v (:theme @state)))
                                    (swap! state assoc :theme-pref (if (seq v) v nil))
@@ -997,7 +987,7 @@
                     :on-change (fn [e]
                                  (let [el (.-target e)
                                        v (.-value el)]
-                                   (try (js/localStorage.setItem layout-key v) (catch :default _ nil))
+                                   (write-pref! layout-key v)
                                    (swap! state assoc :layout-pref v)
                                    (canvas/refit-next!)
                                    (relayout!)
@@ -1195,6 +1185,17 @@
                         (or (:file (:nav @state)) (:path (:graph @state)))))))))
     (swap! state assoc :pending-focus nil :focus-center false)))
 
+(defn- show-layout!
+  "Show a layout-cache entry: its colors, layout and scene."
+  [{:keys [colors layout scene]}]
+  (keep-pinned! scene)
+  (swap! state (fn [st]
+                 (refresh-selection
+                  (assoc st :colors colors :layout layout :scene scene
+                         :layouting false :diff-cursors {})
+                  scene)))
+  (apply-pending-focus! scene))
+
 (defn ^:async relayout!
   "Layout + scene from the stored graph, with collapsed boxes contracted.
   Colors come from the FULL graph so collapsing never shifts type colors.
@@ -1220,13 +1221,7 @@
           hit (.get layout-cache ck)]
       (if (and (some? hit) (some? (:scene hit)))
         (do (canvas/fit-view-once! (:scene hit))
-            (keep-pinned! (:scene hit))
-            (swap! state (fn [st]
-                           (refresh-selection
-                            (assoc st :colors (:colors hit) :layout (:layout hit)
-                                   :scene (:scene hit) :layouting false :diff-cursors {})
-                            (:scene hit))))
-            (apply-pending-focus! (:scene hit)))
+            (show-layout! hit))
         (do
           (swap! state assoc
                  :layouting true
@@ -1271,17 +1266,11 @@
             (when (= gen @graph-gen)
               (canvas/fit-view-once! sc)
               (when (> (.-size layout-cache) 16) (.clear layout-cache))
-              (.set layout-cache ck {:fingerprint fp :colors cmap
-                                     :layout layout :scene sc})
-              (if (= ck (cache-key (current-layout) (:collapsed-boxes @state)))
-                (do (keep-pinned! sc)
-                    (swap! state (fn [st]
-                                   (refresh-selection
-                                    (assoc st :colors cmap :layout layout :scene sc
-                                           :layouting false :diff-cursors {})
-                                    sc)))
-                    (apply-pending-focus! sc))
-                (swap! state assoc :layouting false)))))))
+              (let [entry {:fingerprint fp :colors cmap :layout layout :scene sc}]
+                (.set layout-cache ck entry)
+                (if (= ck (cache-key (current-layout) (:collapsed-boxes @state)))
+                  (show-layout! entry)
+                  (swap! state assoc :layouting false))))))))
     (catch :default e
       (js/console.error "Relayout failed:" e)
       ;; with a diagram on screen the failure isn't blocking: a notice
@@ -1321,14 +1310,14 @@
               (apply-theme! (effective-theme nil (:theme-pref @state) (:theme @state))))
             (swap! state assoc :error (str "Graph error: " (:error raw)) :dismissed-error nil))
         (let [g (assoc raw :boxes-by-name
-                       (reduce (fn [acc b] (assoc acc (:name b) b)) {} (:boxes raw)))
+                       (let [o {}] (doseq [b (:boxes raw)] (assoc! o (:name b) b)) o))
               first-load? (nil? (:graph @state))]
           (swap! graph-gen inc)
           (demote-layout-cache!)
           (set! (.-title js/document) (format/tab-title g))
           (apply-theme! (effective-theme g (:theme-pref @state) (:theme @state)))
           (swap! state (fn [st]
-                         (assoc st :error nil :graph g :warnings (:warnings g)
+                         (assoc st :error nil :graph g
                                 :edit-target (resolve-edit-target g (:edit-target st)))))
           ;; big graphs open as a collapsed overview: all top-level boxes
           ;; start folded, drill in from there (also makes the first ELK
@@ -1362,13 +1351,13 @@
     ;; an md page (decided by the URL, so a failed open stays one): the
     ;; doc polls itself (poll-md!); this notices the server going away and
     ;; coming back, and retries an open that failed for want of a server
-    (= "md" (editor/doc-kind (or (:file (:nav @state)) @root-path)))
+    (= "md" (editor/doc-kind (shown-path (:nav @state))))
     (let [ok (try (.-ok (js-await (js/fetch "/api/root"))) (catch :default _ false))
           st @state]
       (when (not= (not ok) (:disconnected st))
         (swap! state assoc :disconnected (not ok)))
       (when (and ok (nil? (:md st)) (nil? (:error st)))
-        (js-await (open-page! (or (:file (:nav st)) @root-path)))))
+        (js-await (open-page! (shown-path (:nav st))))))
 
     :else
     (let [mtime (try
@@ -1394,17 +1383,13 @@
   open that fails leaves no docked doc that would stop tick's retry."
   []
   (let [nav (editor/parse-nav js/location.search)
-        md-target? (= "md" (editor/doc-kind (or (:file nav) @root-path)))]
+        md-target? (= "md" (editor/doc-kind (shown-path nav)))]
     (reset! shown-query js/location.search)
     (swap! graph-gen inc)
     (swap! state (fn [st]
-                   (assoc st :nav nav
-                          :nav-error nil :error nil :notice nil :dismissed-error nil :dismissed-warnings nil
-                          :warnings [] :graph nil :scene nil :layout nil
-                          :selected nil :editing nil :edit-error nil :pick nil :pick-hint nil
-                          :chord nil :id-entry nil :pending-focus (:focus nav) :focus-center true
-                          :collapsed-boxes #{} :export-menu false
-                          :md (when-not (or (page? st) md-target?) (:md st)))))
+                   (merge st per-file
+                          {:nav nav :pending-focus (:focus nav)
+                           :md (when-not (or (page? st) md-target?) (:md st))})))
     (.clear layout-cache)
     (reset! last-mtime nil)
     (canvas/refit-next!)
@@ -1437,40 +1422,41 @@
         true)
     false))
 
-(defn- ^:async follow-ref!
-  "Follow the selection's ref: resolve it against the file shown and
-  navigate there, the current file joining the trail. While the file
-  being edited is editable, the server is first asked to create the
-  target (an empty graph, with its folders) in case nothing is there
-  yet. A ref that climbs above the served folder is refused here with
-  a banner; one the server refuses (wrong type, missing on a read-only
-  side) shows as the graph error after navigating, with the trail
-  intact to go back — which is also where a failed create ends up.
+(defn- post-json [url body]
+  (js/fetch url {:method "POST"
+                 :headers {"Content-Type" "application/json"}
+                 :body (js/JSON.stringify body)}))
+
+(defn- ^:async follow-to!
+  "Navigate to root-relative `path` (selecting `focus`, when given), the
+  file shown joining the trail. With `create?` the server is first asked
+  to create it (an empty graph, with its folders) in case nothing is
+  there yet; a failed create, like a path the server refuses, shows as
+  the graph error after navigating, with the trail intact to go back.
   A second follow while the first still waits on the server is dropped,
   or it would push the same URL onto the history twice."
+  [path {:keys [create? focus]}]
+  (let [st @state]
+    (when-not (:following st)
+      (swap! state assoc :following true)
+      (try
+        (when create?
+          (try (js-await (post-json "/api/create" (editor/create-body (:edit-target st) path)))
+               (catch :default _ nil)))
+        (js-await (navigate! (editor/follow-url (current-path st) (:trail (:nav st)) path focus)))
+        (finally (swap! state assoc :following false))))))
+
+(defn- ^:async follow-ref!
+  "Follow the selection's ref: resolve it against the file shown and
+  follow it, creating it while the file being edited is editable. A ref
+  that climbs above the served folder is refused here with a banner."
   [ref]
   (let [st @state
-        {:keys [trail]} (:nav st)
-        current (current-path st)
-        target (editor/resolve-ref current ref)]
-    (cond
-      (:following st) nil
-      (nil? target)
+        target (paths/resolve-ref (current-path st) ref)]
+    (if (nil? target)
       (swap! state assoc :nav-error (str "ref " (pr-str ref) " leaves the served folder"))
-      :else
-      (do
-        (swap! state assoc :following true)
-        (try
-          (when (and (current-edit-target-editable? st) (= "graph" (editor/doc-kind target)))
-            (try
-              (js-await (js/fetch "/api/create"
-                                  {:method "POST"
-                                   :headers {"Content-Type" "application/json"}
-                                   :body (js/JSON.stringify
-                                          (editor/create-body (:edit-target st) target))}))
-              (catch :default _ nil)))
-          (js-await (navigate! (editor/follow-url current trail target)))
-          (finally (swap! state assoc :following false)))))))
+      (js-await (follow-to! target {:create? (and (current-edit-target-editable? st)
+                                                  (= "graph" (editor/doc-kind target)))})))))
 
 (defn- working-pairs
   "The pairs of selection payload sel that can be followed."
@@ -1489,13 +1475,7 @@
   current file joins the trail. Unlike a ref, nothing is created: a
   pair names an element, which an empty graph doesn't have."
   [p]
-  (let [st @state]
-    (when-not (:following st)
-      (swap! state assoc :following true)
-      (try
-        (js-await (navigate! (editor/follow-url (current-path st) (:trail (:nav st)) (:file p)
-                                                (str (if (= (:kind p) "box") "b:" "n:") (:id p)))))
-        (finally (swap! state assoc :following false))))))
+  (js-await (follow-to! (:file p) {:focus (str (if (= (:kind p) "box") "b:" "n:") (:id p))})))
 
 (defn- ^:async on-popstate!
   "Back or forward moved the URL already: save a doc that would close
@@ -1573,13 +1553,10 @@
             base (if overwrite? (:version (:conflict md)) (:base md))]
         (swap! state assoc-in [:md :saving] true)
         (try
-          (let [resp (js-await (js/fetch "/api/text/save"
-                                         {:method "POST"
-                                          :headers {"Content-Type" "application/json"}
-                                          :body (js/JSON.stringify
-                                                 {:path (:path md)
-                                                  :text (editor/to-disk text (:crlf md))
-                                                  :base (or base nil)})}))
+          (let [resp (js-await (post-json "/api/text/save"
+                                          {:path (:path md)
+                                           :text (editor/to-disk text (:crlf md))
+                                           :base (or base nil)}))
                 out (js-await (.json resp))]
             (swap! md-gen inc)
             (swap! state update :md editor/save-result (:path md) text out)
@@ -1770,34 +1747,18 @@
         md (:md st)
         {:keys [path kind error]} (editor/link-target (:path md) (:dest l))]
     (swap! state assoc :link-menu nil)
-    (cond
-      (:following st) nil
-      (some? error) (swap! state assoc :nav-error error)
-      :else
-      (do
-        (swap! state assoc :following true)
-        (try
-          (when (and (= kind "graph") (.endsWith (.toLowerCase path) ".edn")
-                     (or (:page md) (current-edit-target-editable? st)))
-            (try
-              (js-await (js/fetch "/api/create"
-                                  {:method "POST"
-                                   :headers {"Content-Type" "application/json"}
-                                   :body (js/JSON.stringify (editor/create-body (:edit-target st) path))}))
-              (catch :default _ nil)))
-          (js-await (navigate! (editor/follow-url (current-path st) (:trail (:nav st)) path)))
-          (finally (swap! state assoc :following false)))))))
+    (if (some? error)
+      (swap! state assoc :nav-error error)
+      (js-await (follow-to! path {:create? (and (= kind "graph") (.endsWith (.toLowerCase path) ".edn")
+                                                (or (:page md) (current-edit-target-editable? st)))})))))
 
 (defn- ^:async post-edit!
   "POST ops to the edit target — or to `file` (\"old\"/\"new\") when given."
   [ops & [file]]
-  (let [resp (js-await (js/fetch "/api/edit"
-                                 {:method "POST"
-                                  :headers {"Content-Type" "application/json"}
-                                  :body (js/JSON.stringify
-                                         (let [body (editor/edit-body (or file (:edit-target @state)) ops)
-                                               f (:file (:nav @state))]
-                                           (if (some? f) (assoc body :path f) body)))}))
+  (let [resp (js-await (post-json "/api/edit"
+                                  (let [body (editor/edit-body (or file (:edit-target @state)) ops)
+                                        f (:file (:nav @state))]
+                                    (if (some? f) (assoc body :path f) body))))
         out (js-await (.json resp))]
     (if (some? (:error out))
       ;; a failed edit invalidates any pending-focus jump that was armed
@@ -2032,14 +1993,7 @@
 (defn- run-chord-action!
   "Do what the toolbar button for `action` would do for selection sel."
   [sel action]
-  (let [tgt (when (some? sel) (editor/target sel))]
-    (cond
-      (and (vector? action) (= "direction" (first action)))
-      (post-edit! [(editor/direction-op tgt (second action))])
-
-      (= action "delete") (delete! tgt)
-      (= action "rename") (start-editing! ID-FIELD (:id tgt))
-      :else (start-action! sel tgt action))))
+  (start-action! sel (when (some? sel) (editor/target sel)) action))
 
 (defn- handle-chord-key!
   "Feed a plain key press into the chords: it extends the pending keys

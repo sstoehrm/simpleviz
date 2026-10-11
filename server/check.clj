@@ -5,6 +5,7 @@
   `simpleviz <file>` would serve it; incoming pairs aren't looked for."
   (:require [clojure.java.io :as io]
             [pairs]
+            [paths]
             [serve]))
 
 (defn check
@@ -14,7 +15,7 @@
   [path]
   (try
     (let [f (.getCanonicalFile (io/file path))]
-      (if (serve/md-path? path)
+      (if (paths/md-path? path)
         (let [{:keys [text exists]} (serve/doc-state f)]
           (if exists
             {:error nil :warnings (serve/md-warnings (.getParentFile f) (.getName f) text)}

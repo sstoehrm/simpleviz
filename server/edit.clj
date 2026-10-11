@@ -6,12 +6,11 @@
   (:require [clojure.edn :as edn]
             [clojure.string :as str]
             [rewrite-clj.node :as n]
+            [graph :refer [ident->str]]
             [rewrite-clj.zip :as z]
             [themes]))
 
 (defn- fail! [msg] (throw (ex-info msg {:edit-error true})))
-
-(defn- ident->str [x] (if (keyword? x) (subs (str x) 1) (str x)))
 
 (def ^:private ident-re #"[A-Za-z0-9*+!_'?<>=./-]+")
 
@@ -133,6 +132,9 @@
     :nodes (contains? (into #{} (map ident->str) (keys (:nodes data))) id)
     :boxes (contains? (into #{} (map ident->str) (keys (ensure-map-section data :boxes))) id)))
 
+(defn- element-exists? [data id]
+  (or (exists? data :nodes id) (exists? data :boxes id)))
+
 (defn add-node [text {:keys [id attrs-text]}]
   (let [data (parsed text)]
     (when (exists? data :nodes id) (fail! (str "node " (pr-str id) " already exists")))
@@ -153,7 +155,7 @@
 (defn add-edge [text {:keys [from to direction]}]
   (let [data (parsed text)]
     (doseq [x [from to]]
-      (when-not (or (exists? data :nodes x) (exists? data :boxes x))
+      (when-not (element-exists? data x)
         (fail! (str "unknown node or box " (pr-str x)))))
     (when (contains? (edge-pairs data) (set [from to]))
       (let [[x y] (sort [from to])]
@@ -168,7 +170,7 @@
   (let [data (parsed text)
         [from t] edge
         new-pair (if (= end "source") [to t] [from to])]
-    (when-not (or (exists? data :nodes to) (exists? data :boxes to))
+    (when-not (element-exists? data to)
       (fail! (str "unknown node or box " (pr-str to))))
     (when (= (first new-pair) (second new-pair))
       (fail! "cannot connect an element to itself"))
@@ -208,7 +210,7 @@
   its first membership (#112). A box can't go into its own content."
   [text {:keys [box member]}]
   (let [data (parsed text)]
-    (when-not (or (exists? data :nodes member) (exists? data :boxes member))
+    (when-not (element-exists? data member)
       (fail! (str "unknown node or box " (pr-str member))))
     (when (= box member) (fail! "a box cannot contain itself"))
     (when (contains? (box-components data box) member)
@@ -229,6 +231,20 @@
   (some (fn [[k _]] (let [b (ident->str k)] (when (contains? (box-components data b) id) b)))
         (ensure-map-section data :boxes)))
 
+(defn- names?
+  "Does zloc `c` hold the identifier `id`? `#_` uneval forms, which have
+  no sexpr, never do."
+  [c id]
+  (let [x (try (z/sexpr c) (catch Exception _ ::skip))]
+    (and (not= ::skip x) (= id (ident->str x)))))
+
+(defn- find-component
+  "The zloc of `member-id` among the :components zloc `comps`, or nil."
+  [comps member-id]
+  (loop [c (z/down comps)]
+    (when (some? c)
+      (if (names? c member-id) c (recur (z/right c))))))
+
 (defn box-remove
   "Take `member` out of box `box`'s :components. When that box sits in a
   parent box, the member joins the parent instead of ending up nowhere."
@@ -238,9 +254,7 @@
     (when-not (contains? (box-components data box) member)
       (fail! (str "\"" member "\" is not in box \"" box "\"")))
     (let [comps (find-val (entry-val (zroot text) :boxes box) #(= % :components))
-          hit (loop [c (z/down comps)]
-                (let [x (try (z/sexpr c) (catch Exception _ ::skip))]
-                  (if (and (not= ::skip x) (= member (ident->str x))) c (recur (z/right c)))))
+          hit (find-component comps member)
           text' (z/root-string (z/remove hit))]
       (if-let [parent (parent-box data box)]
         (box-add text' {:box parent :member member})
@@ -264,12 +278,7 @@
         (let [v (z/right k)
               comps (when (map? (z/sexpr v)) (find-val v #(= % :components)))
               hit (when (and (some? comps) (coll? (z/sexpr comps)))
-                    (loop [c (z/down comps)]
-                      (when (some? c)
-                        (let [x (try (z/sexpr c) (catch Exception _ ::skip))]
-                          (if (and (not= ::skip x) (= member-id (ident->str x)))
-                            c
-                            (recur (z/right c)))))))]
+                    (find-component comps member-id))]
           (if (some? hit)
             (z/root-string (f hit))
             (recur (z/right v))))))))
@@ -291,14 +300,10 @@
 (defn delete [text {:keys [section id]}]
   (case section
     :edges (or (remove-entry text :edges (edge-key-pred id)) (unknown! :edges id))
-    :nodes (let [t (or (remove-entry text :nodes (entry-pred :nodes id))
-                       (unknown! :nodes id))]
-             (-> t (remove-edges-touching id)
-                 (until-done (fn [t'] (remove-first-component t' id)))))
-    :boxes (let [t (or (remove-entry text :boxes (entry-pred :boxes id))
-                       (unknown! :boxes id))]
-             (-> t (remove-edges-touching id)
-                 (until-done (fn [t'] (remove-first-component t' id)))))))
+    (:nodes :boxes) (let [t (or (remove-entry text section (entry-pred section id))
+                                (unknown! section id))]
+                      (-> t (remove-edges-touching id)
+                          (until-done (fn [t'] (remove-first-component t' id)))))))
 
 (defn- root-loc
   "The root map's zloc, from any zloc inside the file."
@@ -314,8 +319,7 @@
   (loop [c (z/down coll-loc) last nil]
     (if (nil? c)
       (if (nil? last) coll-loc (z/up last))
-      (let [s (try (z/sexpr c) (catch Exception _ ::skip))
-            c' (if (and (not= ::skip s) (= old (ident->str s))) (z/replace c new-node) c)]
+      (let [c' (if (names? c old) (z/replace c new-node) c)]
         (recur (z/right c') c')))))
 
 (defn- rename-in-edge-keys
@@ -375,7 +379,7 @@
     (if (= to id)
       text
       (do
-        (when (or (exists? data :nodes to) (exists? data :boxes to))
+        (when (element-exists? data to)
           (fail! (str (pr-str to) " already exists")))
         (when (contains? (referenced-ids data) to)
           (fail! (str (pr-str to) " is already referenced by an edge or box")))
@@ -396,11 +400,11 @@
   like a rename target."
   [text {:keys [box member]}]
   (let [data (parsed text)]
-    (when-not (or (exists? data :nodes member) (exists? data :boxes member))
+    (when-not (element-exists? data member)
       (fail! (str "unknown node or box " (pr-str member))))
     (when (and (exists? data :nodes member) (exists? data :boxes member))
       (fail! (str (pr-str member) " is both a node and a box; rename one in the file")))
-    (when (or (exists? data :nodes box) (exists? data :boxes box))
+    (when (element-exists? data box)
       (fail! (str (pr-str box) " already exists")))
     (when (contains? (referenced-ids data) box)
       (fail! (str (pr-str box) " is already referenced by an edge or box")))

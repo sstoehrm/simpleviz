@@ -1,7 +1,8 @@
 (ns simpleviz.grid-test
   (:require ["node:test" :refer [test]]
             ["node:assert/strict$default" :as assert]
-            [simpleviz.grid :refer [top-of edge-ends top-items grid-cells grid-mode? attach-loose
+            [simpleviz.transform :refer [edge-ends]]
+            [simpleviz.grid :refer [top-of top-items grid-cells grid-mode? attach-loose
                                    slots port-side tracks base-gaps track-sizes axis centres widen
                                    route-edges label-at]]))
 

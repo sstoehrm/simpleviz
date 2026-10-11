@@ -161,6 +161,21 @@ codex_plugin() {
   codex plugin add simpleviz@simpleviz || return 1
 }
 
+grok_plugin() {
+  echo "Grok: simpleviz plugin"
+  if grok plugin marketplace list | grep -Eq '^ *simpleviz: '; then
+    grok plugin marketplace update simpleviz || return 1
+  else
+    grok plugin marketplace add sstoehrm/simpleviz || return 1
+  fi
+  # installed as simpleviz-<hash>: simpleviz [...] (simpleviz)
+  if grok plugin list | grep -Eq ': simpleviz \[.*\(simpleviz\)$'; then
+    grok plugin update simpleviz || return 1
+  else
+    grok plugin install simpleviz@simpleviz --trust || return 1
+  fi
+}
+
 ai_plugins() {
   local found=0 failed=0
   if command -v claude >/dev/null 2>&1; then
@@ -171,7 +186,11 @@ ai_plugins() {
     found=1
     codex_plugin || { failed=1; echo "simpleviz: the Codex plugin failed — see above" >&2; }
   fi
-  [ "$found" -eq 1 ] || die "+ai: neither claude nor codex is on the PATH"
+  if command -v grok >/dev/null 2>&1; then
+    found=1
+    grok_plugin || { failed=1; echo "simpleviz: the Grok plugin failed — see above" >&2; }
+  fi
+  [ "$found" -eq 1 ] || die "+ai: none of claude, codex and grok is on the PATH"
   [ "$failed" -eq 0 ] || exit 1
 }
 
@@ -180,7 +199,7 @@ update() {
   for arg in "$@"; do
     case "$arg" in
       +ai) ai=1 ;;
-      *) die "update takes only +ai (the Claude Code and Codex plugins too), not: $arg" ;;
+      *) die "update takes only +ai (the Claude Code, Codex and Grok plugins too), not: $arg" ;;
     esac
   done
   latest=$(curl -fsSL "$API_URL" | grep -m1 '"tag_name"' \

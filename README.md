@@ -14,7 +14,7 @@ Linux, with [babashka](https://babashka.org/) 1.12 or newer, curl and tar:
 
 This installs into `~/.simpleviz` and puts a launcher in `~/.local/bin`.
 `simpleviz update` fetches the latest release; `simpleviz update +ai` also
-installs or updates the Claude Code and Codex plugins (below).
+installs or updates the Claude Code, Codex and Grok plugins (below).
 
 With [bbin](https://github.com/babashka/bbin) (tested on Linux), the same
 command installs and updates the release jar:
@@ -111,8 +111,8 @@ Grok:
     grok plugin marketplace add sstoehrm/simpleviz
     grok plugin install simpleviz@simpleviz --trust
 
-Or let `simpleviz update +ai` do both, for whichever of `claude` and
-`codex` is on your PATH.
+Or let `simpleviz update +ai` do it, for whichever of `claude`, `codex`
+and `grok` is on your PATH.
 
 ## Bug reports
 

@@ -416,10 +416,10 @@ asking.
 ## Updating the agent plugins
 
 `simpleviz update +ai` updates simpleviz, then the plugin of each agent
-CLI on your PATH, `claude` and `codex`: it adds the marketplace and
-installs the plugin where they're missing, and updates them where
-they're there. A tool that fails doesn't stop the other; the command then
-exits 1. Restart Claude Code to load the new plugin. The launcher of
+CLI on your PATH, `claude`, `codex` and `grok`: it adds the marketplace
+and installs the plugin where they're missing, and updates them where
+they're there. A tool that fails doesn't stop the others; the command
+then exits 1. Restart Claude Code to load the new plugin. The launcher of
 v0.35.0 and older ignores `+ai`: run `simpleviz update` once, then
 `simpleviz update +ai`.
 

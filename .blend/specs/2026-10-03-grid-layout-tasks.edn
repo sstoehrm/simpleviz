@@ -1,4 +1,4 @@
-;; grid layout — plan tasks (plan: docs/superpowers/plans/2026-10-03-grid-layout.md)
+;; grid layout — plan tasks
 {:nodes {:t1 {:name "1. server: validate :grid" :state :done}
          :t2 {:name "2. grid: cells, loose attachment" :state :done}
          :t3 {:name "3. grid: slots, sides, track sizing" :state :done}

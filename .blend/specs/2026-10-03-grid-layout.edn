@@ -1,4 +1,4 @@
-;; grid layout — design figure (spec: docs/superpowers/specs/2026-10-03-grid-layout-design.md)
+;; grid layout — design figure
 {:nodes {:file {:name "graph.edn" :type "file" :note ":grid [col row] / [col row w h] on top-level boxes"}
          :resolve {:name "resolve-grids" :type "server"
                    :note "validate, nested/malformed/overlap warnings, box payload :grid {:col :row :w :h}"}

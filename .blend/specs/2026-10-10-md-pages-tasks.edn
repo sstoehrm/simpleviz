@@ -1,5 +1,4 @@
-;; md pages — implementation tasks (plan:
-;; docs/superpowers/plans/2026-10-10-md-pages.md). Set :state per task as
+;; md pages — implementation tasks. Set :state per task as
 ;; it moves: :in-progress, :done once its review is clean, :blocked + :reason.
 {:nodes {:t1 {:name "1. Shared link scanner" :state :done
               :text "server/mdlinks.cljc + cases run by both suites"}

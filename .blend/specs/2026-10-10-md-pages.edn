@@ -1,6 +1,5 @@
 ;; md pages: .md files as first-class pages, linked to graphs and other
-;; md files with ordinary markdown links (spec:
-;; docs/superpowers/specs/2026-10-10-md-pages-design.md)
+;; md files with ordinary markdown links
 {:layout :compact
  :nodes {:md-file {:name "notes.md" :type "file"
                    :text "[the graph](pay.edn), [auth](auth.md)"}

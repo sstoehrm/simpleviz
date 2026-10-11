@@ -1,4 +1,4 @@
-;; md editor — design figure (spec: docs/superpowers/specs/2026-10-03-md-editor-design.md)
+;; md editor — design figure
 {:nodes {:toolbar {:name "toolbar: open md (f m)" :type "ui"
                    :note "shown for a node/box with a string :md-ref, EDN-served sessions only"}
          :panel {:name "md panel" :type "ui"

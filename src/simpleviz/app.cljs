@@ -3,7 +3,7 @@
             [simpleviz.colors :as colors]
             [simpleviz.format :as format]
             [simpleviz.transform :refer [to-elk elk-fingerprint layout-positions seed-layout seedable?
-                                         rename-layout-ids]]
+                                         rename-layout-ids diff-glyphs]]
             [simpleviz.prune :refer [collapse-boxes collapse-scene]]
             [simpleviz.scene :as scene]
             [simpleviz.hit :as hit]
@@ -744,7 +744,7 @@
                            (assoc :selected (item->payload item)))))
         (canvas/center-on! item)))))
 
-(defn- legend-row [st status glyph cls stops]
+(defn- legend-row [st status stops]
   (let [n (.-length stops)
         idx (get (:diff-cursors st) status)]
     [:button {:key status :type "button"
@@ -754,7 +754,7 @@
                        (str "no " status " elements")
                        (str "jump to the next " status " element"))
               :on-click (fn [e] (.stopPropagation e) (cycle-diff! status))}
-     [:span {:class (str "dl-key " cls)} glyph]
+     [:span {:class (str "dl-key dl-" status)} (get diff-glyphs status)]
      [:span {:class "dl-label"} status]
      [:span {:class "dl-count"}
       (if (some? idx) (str (inc idx) "/" n) (str n))]]))
@@ -781,9 +781,9 @@
       [:div {:id "diff-legend"}
        [:div {:class "dl-files"}
         (str (format/basename (:old cmp)) " → " (format/basename (:new cmp)))]
-       (legend-row st "added" "+" "dl-added" (get stops "added"))
-       (legend-row st "modified" "~" "dl-modified" (get stops "modified"))
-       (legend-row st "removed" "−" "dl-removed" (get stops "removed"))
+       (legend-row st "added" (get stops "added"))
+       (legend-row st "modified" (get stops "modified"))
+       (legend-row st "removed" (get stops "removed"))
        (edit-target-row st (:graph st))])))
 
 (defn- trail-view

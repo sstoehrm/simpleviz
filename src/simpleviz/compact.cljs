@@ -7,7 +7,8 @@
   turns top to bottom inside — in the \"compact\" layout; the \"tiled\"
   one keeps every box left to right. A graph without boxes or gridded
   nodes wraps its rows instead. Pure: ELK is passed in."
-  (:require [simpleviz.grid :as grid]))
+  (:require [simpleviz.grid :as grid]
+            [simpleviz.transform :refer [edge-ends]]))
 
 (defn- top-boxes
   "Elk ids of the top-level boxes, in the graph's order."
@@ -24,7 +25,7 @@
         bump! (fn [a b] (let [m (or (get out a) (let [m {}] (assoc! out a m) m))]
                           (assoc! m b (inc (or (get m b) 0)))))]
     (doseq [e (:edges graph)]
-      (let [[s t] (grid/edge-ends e)
+      (let [[s t] (edge-ends e)
             ts (grid/top-of po s)
             tt (grid/top-of po t)]
         (when (and (not= ts tt) (.has ids ts) (.has ids tt))
@@ -149,11 +150,10 @@
   [graph elk-graph run-elk prev & [turn?]]
   (if (and (empty? (top-boxes graph)) (not (grid/grid-mode? graph)))
     ;; nothing to put on cells: one wrapped left-to-right layout
-    (let [copy (fn [x] (js/JSON.parse (js/JSON.stringify x)))]
-      (js-await (-> (run-elk (assoc (copy elk-graph) :layoutOptions
-                                    (merge (:layoutOptions elk-graph) grid/WRAP-OPTIONS)))
-                    ;; should ELK not manage to wrap it: as it comes
-                    (.catch (fn [_] (run-elk (copy elk-graph)))))))
+    (js-await (-> (run-elk (assoc (grid/json-copy elk-graph) :layoutOptions
+                                  (merge (:layoutOptions elk-graph) grid/WRAP-OPTIONS)))
+                  ;; should ELK not manage to wrap it: as it comes
+                  (.catch (fn [_] (run-elk (grid/json-copy elk-graph))))))
     (let [opts {:square (not= false turn?) :wrap-strip true :rotate-labels true}
           pass (fn [ncols p] (.then (grid/layout-grid (with-cells graph ncols) elk-graph run-elk p opts)
                                     (fn [l] (assoc l :ncols ncols))))]

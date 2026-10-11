@@ -2,7 +2,7 @@
   (:require [simpleviz.colors :as colors]
             [simpleviz.scene :as scene]
             [simpleviz.svg :as svg]
-            [simpleviz.transform :refer [NODE-FONT SUB-FONT]]
+            [simpleviz.transform :refer [NODE-FONT SUB-FONT diff-glyphs]]
             [themes :as themes]))
 
 ;; HiDPI canvas painter + view state + pan/zoom. DOM-only namespace —
@@ -122,8 +122,6 @@
   (.beginPath ctx)
   (.roundRect ctx x y w h r))
 
-(def ^:private diff-glyphs {"added" "+" "modified" "~" "removed" "−"})
-
 (defn- diff-color [d]
   (case d
     "added" (:diff-added @palette)
@@ -170,8 +168,7 @@
     (.fillText ctx l x (+ y (* i scene/LINE-H)))))
 
 (defn- draw-box [ctx item sel? text?]
-  (let [removed? (= (:diff item) "removed") c (box-color item)]
-  (when removed? (set! (.-globalAlpha ctx) 0.45))
+  (let [c (box-color item)]
   (rounded-rect ctx (:x item) (:y item) (:w item) (:h item) 10)
   (set! (.-fillStyle ctx) (:fill c))
   (.fill ctx)
@@ -237,8 +234,7 @@
   (when (and text? (:pair? item))
     (draw-pair-mark ctx item))
   (when (some? (:diff item))
-    (draw-diff-ring ctx item 12 text?))
-  (when removed? (set! (.-globalAlpha ctx) 1))))
+    (draw-diff-ring ctx item 12 text?))))
 
 (def ^:private STATE-R 5)
 
@@ -328,11 +324,9 @@
   (ellipse-arc! ctx (+ x (/ w 2)) (+ y ry) (/ w 2) ry js/Math.PI 0))
 
 (defn- draw-node [ctx item sel? text?]
-  (let [removed? (= (:diff item) "removed")
-        db? (:database? item)
+  (let [db? (:database? item)
         ;; a cylinder's text sits under its lid
         dy (if db? (+ scene/DB-RIM 4) 0)]
-    (when removed? (set! (.-globalAlpha ctx) 0.45))
     (if db?
       (cylinder-path ctx (:x item) (:y item) (:w item) (:h item) scene/DB-RIM)
       (rounded-rect ctx (:x item) (:y item) (:w item) (:h item) 6))
@@ -371,8 +365,7 @@
       (draw-text-lines! ctx (:text-lines item) (+ (:x item) (/ (:w item) 2))
                         (+ (:y item) (if (pos? (.-length (:type item))) 44 30) dy 10) "center")))
     (when (some? (:diff item))
-      (draw-diff-ring ctx item 8 text?))
-    (when removed? (set! (.-globalAlpha ctx) 1))))
+      (draw-diff-ring ctx item 8 text?))))
 
 (defn- draw-arrowhead [ctx from to color]
   (let [angle (js/Math.atan2 (- (:y to) (:y from)) (- (:x to) (:x from)))
@@ -394,9 +387,7 @@
         removed? (= d "removed")
         color (if sel? (:accent @palette) (if (some? d) (diff-color d) (:edge @palette)))
         arrow-color (if (some? d) (diff-color d) (:arrow @palette))]
-    (when removed?
-      (set! (.-globalAlpha ctx) 0.45)
-      (.setLineDash ctx [6 4]))
+    (when removed? (.setLineDash ctx [6 4]))
     (set! (.-strokeStyle ctx) color)
     (set! (.-lineWidth ctx) (if sel? 2.5 (if (some? d) 2 1.5)))
     (doseq [pts (:sections item)]
@@ -415,44 +406,43 @@
                         (nth last-sec (dec (.-length last-sec)))
                         arrow-color))
       (when (and detail? (:source (:arrows item)))
-        (draw-arrowhead ctx (nth first-sec 1) (nth first-sec 0) arrow-color)))
-    (when removed? (set! (.-globalAlpha ctx) 1))))
+        (draw-arrowhead ctx (nth first-sec 1) (nth first-sec 0) arrow-color)))))
 
 (defn- draw-edge-label [ctx item]
-  (let [removed? (= (:diff item) "removed")]
-    (when removed? (set! (.-globalAlpha ctx) 0.45))
-    (set! (.-textAlign ctx) "center")
-    (set! (.-font ctx) SUB-FONT)
-    (let [halo! (fn [x y]
-                  (set! (.-lineWidth ctx) 3)
-                  (set! (.-strokeStyle ctx) (:bg @palette))
-                  (.strokeText ctx (:text item) x y)
-                  (set! (.-fillStyle ctx) (:label @palette))
-                  (.fillText ctx (:text item) x y))]
-      (if (:rotated item)
-        ;; turned 90°, reading bottom to top, centred in its tall rect
-        (do (.save ctx)
-            (.translate ctx (+ (:x item) (/ (:w item) 2)) (+ (:y item) (/ (:h item) 2)))
-            (.rotate ctx (/ js/Math.PI -2))
-            (halo! 0 4)
-            (.restore ctx))
-        (halo! (+ (:x item) (/ (:w item) 2)) (+ (:y item) (:h item) -3))))
-    (when removed? (set! (.-globalAlpha ctx) 1))))
+  (set! (.-textAlign ctx) "center")
+  (set! (.-font ctx) SUB-FONT)
+  (let [halo! (fn [x y]
+                (set! (.-lineWidth ctx) 3)
+                (set! (.-strokeStyle ctx) (:bg @palette))
+                (.strokeText ctx (:text item) x y)
+                (set! (.-fillStyle ctx) (:label @palette))
+                (.fillText ctx (:text item) x y))]
+    (if (:rotated item)
+      ;; turned 90°, reading bottom to top, centred in its tall rect
+      (do (.save ctx)
+          (.translate ctx (+ (:x item) (/ (:w item) 2)) (+ (:y item) (/ (:h item) 2)))
+          (.rotate ctx (/ js/Math.PI -2))
+          (halo! 0 4)
+          (.restore ctx))
+      (halo! (+ (:x item) (/ (:w item) 2)) (+ (:y item) (:h item) -3)))))
 
 (defn- paint-items!
-  "Draw every scene item visible in the graph-space rect vr at zoom k.
-  text? controls both text rendering and edge arrowheads (draw-edge's
-  detail? param)."
-  [ctx sc vr k selected-id text?]
+  "Draw every scene item visible in the graph-space rect vr; a removed
+  one (compare mode) is ghosted. text? controls both text rendering and
+  edge arrowheads (draw-edge's detail? param)."
+  [ctx sc vr selected-id text?]
   (doseq [item (:items sc)]
     (when (scene/visible? item vr)
-      (let [sel? (= selected-id (:id item))]
+      (let [sel? (= selected-id (:id item))
+            ghost? (= "removed" (:diff item))]
+        (when ghost? (set! (.-globalAlpha ctx) 0.45))
         (case (:kind item)
           "box" (draw-box ctx item sel? text?)
           "edge" (draw-edge ctx item sel? text?)
           "edge-label" (when text? (draw-edge-label ctx item))
           "node" (draw-node ctx item sel? text?)
-          nil)))))
+          nil)
+        (when ghost? (set! (.-globalAlpha ctx) 1))))))
 
 (defn paint! [canvas-el sc2 selected-id]
   (let [ctx (.getContext canvas-el "2d")
@@ -475,7 +465,7 @@
               :x1 (/ (- (.-clientWidth canvas-el) (:x view)) k)
               :y1 (/ (- (.-clientHeight canvas-el) (:y view)) k)}
           text? (>= (* k 11) scene/TEXT-MIN-PX)]
-      (paint-items! ctx sc2 vr k selected-id text?))))
+      (paint-items! ctx sc2 vr selected-id text?))))
 
 (defn export-canvas
   "Offscreen canvas with the WHOLE scene at up to 2x scale (capped so
@@ -492,7 +482,7 @@
     (set! (.-fillStyle ctx) (:bg @palette))
     (.fillRect ctx 0 0 (.-width cnv) (.-height cnv))
     (.setTransform ctx k 0 0 k 0 0)
-    (paint-items! ctx sc {:x0 0 :y0 0 :x1 w :y1 h} k nil true)
+    (paint-items! ctx sc {:x0 0 :y0 0 :x1 w :y1 h} nil true)
     cnv))
 
 (defn export-svg
@@ -504,7 +494,7 @@
   (let [w (js/Math.max 1 (:width sc))
         h (js/Math.max 1 (:height sc))
         rec (svg/recorder measure)]
-    (paint-items! rec sc {:x0 0 :y0 0 :x1 w :y1 h} 1 nil true)
+    (paint-items! rec sc {:x0 0 :y0 0 :x1 w :y1 h} nil true)
     (svg/svg-document rec {:width w :height h :background (:bg @palette)
                            :sources sources})))
 

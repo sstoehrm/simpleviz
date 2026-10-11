@@ -508,10 +508,13 @@
     (svg/svg-document rec {:width w :height h :background (:bg @palette)
                            :sources sources})))
 
+;; the panels over the canvas: wheel and drag there are theirs, not pan/zoom
+(def ^:private panels "#details, #md-panel, #banner, #collapsed-panel, #top-right, #diff-legend")
+
 (defn setup-pan-zoom! [wrap]
   (.addEventListener wrap "wheel"
     (fn [e]
-      (when-not (.closest (.-target e) "#details, #banner, #collapsed-panel, #top-right, #diff-legend")
+      (when-not (.closest (.-target e) panels)
         (.preventDefault e)
         (let [factor (if (< (.-deltaY e) 0) 1.1 (/ 1 1.1))
               rect (.getBoundingClientRect wrap)
@@ -526,7 +529,7 @@
   (let [drag (atom nil)]
     (.addEventListener wrap "pointerdown"
       (fn [e]
-        (when-not (.closest (.-target e) "#details, #banner, #collapsed-panel, #top-right, #diff-legend")
+        (when-not (.closest (.-target e) panels)
           ;; NO setPointerCapture here: capturing on pointerdown retargets
           ;; the subsequent click to the wrap, so the canvas onclick
           ;; (selection) would never fire for plain clicks.

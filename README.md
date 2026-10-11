@@ -13,7 +13,8 @@ Linux, with [babashka](https://babashka.org/) 1.12 or newer, curl and tar:
     curl -fsSL https://raw.githubusercontent.com/sstoehrm/simpleviz/main/install.sh | bash
 
 This installs into `~/.simpleviz` and puts a launcher in `~/.local/bin`.
-`simpleviz update` fetches the latest release.
+`simpleviz update` fetches the latest release; `simpleviz update +ai` also
+installs or updates the Claude Code and Codex plugins (below).
 
 With [bbin](https://github.com/babashka/bbin) (tested on Linux), the same
 command installs and updates the release jar:
@@ -104,6 +105,9 @@ Codex:
 
     codex plugin marketplace add sstoehrm/simpleviz
     codex plugin add simpleviz@simpleviz
+
+Or let `simpleviz update +ai` do both, for whichever of `claude` and
+`codex` is on your PATH.
 
 ## Bug reports
 

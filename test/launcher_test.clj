@@ -185,3 +185,90 @@
             (is (= 0 (:exit res)) (str (keys env) (:err res)))
             (is (= "cli ran" (str/trim (:out res)))))))
       (finally (fs/delete-tree tmp)))))
+
+(defn- update-ai!
+  "Run `update` + `args` with VERSION already the latest release, and stub
+  agent CLIs (`tools`: \"claude\"/\"codex\") on a PATH without the real
+  ones; `installed` names the tools that already have the marketplace and
+  the plugin, `failing` those whose every write fails. {:exit :err :out
+  :calls [\"claude plugin ...\" ...]}."
+  [args & {:keys [tools installed failing]}]
+  (let [script (write-launcher!)
+        tmp (fs/create-temp-dir {:prefix "simpleviz-update-ai"})
+        home (fs/path tmp "home")
+        bin (fs/path tmp "bin")
+        calls (fs/path tmp "calls")
+        stub! (fn [n body]
+                (spit (str (fs/path bin n)) (str "#!/usr/bin/env bash\n" body))
+                (.setExecutable (fs/file (fs/path bin n)) true))]
+    (try
+      (fs/create-dirs home)
+      (fs/create-dirs bin)
+      (spit (str (fs/path home "VERSION")) "v9.9.9\n")
+      (stub! "curl" "echo '\"tag_name\": \"v9.9.9\"'\n")
+      (doseq [t tools]
+        (stub! t (str "echo \"" t " $*\" >>'" calls "'\n"
+                      "case \"$*\" in\n"
+                      "  'plugin marketplace list --json') "
+                      (if (contains? installed t) "echo '[{\"name\": \"simpleviz\"}]'" "echo '[]'") " ;;\n"
+                      "  'plugin list --json') "
+                      (if (contains? installed t) "echo '[{\"id\": \"simpleviz@simpleviz\"}]'" "echo '[]'") " ;;\n"
+                      "  'plugin marketplace list') echo 'MARKETPLACE ROOT'; "
+                      (if (contains? installed t) "echo 'simpleviz /x'" "true") " ;;\n"
+                      "  *) " (if (contains? failing t) "exit 1" "true") " ;;\n"
+                      "esac\n")))
+      (let [res (apply p/shell {:out :string :err :string :continue true
+                                :extra-env {"SIMPLEVIZ_HOME" (str home)
+                                            "PATH" (str bin ":/usr/bin:/bin")}}
+                       "bash" script "update" args)]
+        (assoc (select-keys res [:exit :out :err])
+               :calls (if (fs/exists? calls)
+                        (remove #(str/includes? % " list") (str/split-lines (slurp (str calls))))
+                        [])))
+      (finally (fs/delete-tree tmp)))))
+
+(deftest update-ai-installs-the-plugins-where-they-are-missing
+  (let [{:keys [exit err out calls]} (update-ai! ["+ai"] :tools ["claude" "codex"])]
+    (is (= 0 exit) err)
+    (is (str/includes? out "already up to date") "simpleviz itself first")
+    (is (= ["claude plugin marketplace add sstoehrm/simpleviz"
+            "claude plugin install simpleviz@simpleviz"
+            "codex plugin marketplace add sstoehrm/simpleviz"
+            "codex plugin add simpleviz@simpleviz"]
+           calls))))
+
+(deftest update-ai-updates-the-plugins-that-are-there
+  (let [{:keys [exit err calls]} (update-ai! ["+ai"] :tools ["claude" "codex"]
+                                             :installed #{"claude" "codex"})]
+    (is (= 0 exit) err)
+    (is (= ["claude plugin marketplace update simpleviz"
+            "claude plugin update simpleviz@simpleviz"
+            "codex plugin marketplace upgrade simpleviz"
+            "codex plugin add simpleviz@simpleviz"]
+           calls))))
+
+(deftest update-ai-takes-the-tools-on-the-path
+  (let [{:keys [exit calls]} (update-ai! ["+ai"] :tools ["codex"])]
+    (is (= 0 exit))
+    (is (= ["codex plugin marketplace add sstoehrm/simpleviz" "codex plugin add simpleviz@simpleviz"]
+           calls)))
+  (let [{:keys [exit err]} (update-ai! ["+ai"])]
+    (is (= 1 exit))
+    (is (str/includes? err "neither claude nor codex is on the PATH"))))
+
+(deftest update-ai-goes-on-past-a-failing-tool-and-says-so
+  (let [{:keys [exit err calls]} (update-ai! ["+ai"] :tools ["claude" "codex"] :failing #{"claude"})]
+    (is (= 1 exit))
+    (is (str/includes? err "the Claude Code plugin failed"))
+    (is (= ["claude plugin marketplace add sstoehrm/simpleviz"
+            "codex plugin marketplace add sstoehrm/simpleviz"
+            "codex plugin add simpleviz@simpleviz"]
+           calls))))
+
+(deftest update-without-ai-leaves-the-plugins-alone
+  (let [{:keys [exit calls]} (update-ai! [] :tools ["claude" "codex"])]
+    (is (= 0 exit))
+    (is (= [] calls)))
+  (let [{:keys [exit err]} (update-ai! ["--ai"] :tools ["claude"])]
+    (is (= 1 exit))
+    (is (str/includes? err "update takes only +ai"))))

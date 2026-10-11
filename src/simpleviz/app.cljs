@@ -13,6 +13,7 @@
             [simpleviz.grid :as grid]
             [simpleviz.compact :as compact]
             [mdlinks :as mdlinks]
+            [paths :as paths]
             [themes :as themes]))
 
 (def elk (js/ELK.))
@@ -1451,7 +1452,7 @@
   that climbs above the served folder is refused here with a banner."
   [ref]
   (let [st @state
-        target (editor/resolve-ref (current-path st) ref)]
+        target (paths/resolve-ref (current-path st) ref)]
     (if (nil? target)
       (swap! state assoc :nav-error (str "ref " (pr-str ref) " leaves the served folder"))
       (js-await (follow-to! target {:create? (and (current-edit-target-editable? st)

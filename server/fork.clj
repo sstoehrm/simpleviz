@@ -41,7 +41,7 @@
               (doseq [r (targets rel text)]
                 (let [target (paths/resolve-ref rel r)]
                   (cond
-                    (serve/md-path? r) nil
+                    (paths/md-path? r) nil
 
                     (nil? target)
                     (warn! (str rel ": link " (pr-str r) " leaves the root folder, skipped"))

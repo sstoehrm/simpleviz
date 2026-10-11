@@ -14,7 +14,8 @@
             [org.httpkit.server :as srv]
             [embedded]
             [mdlinks]
-            [pairs])
+            [pairs]
+            [paths])
   (:import [clojure.lang LineNumberingPushbackReader]
            [java.io StringReader]))
 
@@ -39,11 +40,6 @@
 
 ;; what a markdown link may lead to
 (def ^:private link-extensions (into ref-extensions doc-extensions))
-
-(defn md-path?
-  "Does `path` name a markdown file (.md, any case)?"
-  [path]
-  (str/ends-with? (str/lower-case (str path)) ".md"))
 
 (defn- extensions-phrase
   "\"an .edn, .png or .svg\" for #{\"edn\" \"png\" \"svg\"}."
@@ -383,7 +379,7 @@
         {:error (str "two-file compare was replaced: bb fork " f1 " <suffix>, then bb serve " f1 " <suffix>\n" usage)}
         (and (some? suffix) (nil? (re-matches suffix-re suffix)))
         {:error (str "invalid suffix: " suffix "\n" usage)}
-        (and (some? suffix) (md-path? f1))
+        (and (some? suffix) (paths/md-path? f1))
         {:error (str "compare mode needs a graph file (.edn, .png or .svg)\n" usage)}
         :else {:file f1 :suffix suffix :port port :debug debug}))
     (catch Exception e
@@ -663,7 +659,7 @@
   or, for an md file, its read error and broken links."
   [query-string]
   (let [rel (try (or (nav-rel query-string) (root-rel)) (catch Exception _ nil))]
-    (if (and (some? rel) (md-path? rel))
+    (if (and (some? rel) (paths/md-path? rel))
       (json/generate-string (md-errors rel))
       (let [out (json/parse-string (graph-response-body query-string "/api/errors"))]
         (json/generate-string {:error (get out "error")
@@ -921,7 +917,7 @@
   both sides of a graph, or the md file itself."
   [file]
   (try
-    (if (md-path? file)
+    (if (paths/md-path? file)
       (when-not (:exists (doc-state (.getCanonicalFile (io/file file))))
         (throw (ex-info (str "no such file: " file) {})))
       (let [{:keys [old new]} (sides nil)]

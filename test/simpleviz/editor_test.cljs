@@ -9,10 +9,11 @@
                                       chord-action chord-prefix? chord-for chord-menu chord-leaves
                                       add-node-in-box-ops box-remove-op
                                       name->id derived-id named-edge-ops creation-ops parse-entry
-                                      resolve-ref parse-nav nav-query follow-url crumb-url ref-of banner-visible?
+                                      parse-nav nav-query follow-url crumb-url ref-of banner-visible?
                                       theme-menu layout-menu effective-layout top-box-of load-readiness export-readiness
                                       md-target from-disk to-disk md-dirty? adopt-doc gone-doc poll-outcome save-result
-                                      parent-box split-parent doc-kind link-target line-markers link-title]]))
+                                      parent-box split-parent doc-kind link-target line-markers link-title]]
+            [paths :refer [resolve-ref]]))
 
 (test "target maps selection payloads to op targets"
   (fn []

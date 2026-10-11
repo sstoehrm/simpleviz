@@ -186,12 +186,26 @@
             (is (= "cli ran" (str/trim (:out res)))))))
       (finally (fs/delete-tree tmp)))))
 
+(def ^:private list-outputs
+  "What each agent CLI's list commands print, by whether the simpleviz
+  marketplace and plugin are there: {tool {args [missing there]}}, as
+  the real CLIs print them (Grok's next to a plugin of another
+  marketplace)."
+  {"claude" {"plugin marketplace list --json" ["[]" "[{\"name\": \"simpleviz\"}]"]
+             "plugin list --json" ["[]" "[{\"id\": \"simpleviz@simpleviz\"}]"]}
+   "codex" {"plugin marketplace list" ["MARKETPLACE ROOT" "MARKETPLACE ROOT\nsimpleviz /x"]}
+   "grok" {"plugin marketplace list" ["No marketplace sources configured."
+                                      "  simpleviz: https://github.com/sstoehrm/simpleviz.git"]
+           "plugin list" ["  other-1: other [local: /y] (market)"
+                          (str "  other-1: other [local: /y] (market)\n"
+                               "  simpleviz-3fb8b6e1: simpleviz [local: /x/plugins/simpleviz] (simpleviz)")]}})
+
 (defn- update-ai!
   "Run `update` + `args` with VERSION already the latest release, and stub
-  agent CLIs (`tools`: \"claude\"/\"codex\") on a PATH without the real
-  ones; `installed` names the tools that already have the marketplace and
-  the plugin, `failing` those whose every write fails. {:exit :err :out
-  :calls [\"claude plugin ...\" ...]}."
+  agent CLIs (`tools`: \"claude\"/\"codex\"/\"grok\") on a PATH without
+  the real ones; `installed` names the tools that already have the
+  marketplace and the plugin, `failing` those whose every write fails.
+  {:exit :err :out :calls [\"claude plugin ...\" ...]}."
   [args & {:keys [tools installed failing]}]
   (let [script (write-launcher!)
         tmp (fs/create-temp-dir {:prefix "simpleviz-update-ai"})
@@ -209,12 +223,9 @@
       (doseq [t tools]
         (stub! t (str "echo \"" t " $*\" >>'" calls "'\n"
                       "case \"$*\" in\n"
-                      "  'plugin marketplace list --json') "
-                      (if (contains? installed t) "echo '[{\"name\": \"simpleviz\"}]'" "echo '[]'") " ;;\n"
-                      "  'plugin list --json') "
-                      (if (contains? installed t) "echo '[{\"id\": \"simpleviz@simpleviz\"}]'" "echo '[]'") " ;;\n"
-                      "  'plugin marketplace list') echo 'MARKETPLACE ROOT'; "
-                      (if (contains? installed t) "echo 'simpleviz /x'" "true") " ;;\n"
+                      (apply str (for [[args outs] (get list-outputs t)]
+                                   (str "  '" args "') printf '%s\\n' '"
+                                        (get outs (if (contains? installed t) 1 0)) "' ;;\n")))
                       "  *) " (if (contains? failing t) "exit 1" "true") " ;;\n"
                       "esac\n")))
       (let [res (apply p/shell {:out :string :err :string :continue true
@@ -228,23 +239,27 @@
       (finally (fs/delete-tree tmp)))))
 
 (deftest update-ai-installs-the-plugins-where-they-are-missing
-  (let [{:keys [exit err out calls]} (update-ai! ["+ai"] :tools ["claude" "codex"])]
+  (let [{:keys [exit err out calls]} (update-ai! ["+ai"] :tools ["claude" "codex" "grok"])]
     (is (= 0 exit) err)
     (is (str/includes? out "already up to date") "simpleviz itself first")
     (is (= ["claude plugin marketplace add sstoehrm/simpleviz"
             "claude plugin install simpleviz@simpleviz"
             "codex plugin marketplace add sstoehrm/simpleviz"
-            "codex plugin add simpleviz@simpleviz"]
+            "codex plugin add simpleviz@simpleviz"
+            "grok plugin marketplace add sstoehrm/simpleviz"
+            "grok plugin install simpleviz@simpleviz --trust"]
            calls))))
 
 (deftest update-ai-updates-the-plugins-that-are-there
-  (let [{:keys [exit err calls]} (update-ai! ["+ai"] :tools ["claude" "codex"]
-                                             :installed #{"claude" "codex"})]
+  (let [{:keys [exit err calls]} (update-ai! ["+ai"] :tools ["claude" "codex" "grok"]
+                                             :installed #{"claude" "codex" "grok"})]
     (is (= 0 exit) err)
     (is (= ["claude plugin marketplace update simpleviz"
             "claude plugin update simpleviz@simpleviz"
             "codex plugin marketplace upgrade simpleviz"
-            "codex plugin add simpleviz@simpleviz"]
+            "codex plugin add simpleviz@simpleviz"
+            "grok plugin marketplace update simpleviz"
+            "grok plugin update simpleviz"]
            calls))))
 
 (deftest update-ai-takes-the-tools-on-the-path
@@ -252,9 +267,13 @@
     (is (= 0 exit))
     (is (= ["codex plugin marketplace add sstoehrm/simpleviz" "codex plugin add simpleviz@simpleviz"]
            calls)))
+  (let [{:keys [exit calls]} (update-ai! ["+ai"] :tools ["grok"])]
+    (is (= 0 exit))
+    (is (= ["grok plugin marketplace add sstoehrm/simpleviz" "grok plugin install simpleviz@simpleviz --trust"]
+           calls)))
   (let [{:keys [exit err]} (update-ai! ["+ai"])]
     (is (= 1 exit))
-    (is (str/includes? err "neither claude nor codex is on the PATH"))))
+    (is (str/includes? err "none of claude, codex and grok is on the PATH"))))
 
 (deftest update-ai-goes-on-past-a-failing-tool-and-says-so
   (let [{:keys [exit err calls]} (update-ai! ["+ai"] :tools ["claude" "codex"] :failing #{"claude"})]

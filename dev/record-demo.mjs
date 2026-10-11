@@ -45,12 +45,16 @@ edit(demo, `:ref "api/internals.edn"}`, `:ref "api/internals.edn"\n             
 // Auth is described by a markdown doc the viewer can edit
 edit(demo, `:auth   {:name "Auth"     :type "service"}`, `:auth   {:name "Auth"     :type "service" :md-ref "docs/auth.md"}`);
 fs.mkdirSync(path.join(ws, "docs"));
-fs.writeFileSync(path.join(ws, "docs/auth.md"), "# Auth\n\nIssues bearer tokens for the Web UI.\n");
+fs.writeFileSync(path.join(ws, "docs/auth.md"),
+  "# Auth\n\nIssues bearer tokens for the Web UI.\nCalled by the [API](../api/internals.edn).\n");
 
 // ---- processes -------------------------------------------------------------
 
+// the servers keep the theme and layout picks in a home of their own,
+// never in your ~/.simpleviz
+const env = { ...process.env, SIMPLEVIZ_HOME: path.join(tmp, "home") };
 function start(cmd, args) {
-  const p = spawn(cmd, args, { cwd: ROOT, stdio: ["ignore", "pipe", "pipe"], detached: true });
+  const p = spawn(cmd, args, { cwd: ROOT, env, stdio: ["ignore", "pipe", "pipe"], detached: true });
   let log = ""; p.stdout.on("data", d => log += d); p.stderr.on("data", d => log += d);
   p.log = () => log;
   procs.push(p);
@@ -203,7 +207,7 @@ async function key(k, opts = {}) {
       text: type === "keyDown" && k.length === 1 ? k : undefined,
       windowsVirtualKeyCode: codes[k] ?? (k.length === 1 ? k.toUpperCase().charCodeAt(0) : 0), ...opts });
 }
-async function chord(a, b) { await key(a); await sleep(260); await key(b); }
+async function chord(...keys) { for (const [i, k] of keys.entries()) { if (i) await sleep(260); await key(k); } }
 async function type(text) { for (const ch of text) { await send("Input.insertText", { text: ch }); await sleep(70); } }
 async function navigate(url) {
   await send("Page.navigate", { url });
@@ -278,10 +282,10 @@ try {
   await sleep(1700);
 
   // 4 — edit in place
-  await caption("Edit in place: <kbd>c n</kbd> adds a node, written back to the file");
+  await caption("Edit in place: <kbd>n n n</kbd> adds a node, written back to the file");
   await click("b:storage");
   await sleep(500);
-  await chord("c", "n");
+  await chord("n", "n", "n");
   await sleep(400);
   await type("S3::storage");
   await sleep(300);
@@ -290,7 +294,7 @@ try {
   await key("Escape");
 
   // 4b — the doc behind an :md-ref, edited as plain text
-  await caption("Edit a node's markdown doc (<code>:md-ref</code>): <kbd>f m</kbd>, <kbd>Ctrl S</kbd> saves");
+  await caption("Edit a node's markdown doc (<code>:md-ref</code>): <kbd>f m</kbd>, <kbd>Ctrl S</kbd> saves, » follows a link");
   await click("n:auth");
   await sleep(500);
   await chord("f", "m");
@@ -299,7 +303,9 @@ try {
   await type("Tokens expire after 15 minutes.\n");
   await sleep(500);
   await key("s", { modifiers: 2, text: undefined });
-  await sleep(1200);
+  await sleep(900);
+  await moveTo(await elAt("#md-gutter .md-mark"), 450);
+  await sleep(900);
   await click(await elAt("#md-panel .md-btn", "×"), 450);
   await sleep(400);
   await key("Escape");
@@ -369,7 +375,7 @@ try {
   // the last frame before the cut holds until the stop, not until the
   // first frame of the next screencast
   const cut = shots.length, cutHold = (Date.now() - shots.at(-1).at) / 1000;
-  execFileSync("bb", ["fork", demo, "next"], { cwd: ROOT, stdio: "ignore" });
+  execFileSync("bb", ["fork", demo, "next"], { cwd: ROOT, env, stdio: "ignore" });
   const next = path.join(ws, "demo-next.edn");
   edit(next, `:mail   {:name "Mailer"   :type "external" :provider "ses"}\n`, "");
   edit(next, `[:worker :mail]  {:direction :->  :name "send"    :type "smtp"}\n`, "");

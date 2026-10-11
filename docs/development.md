@@ -74,8 +74,10 @@ up, and raise `MIN_BB` in `install.sh` to the older of the two; the release
 workflow builds with the newer one.
 
 Cut a release with `bb release vX.Y.Z` from a clean `main` that matches
-`origin/main`. It writes the version into both plugin manifests
-(`plugins/simpleviz/.claude-plugin/plugin.json` and `.codex-plugin/plugin.json`),
+`origin/main`. It writes the version into the plugin manifests
+(`plugins/simpleviz/.claude-plugin/plugin.json`,
+`plugins/simpleviz/.codex-plugin/plugin.json`, and
+`plugins/simpleviz/plugin.json`),
 commits `release: vX.Y.Z`, creates the annotated tag and pushes `main` and
 the tag together. Claude Code updates a plugin only when that version
 changes, so the skill reaches users together with the release it

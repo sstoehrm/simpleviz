@@ -1,0 +1,19 @@
+{
+  "name": "simpleviz",
+  "description": "EDN-driven graph visualization — skill for authoring graph files and driving the tool",
+  "owner": {
+    "name": "Sören Stöhrmann",
+    "url": "https://github.com/sstoehrm"
+  },
+  "plugins": [
+    {
+      "name": "simpleviz",
+      "source": {
+        "type": "local",
+        "path": "./plugins/simpleviz"
+      },
+      "description": "Teaches Grok the simpleviz EDN graph format (nodes, edges, boxes) and how to serve and compare graphs",
+      "category": "productivity"
+    }
+  ]
+}

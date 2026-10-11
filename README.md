@@ -91,7 +91,7 @@ warning banner instead of breaking the render. The
 [guide](https://github.com/sstoehrm/simpleviz/blob/main/docs/guide.md#data-format)
 has the full rules.
 
-## Claude Code and Codex plugins
+## Claude Code, Codex, and Grok plugins
 
 This repo is a plugin marketplace. Its skill teaches the agent the graph
 format and the CLI, so it can write and serve diagrams for you.
@@ -105,6 +105,11 @@ Codex:
 
     codex plugin marketplace add sstoehrm/simpleviz
     codex plugin add simpleviz@simpleviz
+
+Grok:
+
+    grok plugin marketplace add sstoehrm/simpleviz
+    grok plugin install simpleviz@simpleviz --trust
 
 Or let `simpleviz update +ai` do both, for whichever of `claude` and
 `codex` is on your PATH.

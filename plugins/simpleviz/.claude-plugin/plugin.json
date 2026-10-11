@@ -1,6 +1,6 @@
 {
   "name": "simpleviz",
-  "version": "0.38.1",
+  "version": "0.39.0",
   "description": "Teaches Claude the simpleviz EDN graph format (nodes, edges, boxes) and how to serve and compare graphs",
   "author": {
     "name": "Sören Stöhrmann",

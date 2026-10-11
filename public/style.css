@@ -93,9 +93,87 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
             border-left: 1px solid var(--panel-border); z-index: 5;
             box-shadow: -2px 0 8px var(--shadow); }
 #md-panel.full { left: 0; width: auto; z-index: 20; border-left: none; }
-/* the md page: the doc editor filling the window under the top bar */
-#md-panel.page { top: 52px; left: 0; width: auto; border-left: none; box-shadow: none;
-                 border-top: 1px solid var(--panel-divider); }
+/* the md page: a column under the top bar, centered on its own and on
+   the left while a followed graph shows on the right. Its text is at
+   most 90 characters of the doc font wide (--md-text-w, registered so
+   the ch resolves here, in that font), centered in the column with 10%
+   of the window to spare; the text's padding holds the » gutter, the 14px
+   its scrollbar */
+@property --md-text-w { syntax: "<length>"; inherits: true; initial-value: 0px; }
+#md-panel.page { top: 52px; right: auto; box-shadow: none;
+                 border-top: 1px solid var(--panel-divider);
+                 border-left: 1px solid var(--panel-divider);
+                 border-right: 1px solid var(--panel-divider);
+                 font: 13px/1.5 ui-monospace, "Cascadia Mono", monospace;
+                 --md-text-w: 90ch;
+                 --md-col: min(calc(var(--md-text-w) + 114px + 10vw), 100vw);
+                 --md-pad: calc((100% - var(--md-text-w) - 14px) / 2);
+                 width: var(--md-col); left: calc((100vw - var(--md-col)) / 2); }
+#root.split #md-panel.page { --md-col: min(calc(var(--md-text-w) + 114px + 10vw), 62vw);
+                             left: 0; border-left: none; }
+#md-panel.page .md-head, #md-panel.page .md-error { font-family: system-ui, sans-serif; }
+#md-panel.page .md-head { padding: 12px 14px 12px max(40px, var(--md-pad)); }
+#md-panel.page .md-path { font-size: 16px; font-weight: 600; }
+#md-panel.page #md-text { padding: 16px max(60px, var(--md-pad)) 16px max(40px, var(--md-pad)); }
+/* the md page rendered (until Edit) */
+#md-view { flex: 1 1 auto; min-width: 0; overflow: auto; background: var(--panel); color: var(--text);
+           padding: 18px max(40px, var(--md-pad)) 48px; font: 15px/1.6 system-ui, sans-serif;
+           overflow-wrap: break-word; }
+#md-view > :first-child { margin-top: 0; }
+#md-view h1, #md-view h2, #md-view h3, #md-view h4, #md-view h5, #md-view h6 {
+  color: var(--text-strong); line-height: 1.25; margin: 1.5em 0 .6em; font-weight: 600; }
+#md-view h1 { font-size: 1.75em; padding-bottom: .3em; border-bottom: 1px solid var(--panel-divider); }
+#md-view h2 { font-size: 1.35em; padding-bottom: .25em; border-bottom: 1px solid var(--panel-divider); }
+#md-view h3 { font-size: 1.15em; }
+#md-view h4, #md-view h5, #md-view h6 { font-size: 1em; }
+#md-view p, #md-view ul, #md-view ol, #md-view pre, #md-view table { margin: 0 0 1em; }
+#md-view ul, #md-view ol { padding-left: 1.6em; }
+#md-view li > ul, #md-view li > ol { margin: .2em 0; }
+#md-view li > p { margin: 0 0 .5em; }
+#md-view code { font: .87em ui-monospace, "Cascadia Mono", monospace; background: var(--hover-plain);
+                border-radius: 4px; padding: .1em .35em; }
+#md-view pre { padding: 10px 14px; overflow: auto; background: var(--hover-plain);
+               border: 1px solid var(--panel-divider); border-radius: 6px; line-height: 1.45; }
+#md-view pre code { background: none; padding: 0; font-size: 13px; }
+#md-view table { border-collapse: collapse; display: block; max-width: 100%; overflow: auto; }
+#md-view th, #md-view td { border: 1px solid var(--panel-border); padding: 4px 10px; }
+#md-view th { background: var(--hover-plain); color: var(--text-strong); font-weight: 600; text-align: left; }
+#md-view .al-left { text-align: left; }
+#md-view .al-center { text-align: center; }
+#md-view .al-right { text-align: right; }
+#md-view a { color: var(--accent); text-underline-offset: 2px; }
+#md-view a:hover { color: var(--text-strong); }
+/* the link whose graph shows beside the page: pressed, like its » */
+#md-view a.open { color: var(--text-strong); background: var(--panel-border); border-radius: 4px;
+                  box-shadow: 0 0 0 2px var(--panel-border); text-decoration: none; }
+#md-view a.bad { opacity: .55; }
+#md-view .md-link.dead { color: var(--text-muted); text-decoration: underline dotted; cursor: help; }
+#md-view .md-empty { color: var(--text-muted); }
+/* beside the md page: the graph's bar, or where one will show */
+#side-bar { position: fixed; top: 60px; right: 12px; z-index: 6; max-width: 50vw;
+            display: flex; align-items: center; gap: 6px; padding: 4px 6px 4px 10px;
+            background: var(--panel); border: 1px solid var(--panel-border);
+            border-radius: 8px; box-shadow: 0 1px 4px var(--shadow); font-size: 12px; }
+#root.inspecting #side-bar { right: calc(var(--inspector-w) + 12px); }
+#side-bar .side-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+                       color: var(--text-strong); font-family: ui-monospace, "Cascadia Mono", monospace; }
+#side-bar .side-loading { color: var(--text-muted); }
+#side-bar .side-btn { flex: none; border: 1px solid var(--panel-border); background: var(--panel);
+                      color: var(--text); border-radius: 6px; padding: 3px 9px; font-size: 12px;
+                      cursor: pointer; }
+#side-bar .side-btn:hover { border-color: var(--accent); }
+/* in the room right of the centered column; gone when there is none */
+#side-empty { position: fixed; top: 50%; left: calc(var(--md-r) + 12px);
+              width: max(0px, calc(100vw - var(--md-r) - 24px)); transform: translateY(-50%);
+              color: var(--text-dim); font-size: 14px; text-align: center;
+              pointer-events: none; overflow: hidden; }
+#root.split #collapsed-panel { left: var(--md-w); top: 52px; }
+#root.split #selection-toolbar, #root.split #pick-hint {
+  left: calc(var(--md-w) + (100vw - var(--md-w)) / 2);
+  max-width: calc(100vw - var(--md-w) - 24px); }
+#root.split.inspecting #selection-toolbar, #root.split.inspecting #pick-hint {
+  left: calc(var(--md-w) + (100vw - var(--md-w) - var(--inspector-w)) / 2);
+  max-width: calc(100vw - var(--md-w) - var(--inspector-w) - 24px); }
 #md-panel .md-head { display: flex; align-items: center; gap: 6px; padding: 8px 10px 8px 14px;
                      border-bottom: 1px solid var(--panel-divider); font-size: 13px; }
 #md-panel .md-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -113,20 +191,31 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
 /* the toolbar centres on the canvas left of the panel, not under it */
 #root.md-open #selection-toolbar { left: calc((100vw - var(--inspector-w)) / 2);
                                    max-width: calc(100vw - var(--inspector-w) - 24px); }
-#md-text { flex: 1 1 auto; min-width: 0; border: none; outline: none; resize: none; padding: 12px 14px;
+#md-text { flex: 1 1 auto; min-width: 0; border: none; outline: none; resize: none;
+           padding: 12px 50px 12px 14px;
            background: var(--panel); color: var(--text);
            font: 13px/1.5 ui-monospace, "Cascadia Mono", monospace; }
-/* the doc's text and its » gutter, side by side */
+/* the doc's text, its » gutter laid over the text's right padding, left
+   of the scrollbar (the right offset is the scrollbar's width); clicks
+   between the marks reach the text */
 #md-panel .md-body { position: relative; flex: 1 1 auto; display: flex; min-height: 0; }
-#md-gutter { flex: none; width: 28px; overflow: hidden; position: relative;
-             border-left: 1px solid var(--panel-divider); background: var(--panel); }
+#md-gutter { position: absolute; top: 0; bottom: 0; right: 0; width: 36px; overflow: hidden;
+             pointer-events: none; }
 #md-gutter .md-gutter-inner { position: relative; }
-#md-gutter .md-mark { position: absolute; left: 0; right: 0; padding: 0; border: none;
-                      background: none; color: var(--accent); cursor: pointer;
-                      font: 13px/1.5 ui-monospace, "Cascadia Mono", monospace; }
-#md-gutter .md-mark:hover { background: var(--hover-plain); }
+/* the line height stays the text's, so a mark sits on its line */
+#md-gutter .md-mark { position: absolute; left: 4px; right: 4px; padding: 0;
+                      border: 1px solid transparent; border-radius: 6px;
+                      background: none; color: var(--text-muted); cursor: pointer; pointer-events: auto;
+                      font: 600 17px/17.5px ui-monospace, "Cascadia Mono", monospace; }
+/* neutral like the page's other buttons, in every theme's own greys */
+#md-gutter .md-mark:hover { background: var(--hover-plain); border-color: var(--panel-border);
+                            color: var(--text-strong); }
+/* the line whose graph shows beside the md page: pressed */
+#md-gutter .md-mark.open, #md-gutter .md-mark.open:hover { background: var(--panel-border);
+                                                           border-color: var(--text-dim);
+                                                           color: var(--text-strong); }
 #md-gutter .md-mark.bad, .md-link-item.bad { opacity: .45; }
-.md-link-menu { position: absolute; right: 30px; z-index: 7; display: flex; flex-direction: column;
+.md-link-menu { position: absolute; right: 38px; z-index: 7; display: flex; flex-direction: column;
                 max-width: 60%; padding: 4px; background: var(--panel);
                 border: 1px solid var(--panel-border); border-radius: 6px;
                 box-shadow: 0 2px 8px var(--shadow); }

@@ -12,7 +12,8 @@
                                       parse-nav nav-query follow-url crumb-url ref-of banner-visible?
                                       theme-menu layout-menu effective-layout top-box-of load-readiness export-readiness
                                       md-target from-disk to-disk md-dirty? adopt-doc gone-doc poll-outcome save-result
-                                      parent-box split-parent doc-kind link-target line-markers link-title]]
+                                      parent-box split-parent doc-kind link-target line-markers link-title
+                                      with-side mark-open?]]
             [paths :refer [resolve-ref]]))
 
 (test "target maps selection payloads to op targets"
@@ -309,6 +310,21 @@
                       {:file "root.edn" :trail []})
     (assert/deepEqual (parse-nav (crumb-url ["root.edn" "sub/api.edn"] 1))
                       {:file "sub/api.edn" :trail ["root.edn"]})))
+
+(test "crumb-url back to an md page shows the graph after it beside it again"
+  (fn []
+    ;; full view of the side graph: the md page is the last crumb
+    (assert/deepEqual (parse-nav (crumb-url ["intro.md"] 0 "demo.edn"))
+                      {:file "intro.md" :trail [] :side "demo.edn"})
+    ;; further on, the entry after the crumb
+    (assert/deepEqual (parse-nav (crumb-url ["intro.md" "demo.edn"] 0 "api/internals.edn"))
+                      {:file "intro.md" :trail [] :side "demo.edn"})
+    ;; an md file after it opened in its place: nothing beside
+    (assert/deepEqual (parse-nav (crumb-url ["intro.md"] 0 "api/notes.md"))
+                      {:file "intro.md" :trail []})
+    ;; a graph crumb stays alone
+    (assert/deepEqual (parse-nav (crumb-url ["root.edn"] 0 "sub/api.edn"))
+                      {:file "root.edn" :trail []})))
 
 (test "ref-of yields the selection's string :ref, else nil"
   (fn []
@@ -699,6 +715,24 @@
       (assert/deepEqual (line-markers [a b web ref-use ref-def])
                         [{:line 1 :links [a b]} {:line 3 :links [ref-use]} {:line 5 :links [ref-def]}])
       (assert/deepEqual (line-markers []) []))))
+
+(test "the side graph rides along in the URL, other parameters kept"
+  (fn []
+    (assert/deepEqual (parse-nav "?side=sub%2Fpay.edn") {:file nil :trail [] :side "sub/pay.edn"})
+    (assert/deepEqual (parse-nav "?side=") {:file nil :trail []})
+    (assert/equal (with-side "" "pay.edn") "?side=pay.edn")
+    (assert/deepEqual (parse-nav (with-side (nav-query "docs/n.md" ["r.edn"]) "docs/a b.edn"))
+                      {:file "docs/n.md" :trail ["r.edn"] :side "docs/a b.edn"})
+    (assert/equal (with-side "?file=n.md&side=a.edn" nil) "?file=n.md")
+    (assert/equal (with-side "?side=a.edn" nil) "")))
+
+(test "mark-open? when one of the line's links leads to the side graph"
+  (fn []
+    (let [m {:line 3 :links [{:dest "a.md"} {:dest "../pay.edn"}]}]
+      (assert/equal (mark-open? "docs/n.md" m "pay.edn") true)
+      (assert/equal (mark-open? "docs/n.md" m "docs/pay.edn") false)
+      (assert/equal (mark-open? "docs/n.md" m nil) false)
+      (assert/equal (mark-open? "n.md" {:line 1 :links [{:dest "../x.edn"}]} "x.edn") false))))
 
 (test "link-title names label and target, and a refused one says why"
   (fn []

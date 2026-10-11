@@ -134,8 +134,8 @@
 (def example-files
   "The files under examples/, relative to it: what `demo` copies. A test
   keeps this equal to the folder, since a jar cannot list a directory."
-  ["demo.edn" "demo-next.edn" "states.edn" "big-5k.edn" "intro.md"
-   "api/internals.edn" "api/internals-next.edn"])
+  ["demo.edn" "demo-next.edn" "states.edn" "big-5k.edn" "intro.md" "overview.png"
+   "api/internals.edn" "api/internals-next.edn" "api/notes.md"])
 
 (def ^:private flag? #{"--debug" "--no-open"})
 

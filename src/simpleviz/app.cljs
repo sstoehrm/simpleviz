@@ -12,6 +12,7 @@
             [simpleviz.editor :as editor]
             [simpleviz.grid :as grid]
             [simpleviz.compact :as compact]
+            [simpleviz.markdown :as markdown]
             [mdlinks :as mdlinks]
             [paths :as paths]
             [themes :as themes]))
@@ -49,6 +50,8 @@
                   :help false :disconnected false
                   ;; the open :md-ref doc (open-md!), nil when the panel is closed
                   :md nil
+                  ;; the graph an md page shows beside it (open-side!), root-relative
+                  :side nil
                   :nav (editor/parse-nav js/location.search) :nav-error nil
                   ;; your theme (#115), for files without :theme (load-prefs!)
                   :theme-pref nil
@@ -72,6 +75,22 @@
   [st]
   (= true (:page (:md st))))
 
+(defn- split?
+  "Does the md page show a graph beside it?"
+  [st]
+  (and (page? st) (some? (:side st))))
+
+(defn- graph-shown?
+  "Is a graph on screen: the page's own, or the one beside an md page?"
+  [st]
+  (or (not (page? st)) (some? (:side st))))
+
+(defn- graph-file
+  "The root-relative path of the graph shown, nil for the root: the side
+  graph on an md page, else the navigation's file."
+  [st]
+  (if (page? st) (:side st) (:file (:nav st))))
+
 (defn- current-path
   "The root-relative path of the file the page shows: the md page's,
   else the graph's."
@@ -87,7 +106,7 @@
 (defn- file-query
   "\"?file=<rel>\" for the graph the page is showing, \"\" for the root."
   []
-  (let [f (:file (:nav @state))]
+  (let [f (graph-file @state)]
     (if (some? f) (str "?file=" (js/encodeURIComponent f)) "")))
 
 (defn- on-select [payload]
@@ -110,7 +129,8 @@
 
 (declare relayout! post-edit! delete! current-edit-target-editable? follow-ref! navigate! run-chord-action!
          open-md! save-md! close-md! open-page! root-path! load-nav!
-         save-if-dirty! save-before-leaving! follow-link! sync-gutter-scroll!)
+         save-if-dirty! save-before-leaving! follow-link! sync-gutter-scroll!
+         follow-to! close-side! focus-md-start!)
 
 ;; layouts per collapsed-set, so expanding (or re-collapsing a seen
 ;; combination) is instant instead of a multi-second ELK run; demoted
@@ -760,7 +780,7 @@
                                   :title (str "back to " f)
                                   :on-click (fn [e]
                                               (.stopPropagation e)
-                                              (navigate! (editor/crumb-url trail i)))}
+                                              (navigate! (editor/crumb-url trail i (or (current-path st) (:file (:nav st))))))}
                          f]
                         [:span {:class "trail-sep" :key (str "s" i)} "›"]])
                      trail))
@@ -891,7 +911,7 @@
       "\"open md\" (f m) opens the markdown file a node's or box's :md-ref names in a text panel on the right; ⤢ makes it fill the window, Esc docks it again. Ctrl+S or Save writes it, and so does closing it (×) or opening another; a missing file is created on the first save. If the file changes on disk while you have unsaved edits, the panel says so — Reload takes the file, Overwrite keeps yours.")
      (help-section
       "md pages"
-      "simpleviz notes.md opens a markdown file in the doc editor, filling the window. A » in the gutter on the right marks each line with a link this page can follow — [text](sub/graph.edn), ![img](x.png), [text](other.md), reference links too; relative to the md file, never above the served folder. Click » to open it (»2 lists the links of that line); the trail at the top leads back. Unsaved text is saved before you leave the page — when that fails you stay. A :ref to an .md file opens it the same way; the doc panel of :md-ref has the » gutter too.")
+      "simpleviz notes.md opens a markdown file rendered, in a centered column — headings, lists, links, tables, code; Edit switches to the plain text, Read back. Its links to graphs and md files follow on click — [text](sub/graph.edn), ![img](x.png), [text](other.md), reference links too; relative to the md file, never above the served folder. In the plain text a » in the gutter marks each line with such a link (»2 lists the links of that line). A graph or exported image opens to the right of the text, its link and » highlighted, and works like any graph; ⤢ full view opens it on its own, × closes it. An md file opens in place of this one; the trail at the top leads back. Unsaved text is saved before you leave the page — when that fails you stay. A :ref to an .md file opens it the same way; the doc panel of :md-ref has the » gutter too.")
      (help-section
       "Keys"
       "Chords act on the selection, when no text field has focus (the toolbar buttons show them); the first key opens a pop-out of what comes next, which can be clicked too: d d delete · e 1/2/3/4 edge direction → ← ↔ — · c s / c t change an edge's source / target · a e add edge · a b add to box (node) or add a box as member (box) · a n add a node as member (box) — either moves it out of the box it was in · n n n new node (connected to the selected node, or inside the selected box) · n n b new box (inside the selected box) · n n s new node in the selection's box · n n c / n n i new node in the selection's box, connected from / to it · n n e split the selected edge with a new node · n b wrap the selection in a new box · r r rename the id · r n take a node out of the selected box · r b take the selected node out of its box · f r follow the selection's :ref · f p follow the selection's pair (f p 1–9 with several) · f m open the selection's :md-ref doc (Ctrl+S saves it). Esc cancels a pending chord; ? toggles this help; Ctrl+Z undoes.")
@@ -990,14 +1010,17 @@
      [:div {:class "em-note"} "Both embed the source EDN."]]))
 
 (defn- gutter-view [st]
-  (let [{:keys [marks height]} (:md-marks st)
-        menu (:link-menu st)]
-    [:div {:id "md-gutter"}
+  (let [{:keys [marks height scrollbar]} (:md-marks st)
+        menu (:link-menu st)
+        side (when (page? st) (:side st))]
+    [:div {:id "md-gutter" :style {:right (str (or scrollbar 0) "px")}}
      (into [:div {:class "md-gutter-inner" :style {:height (str (or height 0) "px")}}]
            (map (fn [m]
                   (let [ls (:links m)
                         one (= 1 (count ls))]
-                    [:button {:class (str "md-mark" (when (:bad m) " bad")) :type "button"
+                    [:button {:class (str "md-mark" (when (:bad m) " bad")
+                                          (when (editor/mark-open? (:path (:md st)) m side) " open"))
+                              :type "button"
                               :key (str "m" (:line m))
                               :style {:top (str (:top m) "px")}
                               :title (:title m)
@@ -1028,14 +1051,66 @@
                               (str (:label l) " → " (:dest l))])
                            (:links m)))))))
 
+(defn- md-link-fn
+  "Renders a link of the md page's read view: a followable one follows
+  as its » does (pressed while its graph shows beside the page), a URL
+  opens in a new tab, anything else is text that says why it isn't a
+  link."
+  [md-path side]
+  (fn [l kids]
+    (let [dest (:dest l)]
+      (cond
+        (.test #"^(https?|mailto):" dest)
+        (into [:a {:href dest :target "_blank" :rel "noopener noreferrer" :title dest}] kids)
+        (mdlinks/followable? dest)
+        (into [:a {:href "#"
+                   :class (str "md-link"
+                               (when (some? (:error (editor/link-target md-path dest))) " bad")
+                               (when (editor/mark-open? md-path {:links [l]} side) " open"))
+                   :title (editor/link-title md-path l)
+                   :on-click (fn [e] (.preventDefault e) (.stopPropagation e) (follow-link! l))}]
+              kids)
+        :else
+        (into [:span {:class "md-link dead"
+                      :title (str (if (= dest "") "a link within the page" dest)
+                                  " — not a file simpleviz opens")}]
+              kids)))))
+
+;; the read view's hiccup for the last [path text side], so rerenders
+;; for anything else neither re-parse nor rebuild its handlers
+(def ^:private md-view-cache (atom nil))
+
+(defn- md-view [st]
+  (let [md (:md st)
+        k [(:path md) (:text md) (:side st)]
+        hit @md-view-cache]
+    (if (and (some? hit) (= k (:key hit)))
+      (:view hit)
+      (let [bs (markdown/render (:text md) (md-link-fn (:path md) (:side st)))
+            view (into [:div {:id "md-view"}]
+                       (if (seq bs) bs [[:p {:class "md-empty"} "Nothing here yet — Edit to write."]]))]
+        (reset! md-view-cache {:key k :view view})
+        view))))
+
+(defn- toggle-md-edit! []
+  (let [editing (not (:editing (:md @state)))]
+    (swap! state assoc-in [:md :editing] editing)
+    (when editing (focus-md-start!))))
+
 (defn- md-panel [st]
-  (let [md (:md st)]
+  (let [md (:md st)
+        reading (and (:page md) (not (:editing md)))]
     [:aside {:id "md-panel" :class (cond (:page md) "page" (:full md) "full" :else "")}
      [:div {:class "md-head"}
       [:span {:class "md-path" :title (:path md)} (:path md)]
       (when (editor/md-dirty? md) [:span {:class "md-dirty" :title "unsaved changes"} "●"])
       (when-not (:exists md) [:span {:class "md-new"} "new file"])
       [:span {:class "md-spacer"}]
+      (when (:page md)
+        [:button {:class "md-btn md-mode" :type "button"
+                  :title (if reading "Edit the text" "Show it rendered")
+                  :on-click (fn [e] (.stopPropagation e) (toggle-md-edit!))}
+         (if reading "Edit" "Read")])
       (when-not (:page md)
         [:button {:class "md-btn" :type "button"
                   :title (if (:full md) "Dock (Esc)" "Fullscreen")
@@ -1061,24 +1136,48 @@
           [:button {:class "md-btn" :type "button" :title "Save your text over the file on disk"
                     :on-click (fn [e] (.stopPropagation e) (save-md! true))}
            "Overwrite"])])
-     [:div {:class "md-body"}
-      [:textarea {:id "md-text" :spellcheck "false" :value (:text md)
-                  :on-scroll (fn [_] (sync-gutter-scroll!) (when (some? (:link-menu @state))
-                                                              (swap! state assoc :link-menu nil)))
-                  :on-input (fn [e] (swap! state assoc-in [:md :text] (.. e -target -value)))}]
-      (gutter-view st)
-      (link-menu-view st)]]))
+     (if reading
+       [:div {:class "md-body"} (md-view st)]
+       [:div {:class "md-body"}
+        [:textarea {:id "md-text" :spellcheck "false" :value (:text md)
+                    :on-scroll (fn [_] (sync-gutter-scroll!) (when (some? (:link-menu @state))
+                                                                (swap! state assoc :link-menu nil)))
+                    :on-input (fn [e] (swap! state assoc-in [:md :text] (.. e -target -value)))}]
+        (gutter-view st)
+        (link-menu-view st)])]))
+
+(defn- side-view
+  "Over the graph beside an md page: its path, a button that opens it
+  in full view and one that closes it. Before one is open, a hint where
+  it will show."
+  [st]
+  (if-let [side (:side st)]
+    [:div {:id "side-bar"}
+     [:span {:class "side-path" :title side} side]
+     (when (and (nil? (:scene st)) (nil? (:error st)))
+       [:span {:class "side-loading"} "loading…"])
+     [:button {:class "side-btn" :type "button" :title "Open this graph in full view"
+               :on-click (fn [e] (.stopPropagation e) (follow-to! side {}))}
+      "⤢ full view"]
+     [:button {:class "side-btn" :type "button" :title "Close" :aria-label "Close"
+               :on-click (fn [e] (.stopPropagation e) (close-side!))}
+      "×"]]
+    [:div {:id "side-empty"} "a linked graph opens here"]))
 
 (defn- app-view [st]
-  (let [page (page? st)]
+  (let [page (page? st)
+        split (split? st)
+        graph (graph-shown? st)]
   [:div {:id "root" :class (str (when (some? (:pick st)) "picking")
-                                (cond page " md-page"
+                                (cond page (str " md-page" (when split " split")
+                                                (when (and split (some? (:selected st))) " inspecting"))
                                       (some? (:md st)) " inspecting md-open"
                                       (some? (:selected st)) " inspecting"))}
    (hint-view st)
    (when (and (not page) (nil? (:scene st)) (nil? (:error st)))
      (load-view st))
-   (when-not page (collapsed-view st))
+   (when graph (collapsed-view st))
+   (when (and page (some? (:md st))) (side-view st))
    [:div {:id "top-center"}
     (trail-view st)
     (when (some? (:graph st)) (legend-view st))]
@@ -1093,7 +1192,7 @@
    [:div {:id "top-right"}
     ;; always there and first, so it never shifts the others; disabled
     ;; until an edit keeps the old arrangement
-    (when-not page
+    (when graph
       (let [seeded (boolean (:seeded (:layout st)))]
         [:button {:id "relayout-btn" :type "button" :disabled (not seeded)
                   :title (if seeded
@@ -1121,17 +1220,50 @@
    (canvas-view)
    (when (and (some? (:scene st)) (current-edit-target-editable? st))
      (selection-toolbar st))
-   (cond (some? (:md st)) (md-panel st)
-         (some? (:selected st)) (details-view st))]))
+   (when (some? (:md st)) (md-panel st))
+   ;; the inspector: beside the graph of an md page too, not beside a docked doc
+   (when (and (some? (:selected st)) (or (nil? (:md st)) split))
+     (details-view st))]))
 
 (defn- paint-now! []
   (when-let [canvas-el (js/document.getElementById "canvas")]
-    (when-let [s (:scene @state)]
-      (canvas/paint! canvas-el s (:elk-id (:selected @state))))))
+    (if-let [s (:scene @state)]
+      (canvas/paint! canvas-el s (:elk-id (:selected @state)))
+      ;; no graph (an md page, a graph that failed): no stale picture either
+      (canvas/clear! canvas-el))))
+
+(declare sync-split!)
 
 (defn- rerender! []
   (render app-el (app-view @state))
+  (sync-split!)
   (canvas/request-paint!))
+
+;; the md page's column, watched for its width (the window resizing)
+(def ^:private observed-panel (atom nil))
+(def ^:private panel-observer (js/ResizeObserver. (fn [_] (sync-split!))))
+
+(defn- sync-split!
+  "Keep the canvas beside the md page's column: --md-w is the column's
+  width, --md-r its right edge, and #canvas-wrap starts where it ends
+  while a graph is beside it — so fitting, panning and hits measure the
+  graph's own area."
+  []
+  (let [st @state
+        panel (when (page? st) (js/document.getElementById "md-panel"))
+        w (if (some? panel) (.-offsetWidth panel) 0)
+        left (str (if (split? st) w 0) "px")
+        wrap (js/document.getElementById "canvas-wrap")]
+    (when-not (identical? panel @observed-panel)
+      (.disconnect panel-observer)
+      (when (some? panel) (.observe panel-observer panel))
+      (reset! observed-panel panel))
+    (.setProperty (.-style js/document.documentElement) "--md-w" (str w "px"))
+    (.setProperty (.-style js/document.documentElement) "--md-r"
+                  (str (if (some? panel) (+ (.-offsetLeft panel) w) 0) "px"))
+    (when (not= (.. wrap -style -left) left)
+      (set! (.. wrap -style -left) left)
+      (canvas/request-paint!))))
 
 (defn- apply-pending-focus!
   "Select the element :pending-focus names (a scene id) once its scene
@@ -1151,7 +1283,7 @@
           (when focus-center
             (swap! state assoc :nav-error
                    (str "no node or box " (.slice pending-focus 2) " in "
-                        (or (:file (:nav @state)) (:path (:graph @state)))))))))
+                        (or (graph-file @state) (:path (:graph @state)))))))))
     (swap! state assoc :pending-focus nil :focus-center false)))
 
 (defn- show-layout!
@@ -1283,7 +1415,7 @@
               first-load? (nil? (:graph @state))]
           (swap! graph-gen inc)
           (demote-layout-cache!)
-          (set! (.-title js/document) (format/tab-title g))
+          (when-not (page? @state) (set! (.-title js/document) (format/tab-title g)))
           (apply-theme! (effective-theme g (:theme-pref @state) (:theme @state)))
           (swap! state (fn [st]
                          (assoc st :error nil :graph g
@@ -1311,6 +1443,22 @@
       (reset! last-mtime nil)
       (swap! state assoc :error (str "Render error: " (or (.-message e) (str e)))))))
 
+(defn- ^:async poll-graph!
+  "Reload the graph shown when its file changed since the last look."
+  []
+  (let [mtime (try
+                (let [resp (js-await (js/fetch (str "/api/version" (file-query))))
+                      v (js-await (.json resp))]
+                  (:mtime v))
+                (catch :default _ nil))]
+    ;; a failed poll means the server is gone (or restarting); the flag
+    ;; clears on the next successful poll, so reconnection needs no action
+    (when (not= (nil? mtime) (:disconnected @state))
+      (swap! state assoc :disconnected (nil? mtime)))
+    (when (and (some? mtime) (not= mtime @last-mtime))
+      (reset! last-mtime mtime)
+      (js-await (reload!)))))
+
 (defn ^:async tick []
   (cond
     ;; the first load could not ask what the root is: try again
@@ -1319,28 +1467,19 @@
 
     ;; an md page (decided by the URL, so a failed open stays one): the
     ;; doc polls itself (poll-md!); this notices the server going away and
-    ;; coming back, and retries an open that failed for want of a server
+    ;; coming back, and retries an open that failed for want of a server;
+    ;; the graph beside it polls like any graph
     (= "md" (editor/doc-kind (shown-path (:nav @state))))
-    (let [ok (try (.-ok (js-await (js/fetch "/api/root"))) (catch :default _ false))
-          st @state]
-      (when (not= (not ok) (:disconnected st))
-        (swap! state assoc :disconnected (not ok)))
-      (when (and ok (nil? (:md st)) (nil? (:error st)))
-        (js-await (open-page! (shown-path (:nav st))))))
+    (if (some? (:side @state))
+      (js-await (poll-graph!))
+      (let [ok (try (.-ok (js-await (js/fetch "/api/root"))) (catch :default _ false))
+            st @state]
+        (when (not= (not ok) (:disconnected st))
+          (swap! state assoc :disconnected (not ok)))
+        (when (and ok (nil? (:md st)) (nil? (:error st)))
+          (js-await (open-page! (shown-path (:nav st)))))))
 
-    :else
-    (let [mtime (try
-                  (let [resp (js-await (js/fetch (str "/api/version" (file-query))))
-                        v (js-await (.json resp))]
-                    (:mtime v))
-                  (catch :default _ nil))]
-      ;; a failed poll means the server is gone (or restarting); the flag
-      ;; clears on the next successful poll, so reconnection needs no action
-      (when (not= (nil? mtime) (:disconnected @state))
-        (swap! state assoc :disconnected (nil? mtime)))
-      (when (and (some? mtime) (not= mtime @last-mtime))
-        (reset! last-mtime mtime)
-        (js-await (reload!))))))
+    :else (js-await (poll-graph!))))
 
 (defn- ^:async load-nav!
   "The URL changed (follow, crumb, browser back) or the page loaded:
@@ -1357,14 +1496,18 @@
     (swap! graph-gen inc)
     (swap! state (fn [st]
                    (merge st per-file
-                          {:nav nav :pending-focus (:focus nav)
+                          {:nav nav :pending-focus (:focus nav) :side nil
                            :md (when-not (or (page? st) md-target?) (:md st))})))
     (.clear layout-cache)
     (reset! last-mtime nil)
     (canvas/refit-next!)
     (let [path (or (:file nav) (js-await (root-path!)))]
       (if (= "md" (editor/doc-kind path))
-        (js-await (open-page! path))
+        (do (js-await (open-page! path))
+            ;; the graph the URL shows beside it, once the page is there
+            (when (and (some? (:side nav)) (some? (:md @state)))
+              (swap! state assoc :side (:side nav))
+              (js-await (tick))))
         (js-await (tick))))))
 
 (defn- ^:async save-before-leaving!
@@ -1415,13 +1558,44 @@
         (js-await (navigate! (editor/follow-url (current-path st) (:trail (:nav st)) path focus)))
         (finally (swap! state assoc :following false))))))
 
+(defn- show-side!
+  "Put `side` (root-relative, nil for none) beside the md page: drop the
+  graph shown before, with everything that belongs to it, and keep the
+  side in the URL without a history entry, so a reload shows it again."
+  [side]
+  (swap! graph-gen inc)
+  (swap! state (fn [st] (merge st per-file {:side side})))
+  (.clear layout-cache)
+  (reset! last-mtime nil)
+  (canvas/refit-next!)
+  (let [q (editor/with-side js/location.search side)]
+    (js/history.replaceState nil "" (str js/location.pathname q))
+    (reset! shown-query q)))
+
+(defn- ^:async open-side!
+  "Show the graph at root-relative `path` beside the md page, creating
+  it first when `create?` (as following a link to it would)."
+  [path create?]
+  (when-not (= path (:side @state))
+    (when create?
+      (try (js-await (post-json "/api/create" (editor/create-body "new" path)))
+           (catch :default _ nil)))
+    (show-side! path)
+    (js-await (tick))))
+
+(defn- close-side!
+  "Close the graph beside the md page; the page takes back its theme."
+  []
+  (show-side! nil)
+  (apply-theme! (effective-theme nil (:theme-pref @state) (:theme @state))))
+
 (defn- ^:async follow-ref!
-  "Follow the selection's ref: resolve it against the file shown and
+  "Follow the selection's ref: resolve it against the graph shown and
   follow it, creating it while the file being edited is editable. A ref
   that climbs above the served folder is refused here with a banner."
   [ref]
   (let [st @state
-        target (paths/resolve-ref (current-path st) ref)]
+        target (paths/resolve-ref (:path (:graph st)) ref)]
     (if (nil? target)
       (swap! state assoc :nav-error (str "ref " (pr-str ref) " leaves the served folder"))
       (js-await (follow-to! target {:create? (and (current-edit-target-editable? st)
@@ -1487,7 +1661,8 @@
             (apply-theme! (effective-theme nil (:theme-pref @state) (:theme @state)))
             (set! (.-title js/document) (str (format/basename path) " — simpleviz"))
             (swap! state assoc :error nil :disconnected false
-                   :md (editor/adopt-doc {:path path :page true :full false :saving false} out))
+                   :md (editor/adopt-doc {:path path :page true :full false :saving false
+                                          :editing (not (:exists out))} out))
             (focus-md-start!))))
     (catch :default _
       (swap! state assoc :disconnected true))))
@@ -1553,6 +1728,8 @@
     (cond
       (some? error) (swap! state assoc :nav-error error)
       (nil? path) nil
+      ;; beside an md page the doc takes the page's place
+      (split? st) (js-await (follow-to! path {}))
       (= path (:path (:md st))) (focus-md!)
       (js-await (save-if-dirty!))
       (try
@@ -1671,7 +1848,9 @@
                                                        (str (count ls) " links"))))))
                                (editor/line-markers (:links @md-links))))
               height (max (.-scrollHeight mirror) (.-scrollHeight ta))]
-          (swap! state assoc :md-marks {:marks marks :height height})
+          ;; the gutter sits in the text's right padding, left of its scrollbar
+          (swap! state assoc :md-marks {:marks marks :height height
+                                        :scrollbar (- (.-offsetWidth ta) (.-clientWidth ta))})
           (sync-gutter-scroll!))))))
 
 (defn- queue-measure!
@@ -1703,7 +1882,8 @@
                                        (reparse-links! true))
         ;; typing: measure once, after the debounced scan, against fresh links
         (not= (:text o) (:text n)) (reparse-links! false)
-        (or (not= (:page o) (:page n)) (not= (:full o) (:full n))) (queue-measure!)))))
+        (or (not= (:page o) (:page n)) (not= (:full o) (:full n)) (not= (:editing o) (:editing n)))
+        (queue-measure!)))))
 
 (defn- ^:async follow-link!
   "Follow link l (an mdlinks/links entry) of the open doc: its
@@ -1716,8 +1896,12 @@
         md (:md st)
         {:keys [path kind error]} (editor/link-target (:path md) (:dest l))]
     (swap! state assoc :link-menu nil)
-    (if (some? error)
-      (swap! state assoc :nav-error error)
+    (cond
+      (some? error) (swap! state assoc :nav-error error)
+      ;; the md page shows a graph beside it rather than leaving
+      (and (:page md) (= kind "graph"))
+      (js-await (open-side! path (.endsWith (.toLowerCase path) ".edn")))
+      :else
       (js-await (follow-to! path {:create? (and (= kind "graph") (.endsWith (.toLowerCase path) ".edn")
                                                 (or (:page md) (current-edit-target-editable? st)))})))))
 
@@ -1726,7 +1910,7 @@
   [ops & [file]]
   (let [resp (js-await (post-json "/api/edit"
                                   (let [body (editor/edit-body (or file (:edit-target @state)) ops)
-                                        f (:file (:nav @state))]
+                                        f (graph-file @state)]
                                     (if (some? f) (assoc body :path f) body))))
         out (js-await (.json resp))]
     (if (some? (:error out))
@@ -2052,7 +2236,7 @@
 (.then (load-prefs!) (fn [_] (load-nav!)))
 (js/setInterval tick 1000)
 (js/setInterval poll-md! 1000)
-(js/window.addEventListener "resize" (fn [_] (queue-measure!)))
+(js/window.addEventListener "resize" (fn [_] (queue-measure!) (sync-split!)))
 (.then (.-ready js/document.fonts) (fn [_] (queue-measure!)))
 ;; unsaved doc edits: the browser asks before the tab closes or reloads
 (js/window.addEventListener "beforeunload"

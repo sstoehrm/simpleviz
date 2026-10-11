@@ -350,18 +350,30 @@
   "The page's navigation state from its query string: {:file
   root-relative path or nil (the root file) :trail [paths visited
   before it]}, plus :focus (a scene id, \"n:api\") when the URL names
-  an element to select. Each trail entry is URL-encoded on its own
+  an element to select, and :side (root-relative) when an md page shows
+  a graph beside it. Each trail entry is URL-encoded on its own
   inside the parameter, so commas in file names survive."
   [query-string]
   (let [p (js/URLSearchParams. (str (if (nil? query-string) "" query-string)))
         file (.get p "file")
         trail (.get p "trail")
-        focus (.get p "focus")]
+        focus (.get p "focus")
+        side (.get p "side")]
     (cond-> {:file (if (or (nil? file) (= file "")) nil file)
              :trail (if (or (nil? trail) (= trail ""))
                       []
                       (mapv js/decodeURIComponent (.split trail ",")))}
-      (and (some? focus) (not= focus "")) (assoc :focus focus))))
+      (and (some? focus) (not= focus "")) (assoc :focus focus)
+      (and (some? side) (not= side "")) (assoc :side side))))
+
+(defn with-side
+  "Query string `query` with the side graph set to `side`, or dropped
+  when nil; its other parameters stay."
+  [query side]
+  (let [p (js/URLSearchParams. (str (if (nil? query) "" query)))]
+    (if (some? side) (.set p "side" side) (.delete p "side"))
+    (let [s (.toString p)]
+      (if (= s "") "" (str "?" s)))))
 
 (defn nav-query
   "The query string (\"\" or \"?file=..&trail=..&focus=..\") for showing
@@ -384,9 +396,17 @@
 
 (defn crumb-url
   "Query string for going back to trail entry i: it becomes the file
-  shown, the entries before it stay the trail."
-  [trail i]
-  (nav-query (nth trail i) (vec (.slice trail 0 i))))
+  shown, the entries before it stay the trail. Back to an md page, the
+  graph followed from it (the next entry, or `current` after the last)
+  shows beside it again: from an md page a graph opens beside it, so
+  one after it was put in full view from there."
+  [trail i & [current]]
+  (let [f (nth trail i)
+        nxt (if (< (inc i) (count trail)) (nth trail (inc i)) current)
+        q (nav-query f (vec (.slice trail 0 i)))]
+    (if (and (md-path? f) (some? nxt) (not (md-path? nxt)))
+      (with-side q nxt)
+      q)))
 
 (defn banner-visible?
   "Show a banner with `text` unless it's empty or the viewer dismissed
@@ -445,6 +465,13 @@
                 (conj acc {:line (:line l) :links [l]}))))
           []
           (filterv (fn [l] (mdlinks/followable? (:dest l))) links)))
+
+(defn mark-open?
+  "Does one of gutter mark m's links, in the md file at `md-path`, lead
+  to `side`, the graph shown beside it?"
+  [md-path m side]
+  (boolean (and (some? side)
+                (some (fn [l] (= side (:path (link-target md-path (:dest l))))) (:links m)))))
 
 (defn link-title
   "A marker's tooltip for link l of the md file at `md-path`."

@@ -467,6 +467,14 @@
           text? (>= (* k 11) scene/TEXT-MIN-PX)]
       (paint-items! ctx sc2 vr selected-id text?))))
 
+(defn clear!
+  "Paint the canvas blank, the theme's background: nothing is shown."
+  [canvas-el]
+  (let [ctx (.getContext canvas-el "2d")]
+    (.setTransform ctx 1 0 0 1 0 0)
+    (set! (.-fillStyle ctx) (:bg @palette))
+    (.fillRect ctx 0 0 (.-width canvas-el) (.-height canvas-el))))
+
 (defn export-canvas
   "Offscreen canvas with the WHOLE scene at up to 2x scale (capped so
   the larger pixel dimension stays <= 8000), on the current theme's
@@ -499,7 +507,7 @@
                            :sources sources})))
 
 ;; the panels over the canvas: wheel and drag there are theirs, not pan/zoom
-(def ^:private panels "#details, #md-panel, #banner, #collapsed-panel, #top-right, #diff-legend")
+(def ^:private panels "#details, #md-panel, #banner, #collapsed-panel, #top-right, #diff-legend, #side-bar")
 
 (defn setup-pan-zoom! [wrap]
   (.addEventListener wrap "wheel"

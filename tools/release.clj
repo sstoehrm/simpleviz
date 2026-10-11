@@ -1,5 +1,5 @@
 (ns release
-  "Cutting a release: `bb release vX.Y.Z` writes the version into both
+  "Cutting a release: `bb release vX.Y.Z` writes the version into the
   plugin manifests (so the skill only reaches users together with the
   release it documents), commits, tags and pushes; the tag's CI workflow
   then builds and publishes. `bb release:check vX.Y.Z` is that workflow's
@@ -12,7 +12,8 @@
   "The plugin manifests whose version follows the release: Claude Code
   updates a plugin only when this version changes."
   ["plugins/simpleviz/.claude-plugin/plugin.json"
-   "plugins/simpleviz/.codex-plugin/plugin.json"])
+   "plugins/simpleviz/.codex-plugin/plugin.json"
+   "plugins/simpleviz/plugin.json"])
 
 (defn valid-tag? [tag]
   (boolean (re-matches #"v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)" (str tag))))
@@ -56,7 +57,7 @@
   (System/exit 1))
 
 (defn check
-  "bb release:check vX.Y.Z — exit 1 unless both manifests carry the tag's version."
+  "bb release:check vX.Y.Z — exit 1 unless every manifest carries the tag's version."
   [tag]
   (when-not (valid-tag? tag) (die "usage: bb release:check vX.Y.Z"))
   (let [problems (version-mismatches (manifest-versions) tag)]

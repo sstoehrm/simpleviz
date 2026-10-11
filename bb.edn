@@ -41,7 +41,7 @@
   release  {:doc "Cut a release from a clean, pushed main: bb release vX.Y.Z (sets the plugin versions, commits, tags, pushes both)"
             :requires ([release])
             :task (apply release/-main *command-line-args*)}
-  release:check {:doc "Fail unless both plugin manifests carry the tag's version: bb release:check vX.Y.Z"
+  release:check {:doc "Fail unless every plugin manifest carries the tag's version: bb release:check vX.Y.Z"
                  :requires ([release])
                  :task (release/check (first *command-line-args*))}
   test:clj {:doc "Run Clojure server tests"

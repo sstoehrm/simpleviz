@@ -434,3 +434,8 @@ reinstall):
 
     codex plugin marketplace upgrade
     codex plugin add simpleviz@simpleviz
+
+Grok: refresh the marketplace, then update the plugin:
+
+    grok plugin marketplace update
+    grok plugin update simpleviz

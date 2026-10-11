@@ -166,24 +166,23 @@
             {:keys [from to]} (first ops)]
         {:ops (with-type (named-edge-ops ops nm) "edges" [from to] tp) :focus nil})
       (when (not= id "")
-        (case (:for entry)
-          "connect" {:ops (with-type (add-connected-ops from id nm) "nodes" id tp) :focus (str "n:" id)}
-          "newbox" {:ops (with-type (wrap-in-box-ops from id nm) "boxes" id tp) :focus (str "b:" id)}
-          "inbox" {:ops (with-type (add-node-in-box-ops from id nm) "nodes" id tp) :focus (str "n:" id)}
-          "node" {:ops (with-type (add-node-ops id nm) "nodes" id tp) :focus (str "n:" id)}
-          "box" {:ops (with-type (add-box-ops id nm) "boxes" id tp) :focus (str "b:" id)}
-          "box-inbox" {:ops (with-type (into-box (add-box-ops id nm) from id) "boxes" id tp) :focus (str "b:" id)}
-          "sibling" {:ops (with-type (into-box (add-node-ops id nm) (:parent entry) id) "nodes" id tp)
-                     :focus (str "n:" id)}
-          "connect-here" {:ops (with-type (into-box (add-connected-ops from id nm) (:parent entry) id) "nodes" id tp)
-                          :focus (str "n:" id)}
-          "incoming" {:ops (with-type (into-box (conj (vec (add-node-ops id nm))
-                                                      {:op "add-edge" :from id :to from :direction "->"})
-                                                (:parent entry) id)
-                                      "nodes" id tp)
-                      :focus (str "n:" id)}
-          "split" {:ops (with-type (split-ops from id nm (:parent entry) (:direction entry)) "nodes" id tp)
-                   :focus (str "n:" id)}
+        (if-let [[ops section]
+                 (case (:for entry)
+                   "connect" [(add-connected-ops from id nm) "nodes"]
+                   "newbox" [(wrap-in-box-ops from id nm) "boxes"]
+                   "inbox" [(add-node-in-box-ops from id nm) "nodes"]
+                   "node" [(add-node-ops id nm) "nodes"]
+                   "box" [(add-box-ops id nm) "boxes"]
+                   "box-inbox" [(into-box (add-box-ops id nm) from id) "boxes"]
+                   "sibling" [(into-box (add-node-ops id nm) (:parent entry) id) "nodes"]
+                   "connect-here" [(into-box (add-connected-ops from id nm) (:parent entry) id) "nodes"]
+                   "incoming" [(into-box (conj (vec (add-node-ops id nm))
+                                               {:op "add-edge" :from id :to from :direction "->"})
+                                         (:parent entry) id)
+                               "nodes"]
+                   "split" [(split-ops from id nm (:parent entry) (:direction entry)) "nodes"]
+                   nil)]
+          {:ops (with-type ops section id tp) :focus (str (if (= section "boxes") "b:" "n:") id)}
           nil)))))
 
 (defn wrap-in-box-ops

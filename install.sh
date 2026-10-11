@@ -133,8 +133,56 @@ check_paths() {
 
 version() { cat "$SIMPLEVIZ_HOME/VERSION" 2>/dev/null || echo "unknown"; }
 
+# +ai: the simpleviz plugin of each agent CLI on the PATH, installed when
+# it's missing, else updated to the marketplace's newest
+claude_plugin() {
+  echo "Claude Code: simpleviz plugin"
+  if claude plugin marketplace list --json | grep -Eq '"name": *"simpleviz"'; then
+    claude plugin marketplace update simpleviz || return 1
+  else
+    claude plugin marketplace add sstoehrm/simpleviz || return 1
+  fi
+  if claude plugin list --json | grep -Eq '"id": *"simpleviz@simpleviz"'; then
+    claude plugin update simpleviz@simpleviz || return 1
+  else
+    claude plugin install simpleviz@simpleviz || return 1
+  fi
+  echo "Claude Code: restart it to load the new plugin"
+}
+
+codex_plugin() {
+  echo "Codex: simpleviz plugin"
+  if codex plugin marketplace list | grep -Eq '^simpleviz[[:space:]]'; then
+    codex plugin marketplace upgrade simpleviz || return 1
+  else
+    codex plugin marketplace add sstoehrm/simpleviz || return 1
+  fi
+  # add installs it, and reinstalls it clean when it's there
+  codex plugin add simpleviz@simpleviz || return 1
+}
+
+ai_plugins() {
+  local found=0 failed=0
+  if command -v claude >/dev/null 2>&1; then
+    found=1
+    claude_plugin || { failed=1; echo "simpleviz: the Claude Code plugin failed — see above" >&2; }
+  fi
+  if command -v codex >/dev/null 2>&1; then
+    found=1
+    codex_plugin || { failed=1; echo "simpleviz: the Codex plugin failed — see above" >&2; }
+  fi
+  [ "$found" -eq 1 ] || die "+ai: neither claude nor codex is on the PATH"
+  [ "$failed" -eq 0 ] || exit 1
+}
+
 update() {
-  local latest installer
+  local latest installer ai=0 arg
+  for arg in "$@"; do
+    case "$arg" in
+      +ai) ai=1 ;;
+      *) die "update takes only +ai (the Claude Code and Codex plugins too), not: $arg" ;;
+    esac
+  done
   latest=$(curl -fsSL "$API_URL" | grep -m1 '"tag_name"' \
            | sed -E 's/.*: *"([^"]+)".*/\1/') \
     || die "could not query the latest release"
@@ -152,6 +200,7 @@ update() {
     SIMPLEVIZ_HOME="$SIMPLEVIZ_HOME" bash "$installer"
     rm -f "$installer"
   fi
+  if [ "$ai" -eq 1 ]; then ai_plugins; fi
 }
 
 clean_all() {
@@ -170,9 +219,11 @@ clean_all() {
   [ "$found" -eq 1 ] || echo "simpleviz: no running servers"
 }
 
+# each branch exits: the installer rewrites this file while it runs, and
+# bash must not read on into the new one
 case "${1:-}" in
-  update) update ;;
-  clean-all) clean_all ;;
+  update) shift; update "$@"; exit ;;
+  clean-all) clean_all; exit ;;
   *)
     check_bb
     check_paths

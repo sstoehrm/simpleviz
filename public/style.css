@@ -19,6 +19,10 @@
 }
 
 * { box-sizing: border-box; }
+/* scrollbars in the theme's colors, not the browser's light default —
+   the doc text, the inspector and the lists all scroll */
+:root { scrollbar-color: var(--text-dim) transparent; }
+* { scrollbar-width: thin; }
 body { margin: 0; font-family: system-ui, sans-serif; overflow: hidden;
        background: var(--bg); color: var(--text); }
 

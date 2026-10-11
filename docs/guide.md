@@ -264,23 +264,37 @@ other elements or follow refs.
 
 ## md pages
 
-`simpleviz notes.md` serves a markdown file: the page shows it in the
-doc editor, full window. Link graphs and other docs with plain markdown
-links, which GitHub and every editor understand too:
+`simpleviz notes.md` serves a markdown file: the page shows it
+rendered, in a centered column about 90 characters wide. Edit (top
+right of the column) switches to the plain text, Read back. Link graphs
+and other docs with plain markdown links, which GitHub and every editor
+understand too:
 
     The flow is in [the payment graph](pay/flow.edn).
     See [auth](auth.md) and the [token states][tokens].
 
     [tokens]: diagrams/tokens.edn
 
-- Each line with a followable link gets a » in the gutter on the right;
-  a line with several shows »2, »3 … and lists them. Following one opens
-  the graph or md file, and the trail at the top leads back.
+- The rendering covers headings, paragraphs, lists, links, tables,
+  fenced and indented code blocks and `code spans`; anything else shows
+  as written. Web links open in a new tab.
+- In the plain text, each line with a followable link gets a » in the
+  gutter beside it; a line with several shows »2, »3 … and lists them.
+- Following a graph, or an exported PNG or SVG — a click on its link or
+  its » — moves the column to the left and opens it to the right of the
+  text; the link and its » light up. It works like any graph:
+  inspect, edit, export. "⤢ full view" opens it on its own (its crumb
+  leads back to the md page, the graph beside it again), × closes it.
+  The URL keeps it, so a reload shows it again. A ref followed from it,
+  or its `:md-ref`, opens in place of the md page. A graph with its own
+  `:theme` colors the whole page while it's open.
+- Following an md file opens it in place of this one, and the trail at
+  the top leads back.
 - Followable: inline links, images, reference links and their
   definitions, to `.edn`, `.png`, `.svg` and `.md` files. Relative to
   the md file, never above the served folder; `#section` and `?query`
   are ignored. Links in code blocks and code spans, web links and other
-  file types get no ».
+  file types get no », and links to other file types don't follow.
 - Unsaved text is saved before the page changes — with a link, a crumb,
   or the browser's back and forward; if the save fails, the page stays.
 - A `:ref` on a graph element may name an `.md` file: following it

@@ -147,11 +147,13 @@
 (defn- eval-on-served-page
   "Serve `file` (holding `text`) from a fresh folder, open it in the
   browser at `path` and evaluate `js` there; its value. The server keeps
-  your choices in `home` (default: a fresh one), never in ~/.simpleviz."
-  [path file text js & {:keys [home]}]
+  your choices in `home` (default: a fresh one), never in ~/.simpleviz.
+  `extra` maps more file names in the folder to their text."
+  [path file text js & {:keys [home extra]}]
   (let [dir (fs/create-temp-dir {:prefix "served-page"})
         port (proc-util/free-port)
         _ (spit (str (fs/path dir file)) text)
+        _ (doseq [[f t] extra] (spit (str (fs/path dir f)) t))
         srv (proc-util/start ["bb" "--config" (str proc-util/repo-root "/bb.edn") "serve" file
                               "--port" (str port)]
                              :dir dir
@@ -168,17 +170,49 @@
       (finally (p/destroy-tree srv) (fs/delete-tree dir)))))
 
 (deftest the-doc-panel-scrolls-and-the-canvas-does-not-zoom
-  ;; the panel sits inside #canvas-wrap; its wheel must stay the textarea's
+  ;; the panel sits inside #canvas-wrap; its wheel must stay the doc's,
+  ;; rendered and, after Edit, the textarea's
   (with-real-browser
-    (is (= {:prevented false :overflows true}
+    (is (= {:view {:prevented false :overflows true} :text {:prevented false :overflows true}}
            (eval-on-served-page
-            path "notes.md" (str/join "\n" (map #(str "line " %) (range 300)))
-            (str "new Promise(ok => { const t = setInterval(() => {"
+            path "notes.md" (str/join "\n\n" (map #(str "line " %) (range 300)))
+            (str "new Promise(ok => { let r = {}; const t = setInterval(() => {"
+                 " const wheel = el => { const w = new WheelEvent('wheel', {deltaY: 100, bubbles: true, cancelable: true});"
+                 "  el.dispatchEvent(w); return {prevented: w.defaultPrevented, overflows: el.scrollHeight > el.clientHeight}; };"
+                 " const view = document.getElementById('md-view');"
+                 " if (!r.view) { if (!view || !view.textContent) return;"
+                 "  r.view = wheel(view); document.querySelector('.md-mode').click(); return; }"
                  " const ta = document.getElementById('md-text');"
                  " if (!ta || !ta.value) return; clearInterval(t);"
-                 " const w = new WheelEvent('wheel', {deltaY: 100, bubbles: true, cancelable: true});"
-                 " ta.dispatchEvent(w);"
-                 " ok({prevented: w.defaultPrevented, overflows: ta.scrollHeight > ta.clientHeight}); }, 50); })"))))))
+                 " r.text = wheel(ta); ok(r); }, 50); })"))))))
+
+(deftest a-graph-link-opens-beside-the-md-page
+  ;; a link of the rendered md page shows the graph to the right of the
+  ;; text, the link highlighted — and, after Edit, its line's » — and the
+  ;; canvas shifted past the column; × closes it
+  (with-real-browser
+    (is (= {:side "g.edn" :open true :mark-open true :shifted true :closed true}
+           (eval-on-served-page
+            path "notes.md" "See [the graph](g.edn).\n"
+            (str "new Promise(ok => { let step = 0, r = null; const t = setInterval(() => {"
+                 " const link = document.querySelector('#md-view a.md-link');"
+                 " if (step === 0) { if (!link) return; link.click(); step = 1; return; }"
+                 " const bar = document.getElementById('side-bar');"
+                 " const wrap = document.getElementById('canvas-wrap');"
+                 " if (step === 1) { if (!bar || bar.querySelector('.side-loading')) return;"
+                 "  const panel = document.getElementById('md-panel');"
+                 "  r = {side: new URLSearchParams(location.search).get('side'),"
+                 "       open: !!document.querySelector('#md-view a.md-link.open'),"
+                 "       shifted: panel.offsetWidth > 0 && wrap.style.left === panel.offsetWidth + 'px'};"
+                 "  document.querySelector('.md-mode').click(); step = 2; return; }"
+                 " if (step === 2) { const mark = document.querySelector('.md-mark'); if (!mark) return;"
+                 "  r['mark-open'] = mark.classList.contains('open');"
+                 "  bar.querySelector('[aria-label=Close]').click(); step = 3; return; }"
+                 " clearInterval(t);"
+                 " r.closed = !document.getElementById('side-bar') && wrap.style.left === '0px'"
+                 "   && !document.querySelector('.md-mark.open') && !location.search.includes('side');"
+                 " ok(r); }, 50); })")
+            :extra {"g.edn" "{:nodes {:a {}}}"})))))
 
 (deftest the-help-panel-opens
   ;; every section's text renders; a stray quote once broke one into code

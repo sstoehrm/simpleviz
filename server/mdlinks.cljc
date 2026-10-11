@@ -99,7 +99,7 @@
       (recur (+ i 2) (conj acc (ch s (inc i))))
       :else (recur (inc i) (conj acc (ch s i))))))
 
-(defn- clean-dest
+(defn clean-dest
   "A raw destination as the link means it: escapes resolved, #fragment
   and ?query cut, %XX decoded."
   [raw]

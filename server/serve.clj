@@ -862,7 +862,7 @@
                              :result (dissoc out :text)})
     (assoc (json-response (json/generate-string out)) :status status)))
 
-;; ---- your choices in the page (theme, layout): one file for every
+;; ---- your choices in the page (theme, layout, vi): one file for every
 ;; port, so they outlive the server — the page's localStorage did not,
 ;; being per origin and the port random
 
@@ -873,13 +873,14 @@
 
 (def ^:private pref-valid?
   {:theme (set (map name themes/NAMES))
-   :layout graph/LAYOUTS})
+   :layout graph/LAYOUTS
+   :vi #{"on"}})
 
 ;; one write at a time: the read and the merge must not interleave
 (def ^:private prefs-monitor (Object.))
 
 (defn read-prefs
-  "Your stored choices, {:theme s :layout s} with the valid ones only; {}
+  "Your stored choices, {:theme s :layout s :vi s} with the valid ones only; {}
   when prefs are off, the file is missing or unreadable."
   []
   (if @prefs-on

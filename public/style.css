@@ -235,6 +235,13 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
 #md-panel .md-error { display: flex; align-items: center; gap: 8px; padding: 6px 14px; font-size: 12px;
                       background: #fde8e8; color: #9b1c1c; border-bottom: 1px solid #f8b4b4; }
 #md-panel .md-error-text { flex: 1 1 auto; }
+#md-panel .md-btn.md-vi.on { border-color: var(--accent); color: var(--accent); }
+/* vi mode's status line: the mode, the keys typed so far, the : or /
+   being typed */
+#md-panel .md-vim { padding: 3px 14px; border-top: 1px solid var(--panel-divider);
+                    color: var(--text-muted); white-space: pre; overflow: hidden;
+                    font: 12px/1.5 ui-monospace, "Cascadia Mono", monospace; }
+#md-panel.page .md-vim { padding-left: max(40px, var(--md-pad)); }
 /* the toolbar centres on the canvas left of the panel, not under it */
 #root.md-open #selection-toolbar { left: calc((100vw - var(--inspector-w)) / 2);
                                    max-width: calc(100vw - var(--inspector-w) - 24px); }

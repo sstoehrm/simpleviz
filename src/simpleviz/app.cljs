@@ -14,6 +14,7 @@
             [simpleviz.compact :as compact]
             [simpleviz.markdown :as markdown]
             [simpleviz.slides :as slides]
+            [simpleviz.vim :as vim]
             [mdlinks :as mdlinks]
             [paths :as paths]
             [themes :as themes]))
@@ -61,6 +62,9 @@
                   :theme-pref nil
                   ;; your layout algorithm, for files without :layout
                   :layout-pref nil
+                  ;; vi mode in the doc's text (toggle-vi!), and its state
+                  :vi-pref false
+                  :vim (vim/init)
                   ;; light or dark as the OS has it, when you chose none
                   :theme (if (.-matches (js/window.matchMedia "(prefers-color-scheme: dark)"))
                            "dark"
@@ -943,7 +947,8 @@
       "Edit"
       "When the served file is editable EDN, the floating toolbar at the bottom holds the tools for the current selection, grouped by first key with options that pop out: delete, edge direction, and pick modes such as \"add edge\" (click the other element on the canvas, then name the edge; Esc cancels). New nodes and boxes are created by name: the prompt types a name, and the id is derived from it — lowercased, illegal characters turned into dashes; name::type also sets the type. With nothing selected it creates a standalone node or box. A :ref attribute naming another graph file (relative path) makes \"follow ref\" open it — in a suffix comparison (simpleviz graph.edn next) it opens that file's own comparison; the trail at the top leads back. Following a ref to an .edn file that does not exist yet creates it as an empty graph — in a comparison the side picked by the old|new toggle."
       "In the inspector, click a value or its ✎ to edit it inline — Enter commits, Shift+Enter inserts a line break, Escape cancels. × deletes an attribute; the key/value row at the bottom adds one. Ctrl+Z or ↶ undoes the last edit."
-      "\"open md\" (f m) opens the markdown file a node's or box's :md-ref names in a text panel on the right; ⤢ makes it fill the window, Esc docks it again. Ctrl+S or Save writes it, and so does closing it (×) or opening another; a missing file is created on the first save. If the file changes on disk while you have unsaved edits, the panel says so — Reload takes the file, Overwrite keeps yours.")
+      "\"open md\" (f m) opens the markdown file a node's or box's :md-ref names in a text panel on the right; ⤢ makes it fill the window, Esc docks it again. Ctrl+S or Save writes it, and so does closing it (×) or opening another; a missing file is created on the first save. If the file changes on disk while you have unsaved edits, the panel says so — Reload takes the file, Overwrite keeps yours."
+      "vi (top of a doc's text) turns on vi keys for the text of every doc, until you turn them off: Esc for normal mode, i a I A o O for insert; h j k l w b e W B E 0 ^ $ gg G f t F T ; , { } / ? n N move, with a count too; d c y take a motion or a text object (iw aw i\" a\" i( a( i[ i{ …), dd cc yy D C Y; x X s S r J ~ p P edit, v and V select, u and Ctrl+R undo and redo, . repeats. :w saves, :q closes the doc panel — on an md page it shows the text read — :wq does both, :12 goes to line 12. A bare Esc in normal mode still docks the panel; :q! drops unsaved edits first.")
      (help-section
       "md pages"
       "simpleviz notes.md opens a markdown file rendered, in a centered column — headings, emphasis, quotes, lists and task lists, links, pictures, tables, footnotes, code; Edit switches to the plain text, Read back. Its links to graphs and md files follow on click — [text](sub/graph.edn), ![img](x.png), [text](other.md), reference links too; relative to the md file, never above the served folder. In the plain text a » in the gutter marks each line with such a link (»2 lists the links of that line). A graph or exported image opens to the right of the text, its link and » highlighted, and works like any graph; ⤢ full view opens it on its own, × closes it. An md file opens in place of this one; the trail at the top leads back. Unsaved text is saved before you leave the page — when that fails you stay. A :ref to an .md file opens it the same way; the doc panel of :md-ref has the » gutter too."
@@ -1177,6 +1182,12 @@
         [:button {:class "md-btn md-present" :type "button" :title "Present the text as slides, split at --- lines"
                   :on-click (fn [e] (.stopPropagation e) (.blur (.-currentTarget e)) (show-slide! 0))}
          "Present"])
+      (when-not reading
+        [:button {:class (if (:vi-pref st) "md-btn md-vi on" "md-btn md-vi") :type "button"
+                  :aria-pressed (if (:vi-pref st) "true" "false")
+                  :title (if (:vi-pref st) "Vi mode is on — click to type plainly" "Edit with vi keys")
+                  :on-click (fn [e] (.stopPropagation e) (toggle-vi!))}
+         "vi"])
       (when (:page md)
         [:button {:class "md-btn md-mode" :type "button"
                   :title (if reading "Edit the text" "Show it rendered")
@@ -1213,9 +1224,15 @@
         [:textarea {:id "md-text" :spellcheck "false" :value (:text md)
                     :on-scroll (fn [_] (sync-gutter-scroll!) (when (some? (:link-menu @state))
                                                                 (swap! state assoc :link-menu nil)))
-                    :on-input (fn [e] (swap! state assoc-in [:md :text] (.. e -target -value)))}]
+                    :on-input (fn [e] (swap! state assoc-in [:md :text] (.. e -target -value)))
+                    :on-keydown vim-key!
+                    :on-beforeinput vim-before-input!
+                    :on-mouseup vim-mouse!}]
         (gutter-view st)
-        (link-menu-view st)])]))
+        (link-menu-view st)])
+     (when (and (:vi-pref st) (not reading))
+       (let [s (vim/status (:vim st))]
+         [:div {:class "md-vim"} (if (= s "") "\u00a0" s)]))]))
 
 (defn- present-link-fn
   "Renders the links on a slide of the md file at `md-path`: an image as
@@ -1820,12 +1837,92 @@
 (defn- focus-md-start!
   "Focus a doc just opened at its start: the swap that adopted it has
   rendered the textarea, whose value — set as a property — left the
-  caret at the end, where focusing would scroll."
+  caret at the end, where focusing would scroll. Vi mode starts over in
+  normal mode."
   []
+  (swap! state update :vim vim/fresh)
   (when-let [el (js/document.getElementById "md-text")]
-    (.setSelectionRange el 0 0)
+    (vim-select! el 0)
     (.focus el {:preventScroll true})
     (set! (.-scrollTop el) 0)))
+
+;; ---- vi mode in the doc's text (simpleviz.vim) ----
+
+(defn- vim-select!
+  "Put the textarea's selection where vi mode shows caret p: a block on
+  its char in normal mode, the range in visual mode — a plain caret with
+  vi mode off."
+  [el p]
+  (let [[a b] (if (:vi-pref @state) (vim/selection (:vim @state) (.-value el) p) [p p])]
+    (.setSelectionRange el a b)))
+
+(defn- vim-effect!
+  "A vi command line's effect: :w saves; :q closes the doc panel, or
+  shows an md page read; :wq both — closing saves anyway, a page reads
+  only when its save went through; :q! first puts back the text last
+  loaded or saved, so nothing is left to save."
+  [effect]
+  (let [page (:page (:md @state))]
+    (when (= effect "discard")
+      (swap! state update :md (fn [md] (assoc md :text (:saved md)))))
+    (case effect
+      "save" (save-md!)
+      ("close" "discard") (if page (toggle-md-edit!) (close-md!))
+      "save-close" (if page
+                     (-> (save-md!) (.then (fn [ok] (when ok (toggle-md-edit!)))))
+                     (close-md!))
+      nil)))
+
+(defn- vim-key!
+  "The doc text's keydown with vi mode on: vim/press takes the key or
+  leaves it to the textarea. Ctrl, Cmd and Alt keys stay the page's
+  (Ctrl+S saves), but Ctrl+R, which redoes."
+  [e]
+  (when (:vi-pref @state)
+    (let [k (cond (and (.-ctrlKey e) (not (or (.-metaKey e) (.-altKey e))) (= "r" (.-key e))) "C-r"
+                  (or (.-metaKey e) (.-isComposing e)) nil
+                  ;; AltGr (Ctrl+Alt on Windows) and Option on a Mac type characters
+                  (and (.-altKey e) (= 1 (.-length (.-key e)))) (.-key e)
+                  (or (.-ctrlKey e) (.-altKey e)) nil
+                  :else (.-key e))
+          el (.-currentTarget e)]
+      (when (some? k)
+        (let [r (vim/press (:vim @state) {:text (.-value el) :pos (.-selectionStart el)} k)]
+          (when (:handled r)
+            (.preventDefault e)
+            (.stopPropagation e)
+            (swap! state (fn [st] (cond-> (assoc st :vim (:vs r))
+                                    (not= (:text r) (.-value el)) (assoc-in [:md :text] (:text r)))))
+            (vim-select! el (:pos r))
+            (scroll-to-caret! el (:pos r))
+            (when-let [fx (:effect r)] (vim-effect! fx))))))))
+
+(defn- vim-before-input!
+  "Outside insert mode only vi keys change the text: a paste, a dropped
+  text or the browser's own undo would replace the block caret's char."
+  [e]
+  (when (and (:vi-pref @state) (not= "insert" (:mode (:vim @state))))
+    (.preventDefault e)))
+
+(defn- vim-mouse!
+  "A click in the doc text leaves visual mode and puts the block where it
+  landed; a drag keeps its selection, insert mode its caret."
+  [e]
+  (let [el (.-currentTarget e)]
+    (when (:vi-pref @state)
+      (swap! state update :vim vim/interrupt)
+      (when (= (.-selectionStart el) (.-selectionEnd el))
+        (vim-select! el (.-selectionStart el))))))
+
+(defn- toggle-vi!
+  "Turn vi mode on or off for every doc, kept with your choices."
+  []
+  (let [on (not (:vi-pref @state))]
+    (save-pref! {:vi (if on "on" "")})
+    (swap! state assoc :vi-pref on :vim (vim/fresh (:vim @state)))
+    (when-let [el (js/document.getElementById "md-text")]
+      (.focus el {:preventScroll true})
+      (vim-select! el (.-selectionStart el)))))
 
 (defn- ^:async save-md!
   "Write the open doc; `overwrite?` saves over the version the conflict
@@ -1900,9 +1997,10 @@
         focused? (and (some? el) (= el (.-activeElement js/document)))
         pos (when focused? (.-selectionStart el))]
     (swap! state update :md editor/adopt-doc fetched)
-    (when focused?
-      (let [p (min pos (.-length (.-value el)))]
-        (.setSelectionRange el p p)))))
+    (let [t (:text (:md @state))
+          p (min (or pos 0) (.-length t))]
+      (swap! state update :vim vim/reloaded t p)
+      (when focused? (vim-select! el p)))))
 
 (defn- ^:async poll-md!
   "The 1 s check of the open doc: take a changed disk text when nothing
@@ -2046,6 +2144,38 @@
         (.appendChild js/document.body d)
         d)))
 
+(defn- style-mirror!
+  "The mirror, emptied and styled and sized like textarea ta."
+  [ta]
+  (let [mirror (mirror-el)
+        cs (js/getComputedStyle ta)]
+    (doseq [p ["fontFamily" "fontSize" "fontWeight" "lineHeight" "letterSpacing" "tabSize"
+               "paddingTop" "paddingRight" "paddingBottom" "paddingLeft"]]
+      (aset (.-style mirror) p (aget cs p)))
+    (set! (.. mirror -style -width) (str (.-clientWidth ta) "px"))
+    (set! (.-textContent mirror) "")
+    mirror))
+
+(defn- scroll-to-caret!
+  "Scroll textarea ta so caret p shows — setting the selection doesn't:
+  p's top, laid out in the mirror, and a line below it inside the view."
+  [ta p]
+  (let [mirror (style-mirror! ta)
+        mark (js/document.createElement "span")
+        cs (js/getComputedStyle ta)]
+    (.appendChild mirror (js/document.createTextNode (subs (.-value ta) 0 p)))
+    (set! (.-textContent mark) "\u200b")
+    (.appendChild mirror mark)
+    (let [top (.-offsetTop mark)
+          h (.-offsetHeight mark)
+          view (.-scrollTop ta)
+          pad-top (js/parseFloat (.-paddingTop cs))
+          pad-bottom (js/parseFloat (.-paddingBottom cs))]
+      ;; near the top the span's half-leading would leave a sliver
+      (cond (< (- top pad-top) view) (set! (.-scrollTop ta) (if (< top (* 2 pad-top)) 0 (- top pad-top)))
+            (> (+ top h pad-bottom) (+ view (.-clientHeight ta)))
+            (set! (.-scrollTop ta) (- (+ top h pad-bottom) (.-clientHeight ta)))))))
+
 (defn- sync-gutter-scroll!
   "Scroll the gutter with the textarea."
   []
@@ -2073,14 +2203,8 @@
         (.disconnect resize-observer)
         (.observe resize-observer ta)
         (reset! observed-ta ta))
-      (let [mirror (mirror-el)
-            cs (js/getComputedStyle ta)
+      (let [mirror (style-mirror! ta)
             lines (.split (:text md) "\n")]
-        (doseq [p ["fontFamily" "fontSize" "fontWeight" "lineHeight" "letterSpacing" "tabSize"
-                   "paddingTop" "paddingRight" "paddingBottom" "paddingLeft"]]
-          (aset (.-style mirror) p (aget cs p)))
-        (set! (.. mirror -style -width) (str (.-clientWidth ta) "px"))
-        (set! (.-textContent mirror) "")
         (doseq [ln lines]
           (let [d (js/document.createElement "div")]
             (set! (.-textContent d) (if (= ln "") "​" ln))
@@ -2279,7 +2403,11 @@
         theme (some #(when (= (:theme p) %) %) themes/NAMES)
         layout (some (fn [[n _]] (when (= (:layout p) n) n)) editor/LAYOUTS)]
     (apply-theme! (effective-theme (:graph @state) theme (:theme @state)))
-    (swap! state assoc :theme-pref theme :layout-pref layout)))
+    (swap! state assoc :theme-pref theme :layout-pref layout :vi-pref (= "on" (:vi p)))
+    ;; a doc focused before the prefs came shows vi mode's block now
+    (when-let [el (js/document.getElementById "md-text")]
+      (when (identical? el (.-activeElement js/document))
+        (vim-select! el (.-selectionStart el))))))
 
 (defn- ^:async fetch-source
   "Raw EDN text from /api/source (which = \"old\"|\"new\"|nil), or nil on

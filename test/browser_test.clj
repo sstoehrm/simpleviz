@@ -370,3 +370,48 @@
                      ".getPropertyValue('--bg').trim()}); }, 50); })")
                 :home home)))
         (finally (fs/delete-tree home))))))
+
+(deftest vi-mode-edits-and-saves-a-doc
+  ;; the vi button turns vi keys on (a choice kept on the server): normal
+  ;; mode shows a block caret, dw deletes, the status line names pending
+  ;; keys and the mode, only insert mode lets a paste in, :w saves
+  (with-real-browser
+    (is (= {:block [0 1] :pending "d" :text "bar baz\n" :insert "-- INSERT --" :normal "\u00a0"
+            :paste-in-insert true :paste-in-normal false :saved true :pref "on"}
+           (eval-on-served-page
+            path "notes.md" "foo bar baz\n"
+            (str "new Promise(ok => { let step = 0; const r = {}; const t = setInterval(async () => {"
+                 " const key = (el, k) => el.dispatchEvent(new KeyboardEvent('keydown', {key: k, bubbles: true, cancelable: true}));"
+                 " const status = () => document.querySelector('.md-vim').textContent;"
+                 " if (step === 0) { const b = document.querySelector('.md-mode'); if (!b) return; b.click(); step = 1; return; }"
+                 " if (step === 1) { const v = document.querySelector('.md-vi'); if (!v) return; v.click(); step = 2; return; }"
+                 " clearInterval(t);"
+                 " const ta = document.getElementById('md-text');"
+                 " r.block = [ta.selectionStart, ta.selectionEnd];"
+                 " key(ta, 'd'); r.pending = status();"
+                 " key(ta, 'w'); r.text = ta.value;"
+                 " const paste = () => ta.dispatchEvent(new InputEvent('beforeinput', {inputType: 'insertFromPaste', data: 'x', bubbles: true, cancelable: true}));"
+                 " key(ta, 'i'); r.insert = status(); r['paste-in-insert'] = paste();"
+                 " key(ta, 'Escape'); r.normal = status(); r['paste-in-normal'] = paste();"
+                 " for (const k of [':', 'w', 'Enter']) key(ta, k);"
+                 " r.saved = false;"
+                 " for (let i = 0; i < 50 && !r.saved; i++) {"
+                 "  const d = await (await fetch('/api/text?path=notes.md')).json();"
+                 "  r.saved = d.text === 'bar baz\\n';"
+                 "  if (!r.saved) await new Promise(res => setTimeout(res, 100)); }"
+                 " r.pref = (await (await fetch('/api/prefs')).json()).vi;"
+                 " ok(r); }, 50); })"))))))
+
+(deftest vi-moves-scroll-the-text
+  ;; setting the textarea's selection doesn't scroll it: G must, gg back
+  (with-real-browser
+    (is (= {:end true :top 0}
+           (eval-on-served-page
+            path "notes.md" (str/join "\n" (map #(str "line " %) (range 300)))
+            (str "new Promise(ok => { let step = 0; const t = setInterval(() => {"
+                 " const key = (el, k) => el.dispatchEvent(new KeyboardEvent('keydown', {key: k, bubbles: true, cancelable: true}));"
+                 " if (step === 0) { const b = document.querySelector('.md-mode'); if (!b) return; b.click(); step = 1; return; }"
+                 " if (step === 1) { const v = document.querySelector('.md-vi'); if (!v) return; v.click(); step = 2; return; }"
+                 " clearInterval(t); const ta = document.getElementById('md-text');"
+                 " key(ta, 'G'); const end = ta.scrollTop >= ta.scrollHeight - ta.clientHeight - 2;"
+                 " key(ta, 'g'); key(ta, 'g'); ok({end, top: ta.scrollTop}); }, 50); })"))))))

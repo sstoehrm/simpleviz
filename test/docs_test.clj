@@ -56,10 +56,12 @@
           (str "THIRD-PARTY-NOTICES.md must mention vendored component " v)))
     (is (str/includes? notices "Eclipse Public License - v 2.0"))))
 
-(deftest the-plugin-carries-its-license-and-readme
+(deftest the-plugin-carries-its-license-security-policy-and-readme
   ;; a plugin install copies plugins/simpleviz alone, not the repository
   (is (= (slurp "LICENSE") (slurp "plugins/simpleviz/LICENSE"))
       "plugins/simpleviz/LICENSE must be the repository's LICENSE")
+  (is (= (slurp "SECURITY.md") (slurp "plugins/simpleviz/SECURITY.md"))
+      "plugins/simpleviz/SECURITY.md must be the repository's SECURITY.md")
   (is (.isFile (io/file "plugins/simpleviz/README.md")))
   (doseq [m ["plugins/simpleviz/.claude-plugin/plugin.json" "plugins/simpleviz/.codex-plugin/plugin.json"]]
     (is (= "MIT" (get (json/parse-string (slurp m)) "license")) m)))

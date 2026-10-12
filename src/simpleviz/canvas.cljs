@@ -411,20 +411,13 @@
 (defn- draw-edge-label [ctx item]
   (set! (.-textAlign ctx) "center")
   (set! (.-font ctx) SUB-FONT)
-  (let [halo! (fn [x y]
-                (set! (.-lineWidth ctx) 3)
-                (set! (.-strokeStyle ctx) (:bg @palette))
-                (.strokeText ctx (:text item) x y)
-                (set! (.-fillStyle ctx) (:label @palette))
-                (.fillText ctx (:text item) x y))]
-    (if (:rotated item)
-      ;; turned 90°, reading bottom to top, centred in its tall rect
-      (do (.save ctx)
-          (.translate ctx (+ (:x item) (/ (:w item) 2)) (+ (:y item) (/ (:h item) 2)))
-          (.rotate ctx (/ js/Math.PI -2))
-          (halo! 0 4)
-          (.restore ctx))
-      (halo! (+ (:x item) (/ (:w item) 2)) (+ (:y item) (:h item) -3)))))
+  (let [x (+ (:x item) (/ (:w item) 2))
+        y (+ (:y item) (:h item) -3)]
+    (set! (.-lineWidth ctx) 3)
+    (set! (.-strokeStyle ctx) (:bg @palette))
+    (.strokeText ctx (:text item) x y)
+    (set! (.-fillStyle ctx) (:label @palette))
+    (.fillText ctx (:text item) x y)))
 
 (defn- paint-items!
   "Draw every scene item visible in the graph-space rect vr; a removed
@@ -443,6 +436,35 @@
           "node" (draw-node ctx item sel? text?)
           nil)
         (when ghost? (set! (.-globalAlpha ctx) 1))))))
+
+;; manual layout: asked on pointerdown with the graph point pressed,
+;; (fn [gx gy]) returns nil to pan or {:move (fn [dx dy]) :end (fn [])
+;; :cancel (fn [])} to drag an element instead — dx dy in graph units
+;; since the press; :cancel when the browser takes the pointer away
+(def ^:private drag-hook (atom nil))
+(defn set-drag-hook! [f] (reset! drag-hook f))
+
+;; the manual layout's grid step, drawn as dots while arranging; nil: none
+(def ^:private grid-step (atom nil))
+(defn set-grid! [step] (reset! grid-step step) (request-paint!))
+
+(defn- paint-grid!
+  "Dots on every grid crossing in view rect vr — skipped when they would
+  crowd closer than 10 screen px."
+  [ctx vr k]
+  (when-let [step @grid-step]
+    (when (>= (* k step) 10)
+      (let [r (/ 1.2 k)]
+        (set! (.-fillStyle ctx) (:label @palette))
+        (set! (.-globalAlpha ctx) 0.35)
+        (loop [x (* step (js/Math.floor (/ (:x0 vr) step)))]
+          (when (<= x (:x1 vr))
+            (loop [y (* step (js/Math.floor (/ (:y0 vr) step)))]
+              (when (<= y (:y1 vr))
+                (.fillRect ctx (- x r) (- y r) (* 2 r) (* 2 r))
+                (recur (+ y step))))
+            (recur (+ x step))))
+        (set! (.-globalAlpha ctx) 1)))))
 
 (defn paint! [canvas-el sc2 selected-id]
   (let [ctx (.getContext canvas-el "2d")
@@ -465,6 +487,7 @@
               :x1 (/ (- (.-clientWidth canvas-el) (:x view)) k)
               :y1 (/ (- (.-clientHeight canvas-el) (:y view)) k)}
           text? (>= (* k 11) scene/TEXT-MIN-PX)]
+      (paint-grid! ctx vr k)
       (paint-items! ctx sc2 vr selected-id text?))))
 
 (defn clear!
@@ -531,9 +554,15 @@
           ;; NO setPointerCapture here: capturing on pointerdown retargets
           ;; the subsequent click to the wrap, so the canvas onclick
           ;; (selection) would never fire for plain clicks.
-          (reset! drag {:x (.-clientX e) :y (.-clientY e)
-                        :vx (:x view) :vy (:y view) :moved false
-                        :pointer-id (.-pointerId e)}))))
+          (let [rect (.getBoundingClientRect wrap)
+                k (:k view)
+                element (when-let [f @drag-hook]
+                          (f (/ (- (.-clientX e) (.-left rect) (:x view)) k)
+                             (/ (- (.-clientY e) (.-top rect) (:y view)) k)))]
+            (reset! drag {:x (.-clientX e) :y (.-clientY e)
+                          :vx (:x view) :vy (:y view) :moved false
+                          :pointer-id (.-pointerId e)
+                          :element element})))))
     (.addEventListener wrap "pointermove"
       (fn [e]
         (when-let [d @drag]
@@ -545,9 +574,20 @@
               ;; click then targets the wrap, not the canvas, so it can't
               ;; accidentally select
               (swap! drag assoc :moved true)
-              (.setPointerCapture wrap (:pointer-id d)))
-            (assoc! view :x (+ (:vx d) dx) :y (+ (:vy d) dy))
-            (request-paint!)))))
-    (.addEventListener wrap "pointerup" (fn [_] (reset! drag nil)))
-    (.addEventListener wrap "pointercancel" (fn [_] (reset! drag nil))))
+              ;; throws for a pointer that is already gone; the drag goes on
+              (try (.setPointerCapture wrap (:pointer-id d)) (catch :default _ nil)))
+            (if-let [el (:element d)]
+              (when (:moved @drag) ((:move el) (/ dx (:k view)) (/ dy (:k view))))
+              (do (assoc! view :x (+ (:vx d) dx) :y (+ (:vy d) dy))
+                  (request-paint!)))))))
+    (.addEventListener wrap "pointerup"
+      (fn [_]
+        (let [d @drag]
+          (reset! drag nil)
+          (when (and (some? (:element d)) (:moved d)) ((:end (:element d)))))))
+    (.addEventListener wrap "pointercancel"
+      (fn [_]
+        (let [d @drag]
+          (reset! drag nil)
+          (when (and (some? (:element d)) (:moved d)) ((:cancel (:element d))))))))
   (.addEventListener js/window "resize" (fn [_] (request-paint!))))

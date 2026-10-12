@@ -93,7 +93,7 @@
 
 (defn- text-el
   "A <text> at the transformed (x, y), its glyphs turned with the
-  transform when that rotates (an edge label along a vertical edge)."
+  transform when that rotates, as canvas turns text drawn rotated."
   [rec m txt x y paint]
   (let [[px py] (xf m x y)
         f (parse-font (:font rec))

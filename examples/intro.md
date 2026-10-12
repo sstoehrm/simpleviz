@@ -76,8 +76,7 @@ removed ones stay as red ghosts. Make your own with
 ## Big graphs
 
 [Five thousand nodes](big-5k.edn) open with every top-level box collapsed; the panel on
-the left lists them, click one to expand it. The layout menu at the top switches to
-`compact` or `tiled` when a diagram grows too wide.
+the left lists them, click one to expand it.
 
 ## Take it with you
 

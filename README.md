@@ -74,7 +74,7 @@ and write locks.
 ## Data format
 
     ;; optional, top level: :theme — a built-in (:nord, :dracula, …) or {:base :nord :accent "#b58900"}
-    ;;                     :layout — :layered (default), :compact or :tiled (spread big diagrams down as well as across)
+    ;; optional, on a top-level node or box: :pos [col row] — placed by hand on a 20 px grid (✥ in the page writes it)
     {:nodes {:api {:name "API"           ; display name (defaults to the key)
                    :type "service"       ; free-form; colors the name, shown as (type)
                    :text "Order intake"  ; shown inside the node (boxes too); "\n" or a vector for more lines
@@ -91,7 +91,7 @@ and write locks.
              {:direction :->             ; :-> | :<- | :<-> | :- (default :-)
               :name "REST"
               :type "http"}}
-     :boxes {:backend                    ; key is the box id; :grid [0 0] pins a top-level box (or node) to a grid cell
+     :boxes {:backend                    ; key is the box id
              {:name "Backend"            ; display name (defaults to the key)
               :type "zone"               ; colors the box (separate palette)
               :components #{:api :db}}}} ; node and/or box ids; boxes nest

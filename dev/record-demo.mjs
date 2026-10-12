@@ -50,7 +50,7 @@ fs.writeFileSync(path.join(ws, "docs/auth.md"),
 
 // ---- processes -------------------------------------------------------------
 
-// the servers keep the theme and layout picks in a home of their own,
+// the servers keep the theme pick in a home of their own,
 // never in your ~/.simpleviz
 const env = { ...process.env, SIMPLEVIZ_HOME: path.join(tmp, "home") };
 function start(cmd, args) {
@@ -222,7 +222,6 @@ async function pick(select, name) {
 const refit = () => js(`(async () => { const app = await import("/js/simpleviz/app.mjs"), cv = await import("/js/simpleviz/canvas.mjs");
   cv.refit_next_BANG_(); cv.fit_view_once_BANG_(app.state.val.scene); cv.request_paint_BANG_(); })()`);
 const theme = name => pick("theme-select", name);
-async function layout(name) { await pick("layout-select", name); await sleep(300); await settled(); }
 
 // ---- run -------------------------------------------------------------------
 
@@ -342,14 +341,6 @@ try {
   for (const t of ["nord", "dracula", "tabak-dark", "paper", "blueprint"]) { await theme(t); await sleep(900); }
   await theme("");
   await sleep(300);
-
-  // 6b — layouts (tiled looks like compact on a graph this small)
-  await caption("Pick a layout: <code>compact</code> spreads a graph down as well as across");
-  await click(await elAt("#layout-select"));
-  await layout("compact");
-  await sleep(2400);
-  await layout("layered");
-  await sleep(600);
 
   // 7 — pairs
   await caption("Pairs link the same thing across graphs: <kbd>f p</kbd>");

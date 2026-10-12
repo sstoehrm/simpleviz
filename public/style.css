@@ -494,13 +494,20 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
                 cursor: pointer; box-shadow: 0 1px 4px var(--shadow); }
 #relayout-btn:hover:not(:disabled) { background: var(--hover-plain); }
 #relayout-btn:disabled { border-color: var(--panel-border); opacity: .55; cursor: not-allowed; }
+#arrange-btn, #auto-btn { height: 32px; min-width: 32px; padding: 0 10px; border-radius: 16px;
+                         border: 1px solid var(--panel-border); background: var(--panel); color: var(--text);
+                         cursor: pointer; font-size: 14px; }
+#arrange-btn:hover, #auto-btn:hover { border-color: var(--accent); }
+#arrange-btn.on { border-color: var(--accent); color: var(--accent); }
+/* arranging: the canvas drags elements around */
+#root.arranging { cursor: move; }
 /* the theme menu, between ▦ and the other round buttons */
-#theme-select, #layout-select { height: 32px; max-width: 170px; padding: 0 10px;
+#theme-select { height: 32px; max-width: 170px; padding: 0 10px;
                 border-radius: 16px; border: 1px solid var(--panel-border);
                 background: var(--panel); color: var(--text); font-size: 12px;
                 cursor: pointer; box-shadow: 0 1px 4px var(--shadow); }
-#theme-select:hover:not(:disabled), #layout-select:hover:not(:disabled) { border-color: var(--accent); }
-#theme-select:disabled, #layout-select:disabled { opacity: .55; cursor: not-allowed; }
+#theme-select:hover:not(:disabled) { border-color: var(--accent); }
+#theme-select:disabled { opacity: .55; cursor: not-allowed; }
 #details .details-changes { border: 1px solid var(--panel-divider);
                             border-left: 3px solid var(--diff-modified);
                             border-radius: 6px; padding: 2px 10px 10px;

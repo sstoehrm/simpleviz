@@ -66,6 +66,18 @@
   (doseq [m ["plugins/simpleviz/.claude-plugin/plugin.json" "plugins/simpleviz/.codex-plugin/plugin.json"]]
     (is (= "MIT" (get (json/parse-string (slurp m)) "license")) m)))
 
+(deftest the-codex-listing-names-what-is-there
+  ;; the icon and screenshots it names ship in the plugin folder; its
+  ;; privacy and terms links point at files of this repository
+  (let [m (json/parse-string (slurp "plugins/simpleviz/.codex-plugin/plugin.json"))
+        ui (get m "interface")]
+    (doseq [rel (concat [(get ui "composerIcon") (get ui "logo")] (get ui "screenshots"))]
+      (is (.isFile (io/file "plugins/simpleviz" rel)) rel))
+    (doseq [[k f] [["privacyPolicyURL" "PRIVACY.md"] ["termsOfServiceURL" "LICENSE"]]]
+      (is (= (str "https://github.com/sstoehrm/simpleviz/blob/main/" f) (get ui k)) k)
+      (is (.isFile (io/file f)) f))
+    (is (seq (get m "keywords")))))
+
 (deftest bundle-ships-license-files
   (let [bb (slurp "bb.edn")]
     (is (str/includes? bb "THIRD-PARTY-NOTICES.md")

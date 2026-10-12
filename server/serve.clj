@@ -986,7 +986,26 @@
          :headers {"Content-Type" "application/json" "Cache-Control" "no-store"}
          :body (json/generate-string {:error (or (ex-message e) (.getName (class e)))})}))))
 
-(def handler (guard route))
+(defn- local-host?
+  "Does the Host header name this machine's loopback — localhost,
+  127.0.0.1 or [::1], on any port (a tunnel may forward another)? A page
+  that rebinds its own name to 127.0.0.1 sends that name, which is what
+  this refuses. A request without Host passes: browsers always send it."
+  [host]
+  (or (nil? host)
+      (contains? #{"localhost" "127.0.0.1" "[::1]"}
+                 (str/lower-case (str/replace host #":\d+$" "")))))
+
+(defn- host-guard
+  "Answer only requests addressed to this machine (local-host?), the
+  page and its files included: 403 for any other name."
+  [h]
+  (fn [req]
+    (if (local-host? (get-in req [:headers "host"]))
+      (h req)
+      (text-response 403 "forbidden: simpleviz answers to localhost and 127.0.0.1 only"))))
+
+(def handler (guard (host-guard route)))
 
 (defn version
   "The release this is: the VERSION resource (the install root or the

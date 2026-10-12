@@ -182,7 +182,9 @@ layout is already fresh. Ctrl+Z or ↶ undoes the last edit, from an undo stack
 per file that all viewers share (100 entries).
 
 **Security.** The server binds to loopback only and accepts writes only from
-its own `localhost`/`127.0.0.1` origin.
+its own `localhost`/`127.0.0.1` origin. It answers only requests addressed
+to `localhost`, `127.0.0.1` or `[::1]`, so a web page that points its own
+name at 127.0.0.1 (DNS rebinding) can't read the served files.
 
 ## Layouts
 

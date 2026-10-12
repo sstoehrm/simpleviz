@@ -131,7 +131,7 @@
       (let [res (p/shell {:dir (str tmp) :out :string :err :string :continue true
                           :extra-env (home-env tmp)}
                          "bb" "--config" (str proc-util/repo-root "/bb.edn") "-e"
-                         (str "(require 'cli) (alter-var-root #'cli/shipped-templates conj \"ghost\")"
+                         (str "(require 'cli) (alter-var-root #'cli/shipped-templates conj \"ghost.edn\")"
                               " (cli/-main \"init\" \"g.edn\" \"-t\" \"ghost\")"))]
         (is (= 1 (:exit res)))
         (is (= "simpleviz: unknown template: ghost (available: default)"
@@ -154,9 +154,55 @@
 
 (deftest shipped-templates-match-the-templates-folder
   ;; a jar cannot list a directory, so unknown-template errors name these
-  (is (= (set (map #(str/replace (str (fs/file-name %)) #"\.edn$" "")
-                   (fs/glob (str proc-util/repo-root "/templates") "*.edn")))
+  (is (= (set (map #(str (fs/file-name %)) (fs/glob (str proc-util/repo-root "/templates") "*")))
          (set cli/shipped-templates))))
+
+(deftest init-writes-a-presentation-and-the-graph-it-shows
+  ;; an md file comes from an md template, {{name}} its own name; a
+  ;; graph a >> slide shows is written too, from the default graph template
+  (with-tmp
+    (fn [tmp]
+      (let [res (run-cli ["init" "talk.md" "-t" "presentation"] :dir tmp :env (home-env tmp))]
+        (is (= 0 (:exit res)) (:err res))
+        (is (= "created talk.md, talk.edn — view it with: simpleviz talk.md" (str/trim (:out res)))))
+      (let [md (slurp (str (fs/path tmp "talk.md")))]
+        (is (str/includes? md "\n>> talk.edn\n"))
+        (is (not (str/includes? md "{{name}}"))))
+      (is (= (slurp (str proc-util/repo-root "/templates/default.edn"))
+             (slurp (str (fs/path tmp "talk.edn")))))
+      (is (= "ok" (str/trim (:out (run-cli ["check" "talk.md"] :dir tmp))))))))
+
+(deftest init-keeps-a-graph-the-presentation-shows-that-is-there
+  (with-tmp
+    (fn [tmp]
+      (spit (str (fs/path tmp "talk.edn")) "{:nodes {:mine {}}}")
+      (let [res (run-cli ["init" "talk.md" "-t" "presentation"] :dir tmp :env (home-env tmp))]
+        (is (= 0 (:exit res)) (:err res))
+        (is (= "created talk.md — view it with: simpleviz talk.md" (str/trim (:out res)))))
+      (is (= "{:nodes {:mine {}}}" (slurp (str (fs/path tmp "talk.edn"))))))))
+
+(deftest init-writes-no-graph-outside-the-md-files-folder
+  ;; a template of your own may name any path after >>
+  (with-tmp
+    (fn [tmp]
+      (fs/create-dirs (fs/path tmp "home" "templates"))
+      (spit (str (fs/path tmp "home" "templates" "deck.md"))
+            ">> ../out.edn\n# a\n---\n>> /tmp/abs.edn\n---\n>> sub/in.edn\n---\n>> pic.png\n")
+      (fs/create-dirs (fs/path tmp "d"))
+      (let [res (run-cli ["init" "d/t.md" "-t" "deck"] :dir tmp :env (home-env tmp))]
+        (is (= 0 (:exit res)) (:err res))
+        (is (= "created d/t.md, d/sub/in.edn — view it with: simpleviz d/t.md" (str/trim (:out res)))))
+      (is (not (fs/exists? (fs/path tmp "out.edn"))))
+      (is (fs/exists? (fs/path tmp "d" "sub" "in.edn")))
+      (is (not (fs/exists? (fs/path tmp "d" "pic.png")))))))
+
+(deftest init-names-the-md-templates-for-an-md-file
+  (with-tmp
+    (fn [tmp]
+      (let [res (run-cli ["init" "n.md"] :dir tmp :env (home-env tmp))]
+        (is (= 1 (:exit res)))
+        (is (= "simpleviz: unknown template: default (available: presentation)" (str/trim (:err res)))))
+      (is (not (fs/exists? (fs/path tmp "n.md")))))))
 
 (deftest fork-and-promote-work-on-relative-paths
   (with-tmp
@@ -409,7 +455,6 @@
       (doseq [[args msg] [[["export" "notes.md" "out.png"] "export needs a graph file (.edn, .png or .svg)"]
                           [["fork" "notes.md" "next"] "fork works on graph files (.edn, .png or .svg)"]
                           [["promote" "notes.md" "next"] "promote works on graph files (.edn, .png or .svg)"]
-                          [["init" "new.md"] "init writes graph files (.edn)"]
                           [["notes.md" "next"] "compare mode needs a graph file (.edn, .png or .svg)"]]]
         (let [res (run-cli args :dir tmp)]
           (is (= 1 (:exit res)) (str args))

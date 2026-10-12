@@ -303,6 +303,46 @@ understand too:
 - md files can't be compared, forked or exported; `simpleviz notes.md
   next` is refused.
 
+### Presenting
+
+Present (top right of the column) shows the md page as slides, one at a
+time. A line of just `---` starts the next slide; a slide whose first
+line is `>> <path>` shows that file to the right of its text:
+
+    ---
+    # Payments
+    ## how a charge flows
+    the platform team
+
+    ---
+    >> pay/flow.edn
+    # The flow
+
+    - the API validates, the worker charges
+    ---
+    >> notes.md
+    # Open questions
+
+- The first slide is the title slide, centered — unless it has a `>>`.
+  Empty slides are dropped, so a deck may start and end with `---`;
+  `---` inside a fenced code block is code.
+- `>>` takes a graph (`.edn`, or an exported `.png` or `.svg`), an md
+  file (shown rendered) or a picture (`.png`, `.svg`, `.jpg`, `.jpeg`,
+  `.gif`, `.webp` without simpleviz EDN in it). The path is relative to
+  the md file, never above the served folder.
+- → ↓ space and Page Down step forward, ← ↑ and Page Up back, Home and
+  End jump to the first and last slide. Esc closes the inspector, else
+  leaves; so does "Leave presentation", the only control shown.
+- A graph beside a slide works as usual — hover, click to inspect
+  (read-only), pan, zoom, collapse and expand boxes — but nothing in it
+  can be edited, and refs and pairs don't follow. Links on a slide are
+  text, except web links.
+- The URL keeps the slide (`?slide=3`), so a reload shows it again. The
+  text follows the file on disk while you present.
+- `simpleviz init talk.md -t presentation` writes a deck to start from,
+  and `talk.edn` beside it for its graph slide. `simpleviz demo` brings
+  `deck.md`, a deck about decks.
+
 ## Following refs
 
 A `:ref` on a node, box or edge names another graph file by a path relative

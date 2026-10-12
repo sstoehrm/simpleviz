@@ -38,6 +38,7 @@ Without an installer, unpack a tarball from the
     simpleviz check notes.md                   # an md file's broken links (works without a server)
     simpleviz init my-arch.edn                 # write a starter file
     simpleviz init my-arch.edn -t pipeline     # ...from ~/.simpleviz/templates/pipeline.edn
+    simpleviz init talk.md -t presentation     # a slide deck, plus talk.edn for its graph slide
     simpleviz fork my-arch.edn next            # copy to my-arch-next.edn, plus every file it refs
     simpleviz my-arch.edn next                 # compare my-arch.edn → my-arch-next.edn
     simpleviz promote my-arch.edn next         # make the forks the new originals
@@ -47,13 +48,15 @@ Without an installer, unpack a tarball from the
 can also edit in the page: click an element to inspect and change its
 attributes, and use the toolbar at the bottom to add, connect, group and
 delete. ⇩ exports a PNG or an SVG, both with the source embedded; simpleviz
-serves either like an EDN file. An `.md` file opens rendered, with Edit for the plain text; its ordinary markdown links to `.edn`, `.png`, `.svg` and `.md` files follow (in the plain text, by a » beside the line), and a graph opens to the right of the text. A link is
+serves either like an EDN file. An `.md` file opens rendered, with Edit for the plain text; its ordinary markdown links to `.edn`, `.png`, `.svg` and `.md` files follow (in the plain text, by a » beside the line), and a graph opens to the right of the text. Present shows it as slides split at `---` lines, a `>> graph.edn` first line putting that graph (or an md file or picture) beside a slide. A link is
 relative to the md file and never reaches above the served folder. Press `?` in
 the page for controls and shortcuts.
 
 `init` copies a template from `~/.simpleviz/templates` (or
 `$SIMPLEVIZ_HOME/templates`): `default.edn` without `-t`, `<name>.edn`
-with `-t <name>`. Add your own there, or edit `default.edn`; updates keep
+with `-t <name>` — `<name>.md` for an `.md` file, where `{{name}}` becomes
+the file's name and each `>> x.edn` slide gets a starter graph unless
+`x.edn` is there. Add your own there, or edit `default.edn`; updates keep
 the folder as it is and only add templates it lacks, so delete a shipped
 one to get its newest version on the next `simpleviz update`.
 

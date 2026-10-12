@@ -119,36 +119,67 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
 #md-view { flex: 1 1 auto; min-width: 0; overflow: auto; background: var(--panel); color: var(--text);
            padding: 18px max(40px, var(--md-pad)) 48px; font: 15px/1.6 system-ui, sans-serif;
            overflow-wrap: break-word; }
-#md-view > :first-child { margin-top: 0; }
-#md-view h1, #md-view h2, #md-view h3, #md-view h4, #md-view h5, #md-view h6 {
+:is(#md-view, .md-doc) > :first-child { margin-top: 0; }
+:is(#md-view, .md-doc) h1, :is(#md-view, .md-doc) h2, :is(#md-view, .md-doc) h3, :is(#md-view, .md-doc) h4, :is(#md-view, .md-doc) h5, :is(#md-view, .md-doc) h6 {
   color: var(--text-strong); line-height: 1.25; margin: 1.5em 0 .6em; font-weight: 600; }
-#md-view h1 { font-size: 1.75em; padding-bottom: .3em; border-bottom: 1px solid var(--panel-divider); }
-#md-view h2 { font-size: 1.35em; padding-bottom: .25em; border-bottom: 1px solid var(--panel-divider); }
-#md-view h3 { font-size: 1.15em; }
-#md-view h4, #md-view h5, #md-view h6 { font-size: 1em; }
-#md-view p, #md-view ul, #md-view ol, #md-view pre, #md-view table { margin: 0 0 1em; }
-#md-view ul, #md-view ol { padding-left: 1.6em; }
-#md-view li > ul, #md-view li > ol { margin: .2em 0; }
-#md-view li > p { margin: 0 0 .5em; }
-#md-view code { font: .87em ui-monospace, "Cascadia Mono", monospace; background: var(--hover-plain);
+:is(#md-view, .md-doc) h1 { font-size: 1.75em; padding-bottom: .3em; border-bottom: 1px solid var(--panel-divider); }
+:is(#md-view, .md-doc) h2 { font-size: 1.35em; padding-bottom: .25em; border-bottom: 1px solid var(--panel-divider); }
+:is(#md-view, .md-doc) h3 { font-size: 1.15em; }
+:is(#md-view, .md-doc) h4, :is(#md-view, .md-doc) h5, :is(#md-view, .md-doc) h6 { font-size: 1em; }
+:is(#md-view, .md-doc) p, :is(#md-view, .md-doc) ul, :is(#md-view, .md-doc) ol, :is(#md-view, .md-doc) pre, :is(#md-view, .md-doc) table { margin: 0 0 1em; }
+:is(#md-view, .md-doc) ul, :is(#md-view, .md-doc) ol { padding-left: 1.6em; }
+:is(#md-view, .md-doc) li > ul, :is(#md-view, .md-doc) li > ol { margin: .2em 0; }
+:is(#md-view, .md-doc) li > p { margin: 0 0 .5em; }
+:is(#md-view, .md-doc) code { font: .87em ui-monospace, "Cascadia Mono", monospace; background: var(--hover-plain);
                 border-radius: 4px; padding: .1em .35em; }
-#md-view pre { padding: 10px 14px; overflow: auto; background: var(--hover-plain);
+:is(#md-view, .md-doc) pre { padding: 10px 14px; overflow: auto; background: var(--hover-plain);
                border: 1px solid var(--panel-divider); border-radius: 6px; line-height: 1.45; }
-#md-view pre code { background: none; padding: 0; font-size: 13px; }
-#md-view table { border-collapse: collapse; display: block; max-width: 100%; overflow: auto; }
-#md-view th, #md-view td { border: 1px solid var(--panel-border); padding: 4px 10px; }
-#md-view th { background: var(--hover-plain); color: var(--text-strong); font-weight: 600; text-align: left; }
-#md-view .al-left { text-align: left; }
-#md-view .al-center { text-align: center; }
-#md-view .al-right { text-align: right; }
-#md-view a { color: var(--accent); text-underline-offset: 2px; }
-#md-view a:hover { color: var(--text-strong); }
+:is(#md-view, .md-doc) pre code { background: none; padding: 0; font-size: 13px; }
+:is(#md-view, .md-doc) table { border-collapse: collapse; display: block; max-width: 100%; overflow: auto; }
+:is(#md-view, .md-doc) th, :is(#md-view, .md-doc) td { border: 1px solid var(--panel-border); padding: 4px 10px; }
+:is(#md-view, .md-doc) th { background: var(--hover-plain); color: var(--text-strong); font-weight: 600; text-align: left; }
+:is(#md-view, .md-doc) .al-left { text-align: left; }
+:is(#md-view, .md-doc) .al-center { text-align: center; }
+:is(#md-view, .md-doc) .al-right { text-align: right; }
+:is(#md-view, .md-doc) a { color: var(--accent); text-underline-offset: 2px; }
+:is(#md-view, .md-doc) a:hover { color: var(--text-strong); }
 /* the link whose graph shows beside the page: pressed, like its » */
-#md-view a.open { color: var(--text-strong); background: var(--panel-border); border-radius: 4px;
+:is(#md-view, .md-doc) a.open { color: var(--text-strong); background: var(--panel-border); border-radius: 4px;
                   box-shadow: 0 0 0 2px var(--panel-border); text-decoration: none; }
-#md-view a.bad { opacity: .55; }
-#md-view .md-link.dead { color: var(--text-muted); text-decoration: underline dotted; cursor: help; }
-#md-view .md-empty { color: var(--text-muted); }
+:is(#md-view, .md-doc) a.bad { opacity: .55; }
+:is(#md-view, .md-doc) .md-link.dead { color: var(--text-muted); text-decoration: underline dotted; cursor: help; }
+:is(#md-view, .md-doc) .md-empty { color: var(--text-muted); }
+/* presenting the md page: the slide fills the window, or its left half
+   while a graph, an md file or a picture shows beside it; type grows
+   with the window */
+#root.presenting #md-panel.page { top: 0; left: 0; width: 100vw; border: none; }
+#root.presenting.halves #md-panel.page { width: 50vw; border-right: 1px solid var(--panel-divider); }
+#present-slide { flex: 1 1 auto; min-height: 0; overflow: auto; display: flex; flex-direction: column;
+                 justify-content: safe center; align-items: center; padding: 8vh 7vw;
+                 background: var(--panel); color: var(--text);
+                 font: clamp(16px, calc(1.1vw + 9px), 40px)/1.5 system-ui, sans-serif; }
+#root.halves #present-slide { padding: 8vh 4vw; }
+#present-slide > .md-doc { width: 100%; max-width: 46em; }
+#present-slide :is(h1, h2) { border-bottom: none; }
+#present-slide.title { text-align: center; }
+#present-slide.title h1 { font-size: 2.6em; margin: 0 0 .3em; }
+#present-slide.title h2 { font-size: 1.5em; font-weight: 400; color: var(--text-muted); margin: 0 0 1.4em; }
+#present-counter { position: absolute; left: 16px; bottom: 10px; font: 12px system-ui, sans-serif;
+                   color: var(--text-dim); }
+#present-side { position: fixed; top: 0; right: 0; bottom: 0; left: 50vw; z-index: 4;
+                display: flex; align-items: center; justify-content: center; overflow: auto;
+                background: var(--bg); }
+#present-side img { max-width: 92%; max-height: 92%; object-fit: contain; }
+#present-side.md { align-items: safe center; padding: 8vh 4vw; background: var(--panel);
+                   font: clamp(14px, calc(.9vw + 8px), 32px)/1.6 system-ui, sans-serif; color: var(--text); }
+#present-side.md > .md-doc { width: 100%; max-width: 46em; }
+#present-side .present-side-error { color: var(--text-muted); font-size: 14px; padding: 24px; }
+/* the one control left: quiet until pointed at */
+#present-leave { pointer-events: auto; border: 1px solid var(--panel-border); background: var(--panel);
+                 color: var(--text); border-radius: 6px; padding: 4px 10px; font-size: 12px;
+                 cursor: pointer; opacity: .35; }
+#present-leave:hover, #present-leave:focus-visible { opacity: 1; border-color: var(--accent); }
+
 /* beside the md page: the graph's bar, or where one will show */
 #side-bar { position: fixed; top: 60px; right: 12px; z-index: 6; max-width: 50vw;
             display: flex; align-items: center; gap: 6px; padding: 4px 6px 4px 10px;

@@ -350,30 +350,44 @@
   "The page's navigation state from its query string: {:file
   root-relative path or nil (the root file) :trail [paths visited
   before it]}, plus :focus (a scene id, \"n:api\") when the URL names
-  an element to select, and :side (root-relative) when an md page shows
-  a graph beside it. Each trail entry is URL-encoded on its own
+  an element to select, :side (root-relative) when an md page shows
+  a graph beside it, and :slide (1-based) while it is presented. Each trail entry is URL-encoded on its own
   inside the parameter, so commas in file names survive."
   [query-string]
   (let [p (js/URLSearchParams. (str (if (nil? query-string) "" query-string)))
         file (.get p "file")
         trail (.get p "trail")
         focus (.get p "focus")
-        side (.get p "side")]
+        side (.get p "side")
+        slide (js/Number (.get p "slide"))]
     (cond-> {:file (if (or (nil? file) (= file "")) nil file)
              :trail (if (or (nil? trail) (= trail ""))
                       []
                       (mapv js/decodeURIComponent (.split trail ",")))}
       (and (some? focus) (not= focus "")) (assoc :focus focus)
-      (and (some? side) (not= side "")) (assoc :side side))))
+      (and (some? side) (not= side "")) (assoc :side side)
+      (and (js/Number.isInteger slide) (pos? slide)) (assoc :slide slide))))
+
+(defn- with-param
+  "Query string `query` with parameter k set to v, or dropped when v is
+  nil; its other parameters stay."
+  [query k v]
+  (let [p (js/URLSearchParams. (str (if (nil? query) "" query)))]
+    (if (some? v) (.set p k (str v)) (.delete p k))
+    (let [s (.toString p)]
+      (if (= s "") "" (str "?" s)))))
 
 (defn with-side
   "Query string `query` with the side graph set to `side`, or dropped
   when nil; its other parameters stay."
   [query side]
-  (let [p (js/URLSearchParams. (str (if (nil? query) "" query)))]
-    (if (some? side) (.set p "side" side) (.delete p "side"))
-    (let [s (.toString p)]
-      (if (= s "") "" (str "?" s)))))
+  (with-param query "side" side))
+
+(defn with-slide
+  "Query string `query` with the presented slide (1-based) set to `n`,
+  or dropped when nil; its other parameters stay."
+  [query n]
+  (with-param query "slide" n))
 
 (defn nav-query
   "The query string (\"\" or \"?file=..&trail=..&focus=..\") for showing

@@ -87,6 +87,8 @@ the left lists them, click one to expand it. The layout menu at the top switches
 - `simpleviz check my-arch.edn` prints what the page would warn about, without a
   browser. It checks this file's links too.
 - `simpleviz init my-arch.edn` writes a starter graph.
+- An md page is also a talk: [the deck](deck.md) opens as a page like this one; Present,
+  top right, shows it as slides, a graph beside each.
 
 The [README](https://github.com/sstoehrm/simpleviz#readme) has the full data format, and
 the [guide](https://github.com/sstoehrm/simpleviz/blob/main/docs/guide.md) every detail.

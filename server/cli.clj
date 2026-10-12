@@ -22,10 +22,9 @@
   "https://github.com/sstoehrm/simpleviz/releases/latest/download/simpleviz.jar")
 
 (def shipped-templates
-  "The files under templates/, without .edn: the ones every install has.
-  A test keeps this equal to the folder, since a jar cannot list a
-  directory."
-  ["default"])
+  "The files under templates/: the ones every install has. A test keeps
+  this equal to the folder, since a jar cannot list a directory."
+  ["default.edn" "presentation.md"])
 
 (def usage
   (str/join
@@ -44,10 +43,11 @@
     "       simpleviz fork <graph.edn> <suffix>     copy the graph and every file it refs to"
     "                                               <name>-<suffix>.edn siblings"
     "       simpleviz promote <graph.edn> <suffix>  move each fork over its original file"
-    "       simpleviz init <graph.edn> [-t|--template <name>]"
-    "                                         write a starter graph file (won't overwrite)"
-    "                                         from <name>.edn (default: default) in"
-    "                                         ~/.simpleviz/templates (or $SIMPLEVIZ_HOME/templates)"
+    "       simpleviz init <graph.edn|doc.md> [-t|--template <name>]"
+    "                                         write a starter file (won't overwrite) from"
+    "                                         <name>.edn or <name>.md (default: default) in"
+    "                                         ~/.simpleviz/templates (or $SIMPLEVIZ_HOME/templates);"
+    "                                         -t presentation writes a deck and its graph"
     "       simpleviz extract <diagram.png|.svg> [out.edn] [--old]   print/extract the embedded EDN"
     "       simpleviz export <graph.edn> [<suffix>] <out.png|out.svg> [--theme <name>] [--force]"
     "                                         write the ⇩ export of the whole graph, made in a"
@@ -102,39 +102,82 @@
       (when (= 1 (count pos)) {:file (first pos) :template template}))))
 
 (defn- template-source
-  "Template `name`: <home>/templates/<name>.edn, where users and tools
-  put theirs, else the shipped one on the classpath; nil if neither."
-  [name]
-  (let [f (io/file (log/home) "templates" (str name ".edn"))]
-    (if (.isFile f) f (io/resource (str "templates/" name ".edn")))))
+  "Template `name` of kind `ext` (\"edn\" or \"md\"):
+  <home>/templates/<name>.<ext>, where users and tools put theirs, else
+  the shipped one on the classpath; nil if neither."
+  [name ext]
+  (let [f (io/file (log/home) "templates" (str name "." ext))]
+    (if (.isFile f) f (io/resource (str "templates/" name "." ext)))))
 
-(defn- available-templates []
-  (->> (.listFiles (io/file (log/home) "templates"))
-       (keep #(second (re-matches #"(.+)\.edn" (.getName %))))
-       (concat (filter template-source shipped-templates))
-       distinct
-       sort))
+(defn- available-templates
+  "The names of the templates of kind `ext`."
+  [ext]
+  (let [suffix (str "." ext)
+        names (fn [files] (keep #(when (str/ends-with? % suffix)
+                                   (subs % 0 (- (count %) (count suffix))))
+                                files))]
+    (->> (concat (names (map #(.getName %) (.listFiles (io/file (log/home) "templates"))))
+                 (filter #(template-source % ext) (names shipped-templates)))
+         distinct
+         sort)))
+
+(defn- write-file! [f text]
+  (try (io/make-parents f)
+       (spit f text)
+       (catch java.io.IOException e (die "cannot write " f ": " (ex-message e)))))
+
+(defn- shown-graphs
+  "The .edn files the >> lines of md `text` name, relative to its folder
+  and staying below it: what a presentation template needs beside it."
+  [text]
+  (->> (str/split-lines text)
+       (keep #(second (re-matches #">>\s*(\S.*?)\s*" %)))
+       (filter #(and (str/ends-with? (str/lower-case %) ".edn")
+                     (not (.isAbsolute (io/file %)))
+                     (not-any? #{".."} (str/split % #"[/\\]"))))
+       distinct))
+
+(defn- init-md!
+  "Write md file `file` from template text `text`, {{name}} its own name,
+  and each graph a >> line names that isn't there yet, from the default
+  graph template; the files written."
+  [file text]
+  (let [f (io/file file)
+        stem (str/replace (.getName f) #"(?i)\.md$" "")
+        text (str/replace text "{{name}}" stem)
+        graph-src (template-source "default" "edn")]
+    (write-file! f text)
+    (into [file]
+          (keep (fn [rel]
+                  (let [g (io/file (.getParentFile (.getAbsoluteFile f)) rel)]
+                    (when (and (some? graph-src) (not (.exists g)))
+                      (write-file! g (slurp graph-src))
+                      (if-let [dir (.getParent f)] (str dir "/" rel) rel)))))
+          (shown-graphs text))))
 
 (defn- init-cmd [args]
-  (let [{:keys [file template]} (or (init-args args) (usage-error))]
+  (let [{:keys [file template]} (or (init-args args) (usage-error))
+        ext (if (paths/md-path? file) "md" "edn")]
     (reject-flag! file)
-    (when (paths/md-path? file) (die "init writes graph files (.edn)"))
     (when (re-find #"[/\\]" template)
       (die "template name must be a plain name, not a path: " template))
-    (let [src (or (template-source template)
+    (let [src (or (template-source template ext)
                   (die "unknown template: " template
-                       " (available: " (str/join ", " (available-templates)) ")"))]
+                       " (available: " (str/join ", " (available-templates ext)) ")"))]
       (when (.exists (io/file file)) (die file " already exists"))
-      (try (with-open [in (io/input-stream src)] (io/copy in (io/file file)))
-           (catch java.io.IOException e (die "cannot write " file ": " (ex-message e))))
-      (println (str "created " file " — view it with: simpleviz " file)))))
+      (let [written (if (= ext "md")
+                      (init-md! file (slurp src))
+                      (do (try (with-open [in (io/input-stream src)] (io/copy in (io/file file)))
+                               (catch java.io.IOException e (die "cannot write " file ": " (ex-message e))))
+                          [file]))]
+        (println (str "created " (str/join ", " written) " — view it with: simpleviz " file))))))
 
 (def port-range (range 7370 7470))
 
 (def example-files
   "The files under examples/, relative to it: what `demo` copies. A test
   keeps this equal to the folder, since a jar cannot list a directory."
-  ["demo.edn" "demo-next.edn" "states.edn" "big-5k.edn" "intro.md" "overview.png"
+  ["demo.edn" "demo-next.edn" "states.edn" "big-5k.edn" "intro.md" "deck.md" "overview.png"
    "api/internals.edn" "api/internals-next.edn" "api/notes.md"])
 
 (def ^:private flag? #{"--debug" "--no-open"})

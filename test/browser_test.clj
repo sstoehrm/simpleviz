@@ -214,6 +214,101 @@
                  " ok(r); }, 50); })")
             :extra {"g.edn" "{:nodes {:a {}}}"})))))
 
+(deftest a-presentation-steps-through-its-slides
+  ;; Present: the title slide alone and centered, every tool hidden but
+  ;; Leave; → shows the next slide and what its >> names beside it — a
+  ;; graph (read-only), an md file, a plain image; Esc leaves
+  (with-real-browser
+    (is (= {:title {:title true :h1 "The Deck" :slide "1" :tools false :leave true}
+            :graph {:h1 "Graph slide" :side "g.edn" :slide "2" :shifted true :editing false}
+            :md {:side-md "hello" :side nil}
+            :image {:loaded true :counter "4 / 4"}
+            :left {:slide nil :view true}}
+           (eval-on-served-page
+            path "deck.md"
+            "---\n# The Deck\n## the sub\nme\n\n---\n>> g.edn\n# Graph slide\n\ntext\n---\n>> notes.md\n# Md slide\n---\n>> pic.svg\n# Image slide\n"
+            (str "new Promise(ok => { let step = 0; const r = {};"
+                 " const q = k => new URLSearchParams(location.search).get(k);"
+                 " const key = k => document.dispatchEvent(new KeyboardEvent('keydown', {key: k, bubbles: true}));"
+                 " const t = setInterval(() => {"
+                 " const slide = document.getElementById('present-slide');"
+                 " if (step === 0) { const b = document.querySelector('.md-present'); if (!b) return; b.click(); step = 1; return; }"
+                 " if (step === 1) { if (!slide) return;"
+                 "  r.title = {title: slide.classList.contains('title'), h1: slide.querySelector('h1').textContent, slide: q('slide'),"
+                 "   tools: !!document.querySelector('#theme-select, #help-btn, #trail, #side-bar, .md-head'),"
+                 "   leave: !!document.getElementById('present-leave')};"
+                 "  key('ArrowRight'); step = 2; return; }"
+                 " if (step === 2) { if (q('side') !== 'g.edn' || slide.querySelector('h1').textContent !== 'Graph slide') return;"
+                 "  const panel = document.getElementById('md-panel'), wrap = document.getElementById('canvas-wrap');"
+                 "  r.graph = {h1: slide.querySelector('h1').textContent, side: q('side'), slide: q('slide'),"
+                 "   shifted: panel.offsetWidth > 0 && wrap.style.left === panel.offsetWidth + 'px',"
+                 "   editing: !!document.querySelector('#selection-toolbar, #undo-btn')};"
+                 "  key(' '); step = 3; return; }"
+                 " if (step === 3) { const md = document.querySelector('#present-side .md-doc');"
+                 "  if (!md || !md.textContent.includes('hello')) return;"
+                 "  r.md = {'side-md': md.querySelector('p').textContent, side: q('side')};"
+                 "  key('End'); step = 4; return; }"
+                 " if (step === 4) { const img = document.querySelector('#present-side img');"
+                 "  if (!img || !img.complete) return;"
+                 "  r.image = {loaded: img.naturalWidth > 0, counter: document.getElementById('present-counter').textContent};"
+                 "  key('Escape'); step = 5; return; }"
+                 " if (slide) return; clearInterval(t);"
+                 " r.left = {slide: q('slide'), view: !!document.getElementById('md-view')}; ok(r); }, 50); })")
+            :extra {"g.edn" "{:nodes {:a {}}}"
+                    "notes.md" "# Notes\n\nhello\n"
+                    "pic.svg" "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"10\"><rect width=\"10\" height=\"10\"/></svg>"})))))
+
+(defn- present-then
+  "JS for a served deck: press Present, wait 300 ms, press each key of
+  `keys` with no pause between them, run `between` (JS statements) right
+  after, and 1.5 s later resolve what the page shows."
+  [keys between]
+  (str "new Promise(ok => { const errs = [];"
+       " window.addEventListener('error', e => errs.push(String(e.message)));"
+       " const go = () => { const b = document.querySelector('.md-present'); if (!b) return setTimeout(go, 50);"
+       " b.click();"
+       " const key = k => document.dispatchEvent(new KeyboardEvent('keydown', {key: k, bubbles: true}));"
+       " setTimeout(() => { " (apply str (map #(str "key('" % "'); ") keys)) between
+       "  setTimeout(() => { const el = id => document.getElementById(id);"
+       "   ok({errs, view: !!el('md-view'), banner: el('banner') && el('banner').textContent,"
+       "       h1: el('present-slide') && el('present-slide').querySelector('h1').textContent,"
+       "       side: el('present-side') && el('present-side').textContent,"
+       "       query: location.search}); }, 1500); }, 300); };"
+       " go(); })"))
+
+(deftest a-slide-change-overtaken-by-another-still-lands
+  ;; the same >> on two slides stepped through at once; a graph slide
+  ;; left before its graph came; back while a slide's md file loads
+  (with-real-browser
+    (is (= {:h1 "B" :side "Noteshello"}
+           (select-keys (eval-on-served-page
+                         path "deck.md" "# Title\n---\n>> notes.md\n# A\n---\n>> notes.md\n# B\n"
+                         (present-then ["ArrowRight" "ArrowRight"] "")
+                         :extra {"notes.md" "# Notes\n\nhello\n"})
+                        [:h1 :side])))
+    (is (= {:h1 "B" :banner nil :query "?slide=3"}
+           (select-keys (eval-on-served-page
+                         path "deck.md" "# Title\n---\n>> g.edn\n# A\n---\n# B\n"
+                         (present-then ["ArrowRight" "ArrowRight"] "")
+                         :extra {"g.edn" "{:nodes {:a {}}}"})
+                        [:h1 :banner :query])))
+    (is (= {:errs [] :view true :h1 nil :side nil}
+           (select-keys (eval-on-served-page
+                         path "deck.md" "# Title\n---\n>> notes.md\n# A\n"
+                         (present-then ["ArrowRight"]
+                                       (str "history.pushState(null, '', location.pathname + '?file=other.md');"
+                                            " window.dispatchEvent(new PopStateEvent('popstate'));"))
+                         :extra {"notes.md" "# Notes\n\nhello\n" "other.md" "# Other\n"})
+                        [:errs :view :h1 :side])))))
+
+(deftest a-slide-says-why-its-picture-does-not-show
+  (with-real-browser
+    (is (= {:h1 "A" :side "missing.jpg — no such picture, or not one the browser shows"}
+           (select-keys (eval-on-served-page
+                         path "deck.md" "# Title\n---\n>> missing.jpg\n# A\n"
+                         (present-then ["ArrowRight"] ""))
+                        [:h1 :side])))))
+
 (deftest the-help-panel-opens
   ;; every section's text renders; a stray quote once broke one into code
   (with-real-browser

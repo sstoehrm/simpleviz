@@ -2,8 +2,10 @@
   "The data-format examples in the README and the plugin skill must be
   self-contained: normalize accepts them with zero warnings. Guards
   against docs drifting from behavior (issue #29)."
-  (:require [cli]
+  (:require [cheshire.core :as json]
+            [cli]
             [clojure.edn :as edn]
+            [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is]]
             [graph]))
@@ -53,6 +55,14 @@
       (is (str/includes? notices v)
           (str "THIRD-PARTY-NOTICES.md must mention vendored component " v)))
     (is (str/includes? notices "Eclipse Public License - v 2.0"))))
+
+(deftest the-plugin-carries-its-license-and-readme
+  ;; a plugin install copies plugins/simpleviz alone, not the repository
+  (is (= (slurp "LICENSE") (slurp "plugins/simpleviz/LICENSE"))
+      "plugins/simpleviz/LICENSE must be the repository's LICENSE")
+  (is (.isFile (io/file "plugins/simpleviz/README.md")))
+  (doseq [m ["plugins/simpleviz/.claude-plugin/plugin.json" "plugins/simpleviz/.codex-plugin/plugin.json"]]
+    (is (= "MIT" (get (json/parse-string (slurp m)) "license")) m)))
 
 (deftest bundle-ships-license-files
   (let [bb (slurp "bb.edn")]

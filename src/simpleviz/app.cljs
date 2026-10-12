@@ -10,8 +10,6 @@
             [simpleviz.canvas :as canvas]
             [simpleviz.png :as png]
             [simpleviz.editor :as editor]
-            [simpleviz.grid :as grid]
-            [simpleviz.compact :as compact]
             [simpleviz.markdown :as markdown]
             [simpleviz.slides :as slides]
             [simpleviz.vim :as vim]
@@ -25,7 +23,7 @@
 ;; your choices (theme, layout) live on the server (/api/prefs), the same
 ;; for every port — localStorage is per origin, and the port is random
 (defn- save-pref!
-  "Store your choices, {:theme v} or {:layout v} (\"\" forgets one); a
+  "Store your choices, {:theme v} or {:vi v} (\"\" forgets one); a
   failed save only means the choice doesn't outlive the page."
   [m]
   (-> (js/fetch "/api/prefs" {:method "POST"
@@ -60,8 +58,6 @@
                   :nav (editor/parse-nav js/location.search) :nav-error nil
                   ;; your theme (#115), for files without :theme (load-prefs!)
                   :theme-pref nil
-                  ;; your layout algorithm, for files without :layout
-                  :layout-pref nil
                   ;; vi mode in the doc's text (toggle-vi!), and its state
                   :vi-pref false
                   :vim (vim/init)
@@ -175,16 +171,10 @@
 ;; after the next slide (or another page) came is dropped
 (def ^:private present-gen (atom 0))
 
-(defn- current-layout
-  "The layout algorithm in use: the file's :layout, else yours."
-  []
-  (editor/effective-layout (:graph @state) (:layout-pref @state)))
-
 (defn- cache-key
-  "Layouts are cached per layout algorithm and collapsed-set:
-  \"compact#a|b\"."
-  [mode collapsed]
-  (str mode "#" (.join (.sort (js/Array.from collapsed)) "|")))
+  "Layouts are cached per collapsed-set: \"a|b\"."
+  [collapsed]
+  (.join (.sort (js/Array.from collapsed)) "|"))
 
 (defn- demote-layout-cache!
   "The file changed: cached colors/scenes are stale, but each layout
@@ -198,7 +188,7 @@
   entry is exempt: it is the seed of the relayout this reload triggers,
   possibly still demoted only because the previous one is in flight."
   []
-  (let [current (cache-key (current-layout) (:collapsed-boxes @state))]
+  (let [current (cache-key (:collapsed-boxes @state))]
     (doseq [k (js/Array.from (.keys layout-cache))]
       (let [e (.get layout-cache k)]
         (cond (some? (:scene e))
@@ -350,7 +340,7 @@
    (if (= k (:attr editing))
      (edit-field k editing (fn [text] (commit-attr! sel tgt k text scalar true)) false)
      [:span {:on-click (fn [_] (start-editing! k (editor/value->edn-text v)))}
-      [:span {:class "attr-val"} (format/attr->hiccup k v)]
+      [:span {:class "attr-val"} (format/value->hiccup v)]
       [:button {:class "attr-btn" :type "button" :title "Edit value"
                 :on-click (fn [e]
                             (.stopPropagation e)
@@ -658,7 +648,7 @@
                       [[:dt {:key (str "t" k)} k]
                        (if editable
                          (attr-edit-row sel tgt k v (editor/scalar? v) editing)
-                         [:dd {:key (str "d" k)} (format/attr->hiccup k v)])])
+                         [:dd {:key (str "d" k)} (format/value->hiccup v)])])
                     (format/visible-attrs sel))))
      (when editable (attr-add-row sel tgt))]))
 
@@ -839,7 +829,7 @@
      (into [:dl]
            (mapcat (fn [[k v]]
                      [[:dt {:key (str "t" k)} k]
-                      [:dd {:key (str "d" k)} (format/attr->hiccup k v)]])
+                      [:dd {:key (str "d" k)} (format/value->hiccup v)]])
                    (:attrs tip))))])
 
 (defn- place-tooltip!
@@ -941,7 +931,7 @@
      [:h2 "How to use"]
      (help-section
       "Navigate"
-      "Drag to pan, scroll to zoom. Hover an element to see its name and attributes; click it to inspect and edit them. A node of type database is drawn as a cylinder; :text on a node or box shows inside it. A double border marks a node with a :ref, a dotted border a node or box with an :md-ref (a linked markdown doc — \"open md\", f m, edits it); the mark on a node's corner is its :state — grey disc new, blue half disc in-progress, red square blocked, green check done. The − in a box header collapses the box to a single node — the panel on the left lists collapsed boxes and re-expands them. Top-level nodes and boxes with :grid [col row] sit on that grid cell; the rest arranges itself around them."
+      "Drag to pan, scroll to zoom. Hover an element to see its name and attributes; click it to inspect and edit them. A node of type database is drawn as a cylinder; :text on a node or box shows inside it. A double border marks a node with a :ref, a dotted border a node or box with an :md-ref (a linked markdown doc — \"open md\", f m, edits it); the mark on a node's corner is its :state — grey disc new, blue half disc in-progress, red square blocked, green check done. The − in a box header collapses the box to a single node — the panel on the left lists collapsed boxes and re-expands them."
       "A :pair (\"views/deploy.edn#api\", or a vector of them) links a node or box to the same thing in another graph. The ⇄ mark on an element's bottom-left corner shows its pairs — red when one is broken; the inspector lists them, those declared here and those pointing here. Click one, or use \"follow pair\" (f p, or f p 1–9 with several — the inspector numbers them), to open that graph with the element selected.")
      (help-section
       "Edit"
@@ -963,8 +953,7 @@
       "Export"
       "⇩ opens the export menu: PNG downloads the diagram as an image, SVG as a vector drawing, both with the source EDN embedded. Either can be served again, compared, or turned back into EDN with \"simpleviz extract\".")
      (help-section
-      "Layout and theme"
-      "The layout menu at the top picks the layout: layered (left to right), compact — top-level boxes on a grid, edges leaving at the top and bottom too, wide boxes turned top to bottom, labels on vertical edges turned — or tiled, the same grid with every box left to right inside; compact and tiled spread big diagrams down as well as across. Your choice is kept for every graph you open, in ~/.simpleviz; a file's :layout wins."
+      "Theme"
       "The theme menu at the top picks your theme, one of the twelve built-ins, for every graph without :theme; it's kept in ~/.simpleviz, and default follows your system's light or dark. A graph file can set its own theme instead — :theme :nord, or overrides on one such as {:base :nord :accent \"#b58900\"} — which wins: the menu then shows it, marked (file), and you change it in the file.")]))
 
 (defn- hint-view
@@ -1004,29 +993,6 @@
            (opt "" "default (follow the OS)")]
           (cond-> (mapv (fn [n] (opt n n)) themes/NAMES)
             (= value "custom") (conj (opt "custom" "custom" true))))))
-
-(defn- layout-menu-view
-  "Your layout algorithm, for every graph without :layout (see
-  editor/layout-menu): picking one saves it for every graph and lays the
-  graph out again, fitted to the window. A file's :layout wins — the
-  menu then shows it, marked (file), disabled."
-  [g pref]
-  (let [{:keys [value disabled title file]} (editor/layout-menu g pref)]
-    (into [:select {:id "layout-select" :title title :disabled disabled
-                    :on-click (fn [e] (.stopPropagation e))
-                    :on-change (fn [e]
-                                 (let [el (.-target e)
-                                       v (.-value el)]
-                                   (save-pref! {:layout v})
-                                   (swap! state assoc :layout-pref v)
-                                   (canvas/refit-next!)
-                                   (relayout!)
-                                   ;; hand the keys back to the chords
-                                   (.blur el)))}]
-          (mapv (fn [[v label]]
-                  [:option {:value v :selected (= v value)}
-                   (if (and file (= v value)) (str label " (file)") label)])
-                editor/LAYOUTS))))
 
 (defn- load-view [st]
   [:div {:id "loadscreen"}
@@ -1345,7 +1311,6 @@
                            "Re-layout: the layout is already fresh")
                   :on-click (fn [e] (.stopPropagation e) (relayout! true))}
          "▦"]))
-    (when (some? (:graph st)) (layout-menu-view (:graph st) (:layout-pref st)))
     (when (or page (some? (:graph st))) (theme-menu-view (:graph st) (:theme-pref st)))
     (when (current-edit-target-editable? st)
       [:button {:id "undo-btn" :type "button" :title "Undo last edit (Ctrl+Z)"
@@ -1463,8 +1428,7 @@
     (let [gen @graph-gen
           g0 (:graph @state)
           collapsed (:collapsed-boxes @state)
-          mode (current-layout)
-          ck (cache-key mode collapsed)
+          ck (cache-key collapsed)
           hit (.get layout-cache ck)]
       (if (and (some? hit) (some? (:scene hit)))
         (do (canvas/fit-view-once! (:scene hit))
@@ -1481,11 +1445,7 @@
                                                          (js/Object.values (:nodes g0))))
                       :box (colors/assign-indices (mapv (fn [b] (:type b)) (:boxes g0)))}
                 elk-graph (to-elk g canvas/measure)
-                grid? (grid/grid-mode? g)
-                ;; compact turns wide boxes top to bottom, tiled doesn't
-                compact? (or (= mode "compact") (= mode "tiled"))
-                ;; in grid (and compact) mode the cells shape the layout too
-                fp (elk-fingerprint (if (or grid? compact?) {:elk elk-graph :cells (grid/grid-cells g)} elk-graph))
+                fp (elk-fingerprint elk-graph)
                 prev (when (some? hit) (:layout hit))
                 positions (when (some? prev) (layout-positions prev))
                 ;; a demoted entry with a matching fingerprint means the
@@ -1493,16 +1453,6 @@
                 ;; so reuse its layout and skip the expensive ELK run
                 layout (cond (and (some? prev) (= fp (:fingerprint hit)))
                              prev
-
-                             ;; every top-level box on a cell (compact: wide ones
-                             ;; turned top to bottom); unchanged boxes reuse prev's runs
-                             compact?
-                             (js-await (compact/layout-compact g elk-graph (fn [input] (.layout elk input)) prev
-                                                               (= mode "compact")))
-
-                             ;; boxes on grid cells; unchanged boxes reuse prev's runs
-                             grid?
-                             (js-await (grid/layout-grid g elk-graph (fn [input] (.layout elk input)) prev))
 
                              (and (some? prev) (seedable? elk-graph positions))
                              (assoc (js-await (.layout elk (seed-layout elk-graph positions)))
@@ -1515,7 +1465,7 @@
               (when (> (.-size layout-cache) 16) (.clear layout-cache))
               (let [entry {:fingerprint fp :colors cmap :layout layout :scene sc}]
                 (.set layout-cache ck entry)
-                (if (= ck (cache-key (current-layout) (:collapsed-boxes @state)))
+                (if (= ck (cache-key (:collapsed-boxes @state)))
                   (show-layout! entry)
                   (swap! state assoc :layouting false))))))))
     (catch :default e
@@ -2301,12 +2251,9 @@
 (defn- rename-cache-key
   "Cache key k with collapsed box `old` called `new`, unchanged otherwise."
   [k old new]
-  (let [i (.indexOf k "#")
-        mode (.slice k 0 i)
-        tail (.slice k (inc i))
-        names (if (= tail "") [] (.split tail "|"))]
+  (let [names (if (= k "") [] (.split k "|"))]
     (if (some (fn [n] (= n old)) names)
-      (cache-key mode (mapv (fn [n] (if (= n old) new n)) names))
+      (cache-key (mapv (fn [n] (if (= n old) new n)) names))
       k)))
 
 (defn- rename-cached-layouts!
@@ -2400,10 +2347,9 @@
   []
   (let [p (try (js-await (.json (js-await (js/fetch "/api/prefs"))))
                (catch :default _ {}))
-        theme (some #(when (= (:theme p) %) %) themes/NAMES)
-        layout (some (fn [[n _]] (when (= (:layout p) n) n)) editor/LAYOUTS)]
+        theme (some #(when (= (:theme p) %) %) themes/NAMES)]
     (apply-theme! (effective-theme (:graph @state) theme (:theme @state)))
-    (swap! state assoc :theme-pref theme :layout-pref layout :vi-pref (= "on" (:vi p)))
+    (swap! state assoc :theme-pref theme :vi-pref (= "on" (:vi p)))
     ;; a doc focused before the prefs came shows vi mode's block now
     (when-let [el (js/document.getElementById "md-text")]
       (when (identical? el (.-activeElement js/document))
@@ -2614,7 +2560,7 @@
 (add-watch state :render (fn [_ _ _ _] (rerender!)))
 (canvas/setup-pan-zoom! (js/document.getElementById "canvas-wrap"))
 (rerender!)
-;; the layout pref must be in before the first layout
+;; your theme must be in before the first graph paints
 (.then (load-prefs!) (fn [_] (load-nav!)))
 (js/setInterval tick 1000)
 (js/setInterval poll-md! 1000)

@@ -6,6 +6,10 @@ that live-reloads while you edit the file.
 
 [![60-second tour: live reload, inspecting, editing in place, editing a linked markdown doc, state marks, text in nodes, database cylinders, themes, layouts, pairs, following a ref, comparing a fork, exporting](docs/assets/demo.gif)](docs/assets/demo.mp4)
 
+**New in 0.40:** md pages render GitHub markdown and present as slides, a
+graph, md file or picture beside each — [50-second video](docs/assets/whats-new.mp4)
+([gif](docs/assets/whats-new.gif)).
+
 ## Install
 
 Linux, with [babashka](https://babashka.org/) 1.12 or newer, curl and tar:

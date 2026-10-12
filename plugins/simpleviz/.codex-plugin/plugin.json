@@ -9,6 +9,7 @@
   "homepage": "https://github.com/sstoehrm/simpleviz",
   "repository": "https://github.com/sstoehrm/simpleviz",
   "license": "MIT",
+  "keywords": ["diagrams", "architecture", "graph", "edn", "visualization", "markdown", "presentation", "clojure", "babashka"],
   "skills": "./skills/",
   "interface": {
     "displayName": "Simpleviz",
@@ -18,6 +19,11 @@
     "category": "Productivity",
     "capabilities": ["Write"],
     "websiteURL": "https://github.com/sstoehrm/simpleviz",
+    "privacyPolicyURL": "https://github.com/sstoehrm/simpleviz/blob/main/PRIVACY.md",
+    "termsOfServiceURL": "https://github.com/sstoehrm/simpleviz/blob/main/LICENSE",
+    "composerIcon": "./assets/icon.png",
+    "logo": "./assets/icon.png",
+    "screenshots": ["./assets/screenshot.png"],
     "defaultPrompt": [
       "Create a simpleviz diagram for this system.",
       "Update this simpleviz EDN graph.",

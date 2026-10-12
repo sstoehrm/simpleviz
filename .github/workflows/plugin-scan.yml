@@ -1,0 +1,28 @@
+# HOL's plugin scanner (the source scan awesome-ai-plugins listings use),
+# kept apart from CI: read-only token, no secrets, no stored credentials,
+# the action pinned to a commit — it installs one exact, hash-checked
+# scanner wheel (v1.2.785 installs plugin-scanner 3.42.0), so a new scanner
+# release only arrives by bumping the pin.
+name: Plugin scan
+
+# Run by hand (Actions → Plugin scan → Run workflow), e.g. before a
+# listing or after bumping the scanner pin; it gates nothing.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: hashgraph-online/ai-plugin-scanner-action@9d323922505d2fc8a1252e39f99b5aac453c59c0 # v1.2.785
+        with:
+          plugin_dir: "."
+          min_score: 80
+          fail_on_severity: high

@@ -1659,3 +1659,16 @@
 (deftest api-graph-a-png-with-edn-is-no-plain-image
   (serve! "test/fixtures/embedded.png")
   (is (not (contains? (json/parse-string (:body (serve/handler {:uri "/api/graph"}))) "image"))))
+
+(deftest a-request-for-another-host-is-refused
+  ;; DNS rebinding: a page whose name resolves to 127.0.0.1 reaches the
+  ;; server as its own origin, and sends that name as Host
+  (serve! (temp-edn "{:nodes {:a {}}}"))
+  (doseq [h ["evil.example:7373" "evil.example" "127.0.0.1.evil.example:7373" "localhost.evil.example"]]
+    (is (= 403 (:status (serve/handler {:uri "/api/root" :headers {"host" h}}))) h))
+  (is (= 403 (:status (serve/handler {:uri "/" :headers {"host" "evil.example:7373"}})))
+      "the page itself too")
+  ;; this machine by any of its loopback names, on any port (a tunnel may
+  ;; forward another); no Host at all is a non-browser client
+  (doseq [h ["localhost:7373" "127.0.0.1:7373" "LOCALHOST:7380" "localhost" "[::1]:7373" nil]]
+    (is (= 200 (:status (serve/handler (cond-> {:uri "/api/root"} h (assoc :headers {"host" h}))))) (str h))))

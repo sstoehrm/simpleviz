@@ -1,0 +1,9 @@
+# Files that never belong in the published plugin folder. Codex itself
+# doesn't read .codexignore yet (openai/codex#2847); plugin scanners and
+# registries check for it.
+.DS_Store
+*.log
+*.swp
+*~
+.env
+.env.*

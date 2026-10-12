@@ -74,6 +74,7 @@ and write locks.
 ## Data format
 
     ;; optional, top level: :theme — a built-in (:nord, :dracula, …) or {:base :nord :accent "#b58900"}
+    ;; optional, on a top-level node or box: :pos [col row] — placed by hand on a 20 px grid (✥ in the page writes it)
     {:nodes {:api {:name "API"           ; display name (defaults to the key)
                    :type "service"       ; free-form; colors the name, shown as (type)
                    :text "Order intake"  ; shown inside the node (boxes too); "\n" or a vector for more lines

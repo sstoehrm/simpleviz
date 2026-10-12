@@ -436,3 +436,25 @@
     (is (not (contains? g :layout)))
     (is (= [":layout :compact: every graph is laid out layered now, ignored"] (:warnings g)))))
 
+
+(deftest pos-places-top-level-nodes-and-boxes
+  (let [g (graph/normalize {:nodes {:a {:pos [3 2]} :b {} :c {}}
+                            :boxes {:x {:pos [0 10] :components #{:b}}}})]
+    (is (empty? (:warnings g)))
+    (is (= [3 2] (get-in g [:nodes "a" :pos])))
+    (is (= [0 10] (:pos (first (:boxes g)))))
+    (is (nil? (get-in g [:nodes "c" :pos])))))
+
+(deftest pos-warns-when-nested-or-malformed
+  (let [g (graph/normalize {:nodes {:a {:pos [1 1]} :b {:pos [-1 0]} :c {:pos "x"} :d {:pos [1.5 2]}}
+                            :boxes {:x {:components #{:a :y}}
+                                    :y {:pos [2 2] :components #{}}}})]
+    (is (nil? (get-in g [:nodes "a" :pos])))
+    (is (nil? (get-in g [:nodes "b" :pos])))
+    (is (nil? (:pos (first (filter #(= "y" (:name %)) (:boxes g))))))
+    (is (= #{"node \"a\": :pos only places top-level nodes, ignored"
+             "node \"b\": :pos must be [col row], whole numbers from 0 to 10000, ignored"
+             "node \"c\": :pos must be [col row], whole numbers from 0 to 10000, ignored"
+             "node \"d\": :pos must be [col row], whole numbers from 0 to 10000, ignored"
+             "box \"y\": :pos only places top-level boxes, ignored"}
+           (set (:warnings g))))))

@@ -37,10 +37,12 @@
     :else (str v)))
 
 ;; attrs already represented visually (endpoints/arrow on the canvas,
-;; membership by containment) stay out of the inspector and the tooltip
+;; membership by containment, a hand-placed element's :pos by where it
+;; is) stay out of the inspector and the tooltip
 (def ^:private hidden-attrs
   {"edge" #{"nodes" "direction"}
-   "box" #{"components"}})
+   "node" #{"pos"}
+   "box" #{"components" "pos"}})
 
 (defn visible-attrs
   "The [key value] attr pairs to show for a selection or scene item —

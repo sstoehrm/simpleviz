@@ -13,6 +13,7 @@
             [simpleviz.markdown :as markdown]
             [simpleviz.slides :as slides]
             [simpleviz.vim :as vim]
+            [simpleviz.manual :as manual]
             [mdlinks :as mdlinks]
             [paths :as paths]
             [themes :as themes]))
@@ -36,6 +37,9 @@
   restores it on every navigation."
   {:nav-error nil :error nil :notice nil :dismissed-error nil :dismissed-warnings nil
    :graph nil :scene nil :layout nil
+   ;; the layout drawn: :layout placed by hand (manual/place) in a manual
+   ;; file; :arrange — dragging moves nodes and boxes (the ✥ button)
+   :placed nil :arrange false
    :selected nil :editing nil :edit-error nil :pick nil :pick-hint nil
    :chord nil :id-entry nil :focus-center true
    :collapsed-boxes #{} :export-menu false})
@@ -953,8 +957,77 @@
       "Export"
       "⇩ opens the export menu: PNG downloads the diagram as an image, SVG as a vector drawing, both with the source EDN embedded. Either can be served again, compared, or turned back into EDN with \"simpleviz extract\".")
      (help-section
+      "Manual layout"
+      "✥ (top right) places nodes and boxes by hand: the first time, every top-level node and box gets a :pos [col row] on a grid of 20 px cells, where the layout had it (Ctrl+Z takes that back). While ✥ is on, drag a top-level node or box — a box by any part of it, its contents along — and it snaps cell by cell; letting go writes its :pos. ✥ or Esc ends arranging. Boxes still lay out their insides; edges between top-level elements run straight. auto drops every :pos, after asking.")
+     (help-section
       "Theme"
       "The theme menu at the top picks your theme, one of the twelve built-ins, for every graph without :theme; it's kept in ~/.simpleviz, and default follows your system's light or dark. A graph file can set its own theme instead — :theme :nord, or overrides on one such as {:base :nord :accent \"#b58900\"} — which wins: the menu then shows it, marked (file), and you change it in the file.")]))
+
+;; ---- manual layout (simpleviz.manual) ----
+
+(defn- arrangeable?
+  "Can the graph shown be placed by hand: an editable file, not a
+  comparison (an element the edited side lacks would fail the edit)."
+  [st]
+  (and (some? (:scene st)) (current-edit-target-editable? st) (nil? (:compare (:graph st)))))
+
+(defn- elk-target
+  "The edit op target of top-level elk id `id` (\"n:a\", \"b:grp\")."
+  [id]
+  {:section (if (.startsWith id "n:") "nodes" "boxes") :id (.slice id 2)})
+
+(defn- pos-op [id [col row]]
+  (editor/set-attr-op (elk-target id) "pos" (str "[" col " " row "]") false))
+
+(defn- toggle-arrange!
+  "✥: arrange on or off. Turned on in a file laid out automatically, it
+  first gives every top-level node and box the cell nearest where the
+  layout put it — one edit, Ctrl+Z takes it back."
+  []
+  (let [st @state
+        on (not (:arrange st))]
+    (swap! state assoc :arrange on)
+    (when (and on (not (manual/manual? (:graph st))))
+      (when-let [entry (.get layout-cache (cache-key (:collapsed-boxes st)))]
+        (post-edit! (mapv (fn [[id cell]] (pos-op id cell)) (manual/snapshot (:layout entry))))))))
+
+(defn- auto-layout!
+  "Drop every :pos, after asking: the layout is automatic again."
+  []
+  (when (js/confirm "Forget where you placed the nodes and boxes and lay the graph out automatically again?")
+    (let [g (:graph @state)
+          ops (into (vec (keep (fn [n] (when (some? (:pos n)) (editor/del-attr-op (elk-target (str "n:" (:id n))) "pos")))
+                               (js/Object.values (:nodes g))))
+                    (keep (fn [b] (when (some? (:pos b)) (editor/del-attr-op (elk-target (str "b:" (:name b))) "pos"))))
+                    (:boxes g))]
+      (swap! state assoc :arrange false)
+      (post-edit! ops))))
+
+(defn- arrange-drag
+  "The canvas's drag hook: while arranging a hand-placed graph, a press
+  on a top-level node or box drags it — the view shows it on the cell
+  under the pointer, and letting go writes that cell as its :pos."
+  [gx gy]
+  (let [st @state
+        placed (:placed st)
+        entry (.get layout-cache (cache-key (:collapsed-boxes st)))]
+    (when (and (:arrange st) (arrangeable? st) (manual/manual? (:graph st)) (some? placed) (some? entry))
+      (when-let [id (manual/top-at placed {:x gx :y gy})]
+        (let [c (first (filter (fn [c] (= id (:id c))) (:children placed)))
+              g (collapse-boxes (:graph st) (:collapsed-boxes st))
+              start [(js/Math.round (/ (:x c) manual/GRID)) (js/Math.round (/ (:y c) manual/GRID))]
+              cell (atom start)]
+          {:move (fn [dx dy]
+                   (let [p [(max 0 (js/Math.round (/ (+ (:x c) dx) manual/GRID)))
+                            (max 0 (js/Math.round (/ (+ (:y c) dy) manual/GRID)))]]
+                     (when (not= p @cell)
+                       (reset! cell p)
+                       (let [g' (manual/with-pos g id p)
+                             placed' (manual/place (:layout entry) g')]
+                         (swap! state assoc :placed placed'
+                                :scene (scene/build-scene {:layout placed' :graph g' :colors (:colors entry)
+                                                           :measure canvas/measure}))))))
+           :end (fn [] (when (not= @cell start) (post-edit! [(pos-op id @cell)])))})))))
 
 (defn- hint-view
   "The line above the toolbar: the pending chord's completions, else the
@@ -1277,7 +1350,8 @@
                                                 (when (and pres (or split (some? (:side (:present st))))) " halves")
                                                 (when (and split (some? (:selected st))) " inspecting"))
                                       (some? (:md st)) " inspecting md-open"
-                                      (some? (:selected st)) " inspecting"))}
+                                      (some? (:selected st)) " inspecting")
+                                (when (:arrange st) " arranging"))}
    (when-not pres (hint-view st))
    (when (and (not page) (nil? (:scene st)) (nil? (:error st)))
      (load-view st))
@@ -1311,6 +1385,19 @@
                            "Re-layout: the layout is already fresh")
                   :on-click (fn [e] (.stopPropagation e) (relayout! true))}
          "▦"]))
+    (when (arrangeable? st)
+      (let [on (:arrange st)]
+        [:button {:id "arrange-btn" :type "button" :class (if on "on" "")
+                  :aria-pressed (if on "true" "false")
+                  :title (cond on "Done arranging: dragging pans again"
+                               (manual/manual? (:graph st)) "Arrange: drag nodes and boxes, snapped to the grid"
+                               :else "Manual layout: place nodes and boxes by hand, snapped to a grid")
+                  :on-click (fn [e] (.stopPropagation e) (toggle-arrange!))}
+         "✥"]))
+    (when (and (:arrange st) (arrangeable? st) (manual/manual? (:graph st)))
+      [:button {:id "auto-btn" :type "button" :title "Automatic layout: forget where you placed things"
+                :on-click (fn [e] (.stopPropagation e) (auto-layout!))}
+       "auto"])
     (when (or page (some? (:graph st))) (theme-menu-view (:graph st) (:theme-pref st)))
     (when (current-edit-target-editable? st)
       [:button {:id "undo-btn" :type "button" :title "Undo last edit (Ctrl+Z)"
@@ -1399,11 +1486,11 @@
 
 (defn- show-layout!
   "Show a layout-cache entry: its colors, layout and scene."
-  [{:keys [colors layout scene]}]
+  [{:keys [colors layout placed scene]}]
   (keep-pinned! scene)
   (swap! state (fn [st]
                  (refresh-selection
-                  (assoc st :colors colors :layout layout :scene scene
+                  (assoc st :colors colors :layout layout :placed placed :scene scene
                          :layouting false :diff-cursors {})
                   scene)))
   (apply-pending-focus! scene))
@@ -1459,11 +1546,12 @@
                                     :seeded true)
 
                              :else (js-await (.layout elk elk-graph)))
-                sc (scene/build-scene {:layout layout :graph g :colors cmap :measure canvas/measure})]
+                placed (if (manual/manual? g) (manual/place layout g) layout)
+                sc (scene/build-scene {:layout placed :graph g :colors cmap :measure canvas/measure})]
             (when (= gen @graph-gen)
               (canvas/fit-view-once! sc)
               (when (> (.-size layout-cache) 16) (.clear layout-cache))
-              (let [entry {:fingerprint fp :colors cmap :layout layout :scene sc}]
+              (let [entry {:fingerprint fp :colors cmap :layout layout :placed placed :scene sc}]
                 (.set layout-cache ck entry)
                 (if (= ck (cache-key (:collapsed-boxes @state)))
                   (show-layout! entry)
@@ -2518,7 +2606,8 @@
       (present-key! e)
 
       (= (.-key e) "Escape") (do (cancel-pick!)
-                                 (swap! state assoc :help false :chord nil :export-menu false :link-menu nil)
+                                 (swap! state assoc :help false :chord nil :export-menu false :link-menu nil
+                                        :arrange false)
                                  (when (:full (:md @state))
                                    (swap! state assoc-in [:md :full] false)))
       ;; a held key must not complete its own chord
@@ -2559,6 +2648,12 @@
 (apply-theme! (effective-theme (:graph @state) (:theme-pref @state) (:theme @state)))
 (add-watch state :render (fn [_ _ _ _] (rerender!)))
 (canvas/setup-pan-zoom! (js/document.getElementById "canvas-wrap"))
+(canvas/set-drag-hook! arrange-drag)
+;; the grid's dots show while arranging
+(add-watch state :arrange-grid
+  (fn [_ _ old new]
+    (when (not= (:arrange old) (:arrange new))
+      (canvas/set-grid! (when (:arrange new) manual/GRID)))))
 (rerender!)
 ;; your theme must be in before the first graph paints
 (.then (load-prefs!) (fn [_] (load-nav!)))

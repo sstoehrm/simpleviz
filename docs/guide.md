@@ -27,6 +27,9 @@ The README example shows every attribute simpleviz reads.
   [Editing docs](#editing-docs)).
 - `:pair` links a node or box to the same thing in another graph file
   (see [Pairs](#pairs)). A paired element gets a ⇄ mark.
+- `:pos [col row]` places a top-level node or box by hand, on a grid of
+  20 px cells (see [Manual layout](#manual-layout)). The page writes it
+  when you drag.
 - `:theme` at the top level sets the graph's colors (see [Themes](#themes)).
 - An edge's key is its endpoints, nodes or boxes, in left/right order.
   Writing both `[:a :b]` and `[:b :a]` warns "same connection". An edge
@@ -181,6 +184,32 @@ per file that all viewers share (100 entries).
 its own `localhost`/`127.0.0.1` origin. It answers only requests addressed
 to `localhost`, `127.0.0.1` or `[::1]`, so a web page that points its own
 name at 127.0.0.1 (DNS rebinding) can't read the served files.
+
+## Manual layout
+
+Graphs lay themselves out left to right (ELK's layered layout). To place
+things yourself, press **✥** (top right):
+
+- The first time, every top-level node and box gets a `:pos [col row]` —
+  the grid cell nearest where the layout had it — in one edit (Ctrl+Z
+  takes it back). From then on the file is laid out by hand.
+- While ✥ is on, the canvas shows the grid's dots and dragging a top-level
+  node or box moves it, cell by cell; letting go writes its new `:pos`.
+  Drag a box by any part of it — what is inside moves along. ✥ again, or
+  Esc, and dragging pans again.
+- The inside of each box is still laid out automatically, and so are
+  nested nodes and boxes: only top-level elements take a `:pos`.
+- Edges between top-level elements run straight, border to border, with
+  their label in the middle; they can cross an element placed in their
+  way. Edges inside a box are routed as before.
+- A new top-level element without `:pos` waits in a row under the rest
+  until you drag it somewhere.
+- **auto** (shown while arranging) drops every `:pos`, after asking: the
+  graph is laid out automatically again.
+- Cells count from 0, up to 10000. A `:pos` on a nested element, or one
+  that isn't two whole numbers, warns and is ignored. Moving an element
+  is an edit like any other, so a comparison marks it modified. Arranging
+  needs an editable file and isn't offered while comparing.
 
 ## Editing docs
 

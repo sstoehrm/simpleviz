@@ -415,3 +415,32 @@
                  " clearInterval(t); const ta = document.getElementById('md-text');"
                  " key(ta, 'G'); const end = ta.scrollTop >= ta.scrollHeight - ta.clientHeight - 2;"
                  " key(ta, 'g'); key(ta, 'g'); ok({end, top: ta.scrollTop}); }, 50); })"))))))
+
+(deftest manual-layout-places-and-drags
+  ;; ✥ gives every top-level element a :pos; dragging one moves it by
+  ;; whole grid cells and writes its new cell
+  (with-real-browser
+    (let [r (eval-on-served-page
+             path "g.edn" "{:nodes {:a {} :b {}} :edges {[:a :b] {:direction :->}}}"
+             (str "(async () => {"
+                  " const sleep = ms => new Promise(res => setTimeout(res, ms));"
+                  " const until = async f => { for (let i = 0; i < 100; i++) { const v = await f(); if (v) return v; await sleep(100); } return null; };"
+                  " const app = await import('/js/simpleviz/app.mjs'), cv = await import('/js/simpleviz/canvas.mjs');"
+                  " const st = () => app.state.val;"
+                  " const pos = (src, id) => { const m = src.match(new RegExp(':' + id + ' \\\\{:pos \\\\[(\\\\d+) (\\\\d+)\\\\]')); return m && [+m[1], +m[2]]; };"
+                  " const source = async () => (await fetch('/api/source')).text();"
+                  " await until(() => st().scene && document.getElementById('arrange-btn'));"
+                  " document.getElementById('arrange-btn').click();"
+                  " const s1 = await until(async () => { const s = await source(); return pos(s, 'a') && pos(s, 'b') && s; });"
+                  " await until(() => st().placed && Object.values(st().graph.nodes).every(n => n.pos));"
+                  " const a = st().scene.items.find(i => i.id === 'n:a');"
+                  " const wrap = document.getElementById('canvas-wrap'), rect = wrap.getBoundingClientRect();"
+                  " const p = cv.to_screen(a.x + a.w / 2, a.y + a.h / 2), k = cv.view.k;"
+                  " const ev = (type, x, y) => wrap.dispatchEvent(new PointerEvent(type, {clientX: rect.left + x, clientY: rect.top + y, bubbles: true, pointerId: 7}));"
+                  " ev('pointerdown', p.x, p.y); ev('pointermove', p.x + 100 * k, p.y + 60 * k); ev('pointerup', p.x + 100 * k, p.y + 60 * k);"
+                  " const before = pos(s1, 'a');"
+                  " const s2 = await until(async () => { const s = await source(); const q = pos(s, 'a'); return q && (q[0] !== before[0] || q[1] !== before[1]) && s; });"
+                  " return {placed: !!(pos(s1, 'a') && pos(s1, 'b')), moved: s2 ? [pos(s2, 'a')[0] - before[0], pos(s2, 'a')[1] - before[1]] : null,"
+                  "         b: s2 && pos(s2, 'b').join(' ') === pos(s1, 'b').join(' ')};"
+                  "})()"))]
+      (is (= {:placed true :moved [5 3] :b true} r)))))

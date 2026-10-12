@@ -394,6 +394,31 @@
     (when-not (or (nil? v) (= "layered" (when (or (keyword? v) (string? v)) (ident->str v))))
       (warn! (str ":layout " (pr-str v) ": every graph is laid out layered now, ignored")))))
 
+(def ^:private pos-max
+  "A cell beyond this would put an element a few million pixels out."
+  10000)
+
+(defn- resolve-positions
+  "[nodes boxes] with each top-level node's and box's :pos [col row] —
+  its cell in a manual layout — kept as :pos. On a nested element or
+  malformed, it warns and is ignored."
+  [nodes boxes parent-of warn!]
+  (let [check (fn [kind kinds pid nm v]
+                (cond
+                  (nil? v) nil
+                  (some? (get parent-of pid))
+                  (do (warn! (str kind " \"" nm "\": :pos only places top-level " kinds ", ignored")) nil)
+                  (not (and (vector? v) (= 2 (count v)) (every? #(and (integer? %) (<= 0 % pos-max)) v)))
+                  (do (warn! (str kind " \"" nm "\": :pos must be [col row], whole numbers from 0 to "
+                                  pos-max ", ignored"))
+                      nil)
+                  :else v))]
+    [(update-vals nodes (fn [n] (if-let [v (check "node" "nodes" (str "n:" (:id n)) (:id n) (get-in n [:attrs :pos]))]
+                                  (assoc n :pos v) n)))
+     (mapv (fn [b] (if-let [v (check "box" "boxes" (:id b) (:name b) (get-in b [:attrs :pos]))]
+                     (assoc b :pos v) b))
+           boxes)]))
+
 (defn normalize [raw]
   (let [warnings (atom [])
         warn! (fn [msg] (swap! warnings conj msg))
@@ -421,6 +446,7 @@
         [boxes parent-of] (break-cycles boxes1 parents1 warn!)
         edges (drop-containment-edges edges0 parent-of warn!)
         _ (warn-gone-layouts! raw nodes boxes warn!)
+        [nodes boxes] (resolve-positions nodes boxes parent-of warn!)
         theme (resolve-theme (:theme raw) warn!)
         ;; the built-in's name when the file names one (the page's theme
         ;; menu can rewrite that); a :theme map is custom and has none

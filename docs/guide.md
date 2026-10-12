@@ -264,6 +264,32 @@ other elements or follow refs.
 - Same path rules as refs: relative to the graph file, never above the
   served folder. Only `.md` files in UTF-8, up to 1 MiB.
 
+### vi mode
+
+The **vi** button above a doc's text (the `:md-ref` panel, or an md page
+in Edit) turns on vi keys. It stays on for every doc and every port
+until you turn it off. A status line under the text shows the mode, the
+keys typed so far and the `:` or `/` command being typed.
+
+- Modes: Esc for normal, `i a I A o O` for insert, `v` and `V` to select
+  characters or lines. Insert mode types like the plain text field.
+- Moves, with a count: `h j k l`, `w b e W B E`, `0 ^ $`, `gg G` (`5G`
+  goes to line 5), `f t F T` with `;` `,`, `{ }` between paragraphs,
+  `/` `?` with `n N`, which search the plain text and wrap.
+- Operators `d c y` take a move or a text object — `iw aw iW aW`,
+  quotes `i" a"` (likewise `'` and backticks), brackets `i( a( ib i[ a[ i{ a{ iB i< a<` —
+  and `dd cc yy` act on lines. `x X s S D C Y r J ~ p P` as in vim;
+  one unnamed register, not the clipboard.
+- `u` and Ctrl+R undo and redo, `.` repeats the last change.
+- `:w` saves, `:q` closes the panel (an md page shows its text read
+  instead) — saving, as closing does — `:wq` or `:x` does both, and
+  `:q!` drops the unsaved edits, then closes. `:12` goes to line 12.
+  Ctrl+S saves in any mode.
+- A bare Esc in normal mode still docks a full-window panel; Ctrl, Cmd
+  and Alt keys stay the browser's. Paste in insert mode — outside it a
+  paste does nothing. Not there: macros, marks, named
+  registers, `:s`, Ctrl+V block selection.
+
 ## md pages
 
 `simpleviz notes.md` serves a markdown file: the page shows it

@@ -155,7 +155,8 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
 :is(#md-view, .md-doc) del { opacity: .7; }
 :is(#md-view, .md-doc) .md-img { max-width: 100%; height: auto; vertical-align: middle; }
 :is(#md-view, .md-doc) li.task { list-style: none; }
-:is(#md-view, .md-doc) li.task input { margin: 0 .45em 0 -1.4em; vertical-align: middle; }
+:is(#md-view, .md-doc) li.task input { width: .8em; height: .8em; margin: 0 .45em 0 -1.4em;
+                                       vertical-align: middle; }
 :is(#md-view, .md-doc) .footnote-ref { text-decoration: none; padding: 0 .1em; }
 :is(#md-view, .md-doc) sup { font-size: .75em; line-height: 0; }
 :is(#md-view, .md-doc) .footnotes { margin-top: 2em; padding-top: .5em; font-size: .87em;
@@ -176,7 +177,6 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
 /* code blocks scale with the slide's type, not a fixed 13px */
 :is(#present-slide, #present-side) pre code { font-size: .8em; }
 #present-slide .md-img { max-height: 55vh; }
-:is(#md-view, .md-doc) li.task input { width: .8em; height: .8em; }
 #present-slide.title { text-align: center; }
 #present-slide.title h1 { font-size: 2.6em; margin: 0 0 .3em; }
 #present-slide.title h2 { font-size: 1.5em; font-weight: 400; color: var(--text-muted); margin: 0 0 1.4em; }

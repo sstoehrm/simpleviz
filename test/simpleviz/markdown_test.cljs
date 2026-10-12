@@ -170,13 +170,13 @@
 (test "task lists: [ ] and [x] items get a checkbox"
   (fn []
     (assert/deepEqual (md "- [x] done\n- [ ] todo *now*\n- [y] no")
-                      [[:ul {:class "contains-task"}
+                      [[:ul
                         [:li {:class "task"} [:input {:type "checkbox" :checked true :disabled true}] "done"]
                         [:li {:class "task"} [:input {:type "checkbox" :checked false :disabled true}]
                          "todo " [:em "now"]]
                         [:li "[y] no"]]])
     (assert/deepEqual (md "- [X] loose\n\n- b")
-                      [[:ul {:class "contains-task"}
+                      [[:ul
                         [:li {:class "task"} [:p [:input {:type "checkbox" :checked true :disabled true}] "loose"]]
                         [:li [:p "b"]]]])))
 
@@ -190,3 +190,25 @@
                           [:ol [:li {:id "fn-b"} [:p "Second\nmore. " (back "b")]]
                                [:li {:id "fn-a"} [:p "First. " (back "a")]]]]]))
     (assert/deepEqual (md "x[^nope]") [[:p "x[^nope]"]])))
+
+(test "an emphasis closed inside another leaves the later ones of its kind working"
+  (fn []
+    (assert/deepEqual (md "*(see a_ b)* then _c_") [[:p [:em "(see a_ b)"] " then " [:em "c"]]])
+    (assert/deepEqual (md "*a *b c_ d* _e f_") [[:p "*a " [:em "b c_ d"] " " [:em "e f"]]])))
+
+(test "a lazy line continues a quote's paragraph only; = never makes a lazy heading"
+  (fn []
+    (assert/deepEqual (md "> ```\n> code\n> ```\nafter") [[:blockquote [:pre [:code "code"]]] [:p "after"]])
+    (assert/deepEqual (md "> # H\nnext") [[:blockquote [:h1 "H"]] [:p "next"]])
+    (assert/deepEqual (md "> a\n===") [[:blockquote [:p "a"]] [:p "==="]])
+    (assert/deepEqual (md "- a\n===") [[:ul [:li "a"]] [:p "==="]])))
+
+(test "footnotes: labels ignore case, a definition ends a table, code holds none"
+  (fn []
+    (let [ref [:sup [:a {:href "#fn-a" :class "footnote-ref" :id "fnref-a"} "1"]]
+          notes (fn [txt] [:section {:class "footnotes"}
+                           [:ol [:li {:id "fn-a"} [:p (str txt " ") [:a {:href "#fnref-a" :class "footnote-backref"} "↩"]]]]])]
+      (assert/deepEqual (md "x[^A]\n\n[^a]: lower") [[:p "x" ref] (notes "lower")])
+      (assert/deepEqual (md "| h |\n|---|\n| x[^a] |\n[^a]: n")
+                        [[:table [:thead [:tr [:th "h"]]] [:tbody [:tr [:td "x" ref]]]] (notes "n")])
+      (assert/deepEqual (md "y[^a]\n\n```\n[^a]: in code\n```") [[:p "y[^a]"] [:pre [:code "[^a]: in code"]]]))))

@@ -185,11 +185,12 @@
                 tag (cond (= "~" (:delim d)) :del (= use 2) :strong :else :em)
                 node (into [tag] (as-text (.splice out (inc (:pos o)))))]
             (set! (.-length openers) (inc p))
-            (doseq [bk (js/Object.keys bottom)]
-              (aset bottom bk (min (aget bottom bk) (count openers))))
             (aset o "n" (- (:n o) use))
             (aset d "n" (- (:n d) use))
             (when (zero? (:n o)) (.pop out) (.pop openers))
+            ;; no failed search reaches above the stack as it now is
+            (doseq [bk (js/Object.keys bottom)]
+              (aset bottom bk (min (aget bottom bk) (count openers))))
             (conj! out node)
             (when (pos? (:n d)) (recur))))))))
 
@@ -247,10 +248,11 @@
 
             ;; a line end: soft, or hard after two spaces; spaces before it go
             (= c "\n")
+            ;; (the text is flushed at every line end, so it never grows)
             (let [t (.trimEnd text)]
               (if (.endsWith text "  ")
                 (do (put! t [:br]) (recur (inc i) ""))
-                (recur (inc i) (str t "\n"))))
+                (do (conj! out (str t "\n")) (recur (inc i) ""))))
 
             (or (= c "*") (= c "_") (= c "~"))
             (let [r (run-len s i c)]
@@ -260,10 +262,10 @@
                     (emphasize! out openers bottom (delim-run s i c r))
                     (recur (+ i r) ""))))
 
-            (and (= c "[") (some? (.exec note-ref-re (subs s i)))
-                 (.has (:notes ctx) (aget (.exec note-ref-re (subs s i)) 1)))
+            (and (= c "[") (= (.charAt s (inc i)) "^")
+                 (some-> (.exec note-ref-re (subs s i)) (aget 1) label-key (->> (.has (:notes ctx)))))
             (let [m (.exec note-ref-re (subs s i))]
-              (put! text (note-ref (aget m 1) ctx))
+              (put! text (note-ref (label-key (aget m 1)) ctx))
               (recur (+ i (count (aget m 0))) ""))
 
             (= c "`")
@@ -352,6 +354,25 @@
     (or (blank? l) (.test heading-re l) (some? (fence-open l)) (hr? l) (quote? l)
         (.test note-def-re l) (some? (item-of l)) (table-start? lines i))))
 
+(defn- para-line?
+  "Could line l be paragraph text, which a lazy line may continue?"
+  [l]
+  (and (some? l) (not (blank? l)) (< (indent l) 4) (not (.test heading-re l))
+       (not (hr? l)) (nil? (fence-open l))))
+
+(defn- code-lines
+  "Per line: is it inside a fenced code block, its fences included?"
+  [lines]
+  (let [acc []]
+    (loop [i 0 fence nil]
+      (if (>= i (count lines))
+        acc
+        (let [l (nth lines i)]
+          (cond (some? fence) (do (conj! acc true)
+                                  (recur (inc i) (when-not (fence-close? l (:mark fence)) fence)))
+                (some? (fence-open l)) (do (conj! acc true) (recur (inc i) (fence-open l)))
+                :else (do (conj! acc false) (recur (inc i) nil))))))))
+
 (defn- note-end
   "The line after footnote definition i: its own line, then indented
   lines and lazy text lines, blank lines between indented ones."
@@ -390,7 +411,7 @@
                            (recur (inc j) (:content it) [(:first it)] (done) false (or loose blank-seen))
                            [(done) loose j])
               ;; a lazy line goes on with the item's text
-              (and (not blank-seen) (not (interrupts? lines j)))
+              (and (not blank-seen) (not (interrupts? lines j)) (not (.test setext-re l)))
               (recur (inc j) c (conj cur (.trim l)) items false loose)
               :else [(done) loose j])))))))
 
@@ -419,11 +440,9 @@
                               bs
                               (mapcat (fn [b] (if (= "p" (first b)) (rest b) [b])) bs)))))
                   items)
-        attrs (cond-> {}
-                (and (:ordered it0) (not= 1 (:start it0))) (assoc :start (:start it0))
-                (some (fn [li] (map? (second li))) lis) (assoc :class "contains-task"))
-        tag [(if (:ordered it0) :ol :ul)]
-        tag (if (seq attrs) (conj tag attrs) tag)]
+        tag (cond (not (:ordered it0)) [:ul]
+                  (= 1 (:start it0)) [:ol]
+                  :else [:ol {:start (:start it0)}])]
     [(into tag lis) end]))
 
 (defn- table-block [lines i ctx]
@@ -440,7 +459,7 @@
         end (loop [j (+ i 2)]
               (if (and (< j n) (let [l (nth lines j)]
                                  (not (or (blank? l) (.test heading-re l) (some? (fence-open l))
-                                          (hr? l) (quote? l) (some? (item-of l))))))
+                                          (hr? l) (quote? l) (.test note-def-re l) (some? (item-of l))))))
                 (recur (inc j))
                 j))]
     [[:table [:thead (row :th (nth lines i))]
@@ -488,14 +507,20 @@
 
             (quote? l)
             (let [[inner end]
-                  (loop [j i acc []]
+                  (loop [j i acc [] fence nil]
                     (if (>= j n)
                       [acc j]
                       (let [ln (nth lines j)]
-                        (cond (quote? ln) (recur (inc j) (conj acc (.replace ln quote-re "")))
+                        (cond (quote? ln)
+                              (let [q (.replace ln quote-re "")]
+                                (recur (inc j) (conj acc q)
+                                       (if (some? fence)
+                                         (when-not (fence-close? q (:mark fence)) fence)
+                                         (fence-open q))))
                               ;; a lazy line goes on with the quote's paragraph
-                              (and (seq acc) (not (blank? (last acc))) (not (interrupts? lines j)))
-                              (recur (inc j) (conj acc ln))
+                              (and (nil? fence) (para-line? (last acc))
+                                   (not (interrupts? lines j)) (not (.test setext-re ln)))
+                              (recur (inc j) (conj acc ln) fence)
                               :else [acc j]))))]
               (recur end (conj out (into [:blockquote] (blocks inner ctx)))))
 
@@ -517,25 +542,28 @@
                 (recur end (conj out (into [:p] (inline text ctx))))))))))))
 
 (defn- defs-of
-  "The link reference definitions in lines: label key → raw destination,
-  the first definition of a label winning."
-  [lines]
-  (reduce (fn [m l]
-            (when-let [r (.exec def-re l)]
-              (let [k (label-key (aget r 1))]
-                (when-not (.has m k) (.set m k (strip-angles (aget r 2))))))
-            m)
-          (js/Map.) lines))
-
-(defn- notes-of
-  "The footnote definitions in lines: label → their lines, indentation
-  of the continuation lines removed; the first definition of a label wins."
-  [lines]
+  "The link reference definitions in lines (not in code, no footnotes):
+  label key → raw destination, the first definition of a label winning."
+  [lines code]
   (let [m (js/Map.)]
     (doseq [i (range (count lines))]
-      (when-let [r (.exec note-def-re (nth lines i))]
-        (when-not (.has m (aget r 1))
-          (.set m (aget r 1)
+      (let [l (nth lines i)]
+        (when-not (or (nth code i) (.test note-def-re l))
+          (when-let [r (.exec def-re l)]
+            (let [k (label-key (aget r 1))]
+              (when-not (.has m k) (.set m k (strip-angles (aget r 2)))))))))
+    m))
+
+(defn- notes-of
+  "The footnote definitions in lines (not in code): label key → their
+  lines, indentation of the continuation lines removed; the first
+  definition of a label wins."
+  [lines code]
+  (let [m (js/Map.)]
+    (doseq [i (range (count lines))]
+      (when-let [r (when-not (nth code i) (.exec note-def-re (nth lines i)))]
+        (when-not (.has m (label-key (aget r 1)))
+          (.set m (label-key (aget r 1))
                 (into [(aget r 2)]
                       (map (fn [l] (if (>= (indent l) 4) (subs l 4) (.trimStart l)))
                            (.slice lines (inc i) (note-end lines i))))))))
@@ -573,7 +601,8 @@
   [text link-fn]
   (let [lines (mapv (fn [l] (.replace l #"^[ \t]+" (fn [ws] (.replaceAll ws "\t" "    "))))
                     (.split (.replaceAll (str text) "\r\n" "\n") "\n"))
-        ctx {:defs (defs-of lines) :notes (notes-of lines) :order (js/Map.) :link-fn link-fn}
+        code (code-lines lines)
+        ctx {:defs (defs-of lines code) :notes (notes-of lines code) :order (js/Map.) :link-fn link-fn}
         bs (blocks lines ctx)
         notes (footnotes ctx)]
     (if (some? notes) (conj bs notes) bs)))

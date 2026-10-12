@@ -16,6 +16,7 @@
      {:line 3 :label "id" :dest "a.edn" :kind "def"} {:line 4 :label "Coll" :dest "b.md" :kind "def"} {:line 5 :label "short" :dest "c d.svg" :kind "def"}]]
    ["first def wins, label whitespace" "[A  b]\n[a b]: one.md\n[A B]: two.md" [{:line 1 :label "A  b" :dest "one.md" :kind "ref"} {:line 2 :label "a b" :dest "one.md" :kind "def"}]]
    ["undefined ref" "[x][nope] [y]" []]
+   ["footnotes are no links" "See[^src].\n\n[^src]: diagrams/api.edn" []]
    ["fragment query" "[a](a.md#sec) [b](b.edn?x=1#y)" [{:line 1 :label "a" :dest "a.md" :kind "inline"} {:line 1 :label "b" :dest "b.edn" :kind "inline"}]]
    ["percent" "[a](my%20file.md) [b](%C3%BCber.md) [c](bad%ZZ.md) [d](%FF.md)"
     [{:line 1 :label "a" :dest "my file.md" :kind "inline"} {:line 1 :label "b" :dest "über.md" :kind "inline"} {:line 1 :label "c" :dest "bad%ZZ.md" :kind "inline"} {:line 1 :label "d" :dest "%FF.md" :kind "inline"}]]

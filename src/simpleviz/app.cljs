@@ -1108,7 +1108,10 @@
   [e]
   (when-let [a (.closest (.-target e) "a[href^='#']")]
     (.preventDefault e)
-    (when-let [el (js/document.getElementById (.slice (.getAttribute a "href") 1))]
+    ;; in its own container: a slide and the md file beside it may both
+    ;; have a footnote 1
+    (when-let [el (.querySelector (.-currentTarget e)
+                                  (str "#" (js/CSS.escape (.slice (.getAttribute a "href") 1))))]
       (.scrollIntoView el {:block "center" :behavior "smooth"}))))
 
 (defn- md-link-fn

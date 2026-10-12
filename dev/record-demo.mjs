@@ -411,6 +411,7 @@ try {
   list.push(`file '${shots.at(-1).f}'`);
   const concat = path.join(tmp, "frames.txt");
   fs.writeFileSync(concat, list.join("\n") + "\n");
+  fs.mkdirSync(OUT, { recursive: true });
   const mp4 = path.join(OUT, "demo.mp4"), gif = path.join(OUT, "demo.gif");
   execFileSync("ffmpeg", ["-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", concat,
     "-vf", "fps=25,format=yuv420p", "-c:v", "libx264", "-preset", "slow", "-crf", "24",

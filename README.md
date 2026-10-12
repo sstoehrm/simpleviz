@@ -4,7 +4,12 @@ Minimal EDN-driven graph visualization. Describe nodes, directed edges, and
 nested grouping boxes in an EDN file; view it as an auto-layouted canvas diagram
 that live-reloads while you edit the file.
 
-[![60-second tour: live reload, inspecting, editing in place, editing a linked markdown doc, state marks, text in nodes, database cylinders, themes, layouts, pairs, following a ref, comparing a fork, exporting](docs/assets/demo.gif)](docs/assets/demo.mp4)
+[![60-second tour: live reload, inspecting, editing in place, editing a linked markdown doc, state marks, text in nodes, database cylinders, themes, pairs, following a ref, comparing a fork, exporting](docs/assets/demo.gif)](docs/assets/demo.mp4)
+
+**New in 0.42:** [manual layout](docs/guide.md#manual-layout) — ✥ places nodes
+and boxes by hand, snapped to a 20 px grid; layered is now the only automatic
+layout — [45-second video](docs/assets/whats-new-0.42.mp4)
+([gif](docs/assets/whats-new-0.42.gif)), which also shows 0.41's vi mode.
 
 **New in 0.41:** an optional [vi mode](docs/guide.md#vi-mode) for editing md
 docs and pages — modes, motions, operators, text objects, `.`, `:w`.

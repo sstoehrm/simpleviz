@@ -8,6 +8,7 @@
   },
   "homepage": "https://github.com/sstoehrm/simpleviz",
   "repository": "https://github.com/sstoehrm/simpleviz",
+  "license": "MIT",
   "skills": "./skills/",
   "interface": {
     "displayName": "Simpleviz",

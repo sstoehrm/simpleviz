@@ -7,5 +7,6 @@
     "url": "https://github.com/sstoehrm"
   },
   "homepage": "https://github.com/sstoehrm/simpleviz",
-  "repository": "https://github.com/sstoehrm/simpleviz"
+  "repository": "https://github.com/sstoehrm/simpleviz",
+  "license": "MIT"
 }

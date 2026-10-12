@@ -166,7 +166,7 @@
         (is (= 0 (:exit res)) (:err res))
         (is (= "created talk.md, talk.edn — view it with: simpleviz talk.md" (str/trim (:out res)))))
       (let [md (slurp (str (fs/path tmp "talk.md")))]
-        (is (str/includes? md "\n>> talk.edn\n"))
+        (is (str/includes? md "\n>> [talk.edn](talk.edn)\n"))
         (is (not (str/includes? md "{{name}}"))))
       (is (= (slurp (str proc-util/repo-root "/templates/default.edn"))
              (slurp (str (fs/path tmp "talk.edn")))))
@@ -187,7 +187,7 @@
     (fn [tmp]
       (fs/create-dirs (fs/path tmp "home" "templates"))
       (spit (str (fs/path tmp "home" "templates" "deck.md"))
-            ">> ../out.edn\n# a\n---\n>> /tmp/abs.edn\n---\n>> sub/in.edn\n---\n>> pic.png\n")
+            ">> [o](../out.edn)\n# a\n---\n>> /tmp/abs.edn\n---\n>> [in](./sub/in.edn)\n---\n>> ![p](pic.png)\n")
       (fs/create-dirs (fs/path tmp "d"))
       (let [res (run-cli ["init" "d/t.md" "-t" "deck"] :dir tmp :env (home-env tmp))]
         (is (= 0 (:exit res)) (:err res))
@@ -459,6 +459,15 @@
         (let [res (run-cli args :dir tmp)]
           (is (= 1 (:exit res)) (str args))
           (is (str/includes? (:err res) msg) (str args " " (:err res))))))))
+
+(deftest check-md-reports-a-broken-slide-link
+  ;; >> takes a link, so check sees it like any other
+  (with-tmp
+    (fn [tmp]
+      (spit (str (fs/path tmp "deck.md")) "# T\n---\n>> [g](missing.edn)\n# A\n")
+      (let [res (run-cli ["check" "deck.md"] :dir tmp)]
+        (is (= 1 (:exit res)))
+        (is (= "warning: line 3: missing.edn not found" (str/trim (:out res))))))))
 
 (deftest check-md-exits-1-on-a-broken-link
   (with-tmp

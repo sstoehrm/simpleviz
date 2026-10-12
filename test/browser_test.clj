@@ -226,7 +226,7 @@
             :left {:slide nil :view true}}
            (eval-on-served-page
             path "deck.md"
-            "---\n# The Deck\n## the sub\nme\n\n---\n>> g.edn\n# Graph slide\n\ntext\n---\n>> notes.md\n# Md slide\n---\n>> pic.svg\n# Image slide\n"
+            "---\n# The Deck\n## the sub\nme\n\n---\n>> [the graph](g.edn)\n# Graph slide\n\ntext\n---\n>> [notes](./notes.md)\n# Md slide\n---\n>> ![a picture](pic.svg)\n# Image slide\n"
             (str "new Promise(ok => { let step = 0; const r = {};"
                  " const q = k => new URLSearchParams(location.search).get(k);"
                  " const key = k => document.dispatchEvent(new KeyboardEvent('keydown', {key: k, bubbles: true}));"
@@ -308,6 +308,25 @@
                          path "deck.md" "# Title\n---\n>> missing.jpg\n# A\n"
                          (present-then ["ArrowRight"] ""))
                         [:h1 :side])))))
+
+(deftest an-md-page-shows-its-pictures-and-footnotes
+  ;; an image of the folder shows as the picture; a footnote's number
+  ;; scrolls to it without touching the URL, which navigation reads
+  (with-real-browser
+    (is (= {:img true :checkbox true :strong "bold" :query "" :view true}
+           (eval-on-served-page
+            path "notes.md" "**bold** ![a cup](pic.svg)\n\n- [x] done\n\nA claim.[^1]\n\n[^1]: The source.\n"
+            (str "new Promise(ok => { let step = 0, r = {}; const t = setInterval(() => {"
+                 " const img = document.querySelector('#md-view img.md-img');"
+                 " if (step === 0) { if (!img || !img.complete) return;"
+                 "  r.img = img.naturalWidth > 0;"
+                 "  r.checkbox = document.querySelector('#md-view li.task input').checked;"
+                 "  r.strong = document.querySelector('#md-view strong').textContent;"
+                 "  document.querySelector('#md-view .footnote-ref').click(); step = 1; return; }"
+                 " clearInterval(t);"
+                 " r.query = location.search + location.hash; r.view = !!document.getElementById('md-view');"
+                 " ok(r); }, 100); })")
+            :extra {"pic.svg" "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"10\"><rect width=\"10\" height=\"10\"/></svg>"})))))
 
 (deftest the-help-panel-opens
   ;; every section's text renders; a stray quote once broke one into code

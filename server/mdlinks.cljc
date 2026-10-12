@@ -231,7 +231,8 @@
   (let [k (skip-blanks line 0 false)]
     (when (and (<= k 3) (= (ch line k) "["))
       (when-let [e (get (bracket-pairs line) k)]
-        (when (and (> e (inc k)) (= (ch line (inc e)) ":"))
+        ;; [^label]: is a footnote, no link
+        (when (and (> e (inc k)) (= (ch line (inc e)) ":") (not= (ch line (inc k)) "^"))
           (when-let [[raw d] (parse-dest line (skip-blanks line (+ e 2) false))]
             (let [t (skip-blanks line d false)
                   t (if (> t d) (skip-title line t) t)]

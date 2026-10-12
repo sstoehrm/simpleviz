@@ -16,11 +16,11 @@ Present, top right, shows this file as slides
 
 ---
 
->> demo.edn
+>> [the demo](demo.edn)
 
 # >> shows a graph beside the text
 
-A slide whose first line is `>> demo.edn` shows that graph on the right.
+A slide whose first line is `>> [the demo](demo.edn)` shows that graph on the right. Being a link, Edit marks it with a », and `simpleviz check` reports it when the file is missing.
 
 - Hover a node for its attributes
 - Click one to inspect it, read-only
@@ -28,7 +28,7 @@ A slide whose first line is `>> demo.edn` shows that graph on the right.
 
 ---
 
->> states.edn
+>> [states](./states.edn)
 
 # Any graph of the folder
 
@@ -36,15 +36,15 @@ The path is relative to this file, like a link.
 
 ---
 
->> api/notes.md
+>> [notes](api/notes.md)
 
 # Another md file
 
-`>> api/notes.md` shows it rendered beside the slide.
+`>> [notes](api/notes.md)` shows it rendered beside the slide.
 
 ---
 
->> overview.png
+>> ![the demo, exported](overview.png)
 
 # Or an image
 

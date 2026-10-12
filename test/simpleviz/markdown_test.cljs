@@ -114,3 +114,101 @@
 
 (test "nothing renders nothing"
   (fn [] (assert/deepEqual (md "") []) (assert/deepEqual (md "\n\n") [])))
+
+(test "emphasis: * and _, one for em, two for strong, three for both"
+  (fn []
+    (assert/deepEqual (md "**bold** and *it* and __b__ and _i_")
+                      [[:p [:strong "bold"] " and " [:em "it"] " and " [:strong "b"] " and " [:em "i"]]])
+    (assert/deepEqual (md "***both***") [[:p [:em [:strong "both"]]]])
+    (assert/deepEqual (md "*a **b** c*") [[:p [:em "a " [:strong "b"] " c"]]])
+    (assert/deepEqual (md "*a\nb*") [[:p [:em "a\nb"]]])))
+
+(test "emphasis needs flanking delimiters; _ never works inside a word"
+  (fn []
+    (assert/deepEqual (md "2 * 3 * 4") [[:p "2 * 3 * 4"]])
+    (assert/deepEqual (md "snake_case_name") [[:p "snake_case_name"]])
+    (assert/deepEqual (md "a*b*c") [[:p "a" [:em "b"] "c"]])
+    (assert/deepEqual (md "**bold* x") [[:p "*" [:em "bold"] " x"]])
+    (assert/deepEqual (md "*open") [[:p "*open"]])))
+
+(test "escaped delimiters and code stay text; emphasis works in link text"
+  (fn []
+    (assert/deepEqual (md "\\*not\\* `*x*`") [[:p "*not* " [:code "*x*"]]])
+    (assert/deepEqual (md "[*a*](x.md)") [[:p [:a {:href "x.md" :kind "inline"} [:em "a"]]]])
+    (assert/deepEqual (md "*[a](x.md)*") [[:p [:em [:a {:href "x.md" :kind "inline"} "a"]]]])))
+
+(test "strikethrough takes two tildes"
+  (fn []
+    (assert/deepEqual (md "~~gone~~ ~one~ ~~~three~~~")
+                      [[:p [:del "gone"] " ~one~ ~~~three~~~"]])))
+
+(test "hard line breaks: two spaces or a backslash at the end of a line"
+  (fn []
+    (assert/deepEqual (md "one  \ntwo\\\nthree\nfour  ")
+                      [[:p "one" [:br] "two" [:br] "three\nfour"]])))
+
+(test "blockquotes: nested, lazy, with blocks inside; they interrupt a paragraph"
+  (fn []
+    (assert/deepEqual (md "> quote\n> more\n\n> - item")
+                      [[:blockquote [:p "quote\nmore"]] [:blockquote [:ul [:li "item"]]]])
+    (assert/deepEqual (md "> a\nlazy") [[:blockquote [:p "a\nlazy"]]])
+    (assert/deepEqual (md "text\n> q") [[:p "text"] [:blockquote [:p "q"]]])
+    (assert/deepEqual (md ">> deep\n>\n> # H") [[:blockquote [:blockquote [:p "deep"]] [:h1 "H"]]])))
+
+(test "horizontal rules: three or more - * or _; --- ends a paragraph"
+  (fn []
+    (assert/deepEqual (md "a\n\n***\n- - -\n___\nb\n---\nc")
+                      [[:p "a"] [:hr] [:hr] [:hr] [:p "b"] [:hr] [:p "c"]])
+    (assert/deepEqual (md "- a\n* * *") [[:ul [:li "a"]] [:hr]])
+    (assert/deepEqual (md "a\n--") [[:p "a\n--"]])))
+
+(test "a line of = under a paragraph makes it a heading"
+  (fn []
+    (assert/deepEqual (md "Title\n=====\ntext") [[:h1 "Title"] [:p "text"]])
+    (assert/deepEqual (md "===") [[:p "==="]])))
+
+(test "task lists: [ ] and [x] items get a checkbox"
+  (fn []
+    (assert/deepEqual (md "- [x] done\n- [ ] todo *now*\n- [y] no")
+                      [[:ul
+                        [:li {:class "task"} [:input {:type "checkbox" :checked true :disabled true}] "done"]
+                        [:li {:class "task"} [:input {:type "checkbox" :checked false :disabled true}]
+                         "todo " [:em "now"]]
+                        [:li "[y] no"]]])
+    (assert/deepEqual (md "- [X] loose\n\n- b")
+                      [[:ul
+                        [:li {:class "task"} [:p [:input {:type "checkbox" :checked true :disabled true}] "loose"]]
+                        [:li [:p "b"]]]])))
+
+(test "footnotes: numbered by first use, listed at the end, unused ones left out"
+  (fn []
+    (let [ref (fn [k n id?] [:sup [:a (cond-> {:href (str "#fn-" k) :class "footnote-ref"} id? (assoc :id (str "fnref-" k))) n]])
+          back (fn [k] [:a {:href (str "#fnref-" k) :class "footnote-backref"} "↩"])]
+      (assert/deepEqual (md "A[^b] and[^a], again[^b].\n\n[^a]: First.\n[^b]: Second\n    more.\n[^unused]: never")
+                        [[:p "A" (ref "b" "1" true) " and" (ref "a" "2" true) ", again" (ref "b" "1" false) "."]
+                         [:section {:class "footnotes"}
+                          [:ol [:li {:id "fn-b"} [:p "Second\nmore. " (back "b")]]
+                               [:li {:id "fn-a"} [:p "First. " (back "a")]]]]]))
+    (assert/deepEqual (md "x[^nope]") [[:p "x[^nope]"]])))
+
+(test "an emphasis closed inside another leaves the later ones of its kind working"
+  (fn []
+    (assert/deepEqual (md "*(see a_ b)* then _c_") [[:p [:em "(see a_ b)"] " then " [:em "c"]]])
+    (assert/deepEqual (md "*a *b c_ d* _e f_") [[:p "*a " [:em "b c_ d"] " " [:em "e f"]]])))
+
+(test "a lazy line continues a quote's paragraph only; = never makes a lazy heading"
+  (fn []
+    (assert/deepEqual (md "> ```\n> code\n> ```\nafter") [[:blockquote [:pre [:code "code"]]] [:p "after"]])
+    (assert/deepEqual (md "> # H\nnext") [[:blockquote [:h1 "H"]] [:p "next"]])
+    (assert/deepEqual (md "> a\n===") [[:blockquote [:p "a"]] [:p "==="]])
+    (assert/deepEqual (md "- a\n===") [[:ul [:li "a"]] [:p "==="]])))
+
+(test "footnotes: labels ignore case, a definition ends a table, code holds none"
+  (fn []
+    (let [ref [:sup [:a {:href "#fn-a" :class "footnote-ref" :id "fnref-a"} "1"]]
+          notes (fn [txt] [:section {:class "footnotes"}
+                           [:ol [:li {:id "fn-a"} [:p (str txt " ") [:a {:href "#fnref-a" :class "footnote-backref"} "↩"]]]]])]
+      (assert/deepEqual (md "x[^A]\n\n[^a]: lower") [[:p "x" ref] (notes "lower")])
+      (assert/deepEqual (md "| h |\n|---|\n| x[^a] |\n[^a]: n")
+                        [[:table [:thead [:tr [:th "h"]]] [:tbody [:tr [:td "x" ref]]]] (notes "n")])
+      (assert/deepEqual (md "y[^a]\n\n```\n[^a]: in code\n```") [[:p "y[^a]"] [:pre [:code "[^a]: in code"]]]))))

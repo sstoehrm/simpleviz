@@ -1,6 +1,6 @@
 {
   "name": "simpleviz",
-  "version": "0.40.1",
+  "version": "0.41.0",
   "description": "Teaches Grok the simpleviz EDN graph format (nodes, edges, boxes) and how to serve and compare graphs",
   "author": {
     "name": "Sören Stöhrmann",

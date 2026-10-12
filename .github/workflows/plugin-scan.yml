@@ -5,10 +5,10 @@
 # release only arrives by bumping the pin.
 name: Plugin scan
 
+# Run by hand (Actions → Plugin scan → Run workflow), e.g. before a
+# listing or after bumping the scanner pin; it gates nothing.
 on:
-  push:
-    branches: [main]
-  pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read

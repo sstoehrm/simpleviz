@@ -275,9 +275,19 @@ understand too:
 
     [tokens]: diagrams/tokens.edn
 
-- The rendering covers headings, paragraphs, lists, links, tables,
-  fenced and indented code blocks and `code spans`; anything else shows
-  as written. Web links open in a new tab.
+- The rendering covers what GitHub shows: headings (`#`, or a line of
+  `=` under the text), paragraphs and line breaks (two spaces or a `\`
+  at the end of a line), **bold**, *italic*, ~~strikethrough~~,
+  blockquotes, horizontal rules, lists and task lists (`- [x]`), links,
+  images, tables, footnotes (`[^1]` and `[^1]: …`), fenced and indented
+  code blocks and `code spans`; anything else — raw HTML, emoji
+  shortcodes, `==highlight==` — shows as written. Web links open in a
+  new tab.
+- An image shows as the picture: a `.png`, `.svg`, `.jpg`, `.jpeg`,
+  `.gif` or `.webp` of the served folder, or a web URL. An exported
+  graph is also its link: a click opens it beside the text.
+- A line of just `---` is a horizontal rule, never the underline of a
+  heading — in a presentation it starts the next slide.
 - In the plain text, each line with a followable link gets a » in the
   gutter beside it; a line with several shows »2, »3 … and lists them.
 - Following a graph, or an exported PNG or SVG — a click on its link or

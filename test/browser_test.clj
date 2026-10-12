@@ -309,6 +309,25 @@
                          (present-then ["ArrowRight"] ""))
                         [:h1 :side])))))
 
+(deftest an-md-page-shows-its-pictures-and-footnotes
+  ;; an image of the folder shows as the picture; a footnote's number
+  ;; scrolls to it without touching the URL, which navigation reads
+  (with-real-browser
+    (is (= {:img true :checkbox true :strong "bold" :query "" :view true}
+           (eval-on-served-page
+            path "notes.md" "**bold** ![a cup](pic.svg)\n\n- [x] done\n\nA claim.[^1]\n\n[^1]: The source.\n"
+            (str "new Promise(ok => { let step = 0, r = {}; const t = setInterval(() => {"
+                 " const img = document.querySelector('#md-view img.md-img');"
+                 " if (step === 0) { if (!img || !img.complete) return;"
+                 "  r.img = img.naturalWidth > 0;"
+                 "  r.checkbox = document.querySelector('#md-view li.task input').checked;"
+                 "  r.strong = document.querySelector('#md-view strong').textContent;"
+                 "  document.querySelector('#md-view .footnote-ref').click(); step = 1; return; }"
+                 " clearInterval(t);"
+                 " r.query = location.search + location.hash; r.view = !!document.getElementById('md-view');"
+                 " ok(r); }, 100); })")
+            :extra {"pic.svg" "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"10\"><rect width=\"10\" height=\"10\"/></svg>"})))))
+
 (deftest the-help-panel-opens
   ;; every section's text renders; a stray quote once broke one into code
   (with-real-browser

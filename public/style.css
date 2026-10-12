@@ -149,6 +149,18 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
 :is(#md-view, .md-doc) a.bad { opacity: .55; }
 :is(#md-view, .md-doc) .md-link.dead { color: var(--text-muted); text-decoration: underline dotted; cursor: help; }
 :is(#md-view, .md-doc) .md-empty { color: var(--text-muted); }
+:is(#md-view, .md-doc) blockquote { margin: 0 0 1em; padding: 0 1em; color: var(--text-muted);
+                                   border-left: 3px solid var(--panel-border); }
+:is(#md-view, .md-doc) hr { border: none; border-top: 1px solid var(--panel-border); margin: 1.6em 0; }
+:is(#md-view, .md-doc) del { opacity: .7; }
+:is(#md-view, .md-doc) .md-img { max-width: 100%; height: auto; vertical-align: middle; }
+:is(#md-view, .md-doc) li.task { list-style: none; }
+:is(#md-view, .md-doc) li.task input { margin: 0 .45em 0 -1.4em; vertical-align: middle; }
+:is(#md-view, .md-doc) .footnote-ref { text-decoration: none; padding: 0 .1em; }
+:is(#md-view, .md-doc) sup { font-size: .75em; line-height: 0; }
+:is(#md-view, .md-doc) .footnotes { margin-top: 2em; padding-top: .5em; font-size: .87em;
+                                    border-top: 1px solid var(--panel-divider); color: var(--text-muted); }
+:is(#md-view, .md-doc) .footnote-backref { text-decoration: none; }
 /* presenting the md page: the slide fills the window, or its left half
    while a graph, an md file or a picture shows beside it; type grows
    with the window */
@@ -161,6 +173,10 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
 #root.halves #present-slide { padding: 8vh 4vw; }
 #present-slide > .md-doc { width: 100%; max-width: 46em; }
 #present-slide :is(h1, h2) { border-bottom: none; }
+/* code blocks scale with the slide's type, not a fixed 13px */
+:is(#present-slide, #present-side) pre code { font-size: .8em; }
+#present-slide .md-img { max-height: 55vh; }
+:is(#md-view, .md-doc) li.task input { width: .8em; height: .8em; }
 #present-slide.title { text-align: center; }
 #present-slide.title h1 { font-size: 2.6em; margin: 0 0 .3em; }
 #present-slide.title h2 { font-size: 1.5em; font-weight: 400; color: var(--text-muted); margin: 0 0 1.4em; }

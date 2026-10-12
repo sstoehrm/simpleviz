@@ -946,7 +946,7 @@
       "\"open md\" (f m) opens the markdown file a node's or box's :md-ref names in a text panel on the right; ⤢ makes it fill the window, Esc docks it again. Ctrl+S or Save writes it, and so does closing it (×) or opening another; a missing file is created on the first save. If the file changes on disk while you have unsaved edits, the panel says so — Reload takes the file, Overwrite keeps yours.")
      (help-section
       "md pages"
-      "simpleviz notes.md opens a markdown file rendered, in a centered column — headings, lists, links, tables, code; Edit switches to the plain text, Read back. Its links to graphs and md files follow on click — [text](sub/graph.edn), ![img](x.png), [text](other.md), reference links too; relative to the md file, never above the served folder. In the plain text a » in the gutter marks each line with such a link (»2 lists the links of that line). A graph or exported image opens to the right of the text, its link and » highlighted, and works like any graph; ⤢ full view opens it on its own, × closes it. An md file opens in place of this one; the trail at the top leads back. Unsaved text is saved before you leave the page — when that fails you stay. A :ref to an .md file opens it the same way; the doc panel of :md-ref has the » gutter too."
+      "simpleviz notes.md opens a markdown file rendered, in a centered column — headings, emphasis, quotes, lists and task lists, links, pictures, tables, footnotes, code; Edit switches to the plain text, Read back. Its links to graphs and md files follow on click — [text](sub/graph.edn), ![img](x.png), [text](other.md), reference links too; relative to the md file, never above the served folder. In the plain text a » in the gutter marks each line with such a link (»2 lists the links of that line). A graph or exported image opens to the right of the text, its link and » highlighted, and works like any graph; ⤢ full view opens it on its own, × closes it. An md file opens in place of this one; the trail at the top leads back. Unsaved text is saved before you leave the page — when that fails you stay. A :ref to an .md file opens it the same way; the doc panel of :md-ref has the » gutter too."
       "Present shows the page as slides: a line of just --- starts the next one, and a slide whose first line is >> [text](path) — >> and a link — shows that graph, md file or picture beside its text. → or space steps forward, ← back, Home and End jump; Esc leaves. The graph can be hovered, inspected, panned and collapsed, not edited.")
      (help-section
       "Keys"
@@ -1087,15 +1087,43 @@
                               (str (:label l) " → " (:dest l))])
                            (:links m)))))))
 
+(defn- picture
+  "Image link `l` of the md file at `md-path` as the picture: a web URL as
+  it is, a picture of the served folder through /api/file; nil for
+  anything else, which stays a link."
+  [md-path l]
+  (let [dest (:dest l)]
+    (if (.test #"^https?:" dest)
+      [:img {:class "md-img" :src dest :alt (:label l)}]
+      (let [{:keys [path]} (editor/link-target md-path dest)
+            kind (when (some? path) (slides/side-kind path))]
+        (when (or (= kind "image") (= kind "export"))
+          [:img {:class "md-img" :alt (:label l)
+                 :src (str "/api/file?path=" (js/encodeURIComponent path))}])))))
+
+(defn- in-page-click
+  "A click on a link within the page — a footnote and the way back:
+  scroll to its target. The URL's # stays as it is: navigation reads the
+  URL."
+  [e]
+  (when-let [a (.closest (.-target e) "a[href^='#']")]
+    (.preventDefault e)
+    (when-let [el (js/document.getElementById (.slice (.getAttribute a "href") 1))]
+      (.scrollIntoView el {:block "center" :behavior "smooth"}))))
+
 (defn- md-link-fn
   "Renders a link of the md page's read view: a followable one follows
   as its » does (pressed while its graph shows beside the page), a URL
   opens in a new tab, anything else is text that says why it isn't a
-  link."
+  link. An image shows as the picture — one that also follows (an
+  exported graph) inside its link."
   [md-path side]
   (fn [l kids]
-    (let [dest (:dest l)]
+    (let [dest (:dest l)
+          pic (when (= "image" (:kind l)) (picture md-path l))
+          kids (if (some? pic) [pic] kids)]
       (cond
+        (and (some? pic) (not (mdlinks/followable? dest))) pic
         (.test #"^(https?|mailto):" dest)
         (into [:a {:href dest :target "_blank" :rel "noopener noreferrer" :title dest}] kids)
         (mdlinks/followable? dest)
@@ -1123,7 +1151,7 @@
     (if (and (some? hit) (= k (:key hit)))
       (:view hit)
       (let [bs (markdown/render (:text md) (md-link-fn (:path md) (:side st)))
-            view (into [:div {:id "md-view"}]
+            view (into [:div {:id "md-view" :on-click in-page-click}]
                        (if (seq bs) bs [[:p {:class "md-empty"} "Nothing here yet — Edit to write."]]))]
         (reset! md-view-cache {:key k :view view})
         view))))
@@ -1187,12 +1215,17 @@
         (link-menu-view st)])]))
 
 (defn- present-link-fn
-  "Renders a link on a slide: a URL opens in a new tab, anything else is
-  its text — following a file would leave the presentation."
-  [l kids]
-  (if (.test #"^(https?|mailto):" (:dest l))
-    (into [:a {:href (:dest l) :target "_blank" :rel "noopener noreferrer" :title (:dest l)}] kids)
-    (into [:span] kids)))
+  "Renders the links on a slide of the md file at `md-path`: an image as
+  the picture, a URL opening in a new tab, anything else as its text —
+  following a file would leave the presentation."
+  [md-path]
+  (fn [l kids]
+    (let [pic (when (= "image" (:kind l)) (picture md-path l))]
+      (cond
+        (some? pic) pic
+        (.test #"^(https?|mailto):" (:dest l))
+        (into [:a {:href (:dest l) :target "_blank" :rel "noopener noreferrer" :title (:dest l)}] kids)
+        :else (into [:span] kids)))))
 
 (defn- present-panel
   "The slide presented, in the md page's place: the window, or its left
@@ -1205,9 +1238,9 @@
         s (nth ds i nil)]
     [:aside {:id "md-panel" :class "page"}
      [:div {:id "present-slide" :class (if (and (= i 0) (nil? (:side s))) "title" "")}
-      (into [:div {:class "md-doc"}]
+      (into [:div {:class "md-doc" :on-click in-page-click}]
             (if (some? s)
-              (markdown/render (:text s) present-link-fn)
+              (markdown/render (:text s) (present-link-fn (:path (:md st))))
               [[:p {:class "md-empty"} "No slides left — the text is empty."]]))]
      [:div {:id "present-counter"} (str (min (inc i) n) " / " n)]]))
 
@@ -1223,9 +1256,9 @@
                                   (when (= path (:path (:side (:present @state))))
                                     (swap! state assoc-in [:present :side]
                                            {:kind "error" :text (str path " — no such picture, or not one the browser shows")})))}]
-       "md" (into [:div {:class "md-doc"}]
+       "md" (into [:div {:class "md-doc" :on-click in-page-click}]
                   (if (some? text)
-                    (markdown/render text present-link-fn)
+                    (markdown/render text (present-link-fn path))
                     [[:p {:class "md-empty"} "loading…"]]))
        [:div {:class "present-side-error"} text])]))
 

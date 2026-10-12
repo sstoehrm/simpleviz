@@ -1,9 +1,11 @@
 (ns simpleviz.markdown
-  "Markdown as hiccup, for the md page's read view: headings, paragraphs,
-  lists, links (inline, reference, autolinks), images (as links), tables,
-  fenced and indented code blocks and code spans. Anything else shows as
-  the text it is. Links render through the caller's link-fn, so what a
-  click does stays the page's business."
+  "Markdown as hiccup, for the md page's read view and the slides:
+  headings (# and a line of = under a paragraph), paragraphs, hard line
+  breaks, emphasis, strikethrough, blockquotes, horizontal rules, lists
+  and task lists, links (inline, reference, autolinks), images, tables,
+  footnotes, fenced and indented code blocks and code spans. Anything else
+  shows as the text it is. Links and images render through the caller's
+  link-fn, so what a click does stays the page's business."
   (:require [mdlinks :as mdlinks]))
 
 (def ^:private punct "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~")
@@ -16,6 +18,14 @@
   #"^ {0,3}\[((?:[^\]\\]|\\.)+)\]:[ \t]*(<[^>]*>|\S+)(?:[ \t]+(?:\"[^\"]*\"|'[^']*'|\([^)]*\)))?[ \t]*$")
 (def ^:private autolink-re #"^<((?:https?|mailto):[^\s<>]+)>")
 (def ^:private scheme-re #"^[a-zA-Z][a-zA-Z0-9+.-]*:")
+(def ^:private hr-re #"^ {0,3}(?:(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,})$")
+(def ^:private quote-re #"^ {0,3}> ?")
+(def ^:private setext-re #"^ {0,3}=+[ \t]*$")
+(def ^:private note-def-re #"^ {0,3}\[\^([^\]\s]+)\]:[ \t]*(.*)$")
+(def ^:private note-ref-re #"^\[\^([^\]\s]+)\]")
+(def ^:private task-re #"^\[([ xX])\][ \t]+")
+(def ^:private space-re (js/RegExp. "\\s" "u"))
+(def ^:private punct-re (js/RegExp. "[\\p{P}\\p{S}]" "u"))
 
 (defn- blank? [l] (= "" (.trim l)))
 
@@ -107,6 +117,93 @@
 
 (declare inline)
 
+(defn- delim?
+  "Is token x a run of emphasis delimiters, not yet matched?"
+  [x]
+  (and (map? x) (some? (:delim x))))
+
+(defn- delim-run
+  "The run of `c` (* _ ~) at i of s as a delimiter token: its length and
+  whether it can open and close emphasis — CommonMark's flanking rules,
+  _ never inside a word."
+  [s i c r]
+  (let [ws? (fn [ch] (.test space-re ch))
+        pn? (fn [ch] (.test punct-re ch))
+        before (if (zero? i) " " (.charAt s (dec i)))
+        after (if (>= (+ i r) (count s)) " " (.charAt s (+ i r)))
+        left (and (not (ws? after)) (or (not (pn? after)) (ws? before) (pn? before)))
+        right (and (not (ws? before)) (or (not (pn? before)) (ws? after) (pn? after)))]
+    {:delim c :n r :orig r
+     :open (if (= c "_") (and left (or (not right) (pn? before))) left)
+     :close (if (= c "_") (and right (or (not left) (pn? after))) right)}))
+
+(defn- as-text
+  "Tokens with the delimiters left over as the text they are, adjacent
+  texts joined."
+  [ts]
+  (let [acc []]
+    (doseq [t ts]
+      (let [t (if (delim? t) (.repeat (:delim t) (:n t)) t)
+            k (dec (count acc))]
+        (if (and (string? t) (>= k 0) (string? (aget acc k)))
+          (aset acc k (str (aget acc k) t))
+          (conj! acc t))))
+    acc))
+
+(defn- closes?
+  "Can delimiter run d close opener o: same character, ~~ only with ~~,
+  and not a pair the rule of three forbids (one side can do both and the
+  lengths add up to a multiple of 3 that isn't one on each side)?"
+  [o d]
+  (and (= (:delim o) (:delim d))
+       (if (= "~" (:delim d))
+         (= (:n o) (:n d))
+         (not (and (or (:close o) (:open d))
+                   (zero? (mod (+ (:orig o) (:orig d)) 3))
+                   (not (and (zero? (mod (:orig o) 3)) (zero? (mod (:orig d) 3)))))))))
+
+(defn- emphasize!
+  "Take delimiter run d into `out`, the tokens so far: while it closes
+  the nearest open run it may, wrap what lies between in em, strong or
+  del (runs inside that never closed become text); what is left of it
+  opens, or is text. `openers` holds the open runs, `bottom` per kind of
+  run how far down a search already failed — so nothing is searched twice."
+  [out openers bottom d]
+  (let [k (str (:delim d) (:open d) (mod (:orig d) 3))]
+    (loop []
+      (let [p (when (:close d)
+                (loop [i (dec (count openers))]
+                  (when (>= i (or (aget bottom k) 0))
+                    (if (closes? (aget openers i) d) i (recur (dec i))))))]
+        (if (nil? p)
+          (do (when (:close d) (aset bottom k (count openers)))
+              (if (:open d)
+                (do (aset d "pos" (count out)) (conj! out d) (conj! openers d))
+                (conj! out d)))
+          (let [o (aget openers p)
+                use (if (or (= "~" (:delim d)) (and (>= (:n o) 2) (>= (:n d) 2))) 2 1)
+                tag (cond (= "~" (:delim d)) :del (= use 2) :strong :else :em)
+                node (into [tag] (as-text (.splice out (inc (:pos o)))))]
+            (set! (.-length openers) (inc p))
+            (doseq [bk (js/Object.keys bottom)]
+              (aset bottom bk (min (aget bottom bk) (count openers))))
+            (aset o "n" (- (:n o) use))
+            (aset d "n" (- (:n d) use))
+            (when (zero? (:n o)) (.pop out) (.pop openers))
+            (conj! out node)
+            (when (pos? (:n d)) (recur))))))))
+
+(defn- note-ref
+  "The superscript number of footnote `label`, numbered by first use;
+  only the first use carries the id its backlink leads to."
+  [label ctx]
+  (let [order (:order ctx)
+        first? (not (.has order label))]
+    (when first? (.set order label (inc (.-size order))))
+    [:sup [:a (cond-> {:href (str "#fn-" label) :class "footnote-ref"}
+                first? (assoc :id (str "fnref-" label)))
+           (str (.get order label))]]))
+
 (defn- link-at
   "The link (or image, `img?`) whose text's [ is at b: {:node :end}, or
   nil when none starts there."
@@ -132,38 +229,65 @@
 (defn- inline
   "Hiccup children for inline text s."
   [s ctx]
-  (let [n (count s)]
-    (loop [i 0 text "" out []]
+  (let [n (count s)
+        out []
+        openers []
+        bottom {}
+        put! (fn [text x] (when-not (= text "") (conj! out text)) (conj! out x))]
+    (loop [i 0 text ""]
       (if (>= i n)
-        (if (= text "") out (conj out text))
-        (let [c (.charAt s i)
-              put (fn [x] (conj (if (= text "") out (conj out text)) x))]
+        (as-text (if (= text "") out (conj! out text)))
+        (let [c (.charAt s i)]
           (cond
+            (and (= c "\\") (= (.charAt s (inc i)) "\n"))
+            (do (put! text [:br]) (recur (+ i 2) ""))
+
             (and (= c "\\") (>= (.indexOf punct (.charAt s (inc i))) 0) (< (inc i) n))
-            (recur (+ i 2) (str text (.charAt s (inc i))) out)
+            (recur (+ i 2) (str text (.charAt s (inc i))))
+
+            ;; a line end: soft, or hard after two spaces; spaces before it go
+            (= c "\n")
+            (let [t (.trimEnd text)]
+              (if (.endsWith text "  ")
+                (do (put! t [:br]) (recur (inc i) ""))
+                (recur (inc i) (str t "\n"))))
+
+            (or (= c "*") (= c "_") (= c "~"))
+            (let [r (run-len s i c)]
+              (if (and (= c "~") (not= r 2))
+                (recur (+ i r) (str text (subs s i (+ i r))))
+                (do (when-not (= text "") (conj! out text))
+                    (emphasize! out openers bottom (delim-run s i c r))
+                    (recur (+ i r) ""))))
+
+            (and (= c "[") (some? (.exec note-ref-re (subs s i)))
+                 (.has (:notes ctx) (aget (.exec note-ref-re (subs s i)) 1)))
+            (let [m (.exec note-ref-re (subs s i))]
+              (put! text (note-ref (aget m 1) ctx))
+              (recur (+ i (count (aget m 0))) ""))
 
             (= c "`")
             (let [r (run-len s i "`")
                   e (code-close s (+ i r) r)]
               (if (some? e)
-                (recur (+ e r) "" (put [:code (code-text (subs s (+ i r) e))]))
-                (recur (+ i r) (str text (subs s i (+ i r))) out)))
+                (do (put! text [:code (code-text (subs s (+ i r) e))]) (recur (+ e r) ""))
+                (recur (+ i r) (str text (subs s i (+ i r))))))
 
             (or (= c "[") (and (= c "!") (= (.charAt s (inc i)) "[")))
             (let [img? (= c "!")
                   b (if img? (inc i) i)
                   hit (link-at s b img? ctx)]
               (if (some? hit)
-                (recur (:end hit) "" (put (:node hit)))
-                (recur (inc b) (str text (subs s i (inc b))) out)))
+                (do (put! text (:node hit)) (recur (:end hit) ""))
+                (recur (inc b) (str text (subs s i (inc b))))))
 
             (and (= c "<") (some? (.exec autolink-re (subs s i))))
             (let [m (.exec autolink-re (subs s i))
                   u (aget m 1)]
-              (recur (+ i (count (aget m 0))) ""
-                     (put ((:link-fn ctx) {:dest u :label u :kind "inline"} [u]))))
+              (put! text ((:link-fn ctx) {:dest u :label u :kind "inline"} [u]))
+              (recur (+ i (count (aget m 0))) ""))
 
-            :else (recur (inc i) (str text c) out)))))))
+            :else (recur (inc i) (str text c))))))))
 
 ;; ---------------------------------------------------------------- blocks
 
@@ -217,12 +341,30 @@
        :content (+ ind (count mark) (if empty? 1 (count ws)))
        :first (if empty? "" body)})))
 
+(defn- hr? [l] (.test hr-re l))
+
+(defn- quote? [l] (.test quote-re l))
+
 (defn- interrupts?
   "Does line i end the paragraph before it?"
   [lines i]
   (let [l (nth lines i)]
-    (or (blank? l) (.test heading-re l) (some? (fence-open l)) (some? (item-of l))
-        (table-start? lines i))))
+    (or (blank? l) (.test heading-re l) (some? (fence-open l)) (hr? l) (quote? l)
+        (.test note-def-re l) (some? (item-of l)) (table-start? lines i))))
+
+(defn- note-end
+  "The line after footnote definition i: its own line, then indented
+  lines and lazy text lines, blank lines between indented ones."
+  [lines i]
+  (let [n (count lines)]
+    (loop [j (inc i) blank-seen false]
+      (if (>= j n)
+        j
+        (let [l (nth lines j)]
+          (cond (blank? l) (recur (inc j) true)
+                (>= (indent l) 4) (recur (inc j) false)
+                (and (not blank-seen) (not (interrupts? lines j))) (recur (inc j) false)
+                :else j))))))
 
 (defn- drop-blank-tail [ls]
   (loop [ls ls] (if (and (seq ls) (blank? (last ls))) (recur (.slice ls 0 -1)) ls)))
@@ -243,6 +385,7 @@
             (cond
               (blank? l) (recur (inc j) c (conj cur "") items true loose)
               (>= (indent l) c) (recur (inc j) c (conj cur (subs l c)) items false (or loose blank-seen))
+              (hr? l) [(done) loose j]
               (some? it) (if (and (= (:ordered it) (:ordered it0)) (= (:delim it) (:delim it0)))
                            (recur (inc j) (:content it) [(:first it)] (done) false (or loose blank-seen))
                            [(done) loose j])
@@ -253,18 +396,34 @@
 
 (declare blocks)
 
+(defn- task-blocks
+  "The blocks of task item lines `ls` — [ ] or [x] first — with the
+  checkbox first in its first paragraph; nil when it is no task item."
+  [ls ctx]
+  (when-let [m (.exec task-re (or (first ls) ""))]
+    (let [cb [:input {:type "checkbox" :checked (not= " " (aget m 1)) :disabled true}]
+          bs (blocks (into [(subs (first ls) (count (aget m 0)))] (rest ls)) ctx)
+          b0 (first bs)]
+      (if (= "p" (first b0))
+        (into [(into [:p cb] (rest b0))] (rest bs))
+        (into [cb] bs)))))
+
 (defn- list-block [lines i ctx]
   (let [it0 (item-of (nth lines i))
         [items loose end] (list-items lines i)
         lis (mapv (fn [ls]
-                    (let [bs (blocks ls ctx)]
-                      (into [:li] (if loose
-                                    bs
-                                    (mapcat (fn [b] (if (= "p" (first b)) (rest b) [b])) bs)))))
+                    (let [task (task-blocks ls ctx)
+                          bs (or task (blocks ls ctx))]
+                      (into (if (some? task) [:li {:class "task"}] [:li])
+                            (if loose
+                              bs
+                              (mapcat (fn [b] (if (= "p" (first b)) (rest b) [b])) bs)))))
                   items)
-        tag (cond (not (:ordered it0)) [:ul]
-                  (= 1 (:start it0)) [:ol]
-                  :else [:ol {:start (:start it0)}])]
+        attrs (cond-> {}
+                (and (:ordered it0) (not= 1 (:start it0))) (assoc :start (:start it0))
+                (some (fn [li] (map? (second li))) lis) (assoc :class "contains-task"))
+        tag [(if (:ordered it0) :ol :ul)]
+        tag (if (seq attrs) (conj tag attrs) tag)]
     [(into tag lis) end]))
 
 (defn- table-block [lines i ctx]
@@ -281,7 +440,7 @@
         end (loop [j (+ i 2)]
               (if (and (< j n) (let [l (nth lines j)]
                                  (not (or (blank? l) (.test heading-re l) (some? (fence-open l))
-                                          (some? (item-of l))))))
+                                          (hr? l) (quote? l) (some? (item-of l))))))
                 (recur (inc j))
                 j))]
     [[:table [:thead (row :th (nth lines i))]
@@ -321,7 +480,24 @@
                                               (.slice lines i end)))]
               (recur end (conj out [:pre [:code (.join body "\n")]])))
 
+            (.test note-def-re l) (recur (note-end lines i) out)
+
             (.test def-re l) (recur (inc i) out)
+
+            (hr? l) (recur (inc i) (conj out [:hr]))
+
+            (quote? l)
+            (let [[inner end]
+                  (loop [j i acc []]
+                    (if (>= j n)
+                      [acc j]
+                      (let [ln (nth lines j)]
+                        (cond (quote? ln) (recur (inc j) (conj acc (.replace ln quote-re "")))
+                              ;; a lazy line goes on with the quote's paragraph
+                              (and (seq acc) (not (blank? (last acc))) (not (interrupts? lines j)))
+                              (recur (inc j) (conj acc ln))
+                              :else [acc j]))))]
+              (recur end (conj out (into [:blockquote] (blocks inner ctx)))))
 
             (table-start? lines i)
             (let [[t end] (table-block lines i ctx)] (recur end (conj out t)))
@@ -330,9 +506,15 @@
             (let [[t end] (list-block lines i ctx)] (recur end (conj out t)))
 
             :else
-            (let [end (loop [j (inc i)] (if (and (< j n) (not (interrupts? lines j))) (recur (inc j)) j))
-                  text (.join (mapv (fn [ln] (.trim ln)) (.slice lines i end)) "\n")]
-              (recur end (conj out (into [:p] (inline text ctx)))))))))))
+            (let [end (loop [j (inc i)]
+                        (if (and (< j n) (not (interrupts? lines j)) (not (.test setext-re (nth lines j))))
+                          (recur (inc j))
+                          j))
+                  text (.trimEnd (.join (mapv (fn [ln] (.trimStart ln)) (.slice lines i end)) "\n"))
+                  h1? (and (< end n) (.test setext-re (nth lines end)))]
+              (if h1?
+                (recur (inc end) (conj out (into [:h1] (inline text ctx))))
+                (recur end (conj out (into [:p] (inline text ctx))))))))))))
 
 (defn- defs-of
   "The link reference definitions in lines: label key → raw destination,
@@ -345,11 +527,53 @@
             m)
           (js/Map.) lines))
 
+(defn- notes-of
+  "The footnote definitions in lines: label → their lines, indentation
+  of the continuation lines removed; the first definition of a label wins."
+  [lines]
+  (let [m (js/Map.)]
+    (doseq [i (range (count lines))]
+      (when-let [r (.exec note-def-re (nth lines i))]
+        (when-not (.has m (aget r 1))
+          (.set m (aget r 1)
+                (into [(aget r 2)]
+                      (map (fn [l] (if (>= (indent l) 4) (subs l 4) (.trimStart l)))
+                           (.slice lines (inc i) (note-end lines i))))))))
+    m))
+
+(defn- with-backref
+  "Footnote `label`'s blocks with the link back to its first use at the
+  end of the last paragraph."
+  [bs label]
+  (let [back [:a {:href (str "#fnref-" label) :class "footnote-backref"} "↩"]
+        lst (last bs)]
+    (if (= "p" (first lst))
+      (conj (pop bs) (let [t (last lst)]
+                       (if (string? t) (conj (pop lst) (str t " ") back) (conj lst " " back))))
+      (conj bs [:p back]))))
+
+(defn- footnotes
+  "The footnotes used, in the order of their numbers — a note may use
+  another — or nil when none was."
+  [ctx]
+  (let [order (:order ctx)]
+    (when (pos? (.-size order))
+      (loop [k 0 lis []]
+        (if (>= k (.-size order))
+          [:section {:class "footnotes"} (into [:ol] lis)]
+          (let [label (nth (js/Array.from (.keys order)) k)]
+            (recur (inc k)
+                   (conj lis (into [:li {:id (str "fn-" label)}]
+                                   (with-backref (blocks (.get (:notes ctx) label) ctx) label))))))))))
+
 (defn render
   "Hiccup blocks for markdown text. (link-fn link children) renders each
   link, link {:dest :label :kind}: :dest as mdlinks cleans a path (or a
   URL kept whole), :kind \"inline\", \"image\" or \"ref\"."
   [text link-fn]
   (let [lines (mapv (fn [l] (.replace l #"^[ \t]+" (fn [ws] (.replaceAll ws "\t" "    "))))
-                    (.split (.replaceAll (str text) "\r\n" "\n") "\n"))]
-    (blocks lines {:defs (defs-of lines) :link-fn link-fn})))
+                    (.split (.replaceAll (str text) "\r\n" "\n") "\n"))
+        ctx {:defs (defs-of lines) :notes (notes-of lines) :order (js/Map.) :link-fn link-fn}
+        bs (blocks lines ctx)
+        notes (footnotes ctx)]
+    (if (some? notes) (conj bs notes) bs)))

@@ -48,14 +48,14 @@ Without an installer, unpack a tarball from the
 can also edit in the page: click an element to inspect and change its
 attributes, and use the toolbar at the bottom to add, connect, group and
 delete. ⇩ exports a PNG or an SVG, both with the source embedded; simpleviz
-serves either like an EDN file. An `.md` file opens rendered, with Edit for the plain text; its ordinary markdown links to `.edn`, `.png`, `.svg` and `.md` files follow (in the plain text, by a » beside the line), and a graph opens to the right of the text. Present shows it as slides split at `---` lines, a `>> graph.edn` first line putting that graph (or an md file or picture) beside a slide. A link is
+serves either like an EDN file. An `.md` file opens rendered, with Edit for the plain text; its ordinary markdown links to `.edn`, `.png`, `.svg` and `.md` files follow (in the plain text, by a » beside the line), and a graph opens to the right of the text. Present shows it as slides split at `---` lines, a `>> [text](graph.edn)` first line putting that graph (or an md file or picture) beside a slide. A link is
 relative to the md file and never reaches above the served folder. Press `?` in
 the page for controls and shortcuts.
 
 `init` copies a template from `~/.simpleviz/templates` (or
 `$SIMPLEVIZ_HOME/templates`): `default.edn` without `-t`, `<name>.edn`
 with `-t <name>` — `<name>.md` for an `.md` file, where `{{name}}` becomes
-the file's name and each `>> x.edn` slide gets a starter graph unless
+the file's name and each `>> [x](x.edn)` slide gets a starter graph unless
 `x.edn` is there. Add your own there, or edit `default.edn`; updates keep
 the folder as it is and only add templates it lacks, so delete a shipped
 one to get its newest version on the next `simpleviz update`.

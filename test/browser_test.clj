@@ -226,7 +226,7 @@
             :left {:slide nil :view true}}
            (eval-on-served-page
             path "deck.md"
-            "---\n# The Deck\n## the sub\nme\n\n---\n>> g.edn\n# Graph slide\n\ntext\n---\n>> notes.md\n# Md slide\n---\n>> pic.svg\n# Image slide\n"
+            "---\n# The Deck\n## the sub\nme\n\n---\n>> [the graph](g.edn)\n# Graph slide\n\ntext\n---\n>> [notes](./notes.md)\n# Md slide\n---\n>> ![a picture](pic.svg)\n# Image slide\n"
             (str "new Promise(ok => { let step = 0; const r = {};"
                  " const q = k => new URLSearchParams(location.search).get(k);"
                  " const key = k => document.dispatchEvent(new KeyboardEvent('keydown', {key: k, bubbles: true}));"

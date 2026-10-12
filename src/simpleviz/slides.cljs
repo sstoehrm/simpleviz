@@ -1,8 +1,10 @@
 (ns simpleviz.slides
   "A presentation from an md page's text: lines of just --- split it into
   slides (not inside a fenced code block), and a slide whose first line
-  is `>> path` shows that file beside its text. Empty slides are dropped,
-  so a deck may open and close with ---.")
+  is `>> [text](path)` — or `>> ![alt](path)`, or `>> path` — shows that
+  file beside its text. Empty slides are dropped, so a deck may open and
+  close with ---."
+  (:require [mdlinks :as mdlinks]))
 
 (defn- fence-mark
   "The fence a line opens or closes (\"```\" or \"~~~\"), or nil."
@@ -37,6 +39,18 @@
         ls (reverse (drop-while blank? (reverse ls)))]
     (.join (into-array ls) "\n")))
 
+(defn side-dest
+  "What the rest of a `>>` line names: the destination of its first link
+  — [text](path) or ![alt](path), as a link means it — else the rest as
+  a plain path; nil when there is nothing."
+  [rest]
+  (let [t (.trim rest)
+        l (first (filter (fn [l] (or (= "inline" (:kind l)) (= "image" (:kind l))))
+                         (mdlinks/links t)))]
+    (cond (some? l) (:dest l)
+          (= t "") nil
+          :else t)))
+
 (defn- slide
   "One slide from its lines: {:text :side}, :side the `>>` target of its
   first line (nil when there is none)."
@@ -44,8 +58,7 @@
   (let [ls (vec (drop-while blank? lines))
         head (first ls)]
     (if (and (some? head) (.startsWith head ">>"))
-      (let [dest (.trim (.slice head 2))]
-        {:text (trim-blank-lines (rest ls)) :side (if (= dest "") nil dest)})
+      {:text (trim-blank-lines (rest ls)) :side (side-dest (.slice head 2))}
       {:text (trim-blank-lines ls) :side nil})))
 
 (defn slides

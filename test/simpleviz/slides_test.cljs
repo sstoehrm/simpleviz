@@ -17,11 +17,15 @@
     (assert/deepEqual (slides "a\n  ---  \nb\n----\nc")
                       [{:text "a" :side nil} {:text "b\n----\nc" :side nil}])))
 
-(test ">> on a slide's first line names what shows beside it"
+(test ">> on a slide's first line names what shows beside it: a link, or a path"
   (fn []
-    (assert/deepEqual (slides "---\n\n>> state.edn\n# Title\n\ntext\n---\n>>pic.jpg")
-                      [{:text "# Title\n\ntext" :side "state.edn"}
-                       {:text "" :side "pic.jpg"}])
+    (assert/deepEqual (slides "---\n\n>> [the state](./state.edn)\n# Title\n\ntext\n---\n>> ![a cup](pic.jpg \"Cup\")\n---\n>>plain.edn")
+                      [{:text "# Title\n\ntext" :side "./state.edn"}
+                       {:text "" :side "pic.jpg"}
+                       {:text "" :side "plain.edn"}])
+    ;; as a link means it: <> around spaces, %XX decoded, #part cut
+    (assert/deepEqual (slides ">> [a](<sub/a b.edn>)\n---\n>> [b](b%20c.md#intro)")
+                      [{:text "" :side "sub/a b.edn"} {:text "" :side "b c.md"}])
     ;; anywhere else it is text
     (assert/deepEqual (slides "# T\n>> g.edn") [{:text "# T\n>> g.edn" :side nil}])
     (assert/deepEqual (slides ">>   \n# T") [{:text "# T" :side nil}])))

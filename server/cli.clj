@@ -14,6 +14,7 @@
             [fork]
             [embedded]
             [log]
+            [mdlinks]
             [paths]
             [serve]
             [themes]))
@@ -126,12 +127,20 @@
        (spit f text)
        (catch java.io.IOException e (die "cannot write " f ": " (ex-message e)))))
 
+(defn- side-dest
+  "What the rest of a >> line names: its first link's destination, else
+  the rest as a plain path (as the page reads it, simpleviz.slides)."
+  [rest]
+  (let [t (str/trim rest)]
+    (or (:dest (first (filter #(#{"inline" "image"} (:kind %)) (mdlinks/links t))))
+        (when-not (= t "") t))))
+
 (defn- shown-graphs
   "The .edn files the >> lines of md `text` name, relative to its folder
   and staying below it: what a presentation template needs beside it."
   [text]
   (->> (str/split-lines text)
-       (keep #(second (re-matches #">>\s*(\S.*?)\s*" %)))
+       (keep #(when (str/starts-with? % ">>") (side-dest (subs % 2))))
        (filter #(and (str/ends-with? (str/lower-case %) ".edn")
                      (not (.isAbsolute (io/file %)))
                      (not-any? #{".."} (str/split % #"[/\\]"))))
@@ -152,7 +161,7 @@
                   (let [g (io/file (.getParentFile (.getAbsoluteFile f)) rel)]
                     (when (and (some? graph-src) (not (.exists g)))
                       (write-file! g (slurp graph-src))
-                      (if-let [dir (.getParent f)] (str dir "/" rel) rel)))))
+                      (str (.normalize (.toPath (if-let [dir (.getParent f)] (io/file dir rel) (io/file rel)))))))))
           (shown-graphs text))))
 
 (defn- init-cmd [args]

@@ -438,8 +438,9 @@
         (when ghost? (set! (.-globalAlpha ctx) 1))))))
 
 ;; manual layout: asked on pointerdown with the graph point pressed,
-;; (fn [gx gy]) returns nil to pan or {:move (fn [dx dy]) :end (fn [])} to
-;; drag an element instead — dx dy in graph units since the press
+;; (fn [gx gy]) returns nil to pan or {:move (fn [dx dy]) :end (fn [])
+;; :cancel (fn [])} to drag an element instead — dx dy in graph units
+;; since the press; :cancel when the browser takes the pointer away
 (def ^:private drag-hook (atom nil))
 (defn set-drag-hook! [f] (reset! drag-hook f))
 
@@ -584,5 +585,9 @@
         (let [d @drag]
           (reset! drag nil)
           (when (and (some? (:element d)) (:moved d)) ((:end (:element d)))))))
-    (.addEventListener wrap "pointercancel" (fn [_] (reset! drag nil))))
+    (.addEventListener wrap "pointercancel"
+      (fn [_]
+        (let [d @drag]
+          (reset! drag nil)
+          (when (and (some? (:element d)) (:moved d)) ((:cancel (:element d))))))))
   (.addEventListener js/window "resize" (fn [_] (request-paint!))))

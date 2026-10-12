@@ -21,7 +21,7 @@
 (def elk (js/ELK.))
 (def app-el (js/document.getElementById "app"))
 
-;; your choices (theme, layout) live on the server (/api/prefs), the same
+;; your choices (theme, vi mode) live on the server (/api/prefs), the same
 ;; for every port — localStorage is per origin, and the port is random
 (defn- save-pref!
   "Store your choices, {:theme v} or {:vi v} (\"\" forgets one); a
@@ -971,6 +971,19 @@
   [st]
   (and (some? (:scene st)) (current-edit-target-editable? st) (nil? (:compare (:graph st)))))
 
+(defn- arranging?
+  "Does dragging move elements: ✥ is on and the graph is placed by hand
+  (an undone or failed first placement leaves ✥ on over an automatic
+  layout)."
+  [st]
+  (and (:arrange st) (arrangeable? st) (manual/manual? (:graph st))))
+
+(defn- show-saved-layout!
+  "Back to the layout the file says, after a drag that wrote nothing."
+  []
+  (when-let [e (.get layout-cache (cache-key (:collapsed-boxes @state)))]
+    (when (some? (:scene e)) (show-layout! e))))
+
 (defn- elk-target
   "The edit op target of top-level elk id `id` (\"n:a\", \"b:grp\")."
   [id]
@@ -979,17 +992,22 @@
 (defn- pos-op [id [col row]]
   (editor/set-attr-op (elk-target id) "pos" (str "[" col " " row "]") false))
 
-(defn- toggle-arrange!
+(defn- ^:async toggle-arrange!
   "✥: arrange on or off. Turned on in a file laid out automatically, it
   first gives every top-level node and box the cell nearest where the
-  layout put it — one edit, Ctrl+Z takes it back."
+  layout shown put it — one edit, Ctrl+Z takes it back — and arranges
+  once that went through."
   []
   (let [st @state
-        on (not (:arrange st))]
-    (swap! state assoc :arrange on)
-    (when (and on (not (manual/manual? (:graph st))))
-      (when-let [entry (.get layout-cache (cache-key (:collapsed-boxes st)))]
-        (post-edit! (mapv (fn [[id cell]] (pos-op id cell)) (manual/snapshot (:layout entry))))))))
+        entry (.get layout-cache (cache-key (:collapsed-boxes st)))]
+    (cond
+      (arranging? st) (swap! state assoc :arrange false)
+      (manual/manual? (:graph st)) (swap! state assoc :arrange true)
+      ;; only from the layout on screen: a demoted one may name
+      ;; elements an edit since removed
+      (some? (:scene entry))
+      (do (js-await (post-edit! (mapv (fn [[id cell]] (pos-op id cell)) (manual/snapshot (:layout entry)))))
+          (when (nil? (:edit-error @state)) (swap! state assoc :arrange true))))))
 
 (defn- auto-layout!
   "Drop every :pos, after asking: the layout is automatic again."
@@ -1011,15 +1029,14 @@
   (let [st @state
         placed (:placed st)
         entry (.get layout-cache (cache-key (:collapsed-boxes st)))]
-    (when (and (:arrange st) (arrangeable? st) (manual/manual? (:graph st)) (some? placed) (some? entry))
+    (when (and (arranging? st) (some? placed) (some? entry))
       (when-let [id (manual/top-at placed {:x gx :y gy})]
         (let [c (first (filter (fn [c] (= id (:id c))) (:children placed)))
               g (collapse-boxes (:graph st) (:collapsed-boxes st))
-              start [(js/Math.round (/ (:x c) manual/GRID)) (js/Math.round (/ (:y c) manual/GRID))]
+              start (manual/xy->cell (:x c) (:y c))
               cell (atom start)]
           {:move (fn [dx dy]
-                   (let [p [(max 0 (js/Math.round (/ (+ (:x c) dx) manual/GRID)))
-                            (max 0 (js/Math.round (/ (+ (:y c) dy) manual/GRID)))]]
+                   (let [p (manual/xy->cell (+ (:x c) dx) (+ (:y c) dy))]
                      (when (not= p @cell)
                        (reset! cell p)
                        (let [g' (manual/with-pos g id p)
@@ -1027,7 +1044,13 @@
                          (swap! state assoc :placed placed'
                                 :scene (scene/build-scene {:layout placed' :graph g' :colors (:colors entry)
                                                            :measure canvas/measure}))))))
-           :end (fn [] (when (not= @cell start) (post-edit! [(pos-op id @cell)])))})))))
+           ;; Esc mid-drag ended arranging: nothing is written
+           :end (fn []
+                  (cond (= @cell start) nil
+                        (not (arranging? @state)) (show-saved-layout!)
+                        :else (-> (post-edit! [(pos-op id @cell)])
+                                  (.then (fn [_] (when (some? (:edit-error @state)) (show-saved-layout!)))))))
+           :cancel show-saved-layout!})))))
 
 (defn- hint-view
   "The line above the toolbar: the pending chord's completions, else the
@@ -1351,7 +1374,7 @@
                                                 (when (and split (some? (:selected st))) " inspecting"))
                                       (some? (:md st)) " inspecting md-open"
                                       (some? (:selected st)) " inspecting")
-                                (when (:arrange st) " arranging"))}
+                                (when (arranging? st) " arranging"))}
    (when-not pres (hint-view st))
    (when (and (not page) (nil? (:scene st)) (nil? (:error st)))
      (load-view st))
@@ -1386,7 +1409,7 @@
                   :on-click (fn [e] (.stopPropagation e) (relayout! true))}
          "▦"]))
     (when (arrangeable? st)
-      (let [on (:arrange st)]
+      (let [on (arranging? st)]
         [:button {:id "arrange-btn" :type "button" :class (if on "on" "")
                   :aria-pressed (if on "true" "false")
                   :title (cond on "Done arranging: dragging pans again"
@@ -1394,7 +1417,7 @@
                                :else "Manual layout: place nodes and boxes by hand, snapped to a grid")
                   :on-click (fn [e] (.stopPropagation e) (toggle-arrange!))}
          "✥"]))
-    (when (and (:arrange st) (arrangeable? st) (manual/manual? (:graph st)))
+    (when (arranging? st)
       [:button {:id "auto-btn" :type "button" :title "Automatic layout: forget where you placed things"
                 :on-click (fn [e] (.stopPropagation e) (auto-layout!))}
        "auto"])
@@ -2652,8 +2675,9 @@
 ;; the grid's dots show while arranging
 (add-watch state :arrange-grid
   (fn [_ _ old new]
-    (when (not= (:arrange old) (:arrange new))
-      (canvas/set-grid! (when (:arrange new) manual/GRID)))))
+    (let [on (arranging? new)]
+      (when (not= (arranging? old) on)
+        (canvas/set-grid! (when on manual/GRID))))))
 (rerender!)
 ;; your theme must be in before the first graph paints
 (.then (load-prefs!) (fn [_] (load-nav!)))

@@ -8,6 +8,21 @@
 
 (def GRID 20)
 
+;; cell [0 0]'s top-left: room for what sticks out of an element there —
+;; a self-loop and its label above it
+(def ^:private MARGIN (* 2 GRID))
+
+(defn cell->xy
+  "The top-left of cell [col row], in layout coordinates."
+  [[col row]]
+  {:x (+ MARGIN (* col GRID)) :y (+ MARGIN (* row GRID))})
+
+(defn xy->cell
+  "The cell whose top-left is nearest x y — never left of or above cell 0."
+  [x y]
+  [(max 0 (js/Math.round (/ (- x MARGIN) GRID)))
+   (max 0 (js/Math.round (/ (- y MARGIN) GRID)))])
+
 ;; the gap above the row of elements that have no :pos yet
 (def ^:private STRIP-GAP 40)
 
@@ -25,10 +40,12 @@
 
 (defn manual?
   "Is graph g laid out by hand: has a top-level node or box a :pos? (The
-  server keeps :pos on top-level elements only.)"
+  server keeps :pos on top-level elements only.) In a comparison, a
+  removed element's :pos is the old file's and doesn't count."
   [g]
-  (boolean (or (some :pos (js/Object.values (or (:nodes g) {})))
-               (some :pos (or (:boxes g) [])))))
+  (let [placed? (fn [el] (and (some? (:pos el)) (not= "removed" (:diff el))))]
+    (boolean (or (some placed? (js/Object.values (or (:nodes g) {})))
+                 (some placed? (or (:boxes g) []))))))
 
 (defn with-pos
   "Graph g with top-level elk id `id` at cell `pos` — a drag's preview."
@@ -41,8 +58,7 @@
   "{elk-id [col row]}: the cell nearest each top-level element of a
   layout — where switching to manual layout puts it."
   [layout]
-  (into {} (map (fn [c] [(:id c) [(js/Math.round (/ (:x c) GRID)) (js/Math.round (/ (:y c) GRID))]])
-                (:children layout))))
+  (into {} (map (fn [c] [(:id c) (xy->cell (:x c) (:y c))]) (:children layout))))
 
 (defn- shift [p d] {:x (+ (:x p) (:x d)) :y (+ (:y p) (:y d))})
 
@@ -52,7 +68,7 @@
                                                     :endPoint (shift (:endPoint s) d))
                                        (some? (:bendPoints s)) (assoc :bendPoints (mapv #(shift % d) (:bendPoints s)))))
                                    (or (:sections e) [])))
-    (some? (:labels e)) (assoc :labels (mapv #(shift % d) (:labels e)))))
+    (some? (:labels e)) (assoc :labels (mapv #(merge % (shift % d)) (:labels e)))))
 
 (defn- border-point
   "Where the line from rect r's center toward point q leaves r."
@@ -97,6 +113,15 @@
      layout 0 0)
     out))
 
+(defn- edge-extent
+  "The far corners of edges' points and labels: [{:x :y}]."
+  [edges]
+  (mapcat (fn [e]
+            (concat (mapcat (fn [s] (concat [(:startPoint s) (:endPoint s)] (or (:bendPoints s) [])))
+                            (or (:sections e) []))
+                    (map (fn [l] {:x (+ (:x l) (:width l)) :y (+ (:y l) (:height l))}) (or (:labels e) []))))
+          edges))
+
 (defn place
   "Layered `layout` of graph g with each top-level element moved to its
   :pos cell, and those without one in a row under the rest. Edges inside
@@ -104,10 +129,10 @@
   every other edge between top-level elements runs straight."
   [layout g]
   (let [kids (or (:children layout) [])
-        cell (fn [c] (when-let [[col row] (pos-of g (:id c))] {:x (* col GRID) :y (* row GRID)}))
+        cell (fn [c] (some-> (pos-of g (:id c)) cell->xy))
         bottom (reduce max 0 (keep (fn [c] (when-let [p (cell c)] (+ (:y p) (:height c)))) kids))
         strip-y (* GRID (js/Math.ceil (/ (+ bottom STRIP-GAP) GRID)))
-        kids' (loop [cs kids x 0 out []]
+        kids' (loop [cs kids x MARGIN out []]
                 (if (empty? cs)
                   out
                   (let [c (first cs)]
@@ -135,8 +160,10 @@
                     (or (:edges layout) []))]
     (assoc placed
            :edges edges
-           :width (+ GRID (reduce max 0 (map (fn [c] (+ (:x c) (:width c))) kids')))
-           :height (+ GRID (reduce max 0 (map (fn [c] (+ (:y c) (:height c))) kids'))))))
+           :width (+ GRID (reduce max 0 (concat (map (fn [c] (+ (:x c) (:width c))) kids')
+                                                (map :x (edge-extent edges)))))
+           :height (+ GRID (reduce max 0 (concat (map (fn [c] (+ (:y c) (:height c))) kids')
+                                                 (map :y (edge-extent edges))))))))
 
 (defn top-at
   "The elk id of the top-level element of a placed layout under point p

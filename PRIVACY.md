@@ -10,7 +10,7 @@ sent to.
   The server listens on 127.0.0.1 only and serves the files of the
   folder you started it in; the page loads its scripts and styles from
   it, nothing from elsewhere.
-- **Your choices** (theme, layout) are kept in `~/.simpleviz/prefs.edn`
+- **Your choices** (theme, vi mode) are kept in `~/.simpleviz/prefs.edn`
   (or `$SIMPLEVIZ_HOME`). With `--debug`, edits and errors are logged to
   `~/.simpleviz/logs`; a crash writes a report there. None of it leaves
   your machine.

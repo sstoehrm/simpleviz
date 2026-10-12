@@ -38,8 +38,8 @@
     (is (pos? (count (:boxes g))) (str source " example keeps its boxes"))))
 
 (deftest shipped-templates-are-functional
-  (doseq [t cli/shipped-templates]
-    (assert-example-clean (str "template " t) (slurp (str "templates/" t ".edn")))))
+  (doseq [t cli/shipped-templates :when (str/ends-with? t ".edn")]
+    (assert-example-clean (str "template " t) (slurp (str "templates/" t)))))
 
 (deftest third-party-notices-cover-vendored-components
   (let [notices (slurp "THIRD-PARTY-NOTICES.md")

@@ -38,6 +38,11 @@
 
 (def ^:private doc-extensions #{"md"})
 
+;; what a presentation slide may show as a picture (/api/file)
+(def ^:private image-types
+  {"png" "image/png" "svg" "image/svg+xml" "jpg" "image/jpeg" "jpeg" "image/jpeg"
+   "gif" "image/gif" "webp" "image/webp"})
+
 ;; an agent may lock a doc before writing it, as it locks a graph
 (def ^:private lockable-extensions (into ref-extensions doc-extensions))
 
@@ -172,7 +177,7 @@
   (if (embedded/export? f)
     (or (embedded/extract f "simpleviz-edn-new")
         (embedded/extract f "simpleviz-edn")
-        (throw (ex-info (str "no embedded simpleviz EDN found in " f) {})))
+        (throw (ex-info (str "no embedded simpleviz EDN found in " f) {:image true})))
     (slurp f)))
 
 (defn- embedded-old
@@ -617,6 +622,24 @@
        :body (io/input-stream url)}
       (text-response 404 "not found"))))
 
+(defn- file-response
+  "The image file `path` (root-relative) of the served folder names, for a
+  presentation slide; 404 with the reason for anything else. Sandboxed, so
+  an SVG opened on its own runs no script on this origin."
+  [query-string]
+  (try
+    (let [rel (query-param query-string "path")
+          _ (when-not (seq rel) (throw (ex-info "path required" {})))
+          f (resolve-path @root-dir rel true (set (keys image-types)))
+          ext (str/lower-case (last (str/split (.getName f) #"\.")))]
+      {:status 200
+       :headers {"Content-Type" (get image-types ext)
+                 "Content-Security-Policy" "default-src 'none'; style-src 'unsafe-inline'; sandbox"
+                 "X-Content-Type-Options" "nosniff"
+                 "Cache-Control" "no-store"}
+       :body f})
+    (catch Exception e (text-response 404 (ex-message e)))))
+
 (defn- graph-response-body
   "The /api/graph JSON for the query; a debug run logs its error under
   `route`, the route that asked for it."
@@ -646,7 +669,9 @@
                                    {:editable (not (embedded/export? new-p)) :path path}
                                    #(prepare % "new"))))))
                (catch Exception e
-                 (json/generate-string {:error (ex-message e)})))]
+                 ;; :image — a picture, not a graph: a slide shows it as one
+                 (json/generate-string (cond-> {:error (ex-message e)}
+                                         (:image (ex-data e)) (assoc :image true)))))]
     ;; graph-json/compare-json fold parse failures into the payload; only
     ;; a debug run pays for parsing it back to find out
     (when (log/enabled?)
@@ -907,6 +932,7 @@
     "/api/unlock"  (post-only req #(lock-response release-lock! body))
     "/api/root"      (json-response (json/generate-string {:path (root-rel)}))
     "/api/text"      (json-response (text-response-body query-string))
+    "/api/file"      (file-response query-string)
     "/api/text/save" (post-only req #(text-save-response body))
     "/api/prefs"     (if (= :post (:request-method req))
                        (post-only req #(prefs-save-response body))

@@ -1619,3 +1619,43 @@
             (is (= [200 {}] (prefs-post {:theme "nord"})))
             (is (= "{:theme \"dark\"}" (slurp f)) "and nothing written")
             (finally (reset! serve/prefs-on false))))))))
+
+(defn- body-bytes [resp]
+  (with-open [in (clojure.java.io/input-stream (:body resp))]
+    (vec (.readAllBytes in))))
+
+(deftest api-file-serves-an-image-of-the-served-folder
+  ;; a presentation's `>> photo.jpg` shows it as a picture
+  (with-temp-dir*
+    (fn [dir]
+      (serve! (write! dir "deck.md" "# deck"))
+      (write! dir "img/photo.jpg" (byte-array [1 2 3]))
+      (let [resp (serve/handler {:uri "/api/file" :query-string "path=img%2Fphoto.jpg"})]
+        (is (= 200 (:status resp)))
+        (is (= "image/jpeg" (get-in resp [:headers "Content-Type"])))
+        (is (= [1 2 3] (body-bytes resp)))
+        ;; an SVG opened on its own must not run script on this origin
+        (is (str/includes? (get-in resp [:headers "Content-Security-Policy"]) "sandbox"))))))
+
+(deftest api-file-refuses-what-is-no-image-below-the-folder
+  (with-temp-dir*
+    (fn [dir]
+      (serve! (write! dir "sub/deck.md" "# deck"))
+      (write! dir "secret.jpg" (byte-array [1]))
+      (write! dir "sub/g.edn" "{:nodes {}}")
+      (doseq [[q why] [["path=g.edn" "is not"]
+                       ["path=..%2Fsecret.jpg" "leaves the served folder"]
+                       ["path=nope.png" "no such file"]
+                       ["" "path required"]]]
+        (let [resp (serve/handler {:uri "/api/file" :query-string q})]
+          (is (= 404 (:status resp)) q)
+          (is (str/includes? (str (:body resp)) why) q))))))
+
+(deftest api-graph-says-when-a-png-is-a-plain-image
+  ;; so a presentation shows it as a picture rather than an error
+  (serve! "test/fixtures/plain-1x1.png")
+  (is (= true (get (json/parse-string (:body (serve/handler {:uri "/api/graph"}))) "image"))))
+
+(deftest api-graph-a-png-with-edn-is-no-plain-image
+  (serve! "test/fixtures/embedded.png")
+  (is (not (contains? (json/parse-string (:body (serve/handler {:uri "/api/graph"}))) "image"))))

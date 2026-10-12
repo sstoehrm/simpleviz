@@ -13,6 +13,7 @@
             [simpleviz.grid :as grid]
             [simpleviz.compact :as compact]
             [simpleviz.markdown :as markdown]
+            [simpleviz.slides :as slides]
             [mdlinks :as mdlinks]
             [paths :as paths]
             [themes :as themes]))
@@ -52,6 +53,9 @@
                   :md nil
                   ;; the graph an md page shows beside it (open-side!), root-relative
                   :side nil
+                  ;; the md page presented (show-slide!): {:slide i :dest its >> target
+                  ;; :side what shows beside it when that is no graph}, nil when not
+                  :present nil
                   :nav (editor/parse-nav js/location.search) :nav-error nil
                   ;; your theme (#115), for files without :theme (load-prefs!)
                   :theme-pref nil
@@ -79,6 +83,25 @@
   "Does the md page show a graph beside it?"
   [st]
   (and (page? st) (some? (:side st))))
+
+(defn- presenting?
+  "Is the md page being presented?"
+  [st]
+  (and (page? st) (some? (:present st))))
+
+;; the slides of the last text parsed: views ask on every render
+(def ^:private deck-cache (atom {:text nil :slides []}))
+
+(defn- deck
+  "The slides of the md page's text."
+  [st]
+  (let [text (:text (:md st))
+        hit @deck-cache]
+    (if (= text (:text hit))
+      (:slides hit)
+      (let [ds (slides/slides text)]
+        (reset! deck-cache {:text text :slides ds})
+        ds))))
 
 (defn- graph-shown?
   "Is a graph on screen: the page's own, or the one beside an md page?"
@@ -130,7 +153,7 @@
 (declare relayout! post-edit! delete! current-edit-target-editable? follow-ref! navigate! run-chord-action!
          open-md! save-md! close-md! open-page! root-path! load-nav!
          save-if-dirty! save-before-leaving! follow-link! sync-gutter-scroll!
-         follow-to! close-side! focus-md-start!)
+         follow-to! close-side! focus-md-start! show-slide! leave-present!)
 
 ;; layouts per collapsed-set, so expanding (or re-collapsing a seen
 ;; combination) is instant instead of a multi-second ELK run; demoted
@@ -143,6 +166,10 @@
 ;; pre-edit ELK run resolving after an instant fingerprint-reuse
 ;; relayout would overwrite the fresh scene and poison the cache
 (def ^:private graph-gen (atom 0))
+
+;; bumped by every slide change and navigation: what a slide's >> loads
+;; after the next slide (or another page) came is dropped
+(def ^:private present-gen (atom 0))
 
 (defn- current-layout
   "The layout algorithm in use: the file's :layout, else yours."
@@ -563,8 +590,9 @@
 
 (defn- pairs-view
   "The selection's pairs: → for those it declares, ← for those pointing
-  at it; a broken one dimmed with its problem. Clicking a row follows it."
-  [sel]
+  at it; a broken one dimmed with its problem. Clicking a row follows it
+  — unless `follow?` is false (presenting: following would leave)."
+  [sel follow?]
   (let [ps (or (:pairs sel) [])
         numbered (> (count (working-pairs sel)) 1)
         num-of (fn [i] (inc (count (filter (fn [q] (nil? (:problem q))) (take i ps)))))]
@@ -575,9 +603,13 @@
                     (let [in? (= (:dir p) "in")
                           label (str (if in? "← " "→ ") (:file p) "#" (:id p)
                                      (if in? " (points here)" ""))]
-                      (if (some? (:problem p))
+                      (cond
+                        (some? (:problem p))
                         [:div {:class "pair-row broken" :title (:problem p)}
                          label [:div {:class "pair-problem"} (:problem p)]]
+                        (not follow?)
+                        [:div {:class "pair-row"} label]
+                        :else
                         [:button {:class "pair-row" :type "button"
                                   :on-click (fn [e] (.stopPropagation e) (follow-pair! p))}
                          (when (and numbered (<= (num-of i) 9))
@@ -610,7 +642,7 @@
                          [:dd {:key (str "cd" k)}
                           (str (fmt-val k (:old v)) " → " (fmt-val k (:new v)))]])
                       (js/Object.entries (:changed sel))))])
-     (pairs-view sel)
+     (pairs-view sel (not (presenting? st)))
      (into [:dl]
            (concat
             (when (not= (:kind sel) "edge")
@@ -881,9 +913,12 @@
             (toggle-collapse! (.slice (:box-id item) 2))
             (on-select (when (some? item) (item->payload item)))))))}])
 
-(defn- current-edit-target-editable? [st]
+(defn- current-edit-target-editable?
+  "Can the graph shown be edited? Never while presenting."
+  [st]
   (when-let [g (:graph st)]
-    (boolean (if (= (:edit-target st) "old") (:editable-old g) (:editable g)))))
+    (and (not (presenting? st))
+         (boolean (if (= (:edit-target st) "old") (:editable-old g) (:editable g))))))
 
 (defn- toggle-help! []
   (swap! state update :help not))
@@ -911,7 +946,8 @@
       "\"open md\" (f m) opens the markdown file a node's or box's :md-ref names in a text panel on the right; ⤢ makes it fill the window, Esc docks it again. Ctrl+S or Save writes it, and so does closing it (×) or opening another; a missing file is created on the first save. If the file changes on disk while you have unsaved edits, the panel says so — Reload takes the file, Overwrite keeps yours.")
      (help-section
       "md pages"
-      "simpleviz notes.md opens a markdown file rendered, in a centered column — headings, lists, links, tables, code; Edit switches to the plain text, Read back. Its links to graphs and md files follow on click — [text](sub/graph.edn), ![img](x.png), [text](other.md), reference links too; relative to the md file, never above the served folder. In the plain text a » in the gutter marks each line with such a link (»2 lists the links of that line). A graph or exported image opens to the right of the text, its link and » highlighted, and works like any graph; ⤢ full view opens it on its own, × closes it. An md file opens in place of this one; the trail at the top leads back. Unsaved text is saved before you leave the page — when that fails you stay. A :ref to an .md file opens it the same way; the doc panel of :md-ref has the » gutter too.")
+      "simpleviz notes.md opens a markdown file rendered, in a centered column — headings, lists, links, tables, code; Edit switches to the plain text, Read back. Its links to graphs and md files follow on click — [text](sub/graph.edn), ![img](x.png), [text](other.md), reference links too; relative to the md file, never above the served folder. In the plain text a » in the gutter marks each line with such a link (»2 lists the links of that line). A graph or exported image opens to the right of the text, its link and » highlighted, and works like any graph; ⤢ full view opens it on its own, × closes it. An md file opens in place of this one; the trail at the top leads back. Unsaved text is saved before you leave the page — when that fails you stay. A :ref to an .md file opens it the same way; the doc panel of :md-ref has the » gutter too."
+      "Present shows the page as slides: a line of just --- starts the next one, and a slide whose first line is >> path shows that graph, md file or picture beside its text. → or space steps forward, ← back, Home and End jump; Esc leaves. The graph can be hovered, inspected, panned and collapsed, not edited.")
      (help-section
       "Keys"
       "Chords act on the selection, when no text field has focus (the toolbar buttons show them); the first key opens a pop-out of what comes next, which can be clicked too: d d delete · e 1/2/3/4 edge direction → ← ↔ — · c s / c t change an edge's source / target · a e add edge · a b add to box (node) or add a box as member (box) · a n add a node as member (box) — either moves it out of the box it was in · n n n new node (connected to the selected node, or inside the selected box) · n n b new box (inside the selected box) · n n s new node in the selection's box · n n c / n n i new node in the selection's box, connected from / to it · n n e split the selected edge with a new node · n b wrap the selection in a new box · r r rename the id · r n take a node out of the selected box · r b take the selected node out of its box · f r follow the selection's :ref · f p follow the selection's pair (f p 1–9 with several) · f m open the selection's :md-ref doc (Ctrl+S saves it). Esc cancels a pending chord; ? toggles this help; Ctrl+Z undoes.")
@@ -1106,6 +1142,10 @@
       (when (editor/md-dirty? md) [:span {:class "md-dirty" :title "unsaved changes"} "●"])
       (when-not (:exists md) [:span {:class "md-new"} "new file"])
       [:span {:class "md-spacer"}]
+      (when (and (:page md) (seq (deck st)))
+        [:button {:class "md-btn md-present" :type "button" :title "Present the text as slides, split at --- lines"
+                  :on-click (fn [e] (.stopPropagation e) (.blur (.-currentTarget e)) (show-slide! 0))}
+         "Present"])
       (when (:page md)
         [:button {:class "md-btn md-mode" :type "button"
                   :title (if reading "Edit the text" "Show it rendered")
@@ -1146,6 +1186,49 @@
         (gutter-view st)
         (link-menu-view st)])]))
 
+(defn- present-link-fn
+  "Renders a link on a slide: a URL opens in a new tab, anything else is
+  its text — following a file would leave the presentation."
+  [l kids]
+  (if (.test #"^(https?|mailto):" (:dest l))
+    (into [:a {:href (:dest l) :target "_blank" :rel "noopener noreferrer" :title (:dest l)}] kids)
+    (into [:span] kids)))
+
+(defn- present-panel
+  "The slide presented, in the md page's place: the window, or its left
+  half while something shows beside it. The first slide, alone, is the
+  title slide, centered."
+  [st]
+  (let [ds (deck st)
+        n (count ds)
+        i (:slide (:present st))
+        s (nth ds i nil)]
+    [:aside {:id "md-panel" :class "page"}
+     [:div {:id "present-slide" :class (if (and (= i 0) (nil? (:side s))) "title" "")}
+      (into [:div {:class "md-doc"}]
+            (if (some? s)
+              (markdown/render (:text s) present-link-fn)
+              [[:p {:class "md-empty"} "No slides left — the text is empty."]]))]
+     [:div {:id "present-counter"} (str (min (inc i) n) " / " n)]]))
+
+(defn- present-side-view
+  "Beside the slide: the md file or picture its >> names, or why it
+  can't show. A graph shows on the canvas instead."
+  [st]
+  (when-let [{:keys [kind path text]} (:side (:present st))]
+    [:div {:id "present-side" :class kind}
+     (case kind
+       "image" [:img {:src (str "/api/file?path=" (js/encodeURIComponent path)) :alt path
+                      :on-error (fn [_]
+                                  (when (= path (:path (:side (:present @state))))
+                                    (swap! state assoc-in [:present :side]
+                                           {:kind "error" :text (str path " — no such picture, or not one the browser shows")})))}]
+       "md" (into [:div {:class "md-doc"}]
+                  (if (some? text)
+                    (markdown/render text present-link-fn)
+                    [[:p {:class "md-empty"} "loading…"]]))
+       [:div {:class "present-side-error"} text])]))
+
 (defn- side-view
   "Over the graph beside an md page: its path, a button that opens it
   in full view and one that closes it. Before one is open, a hint where
@@ -1167,20 +1250,24 @@
 (defn- app-view [st]
   (let [page (page? st)
         split (split? st)
-        graph (graph-shown? st)]
+        graph (graph-shown? st)
+        pres (presenting? st)]
   [:div {:id "root" :class (str (when (some? (:pick st)) "picking")
                                 (cond page (str " md-page" (when split " split")
+                                                (when pres " presenting")
+                                                (when (and pres (or split (some? (:side (:present st))))) " halves")
                                                 (when (and split (some? (:selected st))) " inspecting"))
                                       (some? (:md st)) " inspecting md-open"
                                       (some? (:selected st)) " inspecting"))}
-   (hint-view st)
+   (when-not pres (hint-view st))
    (when (and (not page) (nil? (:scene st)) (nil? (:error st)))
      (load-view st))
    (when graph (collapsed-view st))
-   (when (and page (some? (:md st))) (side-view st))
-   [:div {:id "top-center"}
-    (trail-view st)
-    (when (some? (:graph st)) (legend-view st))]
+   (when (and page (some? (:md st)) (not pres)) (side-view st))
+   (when-not pres
+     [:div {:id "top-center"}
+      (trail-view st)
+      (when (some? (:graph st)) (legend-view st))])
    (when (:layouting st)
      [:div {:id "layouting"} "re-layouting…"])
    ;; the banner and the controls share the top: the banner takes the room
@@ -1188,6 +1275,11 @@
    ;; of the inspector while one is open
    [:div {:id "top-bar"}
     (banner-view st)
+   (if pres
+     [:div {:id "top-right"}
+      [:button {:id "present-leave" :type "button" :title "Leave the presentation (Esc)"
+                :on-click (fn [e] (.stopPropagation e) (leave-present!))}
+       "Leave presentation"]]
    ;; one row, so hidden buttons leave no holes
    [:div {:id "top-right"}
     ;; always there and first, so it never shifts the others; disabled
@@ -1216,11 +1308,12 @@
     [:button {:id "help-btn" :type "button" :title "Help"
               :on-click (fn [e] (.stopPropagation e) (toggle-help!))}
      "?"]
-    (help-view st)]]
+    (help-view st)])]
    (canvas-view)
    (when (and (some? (:scene st)) (current-edit-target-editable? st))
      (selection-toolbar st))
-   (when (some? (:md st)) (md-panel st))
+   (when (some? (:md st)) (if pres (present-panel st) (md-panel st)))
+   (when pres (present-side-view st))
    ;; the inspector: beside the graph of an md page too, not beside a docked doc
    (when (and (some? (:selected st)) (or (nil? (:md st)) split))
      (details-view st))]))
@@ -1398,18 +1491,25 @@
         (cond old-ok "old" new-ok "new" :else current)))
     "new"))
 
-(defn ^:async reload! []
+(defn ^:async reload!
+  "Load the graph of file query `q` (file-query when it was asked) — and
+  show it only when the page still shows that file: a side graph closed
+  or replaced meanwhile must not land, nor the root's error in its place."
+  [q]
   (try
     (when (nil? (:scene @state))
       (swap! state assoc :load-stage "loading graph…"))
-    (let [resp (js-await (js/fetch (str "/api/graph" (file-query))))
+    (let [resp (js-await (js/fetch (str "/api/graph" q)))
           raw (js-await (.json resp))]
-      (if (some? (:error raw))
+      (cond
+        (not= q (file-query)) nil
+        (some? (:error raw))
         (do (when (nil? (:graph @state))
               ;; no graph to show (a navigation landed on a broken file):
               ;; back to your theme (or the OS's), which the menu shows again
               (apply-theme! (effective-theme nil (:theme-pref @state) (:theme @state))))
             (swap! state assoc :error (str "Graph error: " (:error raw)) :dismissed-error nil))
+        :else
         (let [g (assoc raw :boxes-by-name
                        (let [o {}] (doseq [b (:boxes raw)] (assoc! o (:name b) b)) o))
               first-load? (nil? (:graph @state))]
@@ -1444,10 +1544,12 @@
       (swap! state assoc :error (str "Render error: " (or (.-message e) (str e)))))))
 
 (defn- ^:async poll-graph!
-  "Reload the graph shown when its file changed since the last look."
+  "Reload the graph shown when its file changed since the last look —
+  unless the page went on to another file while the server answered."
   []
-  (let [mtime (try
-                (let [resp (js-await (js/fetch (str "/api/version" (file-query))))
+  (let [q (file-query)
+        mtime (try
+                (let [resp (js-await (js/fetch (str "/api/version" q)))
                       v (js-await (.json resp))]
                   (:mtime v))
                 (catch :default _ nil))]
@@ -1455,9 +1557,9 @@
     ;; clears on the next successful poll, so reconnection needs no action
     (when (not= (nil? mtime) (:disconnected @state))
       (swap! state assoc :disconnected (nil? mtime)))
-    (when (and (some? mtime) (not= mtime @last-mtime))
+    (when (and (some? mtime) (not= mtime @last-mtime) (= q (file-query)))
       (reset! last-mtime mtime)
-      (js-await (reload!)))))
+      (js-await (reload! q)))))
 
 (defn ^:async tick []
   (cond
@@ -1494,9 +1596,11 @@
         md-target? (= "md" (editor/doc-kind (shown-path nav)))]
     (reset! shown-query js/location.search)
     (swap! graph-gen inc)
+    ;; a slide's >> still loading belongs to the page left
+    (swap! present-gen inc)
     (swap! state (fn [st]
                    (merge st per-file
-                          {:nav nav :pending-focus (:focus nav) :side nil
+                          {:nav nav :pending-focus (:focus nav) :side nil :present nil
                            :md (when-not (or (page? st) md-target?) (:md st))})))
     (.clear layout-cache)
     (reset! last-mtime nil)
@@ -1504,10 +1608,13 @@
     (let [path (or (:file nav) (js-await (root-path!)))]
       (if (= "md" (editor/doc-kind path))
         (do (js-await (open-page! path))
-            ;; the graph the URL shows beside it, once the page is there
-            (when (and (some? (:side nav)) (some? (:md @state)))
-              (swap! state assoc :side (:side nav))
-              (js-await (tick))))
+            ;; the slide the URL presents, else the graph it shows beside
+            ;; the page, once the page is there
+            (when (some? (:md @state))
+              (cond
+                (some? (:slide nav)) (js-await (show-slide! (dec (:slide nav))))
+                (some? (:side nav)) (do (swap! state assoc :side (:side nav))
+                                        (js-await (tick))))))
         (js-await (tick))))))
 
 (defn- ^:async save-before-leaving!
@@ -1558,6 +1665,12 @@
         (js-await (navigate! (editor/follow-url (current-path st) (:trail (:nav st)) path focus)))
         (finally (swap! state assoc :following false))))))
 
+(defn- replace-query!
+  "Show query string `q` in the URL, without a history entry."
+  [q]
+  (js/history.replaceState nil "" (str js/location.pathname q))
+  (reset! shown-query q))
+
 (defn- show-side!
   "Put `side` (root-relative, nil for none) beside the md page: drop the
   graph shown before, with everything that belongs to it, and keep the
@@ -1568,9 +1681,7 @@
   (.clear layout-cache)
   (reset! last-mtime nil)
   (canvas/refit-next!)
-  (let [q (editor/with-side js/location.search side)]
-    (js/history.replaceState nil "" (str js/location.pathname q))
-    (reset! shown-query q)))
+  (replace-query! (editor/with-side js/location.search side)))
 
 (defn- ^:async open-side!
   "Show the graph at root-relative `path` beside the md page, creating
@@ -1778,6 +1889,109 @@
                                 :conflict {:text (:text out) :version (:version out)
                                            :exists (:exists out)})
               nil)))))))
+
+;; ---- presenting the md page ----
+
+(defn- drop-side!
+  "No graph beside the page: close the one shown, else drop a side the
+  URL may still name (a slide that changed since, a hand-made URL)."
+  []
+  (if (some? (:side @state))
+    (close-side!)
+    (replace-query! (editor/with-side js/location.search nil))))
+
+(defn- ^:async export-kind
+  "\"image\" when the .png or .svg at root-relative `path` is a plain
+  picture, else \"graph\" — a failure then shows as the graph's error."
+  [path]
+  (try (let [out (js-await (.json (js-await (js/fetch (str "/api/graph?file=" (js/encodeURIComponent path))))))]
+         (if (= true (:image out)) "image" "graph"))
+       (catch :default _ "graph")))
+
+(defn- ^:async side-of
+  "What `>> dest` on a slide of the md page at `md-path` shows: {:kind
+  \"graph\"|\"md\"|\"image\" :path root-relative}, or {:kind \"error\"
+  :text why} when it can't."
+  [md-path dest]
+  (let [{:keys [path error]} (editor/link-target md-path dest)
+        kind (when (some? path) (slides/side-kind path))]
+    (cond (some? error) {:kind "error" :text error}
+          (nil? kind) {:kind "error" :text (str dest " — not a graph, an md file or an image")}
+          (= kind "export") {:kind (js-await (export-kind path)) :path path}
+          :else {:kind kind :path path})))
+
+(defn- ^:async show-md-side!
+  "Fetch the md file of slide side `side` into it, unless slide change
+  `gen` was overtaken."
+  [side gen]
+  (let [out (try (js-await (fetch-doc (:path side)))
+                 (catch :default _ {:error "not connected"}))]
+    (when (= gen @present-gen)
+      (swap! state assoc-in [:present :side]
+             (cond (some? (:error out)) {:kind "error" :text (str (:path side) ": " (:error out))}
+                   (not (:exists out)) {:kind "error" :text (str "no such file: " (:path side))}
+                   :else (assoc side :text (:text out)))))))
+
+(defn- ^:async show-slide!
+  "Present slide i of the md page, clamped to the deck: keep its number
+  in the URL (no history entry) and show what its >> names beside it — a
+  graph as the side graph, an md file or a picture in the canvas's
+  place. A slide with the same >> as the one before keeps it as it is."
+  [i]
+  (let [st @state
+        ds (deck st)
+        i (max 0 (min i (dec (count ds))))
+        dest (:side (nth ds i nil))
+        same? (and (some? (:present st)) (= dest (:dest (:present st))))]
+    (replace-query! (editor/with-slide js/location.search (inc i)))
+    (swap! state assoc :present {:slide i :dest dest :side (when same? (:side (:present st)))})
+    ;; the same >> stays — and so does a load of it still under way
+    (when-not same?
+      (let [gen (swap! present-gen inc)
+            side (when (some? dest) (js-await (side-of (:path (:md st)) dest)))]
+        (when (= gen @present-gen)
+          (if (= "graph" (:kind side))
+            (js-await (open-side! (:path side) false))
+            (do (drop-side!)
+                (swap! state assoc-in [:present :side] side)
+                (when (= "md" (:kind side))
+                  (js-await (show-md-side! side gen))))))))))
+
+(defn- leave-present!
+  "Back to the md page, the slide's side closed."
+  []
+  (swap! present-gen inc)
+  (swap! state assoc :present nil :selected nil)
+  (drop-side!)
+  (replace-query! (editor/with-slide js/location.search nil)))
+
+;; the text presented changed (taken from disk): show the slide again when
+;; its >> changed or it is gone
+(add-watch state :present
+  (fn [_ _ old new]
+    (when (and (presenting? new) (not= (:text (:md old)) (:text (:md new))))
+      (let [{:keys [slide dest]} (:present new)
+            ds (deck new)]
+        (when (or (>= slide (count ds)) (not= dest (:side (nth ds slide nil))))
+          (show-slide! slide))))))
+
+(defn- present-key!
+  "A key while presenting: → ↓ space and Page Down step forward, ← ↑ and
+  Page Up back, Home and End jump to the ends; Esc closes the inspector,
+  else leaves. Other keys do nothing."
+  [e]
+  (let [st @state
+        i (:slide (:present st))
+        to (case (.-key e)
+             ("ArrowRight" "ArrowDown" "PageDown" " ") (inc i)
+             ("ArrowLeft" "ArrowUp" "PageUp") (dec i)
+             "Home" 0
+             "End" (dec (count (deck st)))
+             nil)]
+    (cond
+      (some? to) (do (.preventDefault e) (show-slide! to))
+      (= (.-key e) "Escape") (if (some? (:selected st)) (on-select nil) (leave-present!))
+      :else nil)))
 
 ;; the open doc's links, re-scanned 150 ms after the text stops changing
 (def ^:private md-links (atom {:path nil :text nil :links []}))
@@ -2188,6 +2402,10 @@
            (= (.toLowerCase (.-key e)) "s")
            (some? (:md @state)))
       (do (.preventDefault e) (save-md!))
+
+      (and (presenting? @state) (not (typing?))
+           (not (or (.-ctrlKey e) (.-metaKey e) (.-altKey e))))
+      (present-key! e)
 
       (= (.-key e) "Escape") (do (cancel-pick!)
                                  (swap! state assoc :help false :chord nil :export-menu false :link-menu nil)

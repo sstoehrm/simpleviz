@@ -13,7 +13,7 @@
                                       theme-menu layout-menu effective-layout top-box-of load-readiness export-readiness
                                       md-target from-disk to-disk md-dirty? adopt-doc gone-doc poll-outcome save-result
                                       parent-box split-parent doc-kind link-target line-markers link-title
-                                      with-side mark-open?]]
+                                      with-side with-slide mark-open?]]
             [paths :refer [resolve-ref]]))
 
 (test "target maps selection payloads to op targets"
@@ -738,3 +738,12 @@
   (fn []
     (assert/equal (link-title "notes.md" {:label "the graph" :dest "pay.edn"}) "the graph → pay.edn")
     (assert/equal (link-title "notes.md" {:label "x" :dest "../o.md"}) "x → ../o.md — leaves the served folder")))
+
+(test "slide: the presentation's slide number, 1-based, in the query string"
+  (fn []
+    (assert/deepEqual (parse-nav "?file=d.md&slide=3") {:file "d.md" :trail [] :slide 3})
+    (assert/deepEqual (parse-nav "?file=d.md&slide=0") {:file "d.md" :trail []})
+    (assert/deepEqual (parse-nav "?file=d.md&slide=x") {:file "d.md" :trail []})
+    (assert/equal (with-slide "?file=d.md" 2) "?file=d.md&slide=2")
+    (assert/equal (with-slide "?file=d.md&slide=2&side=g.edn" nil) "?file=d.md&side=g.edn")
+    (assert/equal (with-slide "?slide=2" nil) "")))

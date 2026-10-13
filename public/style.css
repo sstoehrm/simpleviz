@@ -214,6 +214,29 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
               width: max(0px, calc(100vw - var(--md-r) - 24px)); transform: translateY(-50%);
               color: var(--text-dim); font-size: 14px; text-align: center;
               pointer-events: none; overflow: hidden; }
+/* beside the md page, for a link to a graph not there yet: start it
+   empty or as a copy */
+#side-choose { position: fixed; top: 52px; left: var(--md-w); right: 0; bottom: 0; z-index: 5;
+               overflow: auto; padding: 20px 24px; background: var(--bg); color: var(--text);
+               font: 13px/1.5 system-ui, sans-serif; border-top: 1px solid var(--panel-divider); }
+#side-choose .choose-head { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+#side-choose .side-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+                          color: var(--text-strong); font-family: ui-monospace, "Cascadia Mono", monospace; }
+#side-choose .choose-missing { flex: 1 1 auto; color: var(--text-muted); white-space: nowrap; }
+#side-choose button { border: 1px solid var(--panel-border); background: var(--panel); color: var(--text);
+                      border-radius: 6px; padding: 4px 10px; font: inherit; cursor: pointer; }
+#side-choose button:hover:not(:disabled) { border-color: var(--accent); }
+#side-choose button:disabled { opacity: .5; cursor: default; }
+#side-choose .choose-empty { margin-bottom: 18px; }
+#side-choose .choose-error { color: var(--diff-removed); margin: -8px 0 14px; }
+#side-choose .choose-note { margin: 0 0 8px; color: var(--text-muted); }
+#side-choose .choose-filter { width: 100%; max-width: 420px; margin-bottom: 8px; padding: 4px 8px;
+                              border: 1px solid var(--panel-border); border-radius: 6px;
+                              background: var(--panel); color: var(--text); font: inherit; }
+#side-choose .choose-list { list-style: none; margin: 0 0 8px; padding: 0; }
+#side-choose .choose-list li { margin: 0 0 4px; }
+#side-choose .choose-file { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+                            text-align: left; font-family: ui-monospace, "Cascadia Mono", monospace; }
 #root.split #collapsed-panel { left: var(--md-w); top: 52px; }
 #root.split #selection-toolbar, #root.split #pick-hint {
   left: calc(var(--md-w) + (100vw - var(--md-w)) / 2);

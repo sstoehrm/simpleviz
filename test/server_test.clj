@@ -945,6 +945,61 @@
       ;; both created files open as an unchanged comparison
       (is (nil? (get (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "file=a%2Fn.edn"}))) "error"))))))
 
+(deftest api-create-copies-from-an-existing-graph
+  (with-temp-dir*
+    (fn [dir]
+      (serve! (write! dir "root.edn" "{:nodes {:a nil}}"))
+      (write! dir "lib/tpl.edn" "{:nodes {:t {:ref \"x.edn\"}}}\n")
+      (is (= {"ok" true "created" "docs/new.edn"} (create! {:path "docs/new.edn" :file "new" :from "lib/tpl.edn"})))
+      ;; a byte copy: refs stay as written
+      (is (= "{:nodes {:t {:ref \"x.edn\"}}}\n" (slurp (java.io.File. dir "docs/new.edn"))))
+      ;; never overwrites
+      (is (= {"ok" true "created" nil} (create! {:path "docs/new.edn" :file "new" :from "root.edn"})))
+      (is (= "{:nodes {:t {:ref \"x.edn\"}}}\n" (slurp (java.io.File. dir "docs/new.edn")))))))
+
+(deftest api-create-from-refusals
+  (with-temp-dir*
+    (fn [dir]
+      (serve! (write! dir "root.edn" "{:nodes {:a nil}}"))
+      (write! dir "pic.png" "not really")
+      (is (re-find #"no such file" (get (create! {:path "n.edn" :file "new" :from "gone.edn"}) "error")))
+      (is (re-find #"leaves the served folder" (get (create! {:path "n.edn" :file "new" :from "../x.edn"}) "error")))
+      (is (re-find #"not an \.edn file" (get (create! {:path "n.edn" :file "new" :from "pic.png"}) "error")))
+      (is (not (.exists (java.io.File. dir "n.edn"))))))
+  (with-temp-dir*
+    (fn [dir]
+      (suffix-tree! dir)
+      (is (= "copying is not available in a comparison"
+             (get (create! {:path "a/n.edn" :file "new" :from "lone.edn"}) "error")))
+      (is (not (.exists (java.io.File. dir "a/n-next.edn")))))))
+
+(defn- graphs [path]
+  (json/parse-string (:body (serve/handler {:uri "/api/graphs" :request-method :get
+                                            :query-string (str "path=" (java.net.URLEncoder/encode path "UTF-8"))}))))
+
+(deftest api-graphs-lists-the-graphs-a-new-one-can-copy
+  (with-temp-dir*
+    (fn [dir]
+      (serve! (write! dir "root.edn" "{:nodes {:a nil}}"))
+      (write! dir "docs/talk.md" "# t")
+      (write! dir "docs/sub/b.edn" "{}")
+      (write! dir "a.EDN" "{}")
+      (write! dir "pic.png" "x")
+      (write! dir ".git/hidden.edn" "{}")
+      (write! dir "node_modules/pkg/dep.edn" "{}")
+      (is (= {"exists" false "files" ["a.EDN" "docs/sub/b.edn" "root.edn"] "truncated" false}
+             (graphs "docs/new.edn")))
+      (is (true? (get (graphs "docs/sub/b.edn") "exists")))
+      (is (re-find #"leaves the served folder" (get (graphs "../x.edn") "error"))))))
+
+(deftest api-graphs-in-suffix-mode-skips-forks
+  (with-temp-dir*
+    (fn [dir]
+      (suffix-tree! dir)
+      (is (= ["lone.edn" "root.edn" "sub/api.edn"] (get (graphs "a/n.edn") "files")))
+      ;; a fork alone counts as there
+      (is (true? (get (graphs "fresh.edn") "exists"))))))
+
 (deftest api-edit-without-path-picks-the-root-sides-in-suffix-mode
   (with-temp-dir*
     (fn [dir]

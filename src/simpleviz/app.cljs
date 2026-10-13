@@ -42,7 +42,10 @@
    :placed nil :arrange false
    :selected nil :editing nil :edit-error nil :pick nil :pick-hint nil
    :chord nil :id-entry nil :focus-center true
-   :collapsed-boxes #{} :export-menu false})
+   :collapsed-boxes #{} :export-menu false
+   ;; a link of the md page to a graph not there yet (offer-side!):
+   ;; {:path :files :truncated :query :busy :error}, shown beside the page
+   :side-choose nil})
 
 (def state (atom (merge per-file
                  {:colors nil :collapsed false :layouting false
@@ -84,9 +87,10 @@
   (= true (:page (:md st))))
 
 (defn- split?
-  "Does the md page show a graph beside it?"
+  "Does the md page show a graph beside it, or the choice of how a
+  missing one starts?"
   [st]
-  (and (page? st) (some? (:side st))))
+  (and (page? st) (or (some? (:side st)) (some? (:side-choose st)))))
 
 (defn- presenting?
   "Is the md page being presented?"
@@ -157,7 +161,7 @@
 (declare relayout! post-edit! delete! current-edit-target-editable? follow-ref! navigate! run-chord-action!
          open-md! save-md! close-md! open-page! root-path! load-nav!
          save-if-dirty! save-before-leaving! follow-link! sync-gutter-scroll!
-         follow-to! close-side! focus-md-start! show-slide! leave-present!)
+         follow-to! close-side! start-side! focus-md-start! show-slide! leave-present!)
 
 ;; layouts per collapsed-set, so expanding (or re-collapsing a seen
 ;; combination) is instant instead of a multi-second ELK run; demoted
@@ -945,7 +949,7 @@
       "vi (top of a doc's text) turns on vi keys for the text of every doc, until you turn them off: Esc for normal mode, i a I A o O for insert; h j k l w b e W B E 0 ^ $ gg G f t F T ; , { } / ? n N move, with a count too; d c y take a motion or a text object (iw aw i\" a\" i( a( i[ i{ …), dd cc yy D C Y; x X s S r J ~ p P edit, v and V select, u and Ctrl+R undo and redo, . repeats. :w saves, :q closes the doc panel — on an md page it shows the text read — :wq does both, :12 goes to line 12. A bare Esc in normal mode still docks the panel; :q! drops unsaved edits first.")
      (help-section
       "md pages"
-      "simpleviz notes.md opens a markdown file rendered, in a centered column — headings, emphasis, quotes, lists and task lists, links, pictures, tables, footnotes, code; Edit switches to the plain text, Read back. Its links to graphs and md files follow on click — [text](sub/graph.edn), ![img](x.png), [text](other.md), reference links too; relative to the md file, never above the served folder. In the plain text a » in the gutter marks each line with such a link (»2 lists the links of that line). A graph or exported image opens to the right of the text, its link and » highlighted, and works like any graph; ⤢ full view opens it on its own, × closes it. An md file opens in place of this one; the trail at the top leads back. Unsaved text is saved before you leave the page — when that fails you stay. A :ref to an .md file opens it the same way; the doc panel of :md-ref has the » gutter too."
+      "simpleviz notes.md opens a markdown file rendered, in a centered column — headings, emphasis, quotes, lists and task lists, links, pictures, tables, footnotes, code; Edit switches to the plain text, Read back. Its links to graphs and md files follow on click — [text](sub/graph.edn), ![img](x.png), [text](other.md), reference links too; relative to the md file, never above the served folder. In the plain text a » in the gutter marks each line with such a link (»2 lists the links of that line). A graph or exported image opens to the right of the text, its link and » highlighted, and works like any graph; ⤢ full view opens it on its own, × closes it. A link to a graph in the md file's folder or below that isn't there yet offers, on the right, to create it empty or as a copy of another graph of the served folder — the copy keeps its :ref paths as written. An md file opens in place of this one; the trail at the top leads back. Unsaved text is saved before you leave the page — when that fails you stay. A :ref to an .md file opens it the same way; the doc panel of :md-ref has the » gutter too."
       "Present shows the page as slides: a line of just --- starts the next one, and a slide whose first line is >> [text](path) — >> and a link — shows that graph, md file or picture beside its text. → or space steps forward, ← back, Home and End jump; Esc leaves. The graph can be hovered, inspected, panned and collapsed, not edited.")
      (help-section
       "Keys"
@@ -1344,10 +1348,42 @@
                     [[:p {:class "md-empty"} "loading…"]]))
        [:div {:class "present-side-error"} text])]))
 
+(defn- side-choose-view
+  "Beside the md page, for a link to a graph not there yet: start it
+  empty, or as a copy of one of the served folder's graphs."
+  [{:keys [path files truncated query busy error]}]
+  (let [shown (editor/match-choices files query)]
+    [:div {:id "side-choose"}
+     [:div {:class "choose-head"}
+      [:span {:class "side-path" :title path} path]
+      [:span {:class "choose-missing"} "isn't there yet"]
+      [:button {:class "side-btn" :type "button" :title "Close" :aria-label "Close"
+                :on-click (fn [e] (.stopPropagation e) (swap! state assoc :side-choose nil))}
+       "×"]]
+     [:button {:class "choose-empty" :type "button" :disabled busy
+               :on-click (fn [e] (.stopPropagation e) (start-side! nil))}
+      "Create an empty graph"]
+     (when (some? error) [:div {:class "choose-error"} error])
+     (if (empty? files)
+       [:p {:class "choose-note"} "No other graphs in the served folder to copy."]
+       [:div {:class "choose-copy"}
+        [:p {:class "choose-note"} "or start it as a copy — its :ref paths stay as written:"]
+        [:input {:class "choose-filter" :type "search" :placeholder "filter" :value query
+                 :aria-label "Filter the graphs"
+                 :on-input (fn [e] (swap! state assoc-in [:side-choose :query] (.. e -target -value)))}]
+        (into [:ul {:class "choose-list"}]
+              (map (fn [f]
+                     [:li [:button {:class "choose-file" :type "button" :disabled busy :title (str "Copy " f)
+                                    :on-click (fn [e] (.stopPropagation e) (start-side! f))}
+                           f]])
+                   shown))
+        (when (empty? shown) [:p {:class "choose-note"} "No graph matches."])
+        (when truncated [:p {:class "choose-note"} "Only the first 2000 graphs are listed."])])]))
+
 (defn- side-view
   "Over the graph beside an md page: its path, a button that opens it
   in full view and one that closes it. Before one is open, a hint where
-  it will show."
+  it will show — or, for a link to a graph not there yet, how it starts."
   [st]
   (if-let [side (:side st)]
     [:div {:id "side-bar"}
@@ -1360,7 +1396,9 @@
      [:button {:class "side-btn" :type "button" :title "Close" :aria-label "Close"
                :on-click (fn [e] (.stopPropagation e) (close-side!))}
       "×"]]
-    [:div {:id "side-empty"} "a linked graph opens here"]))
+    (if-let [c (:side-choose st)]
+      (side-choose-view c)
+      [:div {:id "side-empty"} "a linked graph opens here"])))
 
 (defn- app-view [st]
   (let [page (page? st)
@@ -1813,6 +1851,37 @@
   []
   (show-side! nil)
   (apply-theme! (effective-theme nil (:theme-pref @state) (:theme @state))))
+
+(defn- ^:async offer-side!
+  "A link to the graph at root-relative `path`, in the md page's folder
+  or below: show it beside the page when it is there, else offer beside
+  the page to start it empty or as a copy of a graph of the served
+  folder."
+  [path]
+  (let [out (try (js-await (.json (js-await (js/fetch (str "/api/graphs?path=" (js/encodeURIComponent path))))))
+                 (catch :default _ {:error "the server did not answer"}))]
+    (cond
+      (some? (:error out)) (swap! state assoc :nav-error (:error out))
+      (:exists out) (js-await (open-side! path false))
+      :else (do (when (some? (:side @state)) (close-side!))
+                (swap! state assoc :side-choose {:path path :files (:files out) :truncated (:truncated out)
+                                                 :query "" :busy false :error nil})))))
+
+(defn- ^:async start-side!
+  "Create the graph the open choice is for — empty, or a copy of
+  root-relative `from` — and show it beside the md page."
+  [from]
+  (let [{:keys [path busy]} (:side-choose @state)]
+    (when-not busy
+      (swap! state assoc-in [:side-choose :busy] true)
+      (let [out (try (js-await (.json (js-await (post-json "/api/create"
+                                                           (cond-> (editor/create-body "new" path)
+                                                             (some? from) (assoc :from from))))))
+                     (catch :default _ {:error "the server did not answer"}))]
+        (if (some? (:error out))
+          (swap! state update :side-choose
+                 (fn [c] (when (some? c) (assoc c :busy false :error (:error out)))))
+          (js-await (open-side! path false)))))))
 
 (defn- ^:async follow-ref!
   "Follow the selection's ref: resolve it against the graph shown and
@@ -2333,9 +2402,12 @@
     (swap! state assoc :link-menu nil)
     (cond
       (some? error) (swap! state assoc :nav-error error)
-      ;; the md page shows a graph beside it rather than leaving
+      ;; the md page shows a graph beside it rather than leaving; one
+      ;; of its own folder that isn't there yet may start as a copy
       (and (:page md) (= kind "graph"))
-      (js-await (open-side! path (.endsWith (.toLowerCase path) ".edn")))
+      (if (and (editor/downstream-graph? (:path md) path) (not= path (:side st)))
+        (js-await (offer-side! path))
+        (js-await (open-side! path (.endsWith (.toLowerCase path) ".edn"))))
       :else
       (js-await (follow-to! path {:create? (and (= kind "graph") (.endsWith (.toLowerCase path) ".edn")
                                                 (or (:page md) (current-edit-target-editable? st)))})))))

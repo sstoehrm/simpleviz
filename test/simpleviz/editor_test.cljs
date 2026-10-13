@@ -13,7 +13,7 @@
                                       theme-menu top-box-of load-readiness export-readiness
                                       md-target from-disk to-disk md-dirty? adopt-doc gone-doc poll-outcome save-result
                                       parent-box split-parent doc-kind link-target line-markers link-title
-                                      with-side with-slide mark-open?]]
+                                      with-side with-slide mark-open? downstream-graph? match-choices]]
             [paths :refer [resolve-ref]]))
 
 (test "target maps selection payloads to op targets"
@@ -682,6 +682,25 @@
     (assert/deepEqual (link-target "notes.md" "x.png") {:path "x.png" :kind "graph"})
     (assert/deepEqual (link-target "notes.md" "../out.md")
                       {:error "link \"../out.md\" leaves the served folder"})))
+
+(test "downstream-graph?: an .edn in the md file's folder or below"
+  (fn []
+    (assert/equal (downstream-graph? "docs/notes.md" "docs/a.edn") true)
+    (assert/equal (downstream-graph? "docs/notes.md" "docs/sub/b.EDN") true)
+    (assert/equal (downstream-graph? "notes.md" "deep/er/c.edn") true)
+    (assert/equal (downstream-graph? "docs/notes.md" "pay.edn") false)
+    (assert/equal (downstream-graph? "docs/notes.md" "docsx/a.edn") false)
+    (assert/equal (downstream-graph? "docs/notes.md" "docs/x.png") false)
+    (assert/equal (downstream-graph? "docs/notes.md" nil) false)))
+
+(test "match-choices keeps the paths holding every word, any case"
+  (fn []
+    (let [fs ["a.edn" "docs/Pay.edn" "lib/tpl/pay-flow.edn"]]
+      (assert/deepEqual (match-choices fs "") fs)
+      (assert/deepEqual (match-choices fs "  ") fs)
+      (assert/deepEqual (match-choices fs "pay") ["docs/Pay.edn" "lib/tpl/pay-flow.edn"])
+      (assert/deepEqual (match-choices fs "tpl PAY") ["lib/tpl/pay-flow.edn"])
+      (assert/deepEqual (match-choices fs "zzz") []))))
 
 (test "line-markers: one marker per line with followable links"
   (fn []

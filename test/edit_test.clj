@@ -581,3 +581,87 @@
 (deftest set-theme-is-an-op
   (is (= :nord (:theme (clojure.edn/read-string
                         (:text (edit/apply-ops small-file [{:op "set-theme" :theme "nord"}])))))))
+
+;; --- copy / paste (select mode's y y, x x, p p) -------------------------
+
+(def clip-file
+  (str "{:nodes {:web {:name \"Web\" :role [:active] :pos [1 2]}\n"
+       "         :api {:name \"API\"}\n"
+       "         :db nil\n"
+       "         :mail {:name \"Mail\"}}\n"
+       " :edges {[:web :api] {:direction :-> :name \"REST\"}\n"
+       "         [:api :db] {:direction :->}\n"
+       "         [:web :mail] nil}\n"
+       " :boxes {:back {:components #{:api :inner} :type \"zone\"}\n"
+       "         :inner {:components [:db]}}}"))
+
+(defn- read-clip [s] (clojure.edn/read-string s))
+
+(deftest copy-takes-box-contents-and-the-edges-among-them
+  (let [clip (read-clip (edit/copy clip-file {:ids [{:section :boxes :id "back"}]}))]
+    (is (= #{:api :db} (set (keys (:nodes clip)))))
+    (is (= #{:back :inner} (set (keys (:boxes clip)))))
+    (is (= {[:api :db] {:direction :->}} (:edges clip)))
+    (is (= #{:api :inner} (get-in clip [:boxes :back :components])))
+    (is (= [:db] (get-in clip [:boxes :inner :components])))))
+
+(deftest copy-keeps-values-as-written-and-drops-dangling-edges
+  (let [clip (read-clip (edit/copy clip-file {:ids [{:section :nodes :id "web"}
+                                                    {:section :nodes :id "api"}]}))]
+    (is (= {:web {:name "Web" :role [:active] :pos [1 2]} :api {:name "API"}} (:nodes clip)))
+    (is (= {[:web :api] {:direction :-> :name "REST"}} (:edges clip)))
+    (is (nil? (:boxes clip)))))
+
+(deftest closure-lists-what-copy-takes-in-file-order
+  (is (= [{:section :nodes :id "api"} {:section :nodes :id "db"}
+          {:section :boxes :id "back"} {:section :boxes :id "inner"}]
+         (edit/closure clip-file {:ids [{:section :boxes :id "back"}]}))))
+
+(deftest copy-refuses-unknown-and-empty-selections
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"unknown node \"nope\""
+        (edit/copy clip-file {:ids [{:section :nodes :id "nope"}]})))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"nothing selected"
+        (edit/copy clip-file {:ids []}))))
+
+(deftest paste-into-another-graph-keeps-ids
+  (let [clip (edit/copy clip-file {:ids [{:section :boxes :id "back"}]})
+        out (edit/paste "{:nodes {:x nil}}" {:edn clip})
+        data (read-clip out)]
+    (is (= #{:x :api :db} (set (keys (:nodes data)))))
+    (is (= {:components #{:api :inner} :type "zone"} (get-in data [:boxes :back])))
+    (is (= {[:api :db] {:direction :->}} (:edges data)))))
+
+(deftest paste-onto-existing-ids-appends-a-suffix-to-id-and-name
+  (let [clip (edit/copy clip-file {:ids [{:section :nodes :id "web"} {:section :nodes :id "api"}]})
+        once (read-clip (edit/paste clip-file {:edn clip}))
+        twice (read-clip (edit/paste (edit/paste clip-file {:edn clip}) {:edn clip}))]
+    ;; :pos is dropped: the copy would sit right on the original
+    (is (= {:name "Web-1" :role [:active]} (get-in once [:nodes :web-1])))
+    (is (= {:name "API-1"} (get-in once [:nodes :api-1])))
+    (is (= {:direction :-> :name "REST"} (get-in once [:edges [:web-1 :api-1]])))
+    (is (= {:name "Web-2" :role [:active]} (get-in twice [:nodes :web-2])))
+    (is (contains? (:edges twice) [:web-2 :api-2]))))
+
+(deftest paste-renames-box-members-and-skips-ids-only-referenced
+  (let [clip (edit/copy clip-file {:ids [{:section :boxes :id "inner"}]})
+        ;; :db-1 is not defined, but an edge names it: taken too
+        target (str clip-file)
+        out (read-clip (edit/paste (clojure.string/replace target "[:web :mail] nil" "[:web :mail] nil [:web :db-1] nil")
+                                   {:edn clip}))]
+    (is (= {:components [:db-2]} (get-in out [:boxes :inner-1])))
+    (is (contains? (:nodes out) :db-2))))
+
+(deftest paste-into-a-box-adds-the-top-level-elements-only
+  (let [clip (edit/copy clip-file {:ids [{:section :boxes :id "inner"} {:section :nodes :id "mail"}]})
+        out (read-clip (edit/paste "{:nodes {:x nil} :boxes {:grp {:components [:x]}}}" {:edn clip :into "grp"}))]
+    (is (= [:x :mail :inner] (get-in out [:boxes :grp :components])))
+    (is (= [:db] (get-in out [:boxes :inner :components])))))
+
+(deftest paste-refuses-what-is-no-graph
+  (doseq [s ["" "hello there" "[1 2]" "{:nodes {}}" "{:nodes [:a]}"]]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"nothing to paste"
+          (edit/paste clip-file {:edn s})) s)))
+
+(deftest apply-ops-dispatches-paste
+  (is (= {:text "{:nodes {:a nil :a-1 nil}}"}
+         (edit/apply-ops "{:nodes {:a nil}}" [{:op "paste" :edn "{:nodes {:a nil}}"}]))))

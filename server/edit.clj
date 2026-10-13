@@ -440,6 +440,140 @@
           z/root-string)
       :else (-> root (z/append-child :theme) (z/append-child (keyword theme)) z/root-string))))
 
+;; ---- copy and paste: a selection as a graph of its own ----
+
+(defn- section-entries
+  "The [key value] zlocs of `section`'s entries in text, in file order;
+  [] when the section is absent."
+  [text section]
+  (if-let [sect (sect-val (zroot text) section)]
+    (loop [k (z/down sect) acc []]
+      (if (nil? k) acc (recur (z/right (z/right k)) (conj acc [k (z/right k)]))))
+    []))
+
+(defn- key-column
+  "The column (0-based) section's keys line up in, when its entries sit
+  one per line; nil otherwise."
+  [text section]
+  (when-let [sect (sect-val (z/of-string text {:track-position? true}) section)]
+    (let [k1 (z/down sect)
+          k2 (some-> k1 z/right z/right)]
+      (when (and (some? k2) (not= (first (z/position k1)) (first (z/position k2))))
+        (dec (second (z/position k1)))))))
+
+(defn- with-contents
+  "ids and, for those that are boxes, their members at any depth."
+  [data ids]
+  (loop [todo (vec ids) seen #{}]
+    (if-let [id (first todo)]
+      (recur (into (subvec todo 1) (remove seen (box-components data id))) (conj seen id))
+      seen)))
+
+(defn- closure-ids
+  "The ids of nodes and boxes `ids` ({:section :id}) and, of the boxes,
+  their members at any depth; fails on an unknown one or none."
+  [data ids]
+  (when (empty? ids) (fail! "nothing selected"))
+  (doseq [{:keys [section id]} ids]
+    (when-not (exists? data (keyword section) id) (unknown! (keyword section) id)))
+  (with-contents data (map :id ids)))
+
+(defn closure
+  "The targets ({:section :id}) copy takes for `ids`, in file order —
+  what a cut deletes."
+  [text {:keys [ids]}]
+  (let [in (closure-ids (parsed text) ids)]
+    (vec (for [s [:nodes :boxes]
+               [k _] (section-entries text s)
+               :let [id (ident->str (z/sexpr k))]
+               :when (contains? in id)]
+           {:section s :id id}))))
+
+(defn copy
+  "Nodes and boxes `ids` ({:section :id}), each box with its members at
+  any depth, and the edges among them all: the EDN text of a graph of
+  their own, entries in file order and as written."
+  [text {:keys [ids]}]
+  (let [in (closure-ids (parsed text) ids)
+        in? (fn [k] (if (vector? k) (every? #(contains? in (ident->str %)) k) (contains? in (ident->str k))))
+        sections (keep (fn [s]
+                         (let [es (filterv (fn [[k _]] (in? (z/sexpr k))) (section-entries text s))
+                               pad (apply str (repeat (+ 3 (count (str s))) " "))]
+                           (when (seq es)
+                             (str s " {" (str/join (str "\n" pad) (map (fn [[k v]] (str (z/string k) " " (z/string v))) es))
+                                  "}"))))
+                       [:nodes :edges :boxes])]
+    (str "{" (str/join "\n " sections) "}\n")))
+
+(defn- nothing-to-paste! []
+  (fail! "nothing to paste: the clipboard holds no simpleviz nodes or boxes"))
+
+(defn- clip-data
+  "The clipboard text s as a graph map with nodes or boxes to paste."
+  [s]
+  (let [v (try (z/sexpr (z/of-string (str s))) (catch Exception _ nil))
+        some-map? (fn [x] (and (map? x) (seq x)))]
+    (if (and (map? v) (or (some-map? (:nodes v)) (some-map? (:boxes v))))
+      v
+      (nothing-to-paste!))))
+
+(defn paste
+  "Add the graph in EDN text `edn` (what copy gives) to text. An id that
+  is taken — defined or referenced — gets the first free suffix -1, -2,
+  …, its :name the same; :pos goes (the copy would sit on the original);
+  edges and memberships naming ids the clip does not define go too.
+  With `into`, the clip's top-level elements go into that box."
+  [text {:keys [edn] box :into}]
+  (let [clip (clip-data edn)
+        data (parsed text)
+        frag-ids (into [] (comp (mapcat (fn [s] (keys (ensure-map-section clip s))))
+                                (filter #(or (keyword? %) (string? %)))
+                                (map ident->str) (distinct))
+                       [:nodes :boxes])
+        frag? (set frag-ids)
+        taken (into (referenced-ids data) (filter #(element-exists? data %)) frag-ids)
+        renames (first (reduce (fn [[m used] id]
+                                 (if (contains? taken id)
+                                   (let [to (some #(let [c (str id "-" %)] (when-not (contains? used c) c)) (rest (range)))]
+                                     [(assoc m id to) (conj used to)])
+                                   [m used]))
+                               [{} (into taken frag-ids)] frag-ids))
+        ;; the clip's own text, every change made there first
+        own (fn [t [section k v]]
+              (let [id (ident->str k)
+                    t (if (and (map? v) (contains? v :pos)) (del-attr t {:section section :id id :attr :pos}) t)
+                    to (get renames id)]
+                (if (and (some? to) (map? v) (string? (:name v)))
+                  (set-attr t {:section section :id id :attr :name
+                               :value (pr-str (str (:name v) (subs to (count id)))) :fallback false})
+                  t)))
+        clip-text (as-> (str edn) t
+                    (reduce own t (for [s [:nodes :boxes] [k v] (get clip s)] [s k v]))
+                    (until-done t (fn [t'] (remove-entry t' :edges (fn [k] (and (vector? k) (not-every? #(frag? (ident->str %)) k))))))
+                    (reduce (fn [t' id] (until-done t' #(remove-first-component % id)))
+                            t (remove frag? (mapcat (fn [[_ v]] (map ident->str (:components v))) (:boxes clip))))
+                    (reduce (fn [t' [id to]]
+                              (rename t' {:section (if (exists? (parsed t') :nodes id) :nodes :boxes) :id id :to to}))
+                            t renames))
+        members (into #{} (mapcat (fn [[_ v]] (map ident->str (:components v)))) (:boxes (parsed clip-text)))
+        add (fn [t s]
+              (let [es (section-entries clip-text s)]
+                (if (empty? es)
+                  t
+                  (let [col (key-column t s)]
+                    (z/root-string
+                     (reduce (fn [sect [k v]]
+                               (if (some? col)
+                                 (-> sect (z/append-child* (n/newlines 1)) (z/append-child* (n/spaces col))
+                                     (z/append-child* (z/node k)) (z/append-child* (n/spaces 1)) (z/append-child* (z/node v)))
+                                 (-> sect (z/append-child (z/node k)) (z/append-child (z/node v)))))
+                             (ensure-sect (zroot t) s) es))))))
+        out (reduce add text [:nodes :edges :boxes])]
+    (if (some? box)
+      (reduce (fn [t id] (if (contains? members id) t (box-add t {:box box :member id})))
+              out (map #(get renames % %) frag-ids))
+      out)))
+
 (defn- norm-op
   "Browser payload -> internal op: keywordize section/attr, keep ids.
   Attr names are validated against the same ident regex ident-node uses —
@@ -474,6 +608,7 @@
       "rename" (rename text o)
       "wrap" (wrap text o)
       "set-theme" (set-theme text o)
+      "paste" (paste text o)
       (fail! (str "unknown op " (pr-str op-name))))))
 
 (defn apply-ops

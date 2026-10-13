@@ -444,3 +444,53 @@
                   "         b: s2 && pos(s2, 'b').join(' ') === pos(s1, 'b').join(' ')};"
                   "})()"))]
       (is (= {:placed true :moved [5 3] :b true} r)))))
+
+(deftest select-mode-copies-cuts-and-pastes
+  ;; s s and a click select, y y copies, p p pastes with a -1; s r spans a
+  ;; rectangle; s a then x x cuts everything, and p p brings it back.
+  ;; The page's clipboard is a stand-in: headless Chrome asks permission.
+  (with-real-browser
+    (let [r (eval-on-served-page
+             path "g.edn" "{:nodes {:a {:name \"A\"} :b nil :c nil}\n :edges {[:a :b] {:direction :->}}\n :boxes {:grp {:components [:b]}}}"
+             (str "(async () => {"
+                  " const sleep = ms => new Promise(res => setTimeout(res, ms));"
+                  " const until = async f => { for (let i = 0; i < 100; i++) { const v = await f(); if (v) return v; await sleep(100); } return null; };"
+                  " let clip = '';"
+                  " delete window.ClipboardItem;"
+                  " Object.defineProperty(navigator, 'clipboard', {value: {writeText: async t => { clip = t; }, readText: async () => clip}});"
+                  " const app = await import('/js/simpleviz/app.mjs'), cv = await import('/js/simpleviz/canvas.mjs');"
+                  " const st = () => app.state.val;"
+                  " const key = k => document.dispatchEvent(new KeyboardEvent('keydown', {key: k, bubbles: true}));"
+                  " const keys = ks => ks.split(' ').forEach(key);"
+                  " const source = async () => (await fetch('/api/source')).text();"
+                  " const ids = () => [...st().multi.ids].sort().join(' ');"
+                  " await until(() => st().scene);"
+                  " keys('s s');"
+                  " const a = st().scene.items.find(i => i.id === 'n:a'), p = cv.to_screen(a.x + a.w / 2, a.y + a.h / 2);"
+                  " const canvas = document.getElementById('canvas'), rect = canvas.getBoundingClientRect();"
+                  " canvas.dispatchEvent(new MouseEvent('click', {clientX: rect.left + p.x, clientY: rect.top + p.y, bubbles: true}));"
+                  " const picked = ids();"
+                  " keys('y y');"
+                  " const copied = await until(() => clip);"
+                  " const ended = st().multi === null;"
+                  " keys('p p');"
+                  " const pasted = await until(async () => { const s = await source(); return s.includes(':a-1') && s; });"
+                  " await until(() => st().scene.items.some(i => i.id === 'n:a-1'));"
+                  " keys('s r');"
+                  " const wrap = document.getElementById('canvas-wrap'), wr = wrap.getBoundingClientRect();"
+                  " const sc = st().scene, tl = cv.to_screen(-10, -10), br = cv.to_screen(sc.width + 10, sc.height + 10);"
+                  " const ev = (type, x, y) => wrap.dispatchEvent(new PointerEvent(type, {clientX: wr.left + x, clientY: wr.top + y, bubbles: true, pointerId: 7}));"
+                  " ev('pointerdown', tl.x, tl.y); ev('pointermove', br.x, br.y); ev('pointerup', br.x, br.y);"
+                  " const spanned = ids();"
+                  " key('Escape');"
+                  " const escaped = st().multi === null;"
+                  " keys('s a'); keys('x x');"
+                  " const emptied = await until(async () => { const s = await source(); return !s.includes(':a') && s; });"
+                  " keys('p p');"
+                  " const back = await until(async () => { const s = await source(); return s.includes(':a-1 {:name \"A-1\"}') && s.includes(':grp') && s; });"
+                  " return {picked, copied, ended, pasted: pasted && pasted.includes(':a-1 {:name \"A-1\"}'), spanned, escaped,"
+                  "         emptied: !!emptied, back: !!back && !back.includes(':a-2')};"
+                  "})()"))]
+      (is (= {:picked "n:a" :copied "{:nodes {:a {:name \"A\"}}}\n" :ended true :pasted true
+              :spanned "b:grp n:a n:a-1 n:b n:c" :escaped true :emptied true :back true}
+             r)))))

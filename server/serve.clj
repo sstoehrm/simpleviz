@@ -320,6 +320,17 @@
                 {:ok true})))))
     (catch Exception e {:error (ex-message e)})))
 
+(defn- copy-response
+  "The EDN text of nodes and boxes `ids` with what they hold (edit/copy),
+  and the targets that took (edit/closure), from the side `file` names —
+  what an edit there would change."
+  [{:keys [file ids path]}]
+  (try
+    (when (some? path) (refuse-embedded-compare!))
+    (let [text (side-source (sides path) file)]
+      {:edn (edit/copy text {:ids ids}) :ids (edit/closure text {:ids ids})})
+    (catch Exception e {:error (ex-message e)})))
+
 (defn- create-response
   "Create the graph file a followed ref names, with its folders, when
   nothing is there yet: in a comparison the side being edited (`file`),
@@ -727,6 +738,10 @@
           (catch Exception e [400 {:error (ex-message e)}]))]
     (assoc (json-response (json/generate-string out)) :status status)))
 
+(defn- copy-response-body [body-stream]
+  (let [parsed (read-json-body body-stream)]
+    (json/generate-string (if-let [err (:parse-error parsed)] {:error err} (copy-response parsed)))))
+
 (defn- create-response-body [body-stream]
   (let [parsed (read-json-body body-stream)
         out (if-let [err (:parse-error parsed)]
@@ -928,6 +943,7 @@
     "/api/errors"  (json-response (errors-response-body query-string))
     "/api/edit"    (post-only req #(json-response (edit-response-body body)))
     "/api/create"  (post-only req #(json-response (create-response-body body)))
+    "/api/copy"    (post-only req #(json-response (copy-response-body body)))
     "/api/lock"    (post-only req #(lock-response acquire-lock! body))
     "/api/unlock"  (post-only req #(lock-response release-lock! body))
     "/api/root"      (json-response (json/generate-string {:path (root-rel)}))

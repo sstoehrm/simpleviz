@@ -533,11 +533,27 @@
     (and (md-dirty? md) (not= (from-disk (:text fetched)) (:text md))) "conflict"
     :else "take"))
 
+;; ---- select mode: copy, cut, paste ----
+
+(defn selection-targets
+  "The op targets ({:section :id}) of the scene ids of nodes and boxes."
+  [ids]
+  (mapv (fn [id] {:section (if (.startsWith id "n:") "nodes" "boxes") :id (.slice id 2)}) ids))
+
+(defn paste-op
+  "The op pasting clipboard text `edn`: into the box `sel` is, else at
+  the top level."
+  [edn sel]
+  (if (= "box" (:kind sel))
+    {:op "paste" :edn edn :into (.slice (:elk-id sel) 2)}
+    {:op "paste" :edn edn}))
+
 ;; ---- keyboard chords ----
 
 ;; Chords of any length, in the order the toolbar and the pop-out list
 ;; them (d d last, so Delete ends the row). Each entry maps a selection
-;; kind ("node" "edge" "box", or "none" with nothing selected) to
+;; kind ("node" "edge" "box", "none" with nothing selected, "select" in
+;; select mode) to
 ;; [action label]; the action is what app.cljs dispatches on, the label
 ;; what the buttons and the pop-out show.
 (def ^:private chord-table
@@ -565,13 +581,26 @@
    [["f" "r"] {"node" ["follow-ref" "follow ref"] "edge" ["follow-ref" "follow ref"] "box" ["follow-ref" "follow ref"]}]
    [["f" "p"] {"node" ["follow-pair" "follow pair"] "box" ["follow-pair" "follow pair"]}]
    [["f" "m"] {"node" ["open-md" "open md"] "box" ["open-md" "open md"]}]
-   [["d" "d"] {"node" ["delete" "delete"] "edge" ["delete" "delete"] "box" ["delete" "delete"]}]])
+   [["s" "s"] {"none" ["select-mode" "select"] "node" ["select-mode" "select"]
+               "edge" ["select-mode" "select"] "box" ["select-mode" "select"]}]
+   [["s" "a"] {"none" ["select-all" "select all"] "node" ["select-all" "select all"]
+               "edge" ["select-all" "select all"] "box" ["select-all" "select all"]
+               "select" ["select-all" "select all"]}]
+   [["s" "r"] {"none" ["select-rect" "select area"] "node" ["select-rect" "select area"]
+               "edge" ["select-rect" "select area"] "box" ["select-rect" "select area"]
+               "select" ["select-rect" "select area"]}]
+   [["y" "y"] {"select" ["copy" "copy"]}]
+   [["x" "x"] {"select" ["cut" "cut"]}]
+   [["p" "p"] {"none" ["paste" "paste"] "node" ["paste" "paste"] "edge" ["paste" "paste"] "box" ["paste" "paste"]}]
+   [["d" "d"] {"node" ["delete" "delete"] "edge" ["delete" "delete"] "box" ["delete" "delete"]
+               "select" ["delete-selected" "delete"]}]])
 
 ;; what a group button and a group item in the pop-out are called, by
 ;; their keys joined with spaces
 (def ^:private chord-groups
   {"n" "new" "n n" "new element" "a" "add" "r" "rename / remove"
-   "c" "change" "e" "direction" "f" "follow" "f p" "follow pair" "d" "delete"})
+   "c" "change" "e" "direction" "f" "follow" "f p" "follow pair" "d" "delete"
+   "s" "select" "y" "copy" "x" "cut" "p" "paste"})
 
 (defn- kind-key [kind] (if (nil? kind) "none" kind))
 

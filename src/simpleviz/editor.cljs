@@ -329,12 +329,12 @@
 (defn- trail-entry
   "[path compare-or-nil] of one trail entry as the URL has it: the path
   URL-encoded, then `:` and the compare suffix when that graph was
-  compared (an encoded path holds no raw `:`)."
+  compared (an encoded path holds no raw `:`); an empty one is none."
   [e]
-  (let [k (.indexOf e ":")]
-    (if (neg? k)
-      [(js/decodeURIComponent e) nil]
-      [(js/decodeURIComponent (.slice e 0 k)) (js/decodeURIComponent (.slice e (inc k)))])))
+  (let [k (.indexOf e ":")
+        c (when-not (neg? k) (js/decodeURIComponent (.slice e (inc k))))]
+    [(js/decodeURIComponent (if (neg? k) e (.slice e 0 k)))
+     (if (or (nil? c) (= c "")) nil c)]))
 
 (defn- compare-at
   "The compare of trail entry i in `trail-compare` (which may be nil or

@@ -735,7 +735,9 @@
                                        :trail-compare [nil "v2" "next"] :compare "next"}))
     ;; no compare anywhere: the URL and the parsed nav are as before
     (assert/equal (nav-query "db.edn" ["a.edn"] nil nil [nil]) "?file=db.edn&trail=a.edn")
-    (assert/deepEqual (parse-nav "?trail=a%253Ab.edn") {:file nil :trail ["a:b.edn"]})))
+    (assert/deepEqual (parse-nav "?trail=a%253Ab.edn") {:file nil :trail ["a:b.edn"]})
+    ;; an empty compare, as in a hand-made URL, is none
+    (assert/deepEqual (parse-nav "?trail=a.edn%3A") {:file nil :trail ["a.edn"]})))
 
 (test "follow-url and crumb-url keep each entry's compare"
   (fn []

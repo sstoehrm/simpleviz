@@ -221,6 +221,11 @@
   (when (embedded-compare?)
     (throw (ex-info "refs are not available in an embedded compare" {}))))
 
+(defn- suffix?
+  "Is `s` a fork suffix (suffix-re)?"
+  [s]
+  (and (string? s) (some? (re-matches suffix-re s))))
+
 (defn request-suffix
   "The fork suffix a request compares under: its own `compare` (an md
   link's ?compare=<suffix>), else the one the server started with.
@@ -230,7 +235,7 @@
   (cond
     (nil? compare) (:suffix @files)
     (embedded-compare?) (throw (ex-info "compare is not available in an embedded compare" {}))
-    (and (string? compare) (re-matches suffix-re compare)) compare
+    (suffix? compare) compare
     :else (throw (ex-info (str "invalid compare suffix: " (pr-str compare)) {}))))
 
 (defn sides
@@ -820,7 +825,7 @@
   root-relative, is a file) comparing under `suffix`, or nil."
   [root dest target suffix]
   (cond
-    (not (and (string? suffix) (re-matches suffix-re suffix)))
+    (not (suffix? suffix))
     (str dest ": invalid compare suffix " (pr-str suffix))
     (paths/md-path? dest)
     (str dest ": compare needs a graph file (.edn, .png or .svg)")

@@ -665,3 +665,21 @@
 (deftest apply-ops-dispatches-paste
   (is (= {:text "{:nodes {:a nil :a-1 nil}}"}
          (edit/apply-ops "{:nodes {:a nil}}" [{:op "paste" :edn "{:nodes {:a nil}}"}]))))
+
+(deftest paste-twice-never-reuses-a-defined-id
+  ;; a-1 is defined but nothing references it
+  (is (= "{:nodes {:a {} :a-1 {} :a-2 {:name \"A-2\"}}}"
+         (edit/paste "{:nodes {:a {} :a-1 {}}}" {:edn "{:nodes {:a {:name \"A\"}}}"})))
+  (is (= "{:boxes {:g {} :g-1 {} :g-2 {}}}"
+         (edit/paste "{:boxes {:g {} :g-1 {}}}" {:edn "{:boxes {:g {}}}"}))))
+
+(deftest copy-and-paste-skip-discarded-entries
+  (let [src "{:nodes {:a {} #_#_ :z {} :q {}}}"]
+    (is (= "{:nodes {:a {}\n         :q {}}}\n"
+           (edit/copy src {:ids [{:section :nodes :id "a"} {:section :nodes :id "q"}]})))
+    (is (= [{:section :nodes :id "a"}] (edit/closure src {:ids [{:section :nodes :id "a"}]}))))
+  (is (= "{:nodes {:x nil :b {}}}" (edit/paste "{:nodes {:x nil}}" {:edn "{:nodes {#_#_ :a {} :b {}}}"}))))
+
+(deftest paste-refuses-a-clip-naming-a-node-and-a-box-alike
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"clipboard holds \"a\" as a node and as a box"
+        (edit/paste "{:nodes {:a {}}}" {:edn "{:nodes {:a {}} :boxes {:a {}}}"}))))

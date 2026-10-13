@@ -149,11 +149,13 @@
     (assert/deepEqual (:attrs (hover-tip {:kind "box" :id "b:g" :name "G" :attrs {"text" "hi"} :text-lines []}))
                       [["text" "hi"]])))
 
-(test "ids-in-rect: the nodes and boxes wholly inside, whichever corner the drag began at"
+(test "ids-in-rect: the nodes and boxes wholly inside, whichever corner the drag began at, but those absent from the file edited"
   (fn []
     (let [s (scene [node-a edge-e outer-box inner-box
                     {:kind "node" :id "n:gone" :x 110 :y 160 :w 10 :h 10 :diff "removed"}])]
-      (assert/deepEqual (ids-in-rect s {:x0 70 :y0 90 :x1 210 :y1 240}) ["n:a" "b:inner"])
-      (assert/deepEqual (ids-in-rect s {:x0 210 :y0 240 :x1 70 :y1 90}) ["n:a" "b:inner"])
-      (assert/deepEqual (ids-in-rect s {:x0 0 :y0 0 :x1 400 :y1 400}) ["n:a" "b:outer" "b:inner"])
-      (assert/deepEqual (ids-in-rect s {:x0 0 :y0 0 :x1 10 :y1 10}) []))))
+      (assert/deepEqual (ids-in-rect s {:x0 70 :y0 90 :x1 210 :y1 240} "removed") ["n:a" "b:inner"])
+      (assert/deepEqual (ids-in-rect s {:x0 210 :y0 240 :x1 70 :y1 90} "removed") ["n:a" "b:inner"])
+      (assert/deepEqual (ids-in-rect s {:x0 0 :y0 0 :x1 400 :y1 400} "removed") ["n:a" "b:outer" "b:inner"])
+      (assert/deepEqual (ids-in-rect s {:x0 0 :y0 0 :x1 10 :y1 10} "removed") [])
+      ;; editing the old file: its removed elements are there, added ones not
+      (assert/deepEqual (ids-in-rect s {:x0 70 :y0 90 :x1 210 :y1 240} "added") ["n:a" "b:inner" "n:gone"]))))

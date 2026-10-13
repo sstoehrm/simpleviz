@@ -442,13 +442,22 @@
 
 ;; ---- copy and paste: a selection as a graph of its own ----
 
+(defn- form-at
+  "loc, or the first form right of it that is no `#_` discard; nil at
+  the end."
+  [loc]
+  (loop [c loc] (if (and (some? c) (= :uneval (z/tag c))) (recur (z/right c)) c)))
+
 (defn- section-entries
-  "The [key value] zlocs of `section`'s entries in text, in file order;
-  [] when the section is absent."
+  "The [key value] zlocs of `section`'s entries in text, in file order,
+  `#_` discards skipped; [] when the section is absent."
   [text section]
   (if-let [sect (sect-val (zroot text) section)]
-    (loop [k (z/down sect) acc []]
-      (if (nil? k) acc (recur (z/right (z/right k)) (conj acc [k (z/right k)]))))
+    (loop [k (form-at (z/down sect)) acc []]
+      (if (nil? k)
+        acc
+        (let [v (form-at (z/right k))]
+          (recur (some-> v z/right form-at) (conj acc [k v])))))
     []))
 
 (defn- key-column
@@ -531,7 +540,13 @@
                                 (map ident->str) (distinct))
                        [:nodes :boxes])
         frag? (set frag-ids)
-        taken (into (referenced-ids data) (filter #(element-exists? data %)) frag-ids)
+        _ (doseq [k (keys (:nodes clip))]
+            (when (some #(= (ident->str k) (ident->str %)) (keys (:boxes clip)))
+              (fail! (str "the clipboard holds " (pr-str (ident->str k)) " as a node and as a box"))))
+        ;; every id the graph defines or names
+        taken (into (referenced-ids data)
+                    (map ident->str)
+                    (concat (keys (ensure-map-section data :nodes)) (keys (ensure-map-section data :boxes))))
         renames (first (reduce (fn [[m used] id]
                                  (if (contains? taken id)
                                    (let [to (some #(let [c (str id "-" %)] (when-not (contains? used c) c)) (rest (range)))]

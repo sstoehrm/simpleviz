@@ -518,6 +518,12 @@
       (some? go) (follow-ref! go)
       (some? go-pair) (follow-pair! go-pair))))
 
+(defn- absent-status
+  "The compare status of the elements the file edited does not have:
+  the old file lacks what was added, the new one what was removed."
+  [st]
+  (if (= "old" (:edit-target st)) "added" "removed"))
+
 (defn- chord-kind
   "The kind the chords and the toolbar go by: \"select\" in select
   mode, else the selection's (nil for none)."
@@ -921,7 +927,7 @@
           ;; select mode: a node or box joins the selection, or leaves it
           (and (nil? pick) (some? (:multi @state)))
           (cond (= (:kind item) "collapse-button") (toggle-collapse! (.slice (:box-id item) 2))
-                (and (contains? #{"node" "box"} (:kind item)) (not= "removed" (:diff item)))
+                (and (contains? #{"node" "box"} (:kind item)) (not= (absent-status @state) (:diff item)))
                 (swap! state update-in [:multi :ids]
                        (fn [ids] (if (contains? ids (:id item)) (disj ids (:id item)) (conj ids (:id item))))))
 
@@ -2480,10 +2486,8 @@
 (defn- select-all!
   "s a: select mode with every node and box selected."
   []
-  (enter-select! (set (keep (fn [it] (when (and (contains? #{"node" "box"} (:kind it)) (not= "removed" (:diff it)))
-                                       (:id it)))
-                            (:items (:scene @state))))
-                 false))
+  (let [sc (:scene @state)]
+    (enter-select! (set (hit/ids-in-rect sc {:x0 -1e9 :y0 -1e9 :x1 1e9 :y1 1e9} (absent-status @state))) false)))
 
 (defn- rect-drag
   "The canvas's drag hook after s r: the drag spans a rectangle, and
@@ -2493,13 +2497,14 @@
     (let [r (atom {:x0 gx :y0 gy :x1 gx :y1 gy})]
       {:move (fn [dx dy]
                (swap! r assoc :x1 (+ gx dx) :y1 (+ gy dy))
-               (canvas/set-marquee! @r))
+               ;; Esc mid-drag cancelled it: no rectangle comes back
+               (when (:rect (:multi @state)) (canvas/set-marquee! @r)))
        :end (fn []
               (canvas/set-marquee! nil)
               ;; Esc mid-drag cancelled it
               (when-let [m (:multi @state)]
                 (when (:rect m)
-                  (swap! state assoc :multi {:ids (into (:ids m) (hit/ids-in-rect (:scene @state) @r)) :rect false}))))
+                  (swap! state assoc :multi {:ids (into (:ids m) (hit/ids-in-rect (:scene @state) @r (absent-status @state))) :rect false}))))
        :cancel (fn [] (canvas/set-marquee! nil))})))
 
 (defn- ^:async fetch-copy
@@ -2531,7 +2536,10 @@
         ok? (try (js-await (write-clipboard! (.then out-p (fn [o] (:edn o)))))
                  true
                  (catch :default e
-                   (swap! state assoc :notice (str (if cut "Cut" "Copy") " failed: " (.-message e)))
+                   ;; the server's own error, when it had one, says more
+                   ;; than the clipboard's
+                   (let [msg (try (js-await out-p) (.-message e) (catch :default e2 (.-message e2)))]
+                     (swap! state assoc :notice (str (if cut "Cut" "Copy") " failed: " msg)))
                    false))]
     (when ok?
       (let [n (count (:ids (js-await out-p)))]

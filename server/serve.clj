@@ -318,7 +318,7 @@
             (do (push-undo! path before)
                 (spit path text)
                 {:ok true})))))
-    (catch Exception e {:error (ex-message e)})))
+    (catch Exception e {:error (or (ex-message e) (str e))})))
 
 (defn- copy-response
   "The EDN text of nodes and boxes `ids` with what they hold (edit/copy),
@@ -329,7 +329,7 @@
     (when (some? path) (refuse-embedded-compare!))
     (let [text (side-source (sides path) file)]
       {:edn (edit/copy text {:ids ids}) :ids (edit/closure text {:ids ids})})
-    (catch Exception e {:error (ex-message e)})))
+    (catch Exception e {:error (or (ex-message e) (str e))})))
 
 (defn- create-response
   "Create the graph file a followed ref names, with its folders, when

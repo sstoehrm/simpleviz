@@ -137,13 +137,14 @@
 
 (defn ids-in-rect
   "The ids of the nodes and boxes wholly inside the graph-space rect
-  spanned by (x0, y0) and (x1, y1), in draw order; the ghosts of
-  removed elements (compare mode) are not there to select."
-  [scene {:keys [x0 y0 x1 y1]}]
+  spanned by (x0, y0) and (x1, y1), in draw order — but those whose
+  compare status is `absent`: in the file edited they are not there to
+  select (\"removed\" when editing the new file, \"added\" the old)."
+  [scene {:keys [x0 y0 x1 y1]} absent]
   (let [lx (min x0 x1) hx (max x0 x1) ly (min y0 y1) hy (max y0 y1)]
     (vec (keep (fn [it]
                  (when (and (contains? #{"node" "box"} (:kind it))
-                            (not= "removed" (:diff it))
+                            (not= absent (:diff it))
                             (<= lx (:x it)) (<= (+ (:x it) (:w it)) hx)
                             (<= ly (:y it)) (<= (+ (:y it) (:h it)) hy))
                    (:id it)))

@@ -65,9 +65,10 @@ A link to another md file opens it in place of this one: try
 
 ## Compare two versions
 
-[The fork of the demo](demo-next.edn) is the same graph after a change. `simpleviz demo`
-serves both as one diagram: added elements get a green ring, modified ones amber,
-removed ones stay as red ghosts. Make your own with
+[The fork of the demo](demo-next.edn) is the same graph after a change.
+[The comparison](demo.edn?compare=next) shows both as one diagram: added elements get a
+green ring, modified ones amber, removed ones stay as red ghosts — `?compare=next` on a
+link does that, as `simpleviz demo.edn next` does for a whole session. Make your own with
 
     simpleviz fork my-arch.edn next      # my-arch-next.edn, plus every file it refs
     simpleviz my-arch.edn next           # compare

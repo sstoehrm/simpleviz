@@ -1,7 +1,7 @@
 (ns simpleviz.vim-test
   (:require ["node:test" :refer [test]]
             ["node:assert/strict$default" :as assert]
-            [simpleviz.vim :refer [init press selection status interrupt reloaded]]))
+            [simpleviz.vim :refer [init press selection status interrupt reloaded replaced]]))
 
 ;; A buffer is written with | at the cursor: "foo |bar" is the cursor on b.
 ;; Keys are a string, one char per key, <Esc> <CR> <BS> <C-r> for the rest.
@@ -356,3 +356,17 @@
           vs (reloaded vs "new" 0)
           [vs] (feed* vs "|new" "x<Esc>")]
       (assert/equal (mark (second (feed* vs "|xnew" "u"))) "|new"))))
+
+(test "replaced: u brings back the text from before a change made outside vi mode"
+  (fn []
+    (let [vs (replaced (init) "old text" 2)
+          r (press vs {:text "new" :pos 0} "u")]
+      (assert/equal (:text r) "old text")
+      (assert/equal (:mode (:vs r)) "normal"))
+    (let [[vs buf] (feed* (init) "|ab" "ixy")
+          vs (replaced vs (:text buf) (:pos buf))
+          r (press vs {:text "tidy" :pos 0} "u")
+          r2 (press (:vs r) {:text (:text r) :pos (:pos r)} "u")]
+      (assert/equal (:mode vs) "normal")
+      (assert/equal (:text r) "xyab")
+      (assert/equal (:text r2) "ab"))))

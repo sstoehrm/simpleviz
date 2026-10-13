@@ -445,23 +445,34 @@
                   :else [:ol {:start (:start it0)}])]
     [(into tag lis) end]))
 
+(defn- table-end
+  "The line after the table starting at line i."
+  [lines i]
+  (let [n (count lines)]
+    (loop [j (+ i 2)]
+      (if (and (< j n) (let [l (nth lines j)]
+                         (not (or (blank? l) (.test heading-re l) (some? (fence-open l))
+                                  (hr? l) (quote? l) (.test note-def-re l) (some? (item-of l))))))
+        (recur (inc j))
+        j))))
+
+(defn- aligns-of
+  "The table's column alignments from its separator line: \"left\",
+  \"center\", \"right\" or nil."
+  [sep]
+  (mapv (fn [c] (let [l (.startsWith c ":") r (.endsWith c ":")]
+                  (cond (and l r) "center" r "right" l "left" :else nil)))
+        (cells sep)))
+
 (defn- table-block [lines i ctx]
-  (let [n (count lines)
-        aligns (mapv (fn [c] (let [l (.startsWith c ":") r (.endsWith c ":")]
-                               (cond (and l r) "center" r "right" l "left" :else nil)))
-                     (cells (nth lines (inc i))))
+  (let [aligns (aligns-of (nth lines (inc i)))
         row (fn [tag l]
               (let [cs (cells l)]
                 (into [:tr] (map-indexed (fn [k a]
                                            (into (if (some? a) [tag {:class (str "al-" a)}] [tag])
                                                  (inline (or (get cs k) "") ctx)))
                                          aligns))))
-        end (loop [j (+ i 2)]
-              (if (and (< j n) (let [l (nth lines j)]
-                                 (not (or (blank? l) (.test heading-re l) (some? (fence-open l))
-                                          (hr? l) (quote? l) (.test note-def-re l) (some? (item-of l))))))
-                (recur (inc j))
-                j))]
+        end (table-end lines i)]
     [[:table [:thead (row :th (nth lines i))]
       (into [:tbody] (map (fn [j] (row :td (nth lines j))) (range (+ i 2) end)))]
      end]))
@@ -594,15 +605,245 @@
                    (conj lis (into [:li {:id (str "fn-" label)}]
                                    (with-backref (blocks (.get (:notes ctx) label) ctx) label))))))))))
 
+(defn- untab
+  "Line l with tabs in its indentation as four spaces."
+  [l]
+  (.replace l #"^[ \t]+" (fn [ws] (.replaceAll ws "\t" "    "))))
+
 (defn render
   "Hiccup blocks for markdown text. (link-fn link children) renders each
   link, link {:dest :label :kind}: :dest as mdlinks cleans a path (or a
   URL kept whole), :kind \"inline\", \"image\" or \"ref\"."
   [text link-fn]
-  (let [lines (mapv (fn [l] (.replace l #"^[ \t]+" (fn [ws] (.replaceAll ws "\t" "    "))))
-                    (.split (.replaceAll (str text) "\r\n" "\n") "\n"))
+  (let [lines (mapv untab (.split (.replaceAll (str text) "\r\n" "\n") "\n"))
         code (code-lines lines)
         ctx {:defs (defs-of lines code) :notes (notes-of lines code) :order (js/Map.) :link-fn link-fn}
         bs (blocks lines ctx)
         notes (footnotes ctx)]
     (if (some? notes) (conj bs notes) bs)))
+
+;; ---------------------------------------------------------------- tidy
+;; Each step rewrites the text line by line, and counts only when the
+;; text still renders the same: a line alone can't tell whether it sits
+;; in a list item or a quote, the render can.
+
+(def ^:private quote-prefix-re #"^(?: {0,3}>[ \t]?)*")
+(def ^:private lead-re #"^(?:[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]+)*[ \t]*")
+(def ^:private bullet-re #"^([ \t]*)[*+]([ \t]+\S)")
+
+(defn- shape
+  "What text renders to, as a string to compare."
+  [text]
+  (js/JSON.stringify (render text (fn [l kids] (into [:a {:href (:dest l)}] kids)))))
+
+(defn- fenced-lines
+  "Per line: may it be a fenced code block's, fences included — the
+  open fence, or \"close\" for the line closing it? A fence counts
+  behind quote and list markers and at any indentation, so what may be
+  code is left alone; it closes as the renderer closes it."
+  [lines]
+  (let [acc []]
+    (loop [i 0 fence nil]
+      (if (>= i (count lines))
+        acc
+        (let [l (untab (nth lines i))]
+          (if (some? fence)
+            (let [s (if (:quoted fence) (.replace l quote-prefix-re "") l)
+                  close (fence-close? (subs s (min (:col fence) (indent s))) (:mark fence))]
+              (conj! acc (if close "close" fence))
+              (recur (inc i) (when-not close fence)))
+            (let [q (aget (.match l quote-prefix-re) 0)
+                  rest (subs l (count q))
+                  col (count (aget (.match rest lead-re) 0))
+                  f (some-> (fence-open (subs rest col)) (assoc :col col :quoted (not= "" q)))]
+              (conj! acc (if (some? f) f false))
+              (recur (inc i) f))))))))
+
+(defn- step
+  "Text after (f lines fenced), when it renders as text does — its
+  shape `sh` — else text."
+  [text sh f]
+  (let [lines (.split text "\n")
+        out (f lines (fenced-lines lines))]
+    (if (= sh (shape out)) out text)))
+
+(defn- tidy-heading [l m]
+  (let [ind (aget (.match l #"^ *") 0)
+        text (or (aget m 2) "")]
+    (str ind (aget m 1) (when-not (= "" text) (str " " text)))))
+
+(defn- headings
+  "One space after a heading's #s, none closing it, a blank line around
+  one at the margin."
+  [lines fenced]
+  (let [out []]
+    (doseq [i (range (count lines))]
+      (let [l (nth lines i)
+            m (when-not (nth fenced i) (.exec heading-re l))]
+        (if (nil? m)
+          (conj! out l)
+          (let [margin (not (.startsWith l " "))]
+            (when (and margin (pos? i) (not (blank? (last out)))) (conj! out ""))
+            (conj! out (tidy-heading l m))
+            (when (and margin (some-> (nth lines (inc i) nil) blank? not)) (conj! out ""))))))
+    (.join out "\n")))
+
+(defn- cell-width [s] (.-length (js/Array.from s)))
+
+(defn- pad-cell [s w align]
+  (let [gap (max 0 (- w (cell-width s)))
+        left (case align "right" gap "center" (js/Math.floor (/ gap 2)) 0)]
+    (str (.repeat " " left) s (.repeat " " (- gap left)))))
+
+(defn- tidy-table
+  "The table's lines `rows` (header, separator, body) with columns padded
+  to one width and every row framed by pipes, indented by `ind`. Cells
+  past the header's stay, unpadded."
+  [rows ind]
+  (let [aligns (aligns-of (nth rows 1))
+        n (count aligns)
+        body (mapv (fn [l]
+                     (let [cs (mapv (fn [c] (.replaceAll c "|" "\\|")) (cells l))]
+                       (into cs (repeat (max 0 (- n (count cs))) ""))))
+                   (into [(first rows)] (drop 2 rows)))
+        widths (mapv (fn [k] (apply max 3 (map (fn [cs] (cell-width (nth cs k))) body))) (range n))
+        line (fn [cs] (str ind "| " (.join (vec (map-indexed (fn [k c] (if (< k n) (pad-cell c (nth widths k) (nth aligns k)) c)) cs)) " | ") " |"))
+        sep (vec (map-indexed (fn [k a]
+                                (let [w (nth widths k)]
+                                  (case a
+                                    "left" (str ":" (.repeat "-" (dec w)))
+                                    "right" (str (.repeat "-" (dec w)) ":")
+                                    "center" (str ":" (.repeat "-" (- w 2)) ":")
+                                    (.repeat "-" w))))
+                              aligns))]
+    (into [(line (first body)) (str ind "| " (.join sep " | ") " |")] (map line (rest body)))))
+
+(defn- table-at
+  "The tidied lines of the table starting at line i and its end, or nil
+  when no table starts there that a tidy can keep whole."
+  [lines fenced i]
+  (let [l (nth lines i)]
+    (when (and (not (nth fenced i)) (< (indent (untab l)) 4)
+               (not (or (.test heading-re l) (quote? l) (hr? l) (.test def-re l)
+                        (.test note-def-re l) (some? (item-of l))))
+               (table-start? lines i))
+      (let [end (table-end lines i)
+            rows (.slice lines i end)
+            ind (aget (.match l #"^[ \t]*") 0)]
+        (when (every? (fn [r] (and (.startsWith r ind) (not (.test #"^[ \t]" (subs r (count ind))))
+                                   (not (.test def-re r))))
+                      rows)
+          [(tidy-table rows ind) end])))))
+
+(defn- tables
+  "Text with its tables' columns aligned: all at once when the text
+  still renders the same, else each table that keeps it so."
+  [text sh]
+  ;; a tidied table has as many lines, so the fences stay where they are
+  (let [lines (.split text "\n")
+        fenced (fenced-lines lines)
+        tidied (fn [lines i] (when-let [[rows end] (table-at lines fenced i)]
+                               [(.concat (.slice lines 0 i) (clj->js rows) (.slice lines end)) end]))
+        all (loop [ls lines i 0]
+              (if (>= i (count ls))
+                (.join ls "\n")
+                (if-let [[out end] (tidied ls i)] (recur out end) (recur ls (inc i)))))]
+    (if (or (= all text) (= sh (shape all)))
+      all
+      (loop [ls lines i 0]
+        (if (>= i (count ls))
+          (.join ls "\n")
+          (if-let [[out end] (tidied ls i)]
+            (recur (if (= sh (shape (.join out "\n"))) out ls) end)
+            (recur ls (inc i))))))))
+
+(defn- tidy-end
+  "Line l without trailing blanks, but for a hard line break (two
+  spaces before a line that follows) and a backslash they'd uncover."
+  [l nxt]
+  (let [t (.trimEnd l)]
+    (cond (= t l) l
+          (.endsWith t "\\") l
+          (and (.endsWith l "  ") (some? nxt) (not (blank? nxt))) (str t "  ")
+          :else t)))
+
+(defn- line-ends
+  "No trailing blanks but a hard break's — not in what may be code:
+  indented, quoted, or with a backtick."
+  [lines fenced]
+  (.join (vec (map-indexed (fn [i l]
+                             (if (or (nth fenced i) (>= (indent (untab l)) 4) (quote? l) (.includes l "`"))
+                               l
+                               (tidy-end l (nth lines (inc i) nil))))
+                           lines))
+         "\n"))
+
+(defn- blank-lines
+  "No blank lines at the start and end, one where there were more — but
+  in indented code, whose blank lines are its text — and one newline at
+  the end, unless the text ends in an open fence, whose end is code."
+  [lines fenced]
+  (let [n (count lines)
+        blank-at? (fn [i] (and (not (nth fenced i)) (blank? (nth lines i))))
+        code-at? (fn [i] (and (not (nth fenced i)) (>= (indent (untab (nth lines i))) 4)))
+        ;; per line, the next line that is no blank
+        nxt (let [a (js/Array. (inc n))]
+              (aset a n nil)
+              (loop [i (dec n)]
+                (when (>= i 0)
+                  (aset a i (let [j (inc i)] (cond (>= j n) nil (blank-at? j) (aget a j) :else j)))
+                  (recur (dec i))))
+              a)
+        out []]
+    (loop [i 0 prev nil last-blank false]
+      (when (< i n)
+        (if-not (blank-at? i)
+          (do (conj! out (nth lines i)) (recur (inc i) i false))
+          (let [nx (aget nxt i)
+                keep (and (some? prev) (some? nx)
+                          (or (not last-blank) (and (code-at? prev) (code-at? nx))))]
+            (when keep (conj! out ""))
+            (recur (inc i) prev (or last-blank keep))))))
+    (cond (empty? out) ""
+          (map? (last fenced)) (.join out "\n")
+          :else (str (.join out "\n") "\n"))))
+
+(defn- dash-bullets
+  "* and + bullets as -."
+  [lines fenced]
+  (.join (vec (map-indexed (fn [i l]
+                             (if (or (nth fenced i) (hr? (.trimStart l))) l (.replace l bullet-re "$1-$2")))
+                           lines))
+         "\n"))
+
+(defn tidy
+  "Markdown text tidied, rendering the same: headings with one space
+  after the #s and none closing, a blank line around those at the
+  margin; tables with aligned columns; - for bullets; no trailing
+  blanks but a hard break's; one blank line between blocks; one newline
+  at the end. Code stays as it is. A step that would change how the
+  text renders is left out."
+  [text]
+  (let [text (.replaceAll (str text) "\r\n" "\n")
+        sh (shape text)]
+    (-> text
+        (step sh headings)
+        (tables sh)
+        (step sh line-ends)
+        (step sh blank-lines)
+        (step sh dash-bullets))))
+
+(defn tidy-caret
+  "Where caret p of text t goes in its tidied text t2: after as many
+  characters that are no whitespace, and as much of the whitespace
+  before p as t2 has there."
+  [t t2 p]
+  (let [before (subs t 0 p)
+        k (count (.replace before (js/RegExp. "\\s" "g") ""))
+        w (- (count before) (count (.trimEnd before)))
+        at (loop [i 0 seen 0]
+             (cond (>= seen k) i
+                   (>= i (count t2)) (count t2)
+                   :else (recur (inc i) (if (.test #"\s" (.charAt t2 i)) seen (inc seen)))))]
+    (loop [i at]
+      (if (and (< i (count t2)) (< (- i at) w) (.test #"\s" (.charAt t2 i))) (recur (inc i)) i))))

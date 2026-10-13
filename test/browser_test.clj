@@ -402,6 +402,27 @@
                  " r.pref = (await (await fetch('/api/prefs')).json()).vi;"
                  " ok(r); }, 50); })"))))))
 
+(deftest format-tidies-the-text-and-undoes
+  ;; Format, in edit mode only, tidies the text; the browser's undo takes
+  ;; it back, and in vi mode u does
+  (with-real-browser
+    (let [raw "#  Title\ntext   \n* a\n* b"
+          tidy "# Title\n\ntext  \n- a\n- b\n"]
+      (is (= {:read-has false :formatted tidy :dirty true :undone raw :vi tidy :vi-undone raw}
+             (eval-on-served-page
+              path "notes.md" raw
+              (str "new Promise(ok => { let step = 0; const r = {}; const t = setInterval(() => {"
+                   " const key = (el, k) => el.dispatchEvent(new KeyboardEvent('keydown', {key: k, bubbles: true, cancelable: true}));"
+                   " const fmt = () => document.querySelector('.md-format');"
+                   " if (step === 0) { const b = document.querySelector('.md-mode'); if (!b) return;"
+                   "  r['read-has'] = !!fmt(); b.click(); step = 1; return; }"
+                   " clearInterval(t); const ta = document.getElementById('md-text');"
+                   " fmt().click(); r.formatted = ta.value; r.dirty = !!document.querySelector('.md-dirty');"
+                   " ta.focus(); document.execCommand('undo'); r.undone = ta.value;"
+                   " document.querySelector('.md-vi').click();"
+                   " fmt().click(); r.vi = ta.value;"
+                   " key(ta, 'u'); r['vi-undone'] = ta.value; ok(r); }, 50); })")))))))
+
 (deftest vi-moves-scroll-the-text
   ;; setting the textarea's selection doesn't scroll it: G must, gg back
   (with-real-browser

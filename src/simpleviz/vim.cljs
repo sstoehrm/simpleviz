@@ -741,6 +741,14 @@
   (cond-> (assoc (interrupt vs) :undo [] :redo [])
     (= "insert" (:mode vs)) (update :ins assoc :undo {:text t :pos p} :text t :at p)))
 
+(defn replaced
+  "vs after text t, the caret at p, was replaced from outside vi mode:
+  normal mode — an insert's typing its own undo step — and u brings t
+  back."
+  [vs t p]
+  (let [vs (if (= "insert" (:mode vs)) (:vs (leave-insert vs t p)) (interrupt vs))]
+    (push-undo vs t p)))
+
 (defn fresh
   "vs for a doc just opened: no undo of another text; the register,
   the dot and the last search and find stay."

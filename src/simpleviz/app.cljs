@@ -174,6 +174,9 @@
 ;; pre-edit ELK run resolving after an instant fingerprint-reuse
 ;; relayout would overwrite the fresh scene and poison the cache
 (def ^:private graph-gen (atom 0))
+;; bumped by every change of what is beside the md page (and every
+;; navigation), so a graph choice answered late drops what it brings
+(def ^:private side-gen (atom 0))
 
 ;; bumped by every slide change and navigation: what a slide's >> loads
 ;; after the next slide (or another page) came is dropped
@@ -1358,7 +1361,7 @@
       [:span {:class "side-path" :title path} path]
       [:span {:class "choose-missing"} "isn't there yet"]
       [:button {:class "side-btn" :type "button" :title "Close" :aria-label "Close"
-                :on-click (fn [e] (.stopPropagation e) (swap! state assoc :side-choose nil))}
+                :on-click (fn [e] (.stopPropagation e) (swap! side-gen inc) (swap! state assoc :side-choose nil))}
        "×"]]
      [:button {:class "choose-empty" :type "button" :disabled busy
                :on-click (fn [e] (.stopPropagation e) (start-side! nil))}
@@ -1378,7 +1381,7 @@
                            f]])
                    shown))
         (when (empty? shown) [:p {:class "choose-note"} "No graph matches."])
-        (when truncated [:p {:class "choose-note"} "Only the first 2000 graphs are listed."])])]))
+        (when truncated [:p {:class "choose-note"} (str "Only the first " (count files) " graphs are listed.")])])]))
 
 (defn- side-view
   "Over the graph beside an md page: its path, a button that opens it
@@ -1748,6 +1751,7 @@
         md-target? (= "md" (editor/doc-kind (shown-path nav)))]
     (reset! shown-query js/location.search)
     (swap! graph-gen inc)
+    (swap! side-gen inc)
     ;; a slide's >> still loading belongs to the page left
     (swap! present-gen inc)
     (swap! state (fn [st]
@@ -1829,6 +1833,7 @@
   side in the URL without a history entry, so a reload shows it again."
   [side]
   (swap! graph-gen inc)
+  (swap! side-gen inc)
   (swap! state (fn [st] (merge st per-file {:side side})))
   (.clear layout-cache)
   (reset! last-mtime nil)
@@ -1858,9 +1863,12 @@
   the page to start it empty or as a copy of a graph of the served
   folder."
   [path]
-  (let [out (try (js-await (.json (js-await (js/fetch (str "/api/graphs?path=" (js/encodeURIComponent path))))))
+  (let [gen (swap! side-gen inc)
+        out (try (js-await (.json (js-await (js/fetch (str "/api/graphs?path=" (js/encodeURIComponent path))))))
                  (catch :default _ {:error "the server did not answer"}))]
     (cond
+      ;; another link was followed, or the page left, meanwhile
+      (not= gen @side-gen) nil
       (some? (:error out)) (swap! state assoc :nav-error (:error out))
       (:exists out) (js-await (open-side! path false))
       :else (do (when (some? (:side @state)) (close-side!))
@@ -1871,17 +1879,20 @@
   "Create the graph the open choice is for — empty, or a copy of
   root-relative `from` — and show it beside the md page."
   [from]
-  (let [{:keys [path busy]} (:side-choose @state)]
+  (let [{:keys [path busy]} (:side-choose @state)
+        gen @side-gen]
     (when-not busy
       (swap! state assoc-in [:side-choose :busy] true)
       (let [out (try (js-await (.json (js-await (post-json "/api/create"
                                                            (cond-> (editor/create-body "new" path)
                                                              (some? from) (assoc :from from))))))
                      (catch :default _ {:error "the server did not answer"}))]
-        (if (some? (:error out))
+        (cond
+          (not= gen @side-gen) nil
+          (some? (:error out))
           (swap! state update :side-choose
                  (fn [c] (when (some? c) (assoc c :busy false :error (:error out)))))
-          (js-await (open-side! path false)))))))
+          :else (js-await (open-side! path false)))))))
 
 (defn- ^:async follow-ref!
   "Follow the selection's ref: resolve it against the graph shown and
@@ -2160,6 +2171,8 @@
   "No graph beside the page: close the one shown, else drop a side the
   URL may still name (a slide that changed since, a hand-made URL)."
   []
+  ;; a graph choice beside the page goes too: a slide takes the room
+  (swap! state assoc :side-choose nil)
   (if (some? (:side @state))
     (close-side!)
     (replace-query! (editor/with-side js/location.search nil))))

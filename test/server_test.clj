@@ -989,14 +989,16 @@
       (write! dir "node_modules/pkg/dep.edn" "{}")
       (is (= {"exists" false "files" ["a.EDN" "docs/sub/b.edn" "root.edn"] "truncated" false}
              (graphs "docs/new.edn")))
-      (is (true? (get (graphs "docs/sub/b.edn") "exists")))
+      ;; a graph that is there needs no choices
+      (is (= {"exists" true "files" [] "truncated" false} (graphs "docs/sub/b.edn")))
       (is (re-find #"leaves the served folder" (get (graphs "../x.edn") "error"))))))
 
-(deftest api-graphs-in-suffix-mode-skips-forks
+(deftest api-graphs-in-suffix-mode-offers-no-copies
   (with-temp-dir*
     (fn [dir]
       (suffix-tree! dir)
-      (is (= ["lone.edn" "root.edn" "sub/api.edn"] (get (graphs "a/n.edn") "files")))
+      ;; create refuses copying in a comparison
+      (is (= {"exists" false "files" [] "truncated" false} (graphs "a/n.edn")))
       ;; a fork alone counts as there
       (is (true? (get (graphs "fresh.edn") "exists"))))))
 

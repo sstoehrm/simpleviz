@@ -748,7 +748,8 @@
 
 (defn- graphs-response
   "For a link to root-relative graph `path`: whether it is there yet (in
-  a comparison either side) and the graphs it could start as a copy of."
+  a comparison either side) and, when not, the graphs it could start as
+  a copy of — none in a comparison, where create refuses copying."
   [path]
   (try
     (refuse-embedded-compare!)
@@ -758,8 +759,9 @@
           _ (refuse-fork! path suffix)
           base (resolve-path @root-dir path false #{"edn"})
           fork (when (some? suffix) (resolve-path @root-dir (fork-name path suffix) false #{"edn"}))
-          fs (scan-edn @root-dir suffix)]
-      {:exists (boolean (or (.exists base) (and (some? fork) (.exists fork))))
+          exists (boolean (or (.exists base) (and (some? fork) (.exists fork))))
+          fs (if (or exists (some? suffix)) [] (scan-edn @root-dir suffix))]
+      {:exists exists
        :files (vec (take max-graph-choices fs))
        :truncated (> (count fs) max-graph-choices)})
     (catch Exception e {:error (ex-message e)})))

@@ -212,3 +212,12 @@
       (assert/deepEqual (md "| h |\n|---|\n| x[^a] |\n[^a]: n")
                         [[:table [:thead [:tr [:th "h"]]] [:tbody [:tr [:td "x" ref]]]] (notes "n")])
       (assert/deepEqual (md "y[^a]\n\n```\n[^a]: in code\n```") [[:p "y[^a]"] [:pre [:code "[^a]: in code"]]]))))
+
+(test "a link's ?compare= reaches link-fn as :compare"
+  (fn []
+    (let [seen (atom [])
+          lf (fn [l kids] (swap! seen conj l) (into [:a] kids))]
+      (render "[a](api.edn?compare=next) [b](b.edn) [r][d]\n\n[d]: c.edn?compare=v2" lf)
+      (assert/deepEqual @seen [{:dest "api.edn" :label "a" :kind "inline" :compare "next"}
+                               {:dest "b.edn" :label "b" :kind "inline"}
+                               {:dest "c.edn" :label "r" :kind "ref" :compare "v2"}]))))

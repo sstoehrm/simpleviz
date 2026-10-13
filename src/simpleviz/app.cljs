@@ -2120,7 +2120,7 @@
   "\"image\" when the .png or .svg at root-relative `path` is a plain
   picture, else \"graph\" — a failure then shows as the graph's error."
   [path compare]
-  (try (let [out (js-await (.json (js-await (js/fetch (editor/with-compare (str "/api/graph?file=" (js/encodeURIComponent path)) compare)))))]
+  (try (let [out (js-await (.json (js-await (js/fetch (str "/api/graph" (editor/with-compare (str "?file=" (js/encodeURIComponent path)) compare))))))]
          (if (= true (:image out)) "image" "graph"))
        (catch :default _ "graph")))
 

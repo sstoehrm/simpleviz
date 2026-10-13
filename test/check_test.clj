@@ -123,3 +123,34 @@
         (.write o (byte-array [0x5B -1 -2 0x5D])))
       (is (re-find #"not UTF-8" (:error (check/check (str (fs/file dir "bad.md"))))))
       (finally (fs/delete-tree outer)))))
+
+(deftest check-md-reports-compare-links
+  (let [[outer dir] (temp-md-folder {"notes.md" (str "[ok](g.edn?compare=next) [plain](g.edn)\n"
+                                                     "[nofork](g.edn?compare=v2)\n"
+                                                     "[bad](g.edn?compare=a%20b) [empty](g.edn?compare=)\n"
+                                                     "[doc](other.md?compare=next)\n"
+                                                     "[fork](g-next.edn?compare=next)\n"
+                                                     "[gone](nope.edn?compare=next)\n"
+                                                     "[r][d] [r2][d]\n\n[d]: <h.svg?compare=v2>\n")
+                                     "g.edn" "{}" "g-next.edn" "{}" "other.md" "" "h.svg" ""})]
+    (try
+      (is (= {:error nil
+              :warnings ["line 2: g.edn: no g-v2.edn — create it with: simpleviz fork g.edn v2"
+                         "line 3: g.edn: invalid compare suffix \"a b\""
+                         "line 3: g.edn: invalid compare suffix \"\""
+                         "line 4: other.md: compare needs a graph file (.edn, .png or .svg)"
+                         "line 5: g-next.edn is the fork of g.edn — link the original"
+                         "line 6: nope.edn not found"
+                         "line 9: h.svg: no h-v2.svg — create it with: simpleviz fork h.svg v2"]}
+             (check/check (str (fs/file dir "notes.md")))))
+      (finally (fs/delete-tree outer)))))
+
+(deftest md-warnings-find-the-fork-beside-the-target
+  (let [[outer dir] (temp-md-folder {})]
+    (try
+      (fs/create-dirs (fs/file dir "docs/sub"))
+      (spit (fs/file dir "docs/sub/a.edn") "{}")
+      (spit (fs/file dir "docs/sub/a-next.edn") "{}")
+      (is (= ["line 2: sub/a.edn: no sub/a-v2.edn — create it with: simpleviz fork sub/a.edn v2"]
+             (serve/md-warnings (str dir) "docs/notes.md" "[a](sub/a.edn?compare=next)\n[b](sub/a.edn?compare=v2)")))
+      (finally (fs/delete-tree outer)))))

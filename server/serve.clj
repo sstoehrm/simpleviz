@@ -815,21 +815,40 @@
    (try (doc-state (doc-file (query-param query-string "path")))
         (catch Exception e {:error (ex-message e)}))))
 
+(defn- compare-problem
+  "What is wrong with link destination `dest` (its target, `target`
+  root-relative, is a file) comparing under `suffix`, or nil."
+  [root dest target suffix]
+  (cond
+    (not (and (string? suffix) (re-matches suffix-re suffix)))
+    (str dest ": invalid compare suffix " (pr-str suffix))
+    (paths/md-path? dest)
+    (str dest ": compare needs a graph file (.edn, .png or .svg)")
+    (some? (fork-base dest suffix))
+    (str dest " is the fork of " (fork-base dest suffix) " — link the original")
+    (not (try (.isFile (resolve-path root (fork-name target suffix) false link-extensions))
+              (catch Exception _ false)))
+    (str dest ": no " (fork-name dest suffix) " — create it with: simpleviz fork " dest " " suffix)))
+
 (defn md-warnings
   "The broken links of md file `rel` (root-relative, under folder `root`)
   holding `text`: one \"line N: <dest> not found\", \"line N: <dest>
   leaves the served folder\" (or another problem the path check names
   it by) or \"line N: <dest>: <message>\" per followable link whose
-  target is no file below `root`; one link's failure never fails the
-  rest. A reference use is checked once, at its definition."
+  target is no file below `root`, or whose ?compare= cannot compare it
+  (compare-problem); one link's failure never fails the rest. A
+  reference use is checked once, at its definition."
   [root rel text]
   (let [dir (some-> (.getParent (io/file rel)) (str/replace "\\" "/"))]
     (vec
-     (keep (fn [{:keys [line dest kind]}]
+     (keep (fn [{:keys [line dest kind] :as l}]
              (when (and (not= kind "ref") (mdlinks/followable? dest))
                (let [target (if (some? dir) (str dir "/" dest) dest)]
-                 (try (when-not (.isFile (resolve-path root target false link-extensions))
-                        (str "line " line ": " dest " not found"))
+                 (try (cond
+                        (not (.isFile (resolve-path root target false link-extensions)))
+                        (str "line " line ": " dest " not found")
+                        (contains? l :compare)
+                        (some->> (compare-problem root dest target (:compare l)) (str "line " line ": ")))
                       (catch Exception e
                         ;; resolve-path names the path it checked: say dest instead
                         (let [msg (str (ex-message e))]

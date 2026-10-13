@@ -1,7 +1,7 @@
 (ns simpleviz.slides-test
   (:require ["node:test" :refer [test]]
             ["node:assert/strict$default" :as assert]
-            [simpleviz.slides :refer [slides side-kind]]))
+            [simpleviz.slides :refer [slides side-kind stop-at results]]))
 
 (test "--- lines split the slides; empty ones are dropped"
   (fn []
@@ -46,3 +46,94 @@
     (assert/equal (side-kind "x.gif") "image")
     (assert/equal (side-kind "x.webp") "image")
     (assert/equal (side-kind "x.txt") nil)))
+
+(test "?? names a question: its task list becomes the choices, [x] the right one"
+  (fn []
+    (assert/deepEqual (slides "?? storage\n# Where?\n\nPick one.\n\n- [ ] Browser\n- [x] Redis\n- [ ] Postgres\n")
+                      [{:text "# Where?\n\nPick one."
+                        :side nil
+                        :ask {:id "storage" :submit false :error nil
+                              :choices [{:text "Browser" :correct false :note nil}
+                                        {:text "Redis" :correct true :note nil}
+                                        {:text "Postgres" :correct false :note nil}]}}])
+    ;; ??? asks for a submit; * and + lists and [X] count too
+    (let [[s] (slides "???  entry \n# Q\n* [X] gateway\n+ [ ] auth")]
+      (assert/equal (:id (:ask s)) "entry")
+      (assert/equal (:submit (:ask s)) true)
+      (assert/deepEqual (mapv :correct (:choices (:ask s))) [true false]))))
+
+(test "the lines indented under a choice are its explanation"
+  (fn []
+    (let [[s] (slides "??? q\n# Q\n- [ ] Node memory\n  > Gone on restart.\n  > Really.\n\n- [x] Redis\n    > Right: shared.\n- [ ] Disk\nAfter the list.")]
+      (assert/equal (:text s) "# Q\nAfter the list.")
+      (assert/deepEqual (mapv :note (:choices (:ask s)))
+                        ["> Gone on restart.\n> Really." "> Right: shared." nil]))))
+
+(test ">> and ?? share a slide, in either order"
+  (fn []
+    (doseq [deck [">> [g](g.edn)\n?? q\n# Q\n- [ ] a\n- [x] b"
+                  "?? q\n>> [g](g.edn)\n# Q\n- [ ] a\n- [x] b"]]
+      (let [[s] (slides deck)]
+        (assert/equal (:side s) "g.edn")
+        (assert/equal (:id (:ask s)) "q")
+        (assert/equal (:text s) "# Q")))
+    ;; a ?? line further down is text
+    (assert/deepEqual (slides "# T\n?? q") [{:text "# T\n?? q" :side nil}])))
+
+(test "a task list in a fenced code block is no choice"
+  (fn []
+    (let [[s] (slides "?? q\n```\n- [ ] code\n```\n- [ ] a\n- [ ] b")]
+      (assert/equal (:text s) "```\n- [ ] code\n```")
+      (assert/equal (count (:choices (:ask s))) 2))))
+
+(test "a question without a name, or without 2 to 4 choices, says so and shows as text"
+  (fn []
+    (let [[s] (slides "?? q\n# Q\n- [x] only")]
+      (assert/equal (:text s) "# Q\n- [x] only")
+      (assert/deepEqual (:choices (:ask s)) [])
+      (assert/equal (:error (:ask s)) "?? q takes 2 to 4 choices, - [ ] lines; it has 1"))
+    (assert/equal (:error (:ask (first (slides "?? q\n- [ ] a\n- [ ] b\n- [ ] c\n- [ ] d\n- [ ] e"))))
+                  "?? q takes 2 to 4 choices, - [ ] lines; it has 5")
+    (assert/equal (:error (:ask (first (slides "???\n- [ ] a\n- [ ] b"))))
+                  "??? needs a name, as in ??? storage")))
+
+(test "?? results marks the slide that shows the answers"
+  (fn []
+    (assert/deepEqual (slides "?? results\n# Results") [{:text "# Results" :side nil :results true}])
+    (assert/deepEqual (slides "?? results") [{:text "" :side nil :results true}])))
+
+(def ^:private quiz
+  (slides (str "# Title\n---\n"
+               "?? poll\n# How sure?\n- [ ] Very\n- [ ] Not\n---\n"
+               "??? storage\n# Where?\n- [ ] Browser\n- [x] Redis\n---\n"
+               "??? entry\n- [x] gateway\n- [ ] auth\n---\n"
+               "?? results\n# Results")))
+
+(test "stop-at: stepping forward stops at a ??? not yet submitted"
+  (fn []
+    (assert/equal (stop-at quiz {} 0 4) 2)
+    (assert/equal (stop-at quiz {} 2 3) 2)
+    (assert/equal (stop-at quiz {"storage" {:answer "Redis" :num 1}} 2 4) 3)
+    (assert/equal (stop-at quiz {"storage" {:answer "Redis" :num 1} "entry" {:answer "auth" :num 1}} 0 4) 4)
+    ;; ?? never stops, and back always goes
+    (assert/equal (stop-at quiz {} 1 2) 2)
+    (assert/equal (stop-at quiz {} 4 0) 0)))
+
+(test "results: each question once, in deck order, with the answer and whether it is right"
+  (fn []
+    (assert/deepEqual (results quiz {"poll" {:answer "Not" :num 1}
+                                     "storage" {:answer "Redis" :num 1}
+                                     "entry" {:answer "auth" :num 1}})
+                      {:rows [{:id "poll" :title "How sure?" :answer "Not" :correct nil}
+                              {:id "storage" :title "Where?" :answer "Redis" :correct true}
+                              {:id "entry" :title "entry" :answer "auth" :correct false}]
+                       :score 1 :total 2})
+    (assert/deepEqual (:rows (results quiz {}))
+                      [{:id "poll" :title "How sure?" :answer nil :correct nil}
+                       {:id "storage" :title "Where?" :answer nil :correct nil}
+                       {:id "entry" :title "entry" :answer nil :correct nil}])))
+
+(test "results keep deck order for numbered names, and a repeated name counts once"
+  (fn []
+    (assert/deepEqual (mapv :id (:rows (results (slides "?? b\n- [ ] x\n- [ ] y\n---\n?? 10\n- [ ] x\n- [ ] y\n---\n?? 2\n- [ ] x\n- [ ] y\n---\n?? b\n- [ ] x\n- [ ] y") {})))
+                      ["b" "10" "2"])))

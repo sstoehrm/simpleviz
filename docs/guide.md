@@ -350,6 +350,46 @@ line is `>>` and a link shows the linked file to the right of its text:
   and `talk.edn` beside it for its graph slide. `simpleviz demo` brings
   `deck.md`, a deck about decks.
 
+### Questions
+
+A slide whose first line is `?? name` asks a question: its task list
+gives the choices, shown as boxes under the text, and `[x]` marks the
+right one. Lines indented under a choice explain it.
+
+    ---
+    ??? storage
+    # Where should session state live?
+
+    - [ ] In each node's memory
+      > Gone on restart, and the other nodes never see it.
+    - [x] In Redis, shared by all nodes
+      > Right: every node reads the same session.
+    ---
+    ?? confidence
+    # How confident are you in the design?
+
+    - [ ] Very
+    - [ ] Not at all
+    ---
+    ?? results
+    # Results
+
+- `??` takes a click at any time, and a new click changes the answer.
+- `???` asks for Submit, and → stops there until then. Submitted, the
+  answer is locked: the right choice is marked, and the explanation of
+  the one picked shows.
+- A question without an `[x]` is a poll: answered, not scored.
+- `?? results` lists every question with its answer, ✓ or ✗ for the
+  ones with a right choice, and the score.
+- A question takes 2 to 4 choices; with fewer or more the slide says so
+  and shows its list as text. `>>` and `??` go together in the first
+  lines, in either order.
+- The answers go to `talk.answers.edn` beside `talk.md`, as you give
+  them — `{"storage" {:answer "In Redis, shared by all nodes" :num 1}}`,
+  `:num` counting the choices from 0 — so an agent presenting the deck
+  can read them and write the next slide. Presenting again starts from
+  that file: delete it to ask again.
+
 ## Following refs
 
 A `:ref` on a node, box or edge names another graph file by a path relative

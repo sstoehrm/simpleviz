@@ -1583,6 +1583,93 @@
       (is (= "ü" (get (text-get "über.md") "text")))
       (is (= "s" (get (text-get "my file.md") "text"))))))
 
+;; --- answers to a deck's questions ------------------------------------
+
+(defn- answers-get [path]
+  (json/parse-string
+   (:body (serve/handler {:uri "/api/answers" :request-method :get
+                          :query-string (str "path=" (java.net.URLEncoder/encode path "UTF-8"))}))))
+
+(defn- answers-post [body & [opts]]
+  (let [r (serve/handler (assoc (edit-req body opts) :uri "/api/answers"))]
+    [(:status r) (json/parse-string (:body r))]))
+
+(deftest api-answers-writes-each-answer-beside-the-deck
+  (with-temp-dir*
+    (fn [dir]
+      (serve! (write! dir "g.edn" "{:nodes {:a nil}}"))
+      (write! dir "deep/talk.md" "?? storage")
+      (is (= {"answers" {}} (answers-get "deep/talk.md")))
+      (is (= [200 {"answers" {"storage" {"answer" "Redis" "num" 1}}}]
+             (answers-post {:path "deep/talk.md" :id "storage" :answer "Redis" :num 1})))
+      (answers-post {:path "deep/talk.md" :id "entry" :answer "gateway" :num 0})
+      ;; a ?? answer changes
+      (answers-post {:path "deep/talk.md" :id "storage" :answer "Postgres" :num 2})
+      (let [f (java.io.File. dir "deep/talk.answers.edn")]
+        (is (= {"entry" {:answer "gateway" :num 0} "storage" {:answer "Postgres" :num 2}}
+               (edn/read-string (slurp f))))
+        (is (empty? (filter (fn [n] (str/includes? n ".simpleviz-tmp")) (.list (.getParentFile f))))))
+      (is (= {"answers" {"entry" {"answer" "gateway" "num" 0} "storage" {"answer" "Postgres" "num" 2}}}
+             (answers-get "deep/talk.md")))
+      (write! dir "Big.MD" "x")
+      (answers-post {:path "Big.MD" :id "q" :answer "a" :num 0})
+      (is (.isFile (java.io.File. dir "Big.answers.edn"))))))
+
+(deftest api-answers-reads-what-an-agent-wrote
+  (with-temp-dir*
+    (fn [dir]
+      (serve! (write! dir "talk.md" "x"))
+      (write! dir "talk.answers.edn" "{:storage {:answer \"Redis\" :num 1} \"odd\" 3 \"half\" {:answer \"a\"}}")
+      (is (= {"answers" {"storage" {"answer" "Redis" "num" 1}}} (answers-get "talk.md")))
+      ;; a write keeps what it does not understand
+      (answers-post {:path "talk.md" :id "entry" :answer "auth" :num 1})
+      (is (= {:storage {:answer "Redis" :num 1} "odd" 3 "half" {:answer "a"} "entry" {:answer "auth" :num 1}}
+             (edn/read-string (slurp (java.io.File. dir "talk.answers.edn"))))))))
+
+(deftest api-answers-never-overwrites-a-file-it-cannot-read
+  (with-temp-dir*
+    (fn [dir]
+      (serve! (write! dir "talk.md" "x"))
+      (write! dir "talk.answers.edn" "{:oops")
+      (is (re-find #"talk.answers.edn does not parse" (get (answers-get "talk.md") "error")))
+      (is (= 409 (first (answers-post {:path "talk.md" :id "q" :answer "a" :num 0}))))
+      (is (= "{:oops" (slurp (java.io.File. dir "talk.answers.edn"))))
+      (write! dir "talk.answers.edn" "[1 2]")
+      (is (re-find #"is not a map" (get (answers-get "talk.md") "error")))
+      (is (= 409 (first (answers-post {:path "talk.md" :id "q" :answer "a" :num 0})))))))
+
+(deftest api-answers-refusals
+  (with-temp-dir*
+    (fn [dir]
+      (serve! (write! dir "talk.md" "x"))
+      (doseq [bad [{:path "../talk.md" :id "q" :answer "a" :num 0}
+                   {:path "g.edn" :id "q" :answer "a" :num 0}
+                   {:path "missing.md" :id "q" :answer "a" :num 0}
+                   {:path "talk.md" :id "" :answer "a" :num 0}
+                   {:path "talk.md" :id 3 :answer "a" :num 0}
+                   {:path "talk.md" :id "q" :answer 3 :num 0}
+                   {:path "talk.md" :id "q" :answer "a" :num -1}
+                   {:path "talk.md" :id "q" :answer "a" :num 1.5}
+                   {:path "talk.md" :id "q" :answer "a"}]]
+        (is (= 400 (first (answers-post bad))) (pr-str bad)))
+      (is (re-find #"no such file" (get (answers-get "missing.md") "error")))
+      (is (= 403 (:status (serve/handler (assoc (edit-req {:path "talk.md" :id "q" :answer "a" :num 0}
+                                                          {:headers {"origin" "http://evil.example"}})
+                                                :uri "/api/answers")))))
+      (is (= 415 (:status (serve/handler (assoc (edit-req {:path "talk.md" :id "q" :answer "a" :num 0}
+                                                          {:headers {"content-type" nil}})
+                                                :uri "/api/answers")))))
+      (is (not (.exists (java.io.File. dir "talk.answers.edn")))))))
+
+(deftest api-answers-is-read-only-for-an-export
+  (with-temp-dir*
+    (fn [dir]
+      (serve! (write! dir "g.png" (png-bytes* [(itxt* "simpleviz-edn" "{:nodes {:a nil}}")])))
+      (write! dir "talk.md" "x")
+      (is (= [400 {"error" "PNG and SVG sources are read-only"}]
+             (answers-post {:path "talk.md" :id "q" :answer "a" :num 0})))
+      (is (not (.exists (java.io.File. dir "talk.answers.edn")))))))
+
 (defn- prefs-post [body & [opts]]
   (let [r (serve/handler (assoc (edit-req body opts) :uri "/api/prefs"))]
     [(:status r) (try (json/parse-string (:body r)) (catch Exception _ (:body r)))]))

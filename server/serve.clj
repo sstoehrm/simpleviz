@@ -572,7 +572,8 @@
 
 (defn- edit-guard
   "HTTP-level rejection response for a write (/api/edit, /api/create,
-  /api/lock, /api/unlock, /api/text/save, POST /api/prefs), or nil when the
+  /api/lock, /api/unlock, /api/text/save, POST /api/prefs, POST
+  /api/answers), or nil when the
   request may proceed: 403 on a foreign Origin (cross-origin write
   attempt), 415 when Content-Type isn't application/json."
   [{:keys [headers server-port]}]
@@ -862,6 +863,82 @@
                              :result (dissoc out :text)})
     (assoc (json-response (json/generate-string out)) :status status)))
 
+;; ---- the answers to a deck's questions (?? and ??? slides): beside
+;; the deck, so an agent presenting it reads them as they come in
+
+;; one write at a time: the read and the merge must not interleave
+(def ^:private answers-monitor (Object.))
+
+(defn- answers-file
+  "The canonical answers file of the deck at root-relative `path` (an
+  existing .md file): talk.md's is talk.answers.edn beside it."
+  [path]
+  (when-not (.isFile (doc-file path))
+    (throw (ex-info (str "no such file: " path) {})))
+  (resolve-path @root-dir (str/replace path #"(?i)\.md$" ".answers.edn") false #{"edn"}))
+
+(defn- read-answers
+  "The map in answers file f as written; {} when it is missing or empty.
+  Throws (ex-data :status 409) when it holds anything else, so a write
+  never replaces what it could not read."
+  [f]
+  (if (.isFile f)
+    (let [fail (fn [why] (throw (ex-info (str (.getName f) " " why) {:status 409})))
+          _ (when (> (.length f) max-doc-bytes) (fail "is over 1 MiB"))
+          m (try (edn/read-string (slurp f)) (catch Exception _ (fail "does not parse")))]
+      (cond (nil? m) {}
+            (map? m) m
+            :else (fail "is not a map")))
+    {}))
+
+(defn answers-of
+  "The answers in map `m` as the page takes them: name -> {:answer
+  :num}, a keyword name as its string; an entry of any other shape is
+  left out."
+  [m]
+  (into {} (keep (fn [[k v]]
+                   (let [id (if (keyword? k) (name k) k)]
+                     (when (and (string? id) (map? v) (string? (:answer v))
+                                (integer? (:num v)) (>= (:num v) 0))
+                       [id (select-keys v [:answer :num])])))
+                 m)))
+
+(defn- answers-text
+  "EDN for the answers map, one entry a line."
+  [m]
+  (str "{" (str/join "\n " (map (fn [[k v]] (str (pr-str k) " " (pr-str v))) m)) "}\n"))
+
+(defn- answers-response-body [query-string]
+  (json/generate-string
+   (try {:answers (answers-of (read-answers (answers-file (query-param query-string "path"))))}
+        (catch Exception e {:error (ex-message e)}))))
+
+(defn- answers-save
+  "Merge the answer {path id answer num} into the deck's answers file,
+  keeping every other entry as written. [status reply]; the reply is
+  every answer now stored."
+  [{:keys [path id answer num]}]
+  (when (embedded/export? (:root @files))
+    (throw (ex-info "PNG and SVG sources are read-only" {})))
+  (when-not (and (string? id) (seq id)) (throw (ex-info "id must be a non-empty string" {})))
+  (when-not (string? answer) (throw (ex-info "answer must be a string" {})))
+  (when-not (and (integer? num) (>= num 0)) (throw (ex-info "num must be a whole number, 0 or more" {})))
+  (let [f (answers-file path)]
+    (locking answers-monitor
+      (let [m (assoc (read-answers f) id {:answer answer :num num})]
+        (write-atomically! f (.getBytes ^String (answers-text m) "UTF-8"))
+        [200 {:answers (answers-of m)}]))))
+
+(defn- answers-save-response [body-stream]
+  (let [parsed (read-json-body body-stream)
+        [status out] (try
+                       (if-let [err (when (map? parsed) (:parse-error parsed))]
+                         [400 {:error err}]
+                         (answers-save parsed))
+                       (catch Exception e [(:status (ex-data e) 400) {:error (ex-message e)}]))]
+    (log/event! "answer" {:path (:path parsed) :id (:id parsed) :status status})
+    (assoc (json-response (json/generate-string out)) :status status)))
+
 ;; ---- your choices in the page (theme, vi): one file for every
 ;; port, so they outlive the server — the page's localStorage did not,
 ;; being per origin and the port random
@@ -934,6 +1011,9 @@
     "/api/text"      (json-response (text-response-body query-string))
     "/api/file"      (file-response query-string)
     "/api/text/save" (post-only req #(text-save-response body))
+    "/api/answers"   (if (= :post (:request-method req))
+                       (post-only req #(answers-save-response body))
+                       (json-response (answers-response-body query-string)))
     "/api/prefs"     (if (= :post (:request-method req))
                        (post-only req #(prefs-save-response body))
                        (json-response (json/generate-string (read-prefs))))

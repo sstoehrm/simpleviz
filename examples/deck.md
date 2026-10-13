@@ -49,3 +49,24 @@ The path is relative to this file, like a link.
 # Or an image
 
 An exported PNG or SVG opens as the graph it carries; any other picture shows as it is.
+
+---
+
+??? asked
+
+# ?? asks a question
+
+A slide whose first line is `?? name` turns its task list into boxes, `[x]` the right one. `???` waits for Submit before → goes on.
+
+- [ ] Every slide needs one
+  > No: a question is a slide that asks for it.
+- [x] Answers go to deck.answers.edn
+  > Right: beside the deck, so an agent presenting it can read them.
+- [ ] Answers are lost on reload
+  > No: presenting again reads them back from the file.
+
+---
+
+?? results
+
+# ?? results sums them up

@@ -428,6 +428,12 @@
             :on-click (fn [e] (.stopPropagation e) (post-edit! [(editor/direction-op tgt dir)]))}
    label (key-hint (editor/chord-for "edge" ["direction" dir]))])
 
+(defn- absent-status
+  "The compare status of the elements the file edited does not have:
+  the old file lacks what was added, the new one what was removed."
+  [st]
+  (if (= "old" (:edit-target st)) "added" "removed"))
+
 (defn- action-spec
   "What toolbar action `action` does for selection sel (tgt its op
   target): a pick mode to start, a name prompt to open, ops to post, a
@@ -449,7 +455,12 @@
         nil)
       (case action
         "delete" {:run #(delete! tgt)}
-        "select-mode" {:run #(enter-select! (if (contains? #{"node" "box"} (:kind sel)) #{(:elk-id sel)} #{}) false)}
+        ;; the selection comes along — unless the file edited lacks it
+        "select-mode" {:run #(enter-select! (if (and (contains? #{"node" "box"} (:kind sel))
+                                                     (not= (absent-status @state) (:diff sel)))
+                                              #{(:elk-id sel)}
+                                              #{})
+                                            false)}
         "select-all" {:run select-all!}
         "select-rect" {:run #(enter-select! (or (:ids (:multi @state)) #{}) true)}
         ;; what acts on the selection waits for something selected
@@ -517,12 +528,6 @@
       (some? md) (open-md! sel)
       (some? go) (follow-ref! go)
       (some? go-pair) (follow-pair! go-pair))))
-
-(defn- absent-status
-  "The compare status of the elements the file edited does not have:
-  the old file lacks what was added, the new one what was removed."
-  [st]
-  (if (= "old" (:edit-target st)) "added" "removed"))
 
 (defn- chord-kind
   "The kind the chords and the toolbar go by: \"select\" in select
@@ -780,7 +785,8 @@
         (swap! state (fn [st]
                        (-> st
                            (assoc-in [:diff-cursors status] idx)
-                           (assoc :selected (item->payload item)))))
+                           ;; one element selected: select mode ends
+                           (assoc :selected (item->payload item) :multi nil))))
         (canvas/center-on! item)))))
 
 (defn- legend-row [st status stops]

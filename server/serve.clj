@@ -221,35 +221,50 @@
   (when (embedded-compare?)
     (throw (ex-info "refs are not available in an embedded compare" {}))))
 
+(defn request-suffix
+  "The fork suffix a request compares under: its own `compare` (an md
+  link's ?compare=<suffix>), else the one the server started with.
+  Throws on a compare that is no suffix, or on an embedded compare,
+  which holds both sides already."
+  [compare]
+  (cond
+    (nil? compare) (:suffix @files)
+    (embedded-compare?) (throw (ex-info "compare is not available in an embedded compare" {}))
+    (and (string? compare) (re-matches suffix-re compare)) compare
+    :else (throw (ex-info (str "invalid compare suffix: " (pr-str compare)) {}))))
+
 (defn sides
   "The files behind the root-relative path `rel` (nil = the root file)
   as {:old <canonical File or nil> :new <canonical File>}: without a
-  suffix only :new; with one, :old is the file and :new its fork.
-  Below the root one side of a pair may be missing (see side-file);
-  the root itself needs both. Throws (message for the error payload)
-  when resolve-path refuses either side or nothing is there."
-  [rel]
-  (let [{:keys [suffix]} @files
-        rel (or rel (root-rel))
-        root-c @root-dir]
-    (if (nil? suffix)
-      {:old nil :new (resolve-path root-c rel)}
-      (let [fk (fork-name rel suffix)
-            _ (refuse-fork! rel suffix)
-            ;; escape/extension refusals first, existence checked here so
-            ;; the message can name the missing side
-            old (resolve-path root-c rel false)
-            new (resolve-path root-c fk false)]
-        (cond
-          (and (.isFile old) (.isFile new)) {:old old :new new}
-          (not= old (resolve-path root-c (root-rel) false))
-          (if (or (.isFile old) (.isFile new))
-            {:old old :new new}
-            (throw (ex-info (str "no such file: " rel) {})))
-          (not (.isFile new))
-          (throw (ex-info (str "no " fk " — create it with: simpleviz fork " rel " " suffix) {}))
-          :else
-          (throw (ex-info (str "no " rel " (only " fk ")") {})))))))
+  suffix only :new; with one, :old is the file and :new its fork. The
+  suffix is the request's `compare` (request-suffix), else the
+  startup one. One side of a pair may be missing (see side-file),
+  except the root's under the startup suffix, which `simpleviz <root>
+  <suffix>` promised. Throws (message for the error payload) when
+  resolve-path refuses either side or nothing is there."
+  ([rel] (sides rel nil))
+  ([rel compare]
+   (let [suffix (request-suffix compare)
+         rel (or rel (root-rel))
+         root-c @root-dir]
+     (if (nil? suffix)
+       {:old nil :new (resolve-path root-c rel)}
+       (let [fk (fork-name rel suffix)
+             _ (refuse-fork! rel suffix)
+             ;; escape/extension refusals first, existence checked here so
+             ;; the message can name the missing side
+             old (resolve-path root-c rel false)
+             new (resolve-path root-c fk false)]
+         (cond
+           (and (.isFile old) (.isFile new)) {:old old :new new}
+           (or (some? compare) (not= old (resolve-path root-c (root-rel) false)))
+           (if (or (.isFile old) (.isFile new))
+             {:old old :new new}
+             (throw (ex-info (str "no such file: " rel) {})))
+           (not (.isFile new))
+           (throw (ex-info (str "no " fk " — create it with: simpleviz fork " rel " " suffix) {}))
+           :else
+           (throw (ex-info (str "no " rel " (only " fk ")") {}))))))))
 
 (defn- side-file
   "The file holding what side `which` (\"old\", else new) of `sides`
@@ -288,10 +303,10 @@
     (refuse-embedded-compare!)
     rel))
 
-(defn- edit-response [{:keys [file ops path]}]
+(defn- edit-response [{:keys [file ops path compare]}]
   (try
     (when (some? path) (refuse-embedded-compare!))
-    (let [{:keys [old new] :as pair} (sides path)
+    (let [{:keys [old new] :as pair} (sides path compare)
           target (if (= file "old") old new)
           path (some-> target .getPath)
           ;; a side that is not there yet comes into being with its
@@ -325,12 +340,12 @@
   nothing is there yet: in a comparison the side being edited (`file`),
   and only while neither side exists — an empty fork next to an
   original would show everything as removed. Never overwrites."
-  [{:keys [file path]}]
+  [{:keys [file path compare]}]
   (try
     (refuse-embedded-compare!)
     (when-not (string? path)
       (throw (ex-info "path required" {})))
-    (let [{:keys [suffix]} @files
+    (let [suffix (request-suffix compare)
           _ (refuse-fork! path suffix)
           base (resolve-path @root-dir path false)
           fk (when (some? suffix) (fork-name path suffix))
@@ -645,14 +660,16 @@
   `route`, the route that asked for it."
   [query-string route]
   (let [body (try
-               (let [{:keys [root suffix]} @files
-                     rel (nav-rel query-string)]
+               (let [{:keys [root]} @files
+                     rel (nav-rel query-string)
+                     compare (query-param query-string "compare")
+                     suffix (request-suffix compare)]
                  (if (embedded-compare?)
                    (let [nm (.getName (io/file root))]
                      (compare-json (embedded-old root) (read-source root)
                                    (str nm " (old)") (str nm " (new)") nm
                                    {:editable false :editable-old false}))
-                   (let [{:keys [old new] :as pair} (sides rel)
+                   (let [{:keys [old new] :as pair} (sides rel compare)
                          path (or rel (root-rel))
                          new-p (.getPath new)
                          ;; one scan per request, shared by both sides
@@ -940,7 +957,8 @@
     "/api/version" (json-response
                     (json/generate-string
                      {:mtime (try
-                               (let [{:keys [old new]} (sides (nav-rel query-string))]
+                               (let [{:keys [old new]} (sides (nav-rel query-string)
+                                                              (query-param query-string "compare"))]
                                  (if (some? old)
                                    (str (.lastModified old) "-" (.lastModified new))
                                    (.lastModified new)))
@@ -955,7 +973,8 @@
                        (if (= which "old")
                          (embedded-old (:root @files))
                          (read-source (:root @files))))
-                   (let [{:keys [old] :as pair} (sides (nav-rel query-string))]
+                   (let [{:keys [old] :as pair} (sides (nav-rel query-string)
+                                                       (query-param query-string "compare"))]
                      (when (or (not= which "old") (some? old))
                        (side-source pair which))))
                  (catch Exception _ nil))]

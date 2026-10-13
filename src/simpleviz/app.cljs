@@ -1325,7 +1325,7 @@
   and the explanation of the one picked; a ?? takes clicks at any time."
   [st a]
   (let [link-fn (present-link-fn (:path (:md st)))
-        got (get (:answers st) (:id a))
+        got (slides/answer (:answers st) (:id a))
         locked (and (:submit a) (some? got))
         chosen (cond (and (:submit a) (not locked)) (:draft (:present st))
                      (some? got) (:num got)
@@ -2213,23 +2213,35 @@
            :answers (if (some? (:answers out)) (:answers out) {})
            :answer-error (if (some? (:error out)) (str "Answers not read: " (:error out)) nil))))
 
-(defn- ^:async save-answer!
-  "Answer question `a` with its choice `num`: in the page at once, then
-  in the deck's answers file — a failure says so under the slide."
+;; answers go to the server one at a time, in the order given: two quick
+;; clicks on a ?? must not land in the file the other way round
+(def ^:private answer-queue (atom (js/Promise.resolve nil)))
+
+(defn- ^:async post-answer!
+  "Write answer `body` to question `a` into the deck's answers file. A
+  failure says so under the slide, and a ??? is open again for Submit."
+  [a body]
+  (let [out (try (js-await (.json (js-await (post-json "/api/answers" body))))
+                 (catch :default _ {:error "not connected"}))]
+    (when (and (some? (:error out)) (:submit a))
+      (swap! state update :answers dissoc (:id a)))
+    (swap! state assoc :answer-error (if (some? (:error out)) (str "Answer not saved: " (:error out)) nil))))
+
+(defn- save-answer!
+  "Answer question `a` with its choice `num`: in the page at once, then,
+  after the answers before it, in the deck's answers file."
   [a num]
-  (let [entry {:answer (:text (nth (:choices a) num)) :num num}]
+  (let [entry {:answer (:text (nth (:choices a) num)) :num num}
+        body (assoc entry :path (:path (:md @state)) :id (:id a))]
     (swap! state assoc-in [:answers (:id a)] entry)
-    (let [out (try (js-await (.json (js-await (post-json "/api/answers"
-                                                         (assoc entry :path (:path (:md @state)) :id (:id a))))))
-                   (catch :default _ {:error "not connected"}))]
-      (swap! state assoc :answer-error (if (some? (:error out)) (str "Answer not saved: " (:error out)) nil)))))
+    (swap! answer-queue (fn [p] (.then p (fn [] (post-answer! a body)))))))
 
 (defn- pick!
   "Choice `num` of question `a` clicked: a ?? takes it as the answer, a
   ??? holds it until Submit — and, once submitted, ignores clicks."
   [a num]
   (cond (not (:submit a)) (save-answer! a num)
-        (some? (get (:answers @state) (:id a))) nil
+        (some? (slides/answer (:answers @state) (:id a))) nil
         :else (swap! state update :present assoc :draft num)))
 
 (defn- submit!
@@ -2288,8 +2300,8 @@
 (defn- present-key!
   "A key while presenting: → ↓ space and Page Down step forward, ← ↑ and
   Page Up back, Home and End jump to the ends — forward never past a ???
-  waiting for its Submit; Esc closes the inspector, else leaves. Other
-  keys do nothing."
+  waiting for its Submit; Esc closes the inspector, else leaves. Space
+  on a focused choice or Submit presses it. Other keys do nothing."
   [e]
   (let [st @state
         ds (deck st)
@@ -2301,6 +2313,9 @@
              "End" (dec (count ds))
              nil)]
     (cond
+      (and (= (.-key e) " ") (some? (.-activeElement js/document))
+           (some? (.closest (.-activeElement js/document) "#present-slide button")))
+      nil
       (some? to) (let [to (max 0 (min to (dec (count ds))))
                        land (slides/stop-at ds (:answers st) i to)]
                    (.preventDefault e)

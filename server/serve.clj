@@ -879,13 +879,18 @@
 
 (defn- read-answers
   "The map in answers file f as written; {} when it is missing or empty.
-  Throws (ex-data :status 409) when it holds anything else, so a write
-  never replaces what it could not read."
+  Throws (ex-data :status 409) when it holds anything else — no map, not
+  UTF-8, more after the map — so a write never replaces what it could
+  not read."
   [f]
   (if (.isFile f)
     (let [fail (fn [why] (throw (ex-info (str (.getName f) " " why) {:status 409})))
-          _ (when (> (.length f) max-doc-bytes) (fail "is over 1 MiB"))
-          m (try (edn/read-string (slurp f)) (catch Exception _ (fail "does not parse")))]
+          text (try (:text (doc-state f))
+                    (catch Exception e (fail (str/replace (ex-message e) (str (.getName f) " ") ""))))
+          r (java.io.PushbackReader. (java.io.StringReader. text))
+          m (try (edn/read {:eof nil} r) (catch Exception _ (fail "does not parse")))]
+      (when-not (= ::eof (try (edn/read {:eof ::eof} r) (catch Exception _ ::more)))
+        (fail "has content after the map"))
       (cond (nil? m) {}
             (map? m) m
             :else (fail "is not a map")))
@@ -925,7 +930,8 @@
   (when-not (and (integer? num) (>= num 0)) (throw (ex-info "num must be a whole number, 0 or more" {})))
   (let [f (answers-file path)]
     (locking answers-monitor
-      (let [m (assoc (read-answers f) id {:answer answer :num num})]
+      ;; the name as a keyword is the same question: the new answer replaces it
+      (let [m (assoc (dissoc (read-answers f) (keyword id)) id {:answer answer :num num})]
         (write-atomically! f (.getBytes ^String (answers-text m) "UTF-8"))
         [200 {:answers (answers-of m)}]))))
 

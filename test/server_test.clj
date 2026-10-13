@@ -1626,6 +1626,21 @@
       (is (= {:storage {:answer "Redis" :num 1} "odd" 3 "half" {:answer "a"} "entry" {:answer "auth" :num 1}}
              (edn/read-string (slurp (java.io.File. dir "talk.answers.edn"))))))))
 
+(deftest api-answers-replaces-a-keyword-name-with-the-new-answer
+  (with-temp-dir*
+    (fn [dir]
+      (serve! (write! dir "talk.md" "x"))
+      ;; past 8 entries the map is a hash map: its order must not matter
+      (write! dir "talk.answers.edn"
+              (pr-str (into {:storage {:answer "old" :num 0}}
+                            (map (fn [i] [(str "q" i) {:answer "a" :num 0}]) (range 9)))))
+      (is (= {"answer" "new" "num" 1}
+             (get-in (second (answers-post {:path "talk.md" :id "storage" :answer "new" :num 1}))
+                     ["answers" "storage"])))
+      (let [m (edn/read-string (slurp (java.io.File. dir "talk.answers.edn")))]
+        (is (not (contains? m :storage)))
+        (is (= {:answer "new" :num 1} (get m "storage")))))))
+
 (deftest api-answers-never-overwrites-a-file-it-cannot-read
   (with-temp-dir*
     (fn [dir]
@@ -1634,6 +1649,13 @@
       (is (re-find #"talk.answers.edn does not parse" (get (answers-get "talk.md") "error")))
       (is (= 409 (first (answers-post {:path "talk.md" :id "q" :answer "a" :num 0}))))
       (is (= "{:oops" (slurp (java.io.File. dir "talk.answers.edn"))))
+      ;; more after the map, or bytes that are no UTF-8: a write would lose them
+      (write! dir "talk.answers.edn" "{\"a\" {:answer \"x\" :num 0}} {\"b\" 1}")
+      (is (re-find #"content after the map" (get (answers-get "talk.md") "error")))
+      (is (= 409 (first (answers-post {:path "talk.md" :id "q" :answer "a" :num 0}))))
+      (write! dir "talk.answers.edn" (byte-array (map unchecked-byte [123 34 228 34 32 49 125])))
+      (is (re-find #"is not UTF-8" (get (answers-get "talk.md") "error")))
+      (is (= 409 (first (answers-post {:path "talk.md" :id "q" :answer "a" :num 0}))))
       (write! dir "talk.answers.edn" "[1 2]")
       (is (re-find #"is not a map" (get (answers-get "talk.md") "error")))
       (is (= 409 (first (answers-post {:path "talk.md" :id "q" :answer "a" :num 0})))))))

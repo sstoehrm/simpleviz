@@ -60,6 +60,11 @@
 
 (defn- indent [line] (- (count line) (count (.trimStart line))))
 
+(defn- untab
+  "The line with tabs in its indent as 4 spaces, as markdown reads them."
+  [line]
+  (.replace line #"^[ \t]+" (fn [ws] (.replaceAll ws "\t" "    "))))
+
 (defn- dedent
   "The lines without the indent they share, blank ends dropped; nil when
   nothing is left."
@@ -71,9 +76,9 @@
 (defn- split-choices
   "The body lines of a question as [text-lines choices]: each task item
   outside a code fence is a choice {:text :correct :note}, the blank and
-  indented lines under it its note."
+  indented lines under it its note — a nested list too."
   [lines]
-  (loop [ls lines fence nil text [] choices [] cur nil]
+  (loop [ls (map untab lines) fence nil text [] choices [] cur nil]
     (let [close (fn [] (if (some? cur)
                          (conj choices (assoc (:choice cur) :note (dedent (:note cur))))
                          choices))]
@@ -84,10 +89,10 @@
               m (when (nil? fence) (.exec choice-re line))]
           (cond
             (some? fence) (recur (rest ls) (if (= mark fence) nil fence) (conj text line) choices cur)
-            (some? m) (recur (rest ls) nil text (close)
-                             {:choice {:text (.trim (aget m 2)) :correct (not= " " (aget m 1))} :note []})
             (and (some? cur) (or (blank? line) (>= (indent line) 2)))
             (recur (rest ls) nil text choices (update cur :note conj line))
+            (some? m) (recur (rest ls) nil text (close)
+                             {:choice {:text (.trim (aget m 2)) :correct (not= " " (aget m 1))} :note []})
             :else (recur (rest ls) mark (conj text line) (close) nil)))))))
 
 (defn- ask
@@ -143,11 +148,17 @@
          (.slice low (inc (.lastIndexOf low ".")))
          nil)))
 
+(defn answer
+  "The answer to question `id` in `answers`, or nil — its own entry
+  only, never one an object inherits (a question named constructor)."
+  [answers id]
+  (if (and (some? answers) (js/Object.hasOwn answers id)) (get answers id) nil))
+
 (defn- waiting?
   "Does slide `s` wait for its ??? answer to be submitted?"
   [s answers]
   (let [a (:ask s)]
-    (and (some? a) (:submit a) (nil? (:error a)) (nil? (get answers (:id a))))))
+    (and (some? a) (:submit a) (nil? (:error a)) (nil? (answer answers (:id a))))))
 
 (defn stop-at
   "Where a step from slide `from` to slide `to` of deck `ds` lands: at the
@@ -178,7 +189,7 @@
                         {:seen #{} :qs []} ds))
         rows (mapv (fn [s]
                      (let [{:keys [id choices]} (:ask s)
-                           got (get answers id)
+                           got (answer answers id)
                            quiz (some :correct choices)]
                        {:id id :title (title s)
                         :answer (if (some? got) (:answer got) nil)

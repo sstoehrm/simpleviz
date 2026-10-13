@@ -1,7 +1,7 @@
 (ns simpleviz.slides-test
   (:require ["node:test" :refer [test]]
             ["node:assert/strict$default" :as assert]
-            [simpleviz.slides :refer [slides side-kind stop-at results]]))
+            [simpleviz.slides :refer [slides side-kind stop-at results answer]]))
 
 (test "--- lines split the slides; empty ones are dropped"
   (fn []
@@ -137,3 +137,18 @@
   (fn []
     (assert/deepEqual (mapv :id (:rows (results (slides "?? b\n- [ ] x\n- [ ] y\n---\n?? 10\n- [ ] x\n- [ ] y\n---\n?? 2\n- [ ] x\n- [ ] y\n---\n?? b\n- [ ] x\n- [ ] y") {})))
                       ["b" "10" "2"])))
+
+(test "a tab-indented explanation, or a nested list in one, stays the choice's"
+  (fn []
+    (let [[s] (slides "??? q\n# Q\n- [ ] A\n\t> Gone on restart.\n- [x] B\n  - [ ] not a choice\n- [ ] C")]
+      (assert/equal (:text s) "# Q")
+      (assert/deepEqual (mapv :text (:choices (:ask s))) ["A" "B" "C"])
+      (assert/deepEqual (mapv :note (:choices (:ask s))) ["> Gone on restart." "- [ ] not a choice" nil]))))
+
+(test "a question named like an Object property is still unanswered"
+  (fn []
+    (let [ds (slides "??? constructor\n- [x] a\n- [ ] b\n---\n?? results")]
+      (assert/equal (stop-at ds {} 0 1) 0)
+      (assert/ok (nil? (answer {} "toString")))
+      (assert/deepEqual (:rows (results ds {}))
+                        [{:id "constructor" :title "constructor" :answer nil :correct nil}]))))

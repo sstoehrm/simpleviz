@@ -334,7 +334,7 @@
                      "  r.locked = {wrong: $('.ask-choice.wrong').textContent, correct: $('.ask-choice.correct').textContent,"
                      "   note: $('.ask-note').textContent, disabled: $$('.ask-choice').every(b => b.disabled), slide: q('slide')};"
                      "  key('ArrowRight'); step = 6; return; }"
-                     " if (step === 6) { if (q('slide') !== '3') return; $$('.ask-choice')[1].click(); step = 7; return; }"
+                     " if (step === 6) { if (q('slide') !== '3') return; $$('.ask-choice')[0].click(); $$('.ask-choice')[1].click(); step = 7; return; }"
                      " if (step === 7) { if (!$('.ask-choice.chosen')) return; key('End'); step = 8; return; }"
                      " if (step === 8) { if (!$('.ask-results')) return;"
                      "  r.results = {rows: $$('.ask-results tr').map(tr => tr.textContent), score: $('.ask-score').textContent};"

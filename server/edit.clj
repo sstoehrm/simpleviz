@@ -552,7 +552,8 @@
 (defn delete-selection
   "Delete nodes and boxes `ids` ({:section :id}) with all copy takes for
   them — the boxes' members at any depth — and the edges touching any:
-  what a cut deletes, in one parse."
+  what a cut deletes, the text parsed a few times in all, never once
+  per element deleted."
   [text {:keys [ids]}]
   (let [root (zroot text)]
     (check-sections! root :nodes)

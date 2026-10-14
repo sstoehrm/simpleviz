@@ -146,3 +146,10 @@
       (assert/equal (:side s) "g.edn")
       (assert/equal (:side-compare s) "next")
       (assert/equal (:id (:ask s)) "q"))))
+
+(test "a choice is read as the page renders a task item: five spaces after the dash make it code"
+  (fn []
+    (assert/equal (:error (:ask (first (slides "?? q\n-     [x] Paris\n-     [ ] Rome"))))
+                  "?? q takes 2 to 4 choices, - [ ] lines; it has 0")
+    (assert/deepEqual (mapv :text (:choices (:ask (first (slides "?? q\n-    [x] Paris\n-  [ ] Rome")))))
+                      ["Paris" "Rome"])))

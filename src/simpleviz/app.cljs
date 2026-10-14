@@ -2855,7 +2855,8 @@
   []
   (let [sel (vec (:ids (:multi @state)))]
     (swap! state assoc :multi nil)
-    (js-await (post-edit! [(editor/delete-selection-op sel)]))))
+    (try (js-await (post-edit! [(editor/delete-selection-op sel)]))
+         (catch :default e (swap! state assoc :edit-error (.-message e))))))
 
 (defn- ^:async paste!
   "p p: the nodes and boxes on the clipboard into the graph — into the

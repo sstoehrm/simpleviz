@@ -392,7 +392,8 @@ line is `>>` and a link shows the linked file to the right of its text:
   text follows the file on disk while you present.
 - `simpleviz init talk.md -t presentation` writes a deck to start from,
   and `talk.edn` beside it for its graph slide. `simpleviz demo` brings
-  `deck.md`, a deck about decks.
+  `deck.md`, a deck about decks, and `quiz.md`, a quiz on the demo graph
+  with every kind of question.
 
 ### Questions
 

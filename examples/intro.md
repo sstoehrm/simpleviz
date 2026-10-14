@@ -89,6 +89,8 @@ the left lists them, click one to expand it.
 - `simpleviz init my-arch.edn` writes a starter graph.
 - An md page is also a talk: [the deck](deck.md) opens as a page like this one; Present,
   top right, shows it as slides, a graph beside each.
+- A slide can ask a question: [the quiz](quiz.md) asks about the demo graph, beside it,
+  and keeps your answers in `quiz.answers.edn`.
 
 The [README](https://github.com/sstoehrm/simpleviz#readme) has the full data format, and
 the [guide](https://github.com/sstoehrm/simpleviz/blob/main/docs/guide.md) every detail.

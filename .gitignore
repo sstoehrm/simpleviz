@@ -19,5 +19,8 @@ dist/
 # private example, never bundled
 examples/mps-architecture.edn
 
+# what presenting an example deck answered
+examples/*.answers.edn
+
 # blend build plan, local
 .blend/plan.*

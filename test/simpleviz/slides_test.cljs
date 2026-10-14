@@ -1,6 +1,7 @@
 (ns simpleviz.slides-test
   (:require ["node:test" :refer [test]]
             ["node:assert/strict$default" :as assert]
+            ["node:fs" :as fs]
             [simpleviz.slides :refer [slides side-kind stop-at answer]]))
 
 (test "--- lines split the slides; empty ones are dropped"
@@ -153,3 +154,12 @@
                   "?? q takes 2 to 4 choices, - [ ] lines; it has 0")
     (assert/deepEqual (mapv :text (:choices (:ask (first (slides "?? q\n-    [x] Paris\n-  [ ] Rome")))))
                       ["Paris" "Rome"])))
+
+(test "the example decks ask every question they mean to"
+  (fn []
+    (let [asks (fn [f] (keep :ask (slides (fs/readFileSync (str "examples/" f) "utf8"))))
+          quiz (asks "quiz.md")]
+      (assert/deepEqual (mapv (fn [a] [(:id a) (:submit a) (count (filter :correct (:choices a)))]) quiz)
+                        [["sessions" true 1] ["worker" true 1] ["zone" true 1] ["change" false 0] ["confidence" false 0]])
+      (doseq [a (concat quiz (asks "deck.md"))]
+        (assert/ok (nil? (:error a)) (:error a))))))

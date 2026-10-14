@@ -221,35 +221,55 @@
   (when (embedded-compare?)
     (throw (ex-info "refs are not available in an embedded compare" {}))))
 
+(defn- suffix?
+  "Is `s` a fork suffix (suffix-re)?"
+  [s]
+  (and (string? s) (some? (re-matches suffix-re s))))
+
+(defn request-suffix
+  "The fork suffix a request compares under: its own `compare` (an md
+  link's ?compare=<suffix>), else the one the server started with.
+  Throws on a compare that is no suffix, or on an embedded compare,
+  which holds both sides already."
+  [compare]
+  (cond
+    (nil? compare) (:suffix @files)
+    (embedded-compare?) (throw (ex-info "compare is not available in an embedded compare" {}))
+    (suffix? compare) compare
+    :else (throw (ex-info (str "invalid compare suffix: " (pr-str compare)) {}))))
+
 (defn sides
   "The files behind the root-relative path `rel` (nil = the root file)
   as {:old <canonical File or nil> :new <canonical File>}: without a
-  suffix only :new; with one, :old is the file and :new its fork.
-  Below the root one side of a pair may be missing (see side-file);
-  the root itself needs both. Throws (message for the error payload)
-  when resolve-path refuses either side or nothing is there."
-  [rel]
-  (let [{:keys [suffix]} @files
-        rel (or rel (root-rel))
-        root-c @root-dir]
-    (if (nil? suffix)
-      {:old nil :new (resolve-path root-c rel)}
-      (let [fk (fork-name rel suffix)
-            _ (refuse-fork! rel suffix)
-            ;; escape/extension refusals first, existence checked here so
-            ;; the message can name the missing side
-            old (resolve-path root-c rel false)
-            new (resolve-path root-c fk false)]
-        (cond
-          (and (.isFile old) (.isFile new)) {:old old :new new}
-          (not= old (resolve-path root-c (root-rel) false))
-          (if (or (.isFile old) (.isFile new))
-            {:old old :new new}
-            (throw (ex-info (str "no such file: " rel) {})))
-          (not (.isFile new))
-          (throw (ex-info (str "no " fk " — create it with: simpleviz fork " rel " " suffix) {}))
-          :else
-          (throw (ex-info (str "no " rel " (only " fk ")") {})))))))
+  suffix only :new; with one, :old is the file and :new its fork. The
+  suffix is the request's `compare` (request-suffix), else the
+  startup one. One side of a pair may be missing (see side-file),
+  except the root's under the startup suffix, which `simpleviz <root>
+  <suffix>` promised. Throws (message for the error payload) when
+  resolve-path refuses either side or nothing is there."
+  ([rel] (sides rel nil))
+  ([rel compare]
+   (let [suffix (request-suffix compare)
+         rel (or rel (root-rel))
+         root-c @root-dir]
+     (if (nil? suffix)
+       {:old nil :new (resolve-path root-c rel)}
+       (let [fk (fork-name rel suffix)
+             _ (refuse-fork! rel suffix)
+             ;; escape/extension refusals first, existence checked here so
+             ;; the message can name the missing side
+             old (resolve-path root-c rel false)
+             new (resolve-path root-c fk false)]
+         (cond
+           (and (.isFile old) (.isFile new)) {:old old :new new}
+           (or (some? compare) (not= old (resolve-path root-c (root-rel) false)))
+           (if (or (.isFile old) (.isFile new))
+             {:old old :new new}
+             (throw (ex-info (str "no such file: " rel) {})))
+           (not (.isFile new))
+           (throw (ex-info (str "no " fk " — create it with: simpleviz fork " rel " " suffix) {}))
+           :else
+           (throw (ex-info (str "no " rel " (only " fk ")") {}))))))))
 
 (defn- side-file
   "The file holding what side `which` (\"old\", else new) of `sides`
@@ -288,10 +308,10 @@
     (refuse-embedded-compare!)
     rel))
 
-(defn- edit-response [{:keys [file ops path]}]
+(defn- edit-response [{:keys [file ops path compare]}]
   (try
     (when (some? path) (refuse-embedded-compare!))
-    (let [{:keys [old new] :as pair} (sides path)
+    (let [{:keys [old new] :as pair} (sides path compare)
           target (if (= file "old") old new)
           path (some-> target .getPath)
           ;; a side that is not there yet comes into being with its
@@ -324,10 +344,10 @@
   "The EDN text of nodes and boxes `ids` with what they hold (edit/copy),
   and the targets that took (edit/closure), from the side `file` names —
   what an edit there would change."
-  [{:keys [file ids path]}]
+  [{:keys [file ids path compare]}]
   (try
     (when (some? path) (refuse-embedded-compare!))
-    (let [text (side-source (sides path) file)]
+    (let [text (side-source (sides path compare) file)]
       {:edn (edit/copy text {:ids ids}) :ids (edit/closure text {:ids ids})})
     (catch Exception e {:error (or (ex-message e) (str e))})))
 
@@ -335,13 +355,20 @@
   "Create the graph file a followed ref names, with its folders, when
   nothing is there yet: in a comparison the side being edited (`file`),
   and only while neither side exists — an empty fork next to an
-  original would show everything as removed. Never overwrites."
-  [{:keys [file path]}]
+  original would show everything as removed. With `from` (a
+  root-relative .edn, outside a comparison) it starts as a byte copy of
+  that file rather than empty. Never overwrites."
+  [{:keys [file path compare from]}]
   (try
     (refuse-embedded-compare!)
     (when-not (string? path)
       (throw (ex-info "path required" {})))
-    (let [{:keys [suffix]} @files
+    (let [suffix (request-suffix compare)
+          _ (when (and (some? from) (some? suffix))
+              (throw (ex-info "copying is not available in a comparison" {})))
+          content (if (some? from)
+                    (java.nio.file.Files/readAllBytes (.toPath (resolve-path @root-dir from true #{"edn"})))
+                    (.getBytes empty-graph "UTF-8"))
           _ (refuse-fork! path suffix)
           base (resolve-path @root-dir path false)
           fk (when (some? suffix) (fork-name path suffix))
@@ -356,7 +383,7 @@
         (do (.mkdirs (.getParentFile target))
             (try
               ;; CREATE_NEW: a file that appeared since the check is kept
-              (java.nio.file.Files/write (.toPath target) (.getBytes empty-graph "UTF-8")
+              (java.nio.file.Files/write (.toPath target) content
                                          (into-array java.nio.file.OpenOption
                                                      [java.nio.file.StandardOpenOption/CREATE_NEW]))
               {:ok true :created rel}
@@ -656,14 +683,16 @@
   `route`, the route that asked for it."
   [query-string route]
   (let [body (try
-               (let [{:keys [root suffix]} @files
-                     rel (nav-rel query-string)]
+               (let [{:keys [root]} @files
+                     rel (nav-rel query-string)
+                     compare (query-param query-string "compare")
+                     suffix (request-suffix compare)]
                  (if (embedded-compare?)
                    (let [nm (.getName (io/file root))]
                      (compare-json (embedded-old root) (read-source root)
                                    (str nm " (old)") (str nm " (new)") nm
                                    {:editable false :editable-old false}))
-                   (let [{:keys [old new] :as pair} (sides rel)
+                   (let [{:keys [old new] :as pair} (sides rel compare)
                          path (or rel (root-rel))
                          new-p (.getPath new)
                          ;; one scan per request, shared by both sides
@@ -750,6 +779,32 @@
     (log/event! "create" {:file (:file parsed) :path (:path parsed) :result out})
     (json/generate-string out)))
 
+;; ---- graphs a new one can start as a copy of ----
+
+(def ^:private max-graph-choices 2000)
+
+(defn- graphs-response
+  "For a link to root-relative graph `path`: whether it is there yet (in
+  a comparison either side) and, when not, the graphs it could start as
+  a copy of — none in a comparison, where create refuses copying. The
+  comparison is the link's `compare` (request-suffix), else the
+  startup one."
+  [path compare]
+  (try
+    (refuse-embedded-compare!)
+    (when-not (string? path)
+      (throw (ex-info "path required" {})))
+    (let [suffix (request-suffix compare)
+          _ (refuse-fork! path suffix)
+          base (resolve-path @root-dir path false #{"edn"})
+          fork (when (some? suffix) (resolve-path @root-dir (fork-name path suffix) false #{"edn"}))
+          exists (boolean (or (.exists base) (and (some? fork) (.exists fork))))
+          fs (if (or exists (some? suffix)) [] (scan-edn @root-dir suffix))]
+      {:exists exists
+       :files (vec (take max-graph-choices fs))
+       :truncated (> (count fs) max-graph-choices)})
+    (catch Exception e {:error (ex-message e)})))
+
 ;; ---- docs: the plain-text editor for :md-ref files ----
 
 (def ^:private max-doc-bytes (* 1024 1024))
@@ -813,21 +868,40 @@
    (try (doc-state (doc-file (query-param query-string "path")))
         (catch Exception e {:error (ex-message e)}))))
 
+(defn- compare-problem
+  "What is wrong with link destination `dest` (its target, `target`
+  root-relative, is a file) comparing under `suffix`, or nil."
+  [root dest target suffix]
+  (cond
+    (not (suffix? suffix))
+    (str dest ": invalid compare suffix " (pr-str suffix))
+    (paths/md-path? dest)
+    (str dest ": compare needs a graph file (.edn, .png or .svg)")
+    (some? (fork-base dest suffix))
+    (str dest " is the fork of " (fork-base dest suffix) " — link the original")
+    (not (try (.isFile (resolve-path root (fork-name target suffix) false link-extensions))
+              (catch Exception _ false)))
+    (str dest ": no " (fork-name dest suffix) " — create it with: simpleviz fork " dest " " suffix)))
+
 (defn md-warnings
   "The broken links of md file `rel` (root-relative, under folder `root`)
   holding `text`: one \"line N: <dest> not found\", \"line N: <dest>
   leaves the served folder\" (or another problem the path check names
   it by) or \"line N: <dest>: <message>\" per followable link whose
-  target is no file below `root`; one link's failure never fails the
-  rest. A reference use is checked once, at its definition."
+  target is no file below `root`, or whose ?compare= cannot compare it
+  (compare-problem); one link's failure never fails the rest. A
+  reference use is checked once, at its definition."
   [root rel text]
   (let [dir (some-> (.getParent (io/file rel)) (str/replace "\\" "/"))]
     (vec
-     (keep (fn [{:keys [line dest kind]}]
+     (keep (fn [{:keys [line dest kind] :as l}]
              (when (and (not= kind "ref") (mdlinks/followable? dest))
                (let [target (if (some? dir) (str dir "/" dest) dest)]
-                 (try (when-not (.isFile (resolve-path root target false link-extensions))
-                        (str "line " line ": " dest " not found"))
+                 (try (cond
+                        (not (.isFile (resolve-path root target false link-extensions)))
+                        (str "line " line ": " dest " not found")
+                        (contains? l :compare)
+                        (some->> (compare-problem root dest target (:compare l)) (str "line " line ": ")))
                       (catch Exception e
                         ;; resolve-path names the path it checked: say dest instead
                         (let [msg (str (ex-message e))]
@@ -944,6 +1018,8 @@
     "/api/edit"    (post-only req #(json-response (edit-response-body body)))
     "/api/create"  (post-only req #(json-response (create-response-body body)))
     "/api/copy"    (post-only req #(json-response (copy-response-body body)))
+    "/api/graphs"  (json-response (json/generate-string (graphs-response (query-param query-string "path")
+                                                                        (query-param query-string "compare"))))
     "/api/lock"    (post-only req #(lock-response acquire-lock! body))
     "/api/unlock"  (post-only req #(lock-response release-lock! body))
     "/api/root"      (json-response (json/generate-string {:path (root-rel)}))
@@ -956,7 +1032,8 @@
     "/api/version" (json-response
                     (json/generate-string
                      {:mtime (try
-                               (let [{:keys [old new]} (sides (nav-rel query-string))]
+                               (let [{:keys [old new]} (sides (nav-rel query-string)
+                                                              (query-param query-string "compare"))]
                                  (if (some? old)
                                    (str (.lastModified old) "-" (.lastModified new))
                                    (.lastModified new)))
@@ -971,7 +1048,8 @@
                        (if (= which "old")
                          (embedded-old (:root @files))
                          (read-source (:root @files))))
-                   (let [{:keys [old] :as pair} (sides (nav-rel query-string))]
+                   (let [{:keys [old] :as pair} (sides (nav-rel query-string)
+                                                       (query-param query-string "compare"))]
                      (when (or (not= which "old") (some? old))
                        (side-source pair which))))
                  (catch Exception _ nil))]

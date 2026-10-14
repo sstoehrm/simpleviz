@@ -338,19 +338,37 @@
             (do (push-undo! path before)
                 (spit path text)
                 {:ok true})))))
-    (catch Exception e {:error (ex-message e)})))
+    (catch Exception e {:error (or (ex-message e) (str e))})))
+
+(defn- copy-response
+  "The EDN text of nodes and boxes `ids` with what they hold (edit/copy),
+  and the targets that took (edit/closure), from the side `file` names —
+  what an edit there would change."
+  [{:keys [file ids path compare]}]
+  (try
+    (when (some? path) (refuse-embedded-compare!))
+    (let [text (side-source (sides path compare) file)]
+      {:edn (edit/copy text {:ids ids}) :ids (edit/closure text {:ids ids})})
+    (catch Exception e {:error (or (ex-message e) (str e))})))
 
 (defn- create-response
   "Create the graph file a followed ref names, with its folders, when
   nothing is there yet: in a comparison the side being edited (`file`),
   and only while neither side exists — an empty fork next to an
-  original would show everything as removed. Never overwrites."
-  [{:keys [file path compare]}]
+  original would show everything as removed. With `from` (a
+  root-relative .edn, outside a comparison) it starts as a byte copy of
+  that file rather than empty. Never overwrites."
+  [{:keys [file path compare from]}]
   (try
     (refuse-embedded-compare!)
     (when-not (string? path)
       (throw (ex-info "path required" {})))
     (let [suffix (request-suffix compare)
+          _ (when (and (some? from) (some? suffix))
+              (throw (ex-info "copying is not available in a comparison" {})))
+          content (if (some? from)
+                    (java.nio.file.Files/readAllBytes (.toPath (resolve-path @root-dir from true #{"edn"})))
+                    (.getBytes empty-graph "UTF-8"))
           _ (refuse-fork! path suffix)
           base (resolve-path @root-dir path false)
           fk (when (some? suffix) (fork-name path suffix))
@@ -365,7 +383,7 @@
         (do (.mkdirs (.getParentFile target))
             (try
               ;; CREATE_NEW: a file that appeared since the check is kept
-              (java.nio.file.Files/write (.toPath target) (.getBytes empty-graph "UTF-8")
+              (java.nio.file.Files/write (.toPath target) content
                                          (into-array java.nio.file.OpenOption
                                                      [java.nio.file.StandardOpenOption/CREATE_NEW]))
               {:ok true :created rel}
@@ -592,7 +610,8 @@
 
 (defn- edit-guard
   "HTTP-level rejection response for a write (/api/edit, /api/create,
-  /api/lock, /api/unlock, /api/text/save, POST /api/prefs), or nil when the
+  /api/lock, /api/unlock, /api/text/save, POST /api/prefs, POST
+  /api/answers), or nil when the
   request may proceed: 403 on a foreign Origin (cross-origin write
   attempt), 415 when Content-Type isn't application/json."
   [{:keys [headers server-port]}]
@@ -749,6 +768,10 @@
           (catch Exception e [400 {:error (ex-message e)}]))]
     (assoc (json-response (json/generate-string out)) :status status)))
 
+(defn- copy-response-body [body-stream]
+  (let [parsed (read-json-body body-stream)]
+    (json/generate-string (if-let [err (:parse-error parsed)] {:error err} (copy-response parsed)))))
+
 (defn- create-response-body [body-stream]
   (let [parsed (read-json-body body-stream)
         out (if-let [err (:parse-error parsed)]
@@ -756,6 +779,32 @@
               (create-response parsed))]
     (log/event! "create" {:file (:file parsed) :path (:path parsed) :result out})
     (json/generate-string out)))
+
+;; ---- graphs a new one can start as a copy of ----
+
+(def ^:private max-graph-choices 2000)
+
+(defn- graphs-response
+  "For a link to root-relative graph `path`: whether it is there yet (in
+  a comparison either side) and, when not, the graphs it could start as
+  a copy of — none in a comparison, where create refuses copying. The
+  comparison is the link's `compare` (request-suffix), else the
+  startup one."
+  [path compare]
+  (try
+    (refuse-embedded-compare!)
+    (when-not (string? path)
+      (throw (ex-info "path required" {})))
+    (let [suffix (request-suffix compare)
+          _ (refuse-fork! path suffix)
+          base (resolve-path @root-dir path false #{"edn"})
+          fork (when (some? suffix) (resolve-path @root-dir (fork-name path suffix) false #{"edn"}))
+          exists (boolean (or (.exists base) (and (some? fork) (.exists fork))))
+          fs (if (or exists (some? suffix)) [] (scan-edn @root-dir suffix))]
+      {:exists exists
+       :files (vec (take max-graph-choices fs))
+       :truncated (> (count fs) max-graph-choices)})
+    (catch Exception e {:error (ex-message e)})))
 
 ;; ---- docs: the plain-text editor for :md-ref files ----
 
@@ -903,6 +952,88 @@
                              :result (dissoc out :text)})
     (assoc (json-response (json/generate-string out)) :status status)))
 
+;; ---- the answers to a deck's questions (?? and ??? slides): beside
+;; the deck, so an agent presenting it reads them as they come in
+
+;; one write at a time: the read and the merge must not interleave
+(def ^:private answers-monitor (Object.))
+
+(defn- answers-file
+  "The canonical answers file of the deck at root-relative `path` (an
+  existing .md file): talk.md's is talk.answers.edn beside it."
+  [path]
+  (when-not (.isFile (doc-file path))
+    (throw (ex-info (str "no such file: " path) {})))
+  (resolve-path @root-dir (str/replace path #"(?i)\.md$" ".answers.edn") false #{"edn"}))
+
+(defn- read-answers
+  "The map in answers file f as written; {} when it is missing or empty.
+  Throws (ex-data :status 409) when it holds anything else — no map, not
+  UTF-8, more after the map — so a write never replaces what it could
+  not read."
+  [f]
+  (if (.isFile f)
+    (let [fail (fn [why] (throw (ex-info (str (.getName f) " " why) {:status 409})))
+          text (try (:text (doc-state f))
+                    (catch Exception e (fail (str/replace (ex-message e) (str (.getName f) " ") ""))))
+          r (java.io.PushbackReader. (java.io.StringReader. text))
+          m (try (edn/read {:eof nil} r) (catch Exception _ (fail "does not parse")))]
+      (when-not (= ::eof (try (edn/read {:eof ::eof} r) (catch Exception _ ::more)))
+        (fail "has content after the map"))
+      (cond (nil? m) {}
+            (map? m) m
+            :else (fail "is not a map")))
+    {}))
+
+(defn answers-of
+  "The answers in map `m` as the page takes them: name -> {:answer
+  :num}, a keyword name as its string; an entry of any other shape is
+  left out."
+  [m]
+  (into {} (keep (fn [[k v]]
+                   (let [id (if (keyword? k) (name k) k)]
+                     (when (and (string? id) (map? v) (string? (:answer v))
+                                (integer? (:num v)) (>= (:num v) 0))
+                       [id (select-keys v [:answer :num])])))
+                 m)))
+
+(defn- answers-text
+  "EDN for the answers map, one entry a line."
+  [m]
+  (str "{" (str/join "\n " (map (fn [[k v]] (str (pr-str k) " " (pr-str v))) m)) "}\n"))
+
+(defn- answers-response-body [query-string]
+  (json/generate-string
+   (try {:answers (answers-of (read-answers (answers-file (query-param query-string "path"))))}
+        (catch Exception e {:error (ex-message e)}))))
+
+(defn- answers-save
+  "Merge the answer {path id answer num} into the deck's answers file,
+  keeping every other entry as written. [status reply]; the reply is
+  every answer now stored."
+  [{:keys [path id answer num]}]
+  (when (embedded/export? (:root @files))
+    (throw (ex-info "PNG and SVG sources are read-only" {})))
+  (when-not (and (string? id) (seq id)) (throw (ex-info "id must be a non-empty string" {})))
+  (when-not (string? answer) (throw (ex-info "answer must be a string" {})))
+  (when-not (and (integer? num) (>= num 0)) (throw (ex-info "num must be a whole number, 0 or more" {})))
+  (let [f (answers-file path)]
+    (locking answers-monitor
+      ;; the name as a keyword is the same question: the new answer replaces it
+      (let [m (assoc (dissoc (read-answers f) (keyword id)) id {:answer answer :num num})]
+        (write-atomically! f (.getBytes ^String (answers-text m) "UTF-8"))
+        [200 {:answers (answers-of m)}]))))
+
+(defn- answers-save-response [body-stream]
+  (let [parsed (read-json-body body-stream)
+        [status out] (try
+                       (if-let [err (when (map? parsed) (:parse-error parsed))]
+                         [400 {:error err}]
+                         (answers-save parsed))
+                       (catch Exception e [(:status (ex-data e) 400) {:error (ex-message e)}]))]
+    (log/event! "answer" {:path (:path parsed) :id (:id parsed) :status status})
+    (assoc (json-response (json/generate-string out)) :status status)))
+
 ;; ---- your choices in the page (theme, vi): one file for every
 ;; port, so they outlive the server — the page's localStorage did not,
 ;; being per origin and the port random
@@ -969,12 +1100,18 @@
     "/api/errors"  (json-response (errors-response-body query-string))
     "/api/edit"    (post-only req #(json-response (edit-response-body body)))
     "/api/create"  (post-only req #(json-response (create-response-body body)))
+    "/api/copy"    (post-only req #(json-response (copy-response-body body)))
+    "/api/graphs"  (json-response (json/generate-string (graphs-response (query-param query-string "path")
+                                                                        (query-param query-string "compare"))))
     "/api/lock"    (post-only req #(lock-response acquire-lock! body))
     "/api/unlock"  (post-only req #(lock-response release-lock! body))
     "/api/root"      (json-response (json/generate-string {:path (root-rel)}))
     "/api/text"      (json-response (text-response-body query-string))
     "/api/file"      (file-response query-string)
     "/api/text/save" (post-only req #(text-save-response body))
+    "/api/answers"   (if (= :post (:request-method req))
+                       (post-only req #(answers-save-response body))
+                       (json-response (answers-response-body query-string)))
     "/api/prefs"     (if (= :post (:request-method req))
                        (post-only req #(prefs-save-response body))
                        (json-response (json/generate-string (read-prefs))))

@@ -5,7 +5,7 @@ this when the user asks how to do something in the page.
 
 ## Contents
 - Viewing: inspector, tooltips, boxes, themes, export
-- Editing in the page: inspector edits, toolbar, chords, undo
+- Editing in the page: inspector edits, toolbar, select mode, chords, undo
 - Md files in the page
 - Compare mode: rings, legend, old|new toggle
 
@@ -40,7 +40,7 @@ at the bottom adds one. Editing a node's or box's `name` renames its id the
 same way new ids are derived (below).
 
 Toolbar (bottom center):
-- Nothing selected: "new node" (name prompt; the id is derived from the
+- Nothing selected: `new` → "new node" (name prompt; the id is derived from the
   name: lowercased, illegal characters to dashes; `name::type` also sets
   the type; jumps to the new node) and "new box" (an empty top-level box).
 - Any selection: Delete (cascades: removes touching edges and box
@@ -61,6 +61,14 @@ Toolbar (bottom center):
   either side shows on both), numbered; "follow pair" (`f p`, or
   `f p 1`…`f p 9` with several) opens the other graph with that element
   selected.
+
+Select mode: `s s` (click nodes and boxes to add or drop them), `s a`
+(all), `s r` (drag a rectangle). It takes `y y` copy, `x x` cut, `d d`
+delete; a box comes with what it holds, plus the edges among them. The copy
+goes to the system clipboard as the EDN of a graph of its own, and `p p`
+pastes it into any graph (into the selected box, else top level); a taken
+id gets `-1`, `-2`, … on its id and `:name`, and `:pos` is dropped. Esc
+ends select mode.
 
 Chords are shown on the buttons; typing a first key pops out what comes
 next, clickable. A toggle at the toolbar's right end switches between every

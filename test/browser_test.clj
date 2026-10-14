@@ -230,8 +230,10 @@
                  "  r.compare = new URLSearchParams(location.search).get('compare');"
                  "  r.legend = legend.innerText.includes('g-next.edn');"
                  "  r.open = [...document.querySelectorAll('#md-view a.md-link.open')].map(a => a.innerText).join() === 'the change';"
-                 "  [...document.querySelectorAll('button')].find(b => b.innerText.startsWith('new node')).click();"
-                 "  step = 2; return; }"
+                 "  [...document.querySelectorAll('#selection-toolbar button')].find(b => b.innerText.startsWith('new')).click();"
+                 "  step = 6; return; }"
+                 " if (step === 6) { const b = [...document.querySelectorAll('#chord-popout button')].find(b => b.innerText.startsWith('new node'));"
+                 "  if (!b) return; b.click(); step = 2; return; }"
                  " if (step === 2) { const input = document.querySelector('.id-entry-input'); if (!input) return;"
                  "  input.value = 'queue'; input.dispatchEvent(new Event('input', {bubbles: true}));"
                  "  input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true})); step = 3; return; }"
@@ -332,6 +334,76 @@
                                             " window.dispatchEvent(new PopStateEvent('popstate'));"))
                          :extra {"notes.md" "# Notes\n\nhello\n" "other.md" "# Other\n"})
                         [:errs :view :h1 :side])))))
+
+(deftest a-quiz-asks-and-locks
+  ;; ??? holds → until Submit, then shows the answer locked, the right
+  ;; choice and the explanation of the one picked; ?? takes a click, the
+  ;; last of two quick ones wins; the answers are in deck.answers.edn and
+  ;; come back locked when the deck is presented again
+  (with-real-browser
+    (is (= {:asked {:choices 2 :submit-disabled true :slide "2"}
+            :blocked {:slide "2" :hint "Submit an answer to go on"}
+            :locked {:wrong "Browser" :correct "Redis" :note "Per tab." :disabled true :slide "2"}
+            :stored {:storage {:answer "Browser" :num 0} :poll {:answer "No" :num 1}}
+            :again {:locked true :next "3"}}
+           (eval-on-served-page
+                path "deck.md"
+                "# Quiz\n---\n??? storage\n# Where?\n- [ ] Browser\n  > Per tab.\n- [x] Redis\n  > Right: shared.\n---\n?? poll\n# Sure?\n- [ ] Yes\n- [ ] No\n"
+                (str "new Promise(ok => { let step = 0; const r = {};"
+                     " const q = k => new URLSearchParams(location.search).get(k);"
+                     " const key = k => document.dispatchEvent(new KeyboardEvent('keydown', {key: k, bubbles: true}));"
+                     " const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];"
+                     " const t = setInterval(async () => {"
+                     " if (step === 0) { const b = $('.md-present'); if (!b) return; b.click(); step = 1; return; }"
+                     " if (step === 1) { if (!$('#present-slide')) return; key('ArrowRight'); step = 2; return; }"
+                     " if (step === 2) { if (!$('.ask-choice')) return;"
+                     "  r.asked = {choices: $$('.ask-choice').length, 'submit-disabled': $('.ask-submit').disabled, slide: q('slide')};"
+                     "  key('ArrowRight'); step = 3; return; }"
+                     " if (step === 3) { if (!$('.ask-hint')) return;"
+                     "  r.blocked = {slide: q('slide'), hint: $('.ask-hint').textContent};"
+                     "  $$('.ask-choice')[0].click(); step = 4; return; }"
+                     " if (step === 4) { if ($('.ask-submit').disabled) return; $('.ask-submit').click(); step = 5; return; }"
+                     " if (step === 5) { if (!$('.ask.locked')) return;"
+                     "  r.locked = {wrong: $('.ask-choice.wrong').textContent, correct: $('.ask-choice.correct').textContent,"
+                     "   note: $('.ask-note').textContent, disabled: $$('.ask-choice').every(b => b.disabled), slide: q('slide')};"
+                     "  key('ArrowRight'); step = 6; return; }"
+                     " if (step === 6) { if (q('slide') !== '3') return; $$('.ask-choice')[0].click(); $$('.ask-choice')[1].click(); step = 7; return; }"
+                     " if (step === 7) { if (!$('.ask-choice.chosen')) return;"
+                     "  step = 9; clearInterval(t); await new Promise(go => setTimeout(go, 500));"
+                     "  r.stored = (await (await fetch('/api/answers?path=deck.md')).json()).answers;"
+                     "  key('Escape');"
+                     "  const t2 = setInterval(() => {"
+                     "   if (step === 9) { const b = $('.md-present'); if (!b) return; b.click(); step = 10; return; }"
+                     "   if (step === 10) { if (!$('#present-slide')) return; key('ArrowRight'); step = 11; return; }"
+                     "   if (step === 11) { if (!$('.ask.locked')) return; r.again = {locked: true}; key('ArrowRight'); step = 12; return; }"
+                     "   if (q('slide') !== '3') return; r.again.next = q('slide'); clearInterval(t2); ok(r); }, 50);"
+                     "  return; }"
+                     " }, 50); })"))))))
+
+(deftest a-quiz-goes-on-when-an-answer-is-not-saved
+  ;; the answers file can't be read, so no answer is written: the ???
+  ;; still locks and the deck goes on, saying so on every slide after
+  (with-real-browser
+    (let [r (eval-on-served-page
+             path "deck.md"
+             "# T\n---\n??? q\n# Q\n- [ ] a\n- [x] b\n---\n# After\n"
+             (str "new Promise(ok => { let step = 0; const r = {};"
+                  " const q = k => new URLSearchParams(location.search).get(k);"
+                  " const key = k => document.dispatchEvent(new KeyboardEvent('keydown', {key: k, bubbles: true}));"
+                  " const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];"
+                  " const t = setInterval(() => {"
+                  " if (step === 0) { const b = $('.md-present'); if (!b) return; b.click(); step = 1; return; }"
+                  " if (step === 1) { if (!$('#present-slide')) return; key('ArrowRight'); step = 2; return; }"
+                  " if (step === 2) { if (!$('.ask-choice')) return; $$('.ask-choice')[0].click(); step = 3; return; }"
+                  " if (step === 3) { if ($('.ask-submit').disabled) return; $('.ask-submit').click(); step = 4; return; }"
+                  " if (step === 4) { if (!$('.ask.locked') || !$$('.ask-error').some(e => e.textContent.includes('not saved'))) return;"
+                  "  key('ArrowRight'); step = 5; return; }"
+                  " if (q('slide') !== '3') return; clearInterval(t);"
+                  " r.slide = q('slide'); r.h1 = $('#present-slide h1').textContent;"
+                  " r.error = $$('.ask-error').map(e => e.textContent); ok(r); }, 50); })")
+             :extra {"deck.answers.edn" "{:oops"})]
+      (is (= {:slide "3" :h1 "After"} (select-keys r [:slide :h1])))
+      (is (some #(re-find #"not saved \(q\): deck.answers.edn does not parse" %) (:error r)) (pr-str r)))))
 
 (deftest a-slide-says-why-its-picture-does-not-show
   (with-real-browser
@@ -434,6 +506,27 @@
                  " r.pref = (await (await fetch('/api/prefs')).json()).vi;"
                  " ok(r); }, 50); })"))))))
 
+(deftest format-tidies-the-text-and-undoes
+  ;; Format, in edit mode only, tidies the text; the browser's undo takes
+  ;; it back, and in vi mode u does
+  (with-real-browser
+    (let [raw "#  Title\ntext   \n* a\n* b"
+          tidy "# Title\n\ntext  \n- a\n- b\n"]
+      (is (= {:read-has false :formatted tidy :dirty true :undone raw :vi tidy :vi-undone raw}
+             (eval-on-served-page
+              path "notes.md" raw
+              (str "new Promise(ok => { let step = 0; const r = {}; const t = setInterval(() => {"
+                   " const key = (el, k) => el.dispatchEvent(new KeyboardEvent('keydown', {key: k, bubbles: true, cancelable: true}));"
+                   " const fmt = () => document.querySelector('.md-format');"
+                   " if (step === 0) { const b = document.querySelector('.md-mode'); if (!b) return;"
+                   "  r['read-has'] = !!fmt(); b.click(); step = 1; return; }"
+                   " clearInterval(t); const ta = document.getElementById('md-text');"
+                   " fmt().click(); r.formatted = ta.value; r.dirty = !!document.querySelector('.md-dirty');"
+                   " ta.focus(); document.execCommand('undo'); r.undone = ta.value;"
+                   " document.querySelector('.md-vi').click();"
+                   " fmt().click(); r.vi = ta.value;"
+                   " key(ta, 'u'); r['vi-undone'] = ta.value; ok(r); }, 50); })")))))))
+
 (deftest vi-moves-scroll-the-text
   ;; setting the textarea's selection doesn't scroll it: G must, gg back
   (with-real-browser
@@ -476,3 +569,53 @@
                   "         b: s2 && pos(s2, 'b').join(' ') === pos(s1, 'b').join(' ')};"
                   "})()"))]
       (is (= {:placed true :moved [5 3] :b true} r)))))
+
+(deftest select-mode-copies-cuts-and-pastes
+  ;; s s and a click select, y y copies, p p pastes with a -1; s r spans a
+  ;; rectangle; s a then x x cuts everything, and p p brings it back.
+  ;; The page's clipboard is a stand-in: headless Chrome asks permission.
+  (with-real-browser
+    (let [r (eval-on-served-page
+             path "g.edn" "{:nodes {:a {:name \"A\"} :b nil :c nil}\n :edges {[:a :b] {:direction :->}}\n :boxes {:grp {:components [:b]}}}"
+             (str "(async () => {"
+                  " const sleep = ms => new Promise(res => setTimeout(res, ms));"
+                  " const until = async f => { for (let i = 0; i < 100; i++) { const v = await f(); if (v) return v; await sleep(100); } return null; };"
+                  " let clip = '';"
+                  " delete window.ClipboardItem;"
+                  " Object.defineProperty(navigator, 'clipboard', {value: {writeText: async t => { clip = t; }, readText: async () => clip}});"
+                  " const app = await import('/js/simpleviz/app.mjs'), cv = await import('/js/simpleviz/canvas.mjs');"
+                  " const st = () => app.state.val;"
+                  " const key = k => document.dispatchEvent(new KeyboardEvent('keydown', {key: k, bubbles: true}));"
+                  " const keys = ks => ks.split(' ').forEach(key);"
+                  " const source = async () => (await fetch('/api/source')).text();"
+                  " const ids = () => [...st().multi.ids].sort().join(' ');"
+                  " await until(() => st().scene);"
+                  " keys('s s');"
+                  " const a = st().scene.items.find(i => i.id === 'n:a'), p = cv.to_screen(a.x + a.w / 2, a.y + a.h / 2);"
+                  " const canvas = document.getElementById('canvas'), rect = canvas.getBoundingClientRect();"
+                  " canvas.dispatchEvent(new MouseEvent('click', {clientX: rect.left + p.x, clientY: rect.top + p.y, bubbles: true}));"
+                  " const picked = ids();"
+                  " keys('y y');"
+                  " const copied = await until(() => clip);"
+                  " const ended = st().multi === null;"
+                  " keys('p p');"
+                  " const pasted = await until(async () => { const s = await source(); return s.includes(':a-1') && s; });"
+                  " await until(() => st().scene.items.some(i => i.id === 'n:a-1'));"
+                  " keys('s r');"
+                  " const wrap = document.getElementById('canvas-wrap'), wr = wrap.getBoundingClientRect();"
+                  " const sc = st().scene, tl = cv.to_screen(-10, -10), br = cv.to_screen(sc.width + 10, sc.height + 10);"
+                  " const ev = (type, x, y) => wrap.dispatchEvent(new PointerEvent(type, {clientX: wr.left + x, clientY: wr.top + y, bubbles: true, pointerId: 7}));"
+                  " ev('pointerdown', tl.x, tl.y); ev('pointermove', br.x, br.y); ev('pointerup', br.x, br.y);"
+                  " const spanned = ids();"
+                  " key('Escape');"
+                  " const escaped = st().multi === null;"
+                  " keys('s a'); keys('x x');"
+                  " const emptied = await until(async () => { const s = await source(); return !s.includes(':a') && s; });"
+                  " keys('p p');"
+                  " const back = await until(async () => { const s = await source(); return s.includes(':a-1 {:name \"A-1\"}') && s.includes(':grp') && s; });"
+                  " return {picked, copied, ended, pasted: pasted && pasted.includes(':a-1 {:name \"A-1\"}'), spanned, escaped,"
+                  "         emptied: !!emptied, back: !!back && !back.includes(':a-2')};"
+                  "})()"))]
+      (is (= {:picked "n:a" :copied "{:nodes {:a {:name \"A\"}}}\n" :ended true :pasted true
+              :spanned "b:grp n:a n:a-1 n:b n:c" :escaped true :emptied true :back true}
+             r)))))

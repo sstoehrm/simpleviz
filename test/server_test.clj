@@ -444,6 +444,24 @@
       (is (= "{:nodes {:a nil}}" (slurp p)))
       (is (empty? (get @serve/undo-stacks p))))))
 
+;; --- /api/copy: what y y and x x put on the clipboard ------------------
+
+(defn- copy-req [body]
+  (assoc (edit-req body) :uri "/api/copy"))
+
+(deftest api-copy-answers-the-selection-as-edn
+  (let [p (temp-edn "{:nodes {:a {:name \"A\"} :b nil :c nil} :edges {[:a :b] nil [:a :c] nil}}")]
+    (serve! p)
+    (let [out (json/parse-string (:body (serve/handler (copy-req {:file "new" :ids [{:section "nodes" :id "a"}
+                                                                                  {:section "nodes" :id "b"}]})))
+                                 true)]
+      (is (= "{:nodes {:a {:name \"A\"}\n         :b nil}\n :edges {[:a :b] nil}}\n" (:edn out)))
+      (is (= [{:section "nodes" :id "a"} {:section "nodes" :id "b"}] (:ids out))))
+    (is (= "unknown node \"zz\""
+           (:error (json/parse-string (:body (serve/handler (copy-req {:file "new" :ids [{:section "nodes" :id "zz"}]})))
+                                      true))))
+    (is (= 405 (:status (serve/handler (assoc (copy-req {}) :request-method :get)))))))
+
 (deftest api-edit-undo-restores
   (let [p (temp-edn "{:nodes {:a nil}}")]
     (serve! p)
@@ -944,6 +962,79 @@
       (is (not (.exists (java.io.File. dir "fresh.edn"))))
       ;; both created files open as an unchanged comparison
       (is (nil? (get (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "file=a%2Fn.edn"}))) "error"))))))
+
+(deftest api-create-copies-from-an-existing-graph
+  (with-temp-dir*
+    (fn [dir]
+      (serve! (write! dir "root.edn" "{:nodes {:a nil}}"))
+      (write! dir "lib/tpl.edn" "{:nodes {:t {:ref \"x.edn\"}}}\n")
+      (is (= {"ok" true "created" "docs/new.edn"} (create! {:path "docs/new.edn" :file "new" :from "lib/tpl.edn"})))
+      ;; a byte copy: refs stay as written
+      (is (= "{:nodes {:t {:ref \"x.edn\"}}}\n" (slurp (java.io.File. dir "docs/new.edn"))))
+      ;; never overwrites
+      (is (= {"ok" true "created" nil} (create! {:path "docs/new.edn" :file "new" :from "root.edn"})))
+      (is (= "{:nodes {:t {:ref \"x.edn\"}}}\n" (slurp (java.io.File. dir "docs/new.edn")))))))
+
+(deftest api-create-from-refusals
+  (with-temp-dir*
+    (fn [dir]
+      (serve! (write! dir "root.edn" "{:nodes {:a nil}}"))
+      (write! dir "pic.png" "not really")
+      (is (re-find #"no such file" (get (create! {:path "n.edn" :file "new" :from "gone.edn"}) "error")))
+      (is (re-find #"leaves the served folder" (get (create! {:path "n.edn" :file "new" :from "../x.edn"}) "error")))
+      (is (re-find #"not an \.edn file" (get (create! {:path "n.edn" :file "new" :from "pic.png"}) "error")))
+      (is (not (.exists (java.io.File. dir "n.edn"))))))
+  (with-temp-dir*
+    (fn [dir]
+      (suffix-tree! dir)
+      (is (= "copying is not available in a comparison"
+             (get (create! {:path "a/n.edn" :file "new" :from "lone.edn"}) "error")))
+      (is (not (.exists (java.io.File. dir "a/n-next.edn")))))))
+
+(defn- graphs [path]
+  (json/parse-string (:body (serve/handler {:uri "/api/graphs" :request-method :get
+                                            :query-string (str "path=" (java.net.URLEncoder/encode path "UTF-8"))}))))
+
+(deftest api-graphs-lists-the-graphs-a-new-one-can-copy
+  (with-temp-dir*
+    (fn [dir]
+      (serve! (write! dir "root.edn" "{:nodes {:a nil}}"))
+      (write! dir "docs/talk.md" "# t")
+      (write! dir "docs/sub/b.edn" "{}")
+      (write! dir "a.EDN" "{}")
+      (write! dir "pic.png" "x")
+      (write! dir ".git/hidden.edn" "{}")
+      (write! dir "node_modules/pkg/dep.edn" "{}")
+      (is (= {"exists" false "files" ["a.EDN" "docs/sub/b.edn" "root.edn"] "truncated" false}
+             (graphs "docs/new.edn")))
+      ;; a graph that is there needs no choices
+      (is (= {"exists" true "files" [] "truncated" false} (graphs "docs/sub/b.edn")))
+      (is (re-find #"leaves the served folder" (get (graphs "../x.edn") "error"))))))
+
+(deftest api-graphs-in-suffix-mode-offers-no-copies
+  (with-temp-dir*
+    (fn [dir]
+      (suffix-tree! dir)
+      ;; create refuses copying in a comparison
+      (is (= {"exists" false "files" [] "truncated" false} (graphs "a/n.edn")))
+      ;; a fork alone counts as there
+      (is (true? (get (graphs "fresh.edn") "exists"))))))
+
+(deftest api-graphs-and-create-under-a-links-own-compare
+  (with-temp-dir*
+    (fn [dir]
+      (serve! (write! dir "root.edn" "{:nodes {:a nil}}"))
+      (write! dir "only-next.edn" "{}")
+      (let [g (fn [q] (json/parse-string (:body (serve/handler {:uri "/api/graphs" :request-method :get :query-string q}))))]
+        ;; a fork alone counts as there under the link's compare, not without it
+        (is (true? (get (g "path=only.edn&compare=next") "exists")))
+        (is (false? (get (g "path=only.edn") "exists")))
+        ;; no copies offered in a comparison
+        (is (= [] (get (g "path=n.edn&compare=next") "files")))
+        (is (re-find #"invalid compare suffix" (get (g "path=n.edn&compare=-x") "error"))))
+      (is (= "copying is not available in a comparison"
+             (get (create! {:path "n.edn" :file "new" :compare "next" :from "root.edn"}) "error")))
+      (is (not (.exists (java.io.File. dir "n-next.edn")))))))
 
 (deftest api-edit-without-path-picks-the-root-sides-in-suffix-mode
   (with-temp-dir*
@@ -1583,6 +1674,115 @@
       (is (= "ü" (get (text-get "über.md") "text")))
       (is (= "s" (get (text-get "my file.md") "text"))))))
 
+;; --- answers to a deck's questions ------------------------------------
+
+(defn- answers-get [path]
+  (json/parse-string
+   (:body (serve/handler {:uri "/api/answers" :request-method :get
+                          :query-string (str "path=" (java.net.URLEncoder/encode path "UTF-8"))}))))
+
+(defn- answers-post [body & [opts]]
+  (let [r (serve/handler (assoc (edit-req body opts) :uri "/api/answers"))]
+    [(:status r) (json/parse-string (:body r))]))
+
+(deftest api-answers-writes-each-answer-beside-the-deck
+  (with-temp-dir*
+    (fn [dir]
+      (serve! (write! dir "g.edn" "{:nodes {:a nil}}"))
+      (write! dir "deep/talk.md" "?? storage")
+      (is (= {"answers" {}} (answers-get "deep/talk.md")))
+      (is (= [200 {"answers" {"storage" {"answer" "Redis" "num" 1}}}]
+             (answers-post {:path "deep/talk.md" :id "storage" :answer "Redis" :num 1})))
+      (answers-post {:path "deep/talk.md" :id "entry" :answer "gateway" :num 0})
+      ;; a ?? answer changes
+      (answers-post {:path "deep/talk.md" :id "storage" :answer "Postgres" :num 2})
+      (let [f (java.io.File. dir "deep/talk.answers.edn")]
+        (is (= {"entry" {:answer "gateway" :num 0} "storage" {:answer "Postgres" :num 2}}
+               (edn/read-string (slurp f))))
+        (is (empty? (filter (fn [n] (str/includes? n ".simpleviz-tmp")) (.list (.getParentFile f))))))
+      (is (= {"answers" {"entry" {"answer" "gateway" "num" 0} "storage" {"answer" "Postgres" "num" 2}}}
+             (answers-get "deep/talk.md")))
+      (write! dir "Big.MD" "x")
+      (answers-post {:path "Big.MD" :id "q" :answer "a" :num 0})
+      (is (.isFile (java.io.File. dir "Big.answers.edn"))))))
+
+(deftest api-answers-reads-what-an-agent-wrote
+  (with-temp-dir*
+    (fn [dir]
+      (serve! (write! dir "talk.md" "x"))
+      (write! dir "talk.answers.edn" "{:storage {:answer \"Redis\" :num 1} \"odd\" 3 \"half\" {:answer \"a\"}}")
+      (is (= {"answers" {"storage" {"answer" "Redis" "num" 1}}} (answers-get "talk.md")))
+      ;; a write keeps what it does not understand
+      (answers-post {:path "talk.md" :id "entry" :answer "auth" :num 1})
+      (is (= {:storage {:answer "Redis" :num 1} "odd" 3 "half" {:answer "a"} "entry" {:answer "auth" :num 1}}
+             (edn/read-string (slurp (java.io.File. dir "talk.answers.edn"))))))))
+
+(deftest api-answers-replaces-a-keyword-name-with-the-new-answer
+  (with-temp-dir*
+    (fn [dir]
+      (serve! (write! dir "talk.md" "x"))
+      ;; past 8 entries the map is a hash map: its order must not matter
+      (write! dir "talk.answers.edn"
+              (pr-str (into {:storage {:answer "old" :num 0}}
+                            (map (fn [i] [(str "q" i) {:answer "a" :num 0}]) (range 9)))))
+      (is (= {"answer" "new" "num" 1}
+             (get-in (second (answers-post {:path "talk.md" :id "storage" :answer "new" :num 1}))
+                     ["answers" "storage"])))
+      (let [m (edn/read-string (slurp (java.io.File. dir "talk.answers.edn")))]
+        (is (not (contains? m :storage)))
+        (is (= {:answer "new" :num 1} (get m "storage")))))))
+
+(deftest api-answers-never-overwrites-a-file-it-cannot-read
+  (with-temp-dir*
+    (fn [dir]
+      (serve! (write! dir "talk.md" "x"))
+      (write! dir "talk.answers.edn" "{:oops")
+      (is (re-find #"talk.answers.edn does not parse" (get (answers-get "talk.md") "error")))
+      (is (= 409 (first (answers-post {:path "talk.md" :id "q" :answer "a" :num 0}))))
+      (is (= "{:oops" (slurp (java.io.File. dir "talk.answers.edn"))))
+      ;; more after the map, or bytes that are no UTF-8: a write would lose them
+      (write! dir "talk.answers.edn" "{\"a\" {:answer \"x\" :num 0}} {\"b\" 1}")
+      (is (re-find #"content after the map" (get (answers-get "talk.md") "error")))
+      (is (= 409 (first (answers-post {:path "talk.md" :id "q" :answer "a" :num 0}))))
+      (write! dir "talk.answers.edn" (byte-array (map unchecked-byte [123 34 228 34 32 49 125])))
+      (is (re-find #"is not UTF-8" (get (answers-get "talk.md") "error")))
+      (is (= 409 (first (answers-post {:path "talk.md" :id "q" :answer "a" :num 0}))))
+      (write! dir "talk.answers.edn" "[1 2]")
+      (is (re-find #"is not a map" (get (answers-get "talk.md") "error")))
+      (is (= 409 (first (answers-post {:path "talk.md" :id "q" :answer "a" :num 0})))))))
+
+(deftest api-answers-refusals
+  (with-temp-dir*
+    (fn [dir]
+      (serve! (write! dir "talk.md" "x"))
+      (doseq [bad [{:path "../talk.md" :id "q" :answer "a" :num 0}
+                   {:path "g.edn" :id "q" :answer "a" :num 0}
+                   {:path "missing.md" :id "q" :answer "a" :num 0}
+                   {:path "talk.md" :id "" :answer "a" :num 0}
+                   {:path "talk.md" :id 3 :answer "a" :num 0}
+                   {:path "talk.md" :id "q" :answer 3 :num 0}
+                   {:path "talk.md" :id "q" :answer "a" :num -1}
+                   {:path "talk.md" :id "q" :answer "a" :num 1.5}
+                   {:path "talk.md" :id "q" :answer "a"}]]
+        (is (= 400 (first (answers-post bad))) (pr-str bad)))
+      (is (re-find #"no such file" (get (answers-get "missing.md") "error")))
+      (is (= 403 (:status (serve/handler (assoc (edit-req {:path "talk.md" :id "q" :answer "a" :num 0}
+                                                          {:headers {"origin" "http://evil.example"}})
+                                                :uri "/api/answers")))))
+      (is (= 415 (:status (serve/handler (assoc (edit-req {:path "talk.md" :id "q" :answer "a" :num 0}
+                                                          {:headers {"content-type" nil}})
+                                                :uri "/api/answers")))))
+      (is (not (.exists (java.io.File. dir "talk.answers.edn")))))))
+
+(deftest api-answers-is-read-only-for-an-export
+  (with-temp-dir*
+    (fn [dir]
+      (serve! (write! dir "g.png" (png-bytes* [(itxt* "simpleviz-edn" "{:nodes {:a nil}}")])))
+      (write! dir "talk.md" "x")
+      (is (= [400 {"error" "PNG and SVG sources are read-only"}]
+             (answers-post {:path "talk.md" :id "q" :answer "a" :num 0})))
+      (is (not (.exists (java.io.File. dir "talk.answers.edn")))))))
+
 (defn- prefs-post [body & [opts]]
   (let [r (serve/handler (assoc (edit-req body opts) :uri "/api/prefs"))]
     [(:status r) (try (json/parse-string (:body r)) (catch Exception _ (:body r)))]))
@@ -1757,3 +1957,15 @@
     (serve! png)
     (is (= "compare is not available in an embedded compare" (get (graph-at "compare=next") "error")))
     (is (nil? (get (graph-at nil) "error")))))
+
+(deftest copy-follows-a-request-compare
+  ;; y y on a graph compared under its own suffix copies from that fork
+  (with-temp-dir*
+    (fn [dir]
+      (compare-tree! dir)
+      (spit (java.io.File. dir "sub/api-next.edn") "{:nodes {:only-in-fork nil}}")
+      (let [copy! (fn [body] (json/parse-string (:body (serve/handler (copy-req body))) true))]
+        (is (= [{:section "nodes" :id "only-in-fork"}]
+               (:ids (copy! {:file "new" :path "sub/api.edn" :compare "next" :ids [{:section "nodes" :id "only-in-fork"}]}))))
+        (is (= "unknown node \"only-in-fork\""
+               (:error (copy! {:file "new" :path "sub/api.edn" :ids [{:section "nodes" :id "only-in-fork"}]}))))))))

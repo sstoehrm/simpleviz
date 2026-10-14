@@ -145,6 +145,15 @@ explains a set of graphs.
   a picture (`>> ![alt](pic.png)`) — beside its text. Write talks this way;
   `simpleviz init talk.md -t presentation` writes a starter deck and its
   graph.
+- Questions: a slide whose first line is `?? name` asks one. Its task list
+  is the 2 to 4 choices (`- [x]` the right one, none for a poll); lines
+  indented under a choice explain it. `??? name` waits for Submit before
+  the deck goes on, then marks the right choice and shows the explanation
+  of the one picked. `>>` and `??` may share a slide's first lines.
+- Answers land in `talk.answers.edn` beside `talk.md` as
+  `{"name" {:answer "choice text" :num 0-based-index}}`. Read it to react,
+  e.g. append the next slide (the presented text follows the file).
+  Presenting again starts from that file; delete it to ask again.
 - `?compare=<suffix>` on a link to a graph (`[the change](sub/api.edn?compare=next)`,
   also after `>>`) shows it compared with its fork `sub/api-next.edn`, as
   `simpleviz sub/api.edn next` would. Refs followed inside stay compared;

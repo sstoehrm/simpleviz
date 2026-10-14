@@ -141,7 +141,7 @@ edit is rejected. A name with no usable characters leaves the id alone.
 Edges have no id; change their endpoints from the toolbar.
 
 **Toolbar.** The toolbar at the bottom shows the tools for the current
-selection, or "new node" and "new box" when nothing is selected. Creation prompts derive
+selection, or with nothing selected `new` (node, box), `select` and `paste`. Creation prompts derive
 the id from the name as above and accept `name::type`, so
 `Web Server::frontend` creates `web-server` with type "frontend". Pick modes
 wait for a click on the canvas. Every tool has a chord, shown on its button.
@@ -172,7 +172,22 @@ options pop out the same way.
 | `f r` | node, edge, box | follow the `:ref` |
 | `f p` | node, box | follow the pair; with several, `f p 1`…`f p 9` (numbered in the inspector) |
 | `f m` | node, box | open the `:md-ref` doc in the text panel |
+| `s s` | any | select mode: click nodes and boxes to add them to the selection or drop them |
+| `s a` | any | select mode with every node and box selected |
+| `s r` | any | select mode: drag a rectangle; the nodes and boxes wholly inside join the selection |
+| `y y` / `x x` / `d d` | select mode | copy / cut / delete the selection — a box with what it holds, and the edges among them all |
+| `p p` | none / node / box | paste what was copied or cut, here or in another graph — into the selected box, else at the top level |
 | `?` | any | toggle the help panel |
+
+**Copy and paste.** `y y` and `x x` put the selection on the clipboard as
+the EDN of a graph of its own — nodes, edges and boxes as the file writes
+them — so `p p` pastes it into any graph, in any simpleviz tab, and a text
+editor takes it too. Pasting a node or box whose id the graph already uses
+(or an edge or box names) gives it the first free `-1`, `-2`, …, on its id
+and its `:name`; the edges and box members among the pasted elements follow
+the new ids. A pasted element loses its `:pos`, so manual layout puts it
+under the rest. The browser may ask once before `p p` reads the clipboard.
+Esc ends select mode.
 
 **Layout and undo.** A relayout after an edit starts from the previous
 positions, so existing elements stay put and a new node appears next to the
@@ -227,6 +242,14 @@ other elements or follow refs.
   what someone else wrote; with unsaved changes it says "changed on disk"
   — Reload takes the file, Overwrite keeps your text. A save is refused
   while an agent holds the file's lock.
+- Format tidies the markdown — in the panel, and on an md page while
+  you edit: one space after a heading's `#`s and no closing ones, a
+  blank line around unindented headings, table columns aligned, `-`
+  for bullets (when that would join two lists, every bullet stays), no
+  trailing spaces but a line break's two, one blank line between
+  blocks. Code stays as it is, and so does how simpleviz renders the
+  text: a change that would alter it is left out. Ctrl+Z (Cmd+Z)
+  undoes it, `u` in vi mode.
 - Same path rules as refs: relative to the graph file, never above the
   served folder. Only `.md` files in UTF-8, up to 1 MiB.
 
@@ -292,6 +315,12 @@ understand too:
   The URL keeps it, so a reload shows it again. A ref followed from it,
   or its `:md-ref`, opens in place of the md page. A graph with its own
   `:theme` colors the whole page while it's open.
+- A link to an `.edn` file in the md file's folder or below that isn't
+  there yet opens a choice on the right instead: "Create an empty
+  graph", or start it as a copy of any graph of the served folder (a
+  filter narrows the list). The copy is byte for byte, so its `:ref`
+  paths stay as written. A missing graph above the md file's folder is
+  created empty, as a followed ref is.
 - Following an md file opens it in place of this one, and the trail at
   the top leads back.
 - `?compare=<suffix>` on a link to a graph shows it compared with its
@@ -364,6 +393,48 @@ line is `>>` and a link shows the linked file to the right of its text:
 - `simpleviz init talk.md -t presentation` writes a deck to start from,
   and `talk.edn` beside it for its graph slide. `simpleviz demo` brings
   `deck.md`, a deck about decks.
+
+### Questions
+
+A slide whose first line is `?? name` asks a question: its task list
+gives the choices, shown as boxes under the text, and `[x]` marks the
+right one. Lines indented under a choice explain it.
+
+    ---
+    ??? storage
+    # Where should session state live?
+
+    - [ ] In each node's memory
+      > Gone on restart, and the other nodes never see it.
+    - [x] In Redis, shared by all nodes
+      > Right: every node reads the same session.
+    ---
+    ?? confidence
+    # How confident are you in the design?
+
+    - [ ] Very
+    - [ ] Not at all
+
+- `??` takes a click at any time, and a new click changes the answer.
+- `???` asks for Submit, and → stops there until then. Submitted, the
+  answer is locked: the right choice is marked, and the explanation of
+  the one picked shows.
+- A question without an `[x]` is a poll: answered, with no right
+  choice to mark.
+- A question takes 2 to 4 choices; with fewer or more the slide says so
+  and shows its list as text. `>>` and `??` go together in the first
+  lines, in either order, blank lines between them allowed. The choices
+  show under all of the slide's text, so text written after the list
+  shows above them.
+- The answers go to `talk.answers.edn` beside `talk.md`, as you give
+  them — `{"storage" {:answer "In Redis, shared by all nodes" :num 1}}`,
+  `:num` counting the choices from 0 — so an agent presenting the deck
+  can read them and write the next slide. Presenting again starts from
+  that file: delete it to ask again. An answer the server can't write
+  stays in the page — the deck goes on — and every slide says which
+  answers are not in the file. The server writes the file whole, so
+  comments in it don't survive an answer, and a file it can't read is
+  never overwritten.
 
 ## Following refs
 

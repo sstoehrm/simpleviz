@@ -328,32 +328,30 @@
   (let [pa (parent-box parent-of a)]
     (when (= pa (parent-box parent-of b)) pa)))
 
+(defn- trail-at
+  "A trail entry: the root-relative `path` visited, with the compare it
+  was shown under when there was one."
+  [path compare]
+  (if (and (some? compare) (not= compare "")) {:path path :compare compare} {:path path}))
+
 (defn- trail-entry
-  "[path compare-or-nil] of one trail entry as the URL has it: the path
+  "The trail entry one item of the URL's trail names: the path
   URL-encoded, then `:` and the compare suffix when that graph was
   compared (an encoded path holds no raw `:`); an empty one is none."
   [e]
-  (let [k (.indexOf e ":")
-        c (when-not (neg? k) (js/decodeURIComponent (.slice e (inc k))))]
-    [(js/decodeURIComponent (if (neg? k) e (.slice e 0 k)))
-     (if (or (nil? c) (= c "")) nil c)]))
-
-(defn- compare-at
-  "The compare of trail entry i in `trail-compare` (which may be nil or
-  shorter), nil when it has none."
-  [trail-compare i]
-  (get trail-compare i))
+  (let [k (.indexOf e ":")]
+    (trail-at (js/decodeURIComponent (if (neg? k) e (.slice e 0 k)))
+              (when-not (neg? k) (js/decodeURIComponent (.slice e (inc k)))))))
 
 (defn parse-nav
   "The page's navigation state from its query string: {:file
-  root-relative path or nil (the root file) :trail [paths visited
-  before it]}, plus :focus (a scene id, \"n:api\") when the URL names
-  an element to select, :side (root-relative) when an md page shows
-  a graph beside it, :slide (1-based) while it is presented, :compare
-  (a fork suffix) when the graph shown — the file, or the side graph —
-  is compared, and :trail-compare (each trail entry's compare, nil for
-  none) when a trail entry was. Each trail entry is URL-encoded on its
-  own inside the parameter, so commas in file names survive."
+  root-relative path or nil (the root file) :trail [entries visited
+  before it, trail-at]}, plus :focus (a scene id, \"n:api\") when the
+  URL names an element to select, :side (root-relative) when an md page
+  shows a graph beside it, :slide (1-based) while it is presented, and
+  :compare (a fork suffix) when the graph shown — the file, or the side
+  graph — is compared. Each trail entry is URL-encoded on its own
+  inside the parameter, so commas in file names survive."
   [query-string]
   (let [p (js/URLSearchParams. (str (if (nil? query-string) "" query-string)))
         file (.get p "file")
@@ -362,11 +360,9 @@
         side (.get p "side")
         compare (.get p "compare")
         slide (js/Number (.get p "slide"))
-        entries (if (or (nil? trail) (= trail "")) [] (mapv trail-entry (.split trail ",")))
-        tc (mapv second entries)]
+        entries (if (or (nil? trail) (= trail "")) [] (mapv trail-entry (.split trail ",")))]
     (cond-> {:file (if (or (nil? file) (= file "")) nil file)
-             :trail (mapv first entries)}
-      (some some? tc) (assoc :trail-compare tc)
+             :trail entries}
       (and (some? focus) (not= focus "")) (assoc :focus focus)
       (and (some? side) (not= side "")) (assoc :side side)
       (and (some? compare) (not= compare "")) (assoc :compare compare)
@@ -402,19 +398,17 @@
 (defn nav-query
   "The query string (\"\" or \"?file=..&trail=..&focus=..&compare=..\")
   for showing `file` (nil = root) with `trail` behind it and,
-  optionally, element `focus` selected, the graph compared under
-  `compare` and the trail's entries under `trail-compare` — the inverse
-  of parse-nav."
-  [file trail & [focus compare trail-compare]]
+  optionally, element `focus` selected and the graph compared under
+  `compare` — the inverse of parse-nav."
+  [file trail & [focus compare]]
   (let [p (js/URLSearchParams.)]
     (when (some? file) (.set p "file" file))
     (when (seq trail)
       (.set p "trail" (.join (into-array
-                              (map-indexed (fn [i f]
-                                             (let [c (compare-at trail-compare i)]
-                                               (str (js/encodeURIComponent f)
-                                                    (when (some? c) (str ":" (js/encodeURIComponent c))))))
-                                           trail))
+                              (map (fn [{:keys [path compare]}]
+                                     (str (js/encodeURIComponent path)
+                                          (when (some? compare) (str ":" (js/encodeURIComponent compare)))))
+                                   trail))
                              ",")))
     (when (some? focus) (.set p "focus" focus))
     (when (some? compare) (.set p "compare" compare))
@@ -425,11 +419,9 @@
   "Query string for following a ref or pair from `current-path` to
   `target`: the current file joins the end of the trail; `focus`, when
   given, is the element to select there. `from` is the current file's
-  compare, `trail-compare` the trail's, `to` the target's."
-  [current-path trail target & [focus {:keys [from trail-compare to]}]]
-  (let [n (count trail)]
-    (nav-query target (conj (vec trail) current-path) focus to
-               (conj (mapv (fn [i] (compare-at trail-compare i)) (range n)) from))))
+  compare, `to` the target's."
+  [current-path trail target & [focus {:keys [from to]}]]
+  (nav-query target (conj (vec trail) (trail-at current-path from)) focus to))
 
 (defn follow-compare
   "The compare to show `target` under when it is followed: none for an
@@ -447,16 +439,13 @@
   graph followed from it (the next entry, or `current` after the last)
   shows beside it again: from an md page a graph opens beside it, so
   one after it was put in full view from there. Each entry keeps its
-  compare (`trail-compare`, and `compare` for `current`)."
-  [trail i & [current {:keys [trail-compare compare]}]]
-  (let [f (nth trail i)
-        last? (>= (inc i) (count trail))
-        nxt (if last? current (nth trail (inc i)))
-        nxt-c (if last? compare (compare-at trail-compare (inc i)))
-        q (nav-query f (vec (.slice trail 0 i)) nil (compare-at trail-compare i)
-                     (mapv (fn [k] (compare-at trail-compare k)) (range i)))]
-    (if (and (md-path? f) (some? nxt) (not (md-path? nxt)))
-      (with-compare (with-side q nxt) nxt-c)
+  compare, `current` the one `compare` names."
+  [trail i & [current {:keys [compare]}]]
+  (let [{f :path} (nth trail i)
+        nxt (if (>= (inc i) (count trail)) (trail-at current compare) (nth trail (inc i)))
+        q (nav-query f (subvec (vec trail) 0 i) nil (:compare (nth trail i)))]
+    (if (and (md-path? f) (some? (:path nxt)) (not (md-path? (:path nxt))))
+      (with-compare (with-side q (:path nxt)) (:compare nxt))
       q)))
 
 (defn banner-visible?

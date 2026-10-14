@@ -859,14 +859,13 @@
             (concat
              (apply concat
                     (map-indexed
-                     (fn [i f]
+                     (fn [i {f :path}]
                        [[:button {:class "trail-crumb" :type "button" :key (str "c" i)
                                   :title (str "back to " f)
                                   :on-click (fn [e]
                                               (.stopPropagation e)
                                               (navigate! (editor/crumb-url trail i (or (current-path st) (:file (:nav st)))
-                                                                         {:trail-compare (:trail-compare (:nav st))
-                                                                          :compare (when-not (page? st) (:compare st))})))}
+                                                                         {:compare (when-not (page? st) (:compare st))})))}
                          f]
                         [:span {:class "trail-sep" :key (str "s" i)} "›"]])
                      trail))
@@ -1962,7 +1961,6 @@
                (catch :default _ nil)))
         (js-await (navigate! (editor/follow-url (current-path st) (:trail (:nav st)) path focus
                                                 {:from (when-not (page? st) (:compare st))
-                                                 :trail-compare (:trail-compare (:nav st))
                                                  :to to})))
         (finally (swap! state assoc :following false))))))
 

@@ -299,33 +299,33 @@
     (assert/equal (nav-query "sub/api.edn" []) "?file=sub%2Fapi.edn")
     (assert/deepEqual (parse-nav "") {:file nil :trail []})
     (assert/deepEqual (parse-nav "?file=sub%2Fapi.edn") {:file "sub/api.edn" :trail []})
-    (let [q (nav-query "sub/deep/db.edn" ["root.edn" "a,b.edn"])]
-      (assert/deepEqual (parse-nav q) {:file "sub/deep/db.edn" :trail ["root.edn" "a,b.edn"]}))))
+    (let [q (nav-query "sub/deep/db.edn" [{:path "root.edn"} {:path "a,b.edn"}])]
+      (assert/deepEqual (parse-nav q) {:file "sub/deep/db.edn" :trail [{:path "root.edn"} {:path "a,b.edn"}]}))))
 
 (test "follow-url appends the current file to the trail; crumb-url truncates it"
   (fn []
     (assert/deepEqual (parse-nav (follow-url "root.edn" [] "sub/api.edn"))
-                      {:file "sub/api.edn" :trail ["root.edn"]})
-    (assert/deepEqual (parse-nav (follow-url "sub/api.edn" ["root.edn"] "sub/deep/db.edn"))
-                      {:file "sub/deep/db.edn" :trail ["root.edn" "sub/api.edn"]})
-    (assert/deepEqual (parse-nav (crumb-url ["root.edn" "sub/api.edn"] 0))
+                      {:file "sub/api.edn" :trail [{:path "root.edn"}]})
+    (assert/deepEqual (parse-nav (follow-url "sub/api.edn" [{:path "root.edn"}] "sub/deep/db.edn"))
+                      {:file "sub/deep/db.edn" :trail [{:path "root.edn"} {:path "sub/api.edn"}]})
+    (assert/deepEqual (parse-nav (crumb-url [{:path "root.edn"} {:path "sub/api.edn"}] 0))
                       {:file "root.edn" :trail []})
-    (assert/deepEqual (parse-nav (crumb-url ["root.edn" "sub/api.edn"] 1))
-                      {:file "sub/api.edn" :trail ["root.edn"]})))
+    (assert/deepEqual (parse-nav (crumb-url [{:path "root.edn"} {:path "sub/api.edn"}] 1))
+                      {:file "sub/api.edn" :trail [{:path "root.edn"}]})))
 
 (test "crumb-url back to an md page shows the graph after it beside it again"
   (fn []
     ;; full view of the side graph: the md page is the last crumb
-    (assert/deepEqual (parse-nav (crumb-url ["intro.md"] 0 "demo.edn"))
+    (assert/deepEqual (parse-nav (crumb-url [{:path "intro.md"}] 0 "demo.edn"))
                       {:file "intro.md" :trail [] :side "demo.edn"})
     ;; further on, the entry after the crumb
-    (assert/deepEqual (parse-nav (crumb-url ["intro.md" "demo.edn"] 0 "api/internals.edn"))
+    (assert/deepEqual (parse-nav (crumb-url [{:path "intro.md"} {:path "demo.edn"}] 0 "api/internals.edn"))
                       {:file "intro.md" :trail [] :side "demo.edn"})
     ;; an md file after it opened in its place: nothing beside
-    (assert/deepEqual (parse-nav (crumb-url ["intro.md"] 0 "api/notes.md"))
+    (assert/deepEqual (parse-nav (crumb-url [{:path "intro.md"}] 0 "api/notes.md"))
                       {:file "intro.md" :trail []})
     ;; a graph crumb stays alone
-    (assert/deepEqual (parse-nav (crumb-url ["root.edn"] 0 "sub/api.edn"))
+    (assert/deepEqual (parse-nav (crumb-url [{:path "root.edn"}] 0 "sub/api.edn"))
                       {:file "root.edn" :trail []})))
 
 (test "ref-of yields the selection's string :ref, else nil"
@@ -344,10 +344,10 @@
 
 (test "focus rides along in the URL, and only when there is one"
   (fn []
-    (assert/equal (nav-query "views/d.edn" ["o.edn"] "n:api-svc")
+    (assert/equal (nav-query "views/d.edn" [{:path "o.edn"}] "n:api-svc")
                   "?file=views%2Fd.edn&trail=o.edn&focus=n%3Aapi-svc")
     (assert/deepEqual (parse-nav "?file=views%2Fd.edn&trail=o.edn&focus=n%3Aapi-svc")
-                      {:file "views/d.edn" :trail ["o.edn"] :focus "n:api-svc"})
+                      {:file "views/d.edn" :trail [{:path "o.edn"}] :focus "n:api-svc"})
     (assert/deepEqual (parse-nav "?file=a.edn") {:file "a.edn" :trail []})
     (assert/equal (follow-url "o.edn" [] "views/d.edn" "b:grp")
                   "?file=views%2Fd.edn&trail=o.edn&focus=b%3Agrp")
@@ -726,8 +726,8 @@
     (assert/deepEqual (parse-nav "?side=sub%2Fpay.edn") {:file nil :trail [] :side "sub/pay.edn"})
     (assert/deepEqual (parse-nav "?side=") {:file nil :trail []})
     (assert/equal (with-side "" "pay.edn") "?side=pay.edn")
-    (assert/deepEqual (parse-nav (with-side (nav-query "docs/n.md" ["r.edn"]) "docs/a b.edn"))
-                      {:file "docs/n.md" :trail ["r.edn"] :side "docs/a b.edn"})
+    (assert/deepEqual (parse-nav (with-side (nav-query "docs/n.md" [{:path "r.edn"}]) "docs/a b.edn"))
+                      {:file "docs/n.md" :trail [{:path "r.edn"}] :side "docs/a b.edn"})
     (assert/equal (with-side "?file=n.md&side=a.edn" nil) "?file=n.md")
     (assert/equal (with-side "?side=a.edn" nil) "")))
 
@@ -757,32 +757,32 @@
   (fn []
     (assert/deepEqual (parse-nav "?file=api.edn&compare=next") {:file "api.edn" :trail [] :compare "next"})
     (assert/deepEqual (parse-nav "?file=api.edn&compare=") {:file "api.edn" :trail []})
-    (let [q (nav-query "db.edn" ["n,1.md" "a:b.edn" "api.edn"] nil "next" [nil "v2" "next"])]
-      (assert/deepEqual (parse-nav q) {:file "db.edn" :trail ["n,1.md" "a:b.edn" "api.edn"]
-                                       :trail-compare [nil "v2" "next"] :compare "next"}))
-    ;; no compare anywhere: the URL and the parsed nav are as before
-    (assert/equal (nav-query "db.edn" ["a.edn"] nil nil [nil]) "?file=db.edn&trail=a.edn")
-    (assert/deepEqual (parse-nav "?trail=a%253Ab.edn") {:file nil :trail ["a:b.edn"]})
+    (let [trail [{:path "n,1.md"} {:path "a:b.edn" :compare "v2"} {:path "api.edn" :compare "next"}]
+          q (nav-query "db.edn" trail nil "next")]
+      (assert/deepEqual (parse-nav q) {:file "db.edn" :trail trail :compare "next"}))
+    ;; no compare anywhere: the URL is as before
+    (assert/equal (nav-query "db.edn" [{:path "a.edn"}]) "?file=db.edn&trail=a.edn")
+    (assert/deepEqual (parse-nav "?trail=a%253Ab.edn") {:file nil :trail [{:path "a:b.edn"}]})
     ;; an empty compare, as in a hand-made URL, is none
-    (assert/deepEqual (parse-nav "?trail=a.edn%3A") {:file nil :trail ["a.edn"]})))
+    (assert/deepEqual (parse-nav "?trail=a.edn%3A") {:file nil :trail [{:path "a.edn"}]})))
 
 (test "follow-url and crumb-url keep each entry's compare"
   (fn []
     ;; md page with a compared side graph → follow a ref from it
-    (let [q (follow-url "api.edn" ["notes.md"] "db.edn" nil {:from "next" :trail-compare [nil] :to "next"})]
-      (assert/deepEqual (parse-nav q) {:file "db.edn" :trail ["notes.md" "api.edn"]
-                                       :trail-compare [nil "next"] :compare "next"})
+    (let [q (follow-url "api.edn" [{:path "notes.md"}] "db.edn" nil {:from "next" :to "next"})]
+      (assert/deepEqual (parse-nav q) {:file "db.edn" :trail [{:path "notes.md"} {:path "api.edn" :compare "next"}]
+                                       :compare "next"})
       (let [nav (parse-nav q)]
         ;; back to the graph: it is compared again
-        (assert/deepEqual (parse-nav (crumb-url (:trail nav) 1 "db.edn" {:trail-compare (:trail-compare nav) :compare "next"}))
-                          {:file "api.edn" :trail ["notes.md"] :compare "next"})
+        (assert/deepEqual (parse-nav (crumb-url (:trail nav) 1 "db.edn" {:compare "next"}))
+                          {:file "api.edn" :trail [{:path "notes.md"}] :compare "next"})
         ;; back to the md page: the graph after it shows beside it, compared
-        (assert/deepEqual (parse-nav (crumb-url (:trail nav) 0 "db.edn" {:trail-compare (:trail-compare nav) :compare "next"}))
+        (assert/deepEqual (parse-nav (crumb-url (:trail nav) 0 "db.edn" {:compare "next"}))
                           {:file "notes.md" :trail [] :side "api.edn" :compare "next"})))
     ;; the md page itself was last: its side takes the current compare
-    (assert/deepEqual (parse-nav (crumb-url ["notes.md"] 0 "api.edn" {:compare "v2"}))
+    (assert/deepEqual (parse-nav (crumb-url [{:path "notes.md"}] 0 "api.edn" {:compare "v2"}))
                       {:file "notes.md" :trail [] :side "api.edn" :compare "v2"})
-    (assert/deepEqual (parse-nav (follow-url "a.edn" [] "b.edn")) {:file "b.edn" :trail ["a.edn"]})))
+    (assert/deepEqual (parse-nav (follow-url "a.edn" [] "b.edn")) {:file "b.edn" :trail [{:path "a.edn"}]})))
 
 (test "with-compare sets or drops the compare parameter"
   (fn []

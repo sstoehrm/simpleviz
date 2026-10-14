@@ -38,7 +38,21 @@
    ["label across a blank line of blanks" "[ref section\n \t\nmore text](x.md) [ok](o.md)"
     [{:line 3 :label "ok" :dest "o.md" :kind "inline"}]]
    ["dest across a blank line" "[a](\n\nx.md)" []]
-   ["title across a blank line" "[a](x.md \"t\n\nu\")" []]])
+   ["title across a blank line" "[a](x.md \"t\n\nu\")" []]
+   ;; ?compare=<suffix> names the fork to compare with, kept apart from :dest
+   ["compare" "[a](api.edn?compare=next) ![b](d.svg?x=1&compare=v2#f) [c](c.edn?compare=)"
+    [{:line 1 :label "a" :dest "api.edn" :kind "inline" :compare "next"}
+     {:line 1 :label "b" :dest "d.svg" :kind "image" :compare "v2"}
+     {:line 1 :label "c" :dest "c.edn" :kind "inline" :compare ""}]]
+   ["compare on a definition and its uses" "[x][d] [y](y.edn#compare=no)\n\n[d]: <a b.edn?compare=next> \"t\""
+    [{:line 1 :label "x" :dest "a b.edn" :kind "ref" :compare "next"} {:line 1 :label "y" :dest "y.edn" :kind "inline"}
+     {:line 3 :label "d" :dest "a b.edn" :kind "def" :compare "next"}]]])
+
+(def DEST_COMPARE
+  "[raw-destination expected-compare]"
+  [["a.edn" nil] ["a.edn?compare=next" "next"] ["a.edn?x=1&compare=v%202" "v 2"]
+   ["a.edn?compare=a&compare=b" "a"] ["a.edn?compared=x" nil] ["a.edn#compare=x" nil]
+   ["a.edn?compare=x#y" "x"] ["a.edn?compare" ""] ["a.edn\\?compare=x" "x"]])
 
 (def FOLLOWABLE
   "[dest expected]"

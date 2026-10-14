@@ -46,3 +46,10 @@
     (assert/equal (side-kind "x.gif") "image")
     (assert/equal (side-kind "x.webp") "image")
     (assert/equal (side-kind "x.txt") nil)))
+
+(test "a >> link's ?compare= rides along as :side-compare"
+  (fn []
+    (assert/deepEqual (slides ">> [the change](api.edn?compare=next)\n---\n>> api.edn?compare=v2\n---\n>> [plain](api.edn)")
+                      [{:text "" :side "api.edn" :side-compare "next"}
+                       {:text "" :side "api.edn" :side-compare "v2"}
+                       {:text "" :side "api.edn"}])))

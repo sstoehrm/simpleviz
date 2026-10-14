@@ -344,13 +344,20 @@
   "Create the graph file a followed ref names, with its folders, when
   nothing is there yet: in a comparison the side being edited (`file`),
   and only while neither side exists — an empty fork next to an
-  original would show everything as removed. Never overwrites."
-  [{:keys [file path compare]}]
+  original would show everything as removed. With `from` (a
+  root-relative .edn, outside a comparison) it starts as a byte copy of
+  that file rather than empty. Never overwrites."
+  [{:keys [file path compare from]}]
   (try
     (refuse-embedded-compare!)
     (when-not (string? path)
       (throw (ex-info "path required" {})))
     (let [suffix (request-suffix compare)
+          _ (when (and (some? from) (some? suffix))
+              (throw (ex-info "copying is not available in a comparison" {})))
+          content (if (some? from)
+                    (java.nio.file.Files/readAllBytes (.toPath (resolve-path @root-dir from true #{"edn"})))
+                    (.getBytes empty-graph "UTF-8"))
           _ (refuse-fork! path suffix)
           base (resolve-path @root-dir path false)
           fk (when (some? suffix) (fork-name path suffix))
@@ -365,7 +372,7 @@
         (do (.mkdirs (.getParentFile target))
             (try
               ;; CREATE_NEW: a file that appeared since the check is kept
-              (java.nio.file.Files/write (.toPath target) (.getBytes empty-graph "UTF-8")
+              (java.nio.file.Files/write (.toPath target) content
                                          (into-array java.nio.file.OpenOption
                                                      [java.nio.file.StandardOpenOption/CREATE_NEW]))
               {:ok true :created rel}
@@ -757,6 +764,32 @@
     (log/event! "create" {:file (:file parsed) :path (:path parsed) :result out})
     (json/generate-string out)))
 
+;; ---- graphs a new one can start as a copy of ----
+
+(def ^:private max-graph-choices 2000)
+
+(defn- graphs-response
+  "For a link to root-relative graph `path`: whether it is there yet (in
+  a comparison either side) and, when not, the graphs it could start as
+  a copy of — none in a comparison, where create refuses copying. The
+  comparison is the link's `compare` (request-suffix), else the
+  startup one."
+  [path compare]
+  (try
+    (refuse-embedded-compare!)
+    (when-not (string? path)
+      (throw (ex-info "path required" {})))
+    (let [suffix (request-suffix compare)
+          _ (refuse-fork! path suffix)
+          base (resolve-path @root-dir path false #{"edn"})
+          fork (when (some? suffix) (resolve-path @root-dir (fork-name path suffix) false #{"edn"}))
+          exists (boolean (or (.exists base) (and (some? fork) (.exists fork))))
+          fs (if (or exists (some? suffix)) [] (scan-edn @root-dir suffix))]
+      {:exists exists
+       :files (vec (take max-graph-choices fs))
+       :truncated (> (count fs) max-graph-choices)})
+    (catch Exception e {:error (ex-message e)})))
+
 ;; ---- docs: the plain-text editor for :md-ref files ----
 
 (def ^:private max-doc-bytes (* 1024 1024))
@@ -969,6 +1002,8 @@
     "/api/errors"  (json-response (errors-response-body query-string))
     "/api/edit"    (post-only req #(json-response (edit-response-body body)))
     "/api/create"  (post-only req #(json-response (create-response-body body)))
+    "/api/graphs"  (json-response (json/generate-string (graphs-response (query-param query-string "path")
+                                                                        (query-param query-string "compare"))))
     "/api/lock"    (post-only req #(lock-response acquire-lock! body))
     "/api/unlock"  (post-only req #(lock-response release-lock! body))
     "/api/root"      (json-response (json/generate-string {:path (root-rel)}))

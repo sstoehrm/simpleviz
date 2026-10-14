@@ -535,6 +535,21 @@
        (when (some? (:compare l)) (str "?compare=" (:compare l)))
        (when (some? (:error (link-target md-path (:dest l)))) " — leaves the served folder")))
 
+(defn downstream-graph?
+  "Is root-relative `path` an .edn graph in the folder of the md file at
+  `md-path` or below it — a link the page offers to start as a copy?"
+  [md-path path]
+  (let [p (str path)
+        slash (.lastIndexOf (str md-path) "/")
+        dir (if (neg? slash) "" (subs md-path 0 (inc slash)))]
+    (and (.endsWith (.toLowerCase p) ".edn") (.startsWith p dir))))
+
+(defn match-choices
+  "The paths of `files` holding every word of query q, case ignored."
+  [files q]
+  (let [words (filterv (fn [w] (not= w "")) (.split (.toLowerCase (str q)) (js/RegExp. "\\s+")))]
+    (filterv (fn [f] (let [low (.toLowerCase f)] (every? (fn [w] (.includes low w)) words))) files)))
+
 (defn from-disk
   "Doc text as a textarea holds it: \\r\\n line ends become \\n."
   [text]

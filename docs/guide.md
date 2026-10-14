@@ -292,6 +292,12 @@ understand too:
   The URL keeps it, so a reload shows it again. A ref followed from it,
   or its `:md-ref`, opens in place of the md page. A graph with its own
   `:theme` colors the whole page while it's open.
+- A link to an `.edn` file in the md file's folder or below that isn't
+  there yet opens a choice on the right instead: "Create an empty
+  graph", or start it as a copy of any graph of the served folder (a
+  filter narrows the list). The copy is byte for byte, so its `:ref`
+  paths stay as written. A missing graph above the md file's folder is
+  created empty, as a followed ref is.
 - Following an md file opens it in place of this one, and the trail at
   the top leads back.
 - `?compare=<suffix>` on a link to a graph shows it compared with its

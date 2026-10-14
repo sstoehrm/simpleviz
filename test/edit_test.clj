@@ -598,7 +598,7 @@
 (defn- read-clip [s] (clojure.edn/read-string s))
 
 (deftest copy-takes-box-contents-and-the-edges-among-them
-  (let [clip (read-clip (edit/copy clip-file {:ids [{:section :boxes :id "back"}]}))]
+  (let [clip (read-clip (:edn (edit/copy clip-file {:ids [{:section :boxes :id "back"}]})))]
     (is (= #{:api :db} (set (keys (:nodes clip)))))
     (is (= #{:back :inner} (set (keys (:boxes clip)))))
     (is (= {[:api :db] {:direction :->}} (:edges clip)))
@@ -606,16 +606,31 @@
     (is (= [:db] (get-in clip [:boxes :inner :components])))))
 
 (deftest copy-keeps-values-as-written-and-drops-dangling-edges
-  (let [clip (read-clip (edit/copy clip-file {:ids [{:section :nodes :id "web"}
-                                                    {:section :nodes :id "api"}]}))]
+  (let [clip (read-clip (:edn (edit/copy clip-file {:ids [{:section :nodes :id "web"}
+                                                    {:section :nodes :id "api"}]})))]
     (is (= {:web {:name "Web" :role [:active] :pos [1 2]} :api {:name "API"}} (:nodes clip)))
     (is (= {[:web :api] {:direction :-> :name "REST"}} (:edges clip)))
     (is (nil? (:boxes clip)))))
 
-(deftest closure-lists-what-copy-takes-in-file-order
+(deftest copy-lists-what-it-takes-in-file-order
   (is (= [{:section :nodes :id "api"} {:section :nodes :id "db"}
           {:section :boxes :id "back"} {:section :boxes :id "inner"}]
-         (edit/closure clip-file {:ids [{:section :boxes :id "back"}]}))))
+         (:ids (edit/copy clip-file {:ids [{:section :boxes :id "back"}]})))))
+
+(deftest delete-selection-deletes-what-a-cut-takes-in-one-edit
+  (let [ids [{:section "boxes" :id "back"} {:section "nodes" :id "web"}]
+        targets (:ids (edit/copy clip-file {:ids ids}))
+        one-by-one (:text (edit/apply-ops clip-file (mapv #(assoc % :op "delete" :section (name (:section %))) targets)))
+        out (edit/apply-ops clip-file [{:op "delete-selection" :ids ids}])]
+    ;; the same text as deleting each target in turn
+    (is (= {:text one-by-one} out))
+    (let [g (read-clip (:text out))]
+      (is (= #{:mail} (set (keys (:nodes g)))))
+      (is (nil? (get-in g [:boxes :back])))
+      (is (empty? (filter (fn [[a b]] (or (#{:web :api :db} a) (#{:web :api :db} b))) (keys (:edges g)))))))
+  (is (= {:error "nothing selected"} (edit/apply-ops clip-file [{:op "delete-selection" :ids []}])))
+  (is (= {:error "unknown node \"nope\""}
+         (edit/apply-ops clip-file [{:op "delete-selection" :ids [{:section "nodes" :id "nope"}]}]))))
 
 (deftest copy-refuses-unknown-and-empty-selections
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"unknown node \"nope\""
@@ -624,7 +639,7 @@
         (edit/copy clip-file {:ids []}))))
 
 (deftest paste-into-another-graph-keeps-ids
-  (let [clip (edit/copy clip-file {:ids [{:section :boxes :id "back"}]})
+  (let [clip (:edn (edit/copy clip-file {:ids [{:section :boxes :id "back"}]}))
         out (edit/paste "{:nodes {:x nil}}" {:edn clip})
         data (read-clip out)]
     (is (= #{:x :api :db} (set (keys (:nodes data)))))
@@ -632,7 +647,7 @@
     (is (= {[:api :db] {:direction :->}} (:edges data)))))
 
 (deftest paste-onto-existing-ids-appends-a-suffix-to-id-and-name
-  (let [clip (edit/copy clip-file {:ids [{:section :nodes :id "web"} {:section :nodes :id "api"}]})
+  (let [clip (:edn (edit/copy clip-file {:ids [{:section :nodes :id "web"} {:section :nodes :id "api"}]}))
         once (read-clip (edit/paste clip-file {:edn clip}))
         twice (read-clip (edit/paste (edit/paste clip-file {:edn clip}) {:edn clip}))]
     ;; :pos is dropped: the copy would sit right on the original
@@ -643,7 +658,7 @@
     (is (contains? (:edges twice) [:web-2 :api-2]))))
 
 (deftest paste-renames-box-members-and-skips-ids-only-referenced
-  (let [clip (edit/copy clip-file {:ids [{:section :boxes :id "inner"}]})
+  (let [clip (:edn (edit/copy clip-file {:ids [{:section :boxes :id "inner"}]}))
         ;; :db-1 is not defined, but an edge names it: taken too
         target (str clip-file)
         out (read-clip (edit/paste (clojure.string/replace target "[:web :mail] nil" "[:web :mail] nil [:web :db-1] nil")
@@ -652,10 +667,16 @@
     (is (contains? (:nodes out) :db-2))))
 
 (deftest paste-into-a-box-adds-the-top-level-elements-only
-  (let [clip (edit/copy clip-file {:ids [{:section :boxes :id "inner"} {:section :nodes :id "mail"}]})
+  (let [clip (:edn (edit/copy clip-file {:ids [{:section :boxes :id "inner"} {:section :nodes :id "mail"}]}))
         out (read-clip (edit/paste "{:nodes {:x nil} :boxes {:grp {:components [:x]}}}" {:edn clip :into "grp"}))]
     (is (= [:x :mail :inner] (get-in out [:boxes :grp :components])))
     (is (= [:db] (get-in out [:boxes :inner :components])))))
+
+(deftest paste-into-a-box-without-components-starts-them
+  (doseq [box ["nil" "{:type \"zone\"}"]]
+    (let [out (read-clip (edit/paste (str "{:nodes {:x nil} :boxes {:grp " box "}}")
+                                     {:edn "{:nodes {:a {} :b {}}}" :into "grp"}))]
+      (is (= [:a :b] (get-in out [:boxes :grp :components])) box))))
 
 (deftest paste-refuses-what-is-no-graph
   (doseq [s ["" "hello there" "[1 2]" "{:nodes {}}" "{:nodes [:a]}"]]
@@ -676,8 +697,8 @@
 (deftest copy-and-paste-skip-discarded-entries
   (let [src "{:nodes {:a {} #_#_ :z {} :q {}}}"]
     (is (= "{:nodes {:a {}\n         :q {}}}\n"
-           (edit/copy src {:ids [{:section :nodes :id "a"} {:section :nodes :id "q"}]})))
-    (is (= [{:section :nodes :id "a"}] (edit/closure src {:ids [{:section :nodes :id "a"}]}))))
+           (:edn (edit/copy src {:ids [{:section :nodes :id "a"} {:section :nodes :id "q"}]}))))
+    (is (= [{:section :nodes :id "a"}] (:ids (edit/copy src {:ids [{:section :nodes :id "a"}]})))))
   (is (= "{:nodes {:x nil :b {}}}" (edit/paste "{:nodes {:x nil}}" {:edn "{:nodes {#_#_ :a {} :b {}}}"}))))
 
 (deftest paste-refuses-a-clip-naming-a-node-and-a-box-alike

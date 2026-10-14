@@ -29,7 +29,7 @@
 
 (defn- blank? [l] (= "" (.trim l)))
 
-(defn- indent [l] (- (count l) (count (.trimStart l))))
+(defn indent [l] (- (count l) (count (.trimStart l))))
 
 (defn- label-key
   "A reference label as definitions match it: whitespace runs collapsed,
@@ -345,6 +345,15 @@
        :content (+ ind (count mark) (if empty? 1 (count ws)))
        :first (if empty? "" body)})))
 
+(defn task-item
+  "The task item line l starts — a bullet item whose text opens with
+  [ ] or [x] — as {:checked :text}, or nil."
+  [l]
+  (when-let [it (item-of l)]
+    (when-not (:ordered it)
+      (when-let [m (.exec task-re (:first it))]
+        {:checked (not= " " (aget m 1)) :text (.trim (subs (:first it) (count (aget m 0))))}))))
+
 (defn- hr? [l] (.test hr-re l))
 
 (defn- quote? [l] (.test quote-re l))
@@ -607,7 +616,7 @@
                    (conj lis (into [:li {:id (str "fn-" label)}]
                                    (with-backref (blocks (.get (:notes ctx) label) ctx) label))))))))))
 
-(defn- untab
+(defn untab
   "Line l with tabs in its indentation as four spaces."
   [l]
   (.replace l #"^[ \t]+" (fn [ws] (.replaceAll ws "\t" "    "))))
@@ -668,7 +677,7 @@
   [text sh f]
   (let [lines (.split text "\n")
         out (f lines (fenced-lines lines))]
-    (if (= sh (shape out)) out text)))
+    (if (or (= out text) (= sh (shape out))) out text)))
 
 (defn- tidy-heading [l m]
   (let [ind (aget (.match l #"^ *") 0)
@@ -747,18 +756,18 @@
         fenced (fenced-lines lines)
         tidied (fn [lines i] (when-let [[rows end] (table-at lines fenced i)]
                                [(.concat (.slice lines 0 i) (clj->js rows) (.slice lines end)) end]))
-        all (loop [ls lines i 0]
-              (if (>= i (count ls))
-                (.join ls "\n")
-                (if-let [[out end] (tidied ls i)] (recur out end) (recur ls (inc i)))))]
+        ;; every table tidied whose lines (keep? out) takes
+        walk (fn [keep?]
+               (loop [ls lines i 0]
+                 (if (>= i (count ls))
+                   (.join ls "\n")
+                   (if-let [[out end] (tidied ls i)]
+                     (recur (if (keep? out) out ls) end)
+                     (recur ls (inc i))))))
+        all (walk (fn [_] true))]
     (if (or (= all text) (= sh (shape all)))
       all
-      (loop [ls lines i 0]
-        (if (>= i (count ls))
-          (.join ls "\n")
-          (if-let [[out end] (tidied ls i)]
-            (recur (if (= sh (shape (.join out "\n"))) out ls) end)
-            (recur ls (inc i))))))))
+      (walk (fn [out] (= sh (shape (.join out "\n"))))))))
 
 (defn- tidy-end
   "Line l without trailing blanks, but for a hard line break (two

@@ -93,6 +93,12 @@
     (when (and (str/ends-with? stem tail) (> (count stem) (count tail)))
       (str (subs stem 0 (- (count stem) (count tail))) ext))))
 
+(defn missing-fork
+  "Why `rel` can't be compared under `suffix`: its fork is not there,
+  and how to make it."
+  [rel suffix]
+  (str "no " (fork-name rel suffix) " — create it with: simpleviz fork " rel " " suffix))
+
 (defn resolve-path
   "The canonical file for the root-relative path `rel` under `root`.
   Refuses (ex-info, message names the problem) an absolute path, a
@@ -267,7 +273,7 @@
              {:old old :new new}
              (throw (ex-info (str "no such file: " rel) {})))
            (not (.isFile new))
-           (throw (ex-info (str "no " fk " — create it with: simpleviz fork " rel " " suffix) {}))
+           (throw (ex-info (missing-fork rel suffix) {}))
            :else
            (throw (ex-info (str "no " rel " (only " fk ")") {}))))))))
 
@@ -341,15 +347,33 @@
     (catch Exception e {:error (or (ex-message e) (str e))})))
 
 (defn- copy-response
-  "The EDN text of nodes and boxes `ids` with what they hold (edit/copy),
-  and the targets that took (edit/closure), from the side `file` names —
-  what an edit there would change."
+  "The EDN text of nodes and boxes `ids` with what they hold, and the
+  targets that took (edit/copy), from the side `file` names — what an
+  edit there would change."
   [{:keys [file ids path compare]}]
   (try
     (when (some? path) (refuse-embedded-compare!))
     (let [text (side-source (sides path compare) file)]
-      {:edn (edit/copy text {:ids ids}) :ids (edit/closure text {:ids ids})})
+      (edit/copy text {:ids ids}))
     (catch Exception e {:error (or (ex-message e) (str e))})))
+
+(defn- new-graph-target
+  "Where a new graph at root-relative `path` goes under the request's
+  `compare` (request-suffix): {:suffix :base :fk :fork :exists}, :fk and
+  :fork the fork's name and file in a comparison, :exists whether either
+  side is there. `exts` are the extensions path may have. Refuses an
+  embedded comparison, a missing path and a fork named directly."
+  [path compare exts]
+  (refuse-embedded-compare!)
+  (when-not (string? path)
+    (throw (ex-info "path required" {})))
+  (let [suffix (request-suffix compare)
+        _ (refuse-fork! path suffix)
+        base (resolve-path @root-dir path false exts)
+        fk (when (some? suffix) (fork-name path suffix))
+        fork (when (some? fk) (resolve-path @root-dir fk false exts))]
+    {:suffix suffix :base base :fk fk :fork fork
+     :exists (boolean (or (.exists base) (and (some? fork) (.exists fork))))}))
 
 (defn- create-response
   "Create the graph file a followed ref names, with its folders, when
@@ -360,24 +384,17 @@
   that file rather than empty. Never overwrites."
   [{:keys [file path compare from]}]
   (try
-    (refuse-embedded-compare!)
-    (when-not (string? path)
-      (throw (ex-info "path required" {})))
-    (let [suffix (request-suffix compare)
+    (let [{:keys [suffix base fk fork exists]} (new-graph-target path compare ref-extensions)
           _ (when (and (some? from) (some? suffix))
               (throw (ex-info "copying is not available in a comparison" {})))
           content (if (some? from)
                     (java.nio.file.Files/readAllBytes (.toPath (resolve-path @root-dir from true #{"edn"})))
                     (.getBytes empty-graph "UTF-8"))
-          _ (refuse-fork! path suffix)
-          base (resolve-path @root-dir path false)
-          fk (when (some? suffix) (fork-name path suffix))
-          fork (when (some? fk) (resolve-path @root-dir fk false))
           [rel target] (if (and (some? fork) (not= file "old")) [fk fork] [path base])]
       (cond
         (export-name? base)
         {:error "PNG and SVG files cannot be created"}
-        (or (.exists base) (and (some? fork) (.exists fork)))
+        exists
         {:ok true :created nil}
         :else
         (do (.mkdirs (.getParentFile target))
@@ -792,14 +809,7 @@
   startup one."
   [path compare]
   (try
-    (refuse-embedded-compare!)
-    (when-not (string? path)
-      (throw (ex-info "path required" {})))
-    (let [suffix (request-suffix compare)
-          _ (refuse-fork! path suffix)
-          base (resolve-path @root-dir path false #{"edn"})
-          fork (when (some? suffix) (resolve-path @root-dir (fork-name path suffix) false #{"edn"}))
-          exists (boolean (or (.exists base) (and (some? fork) (.exists fork))))
+    (let [{:keys [suffix exists]} (new-graph-target path compare #{"edn"})
           fs (if (or exists (some? suffix)) [] (scan-edn @root-dir suffix))]
       {:exists exists
        :files (vec (take max-graph-choices fs))
@@ -882,7 +892,7 @@
     (str dest " is the fork of " (fork-base dest suffix) " — link the original")
     (not (try (.isFile (resolve-path root (fork-name target suffix) false link-extensions))
               (catch Exception _ false)))
-    (str dest ": no " (fork-name dest suffix) " — create it with: simpleviz fork " dest " " suffix)))
+    (str dest ": " (missing-fork dest suffix))))
 
 (defn md-warnings
   "The broken links of md file `rel` (root-relative, under folder `root`)
@@ -941,16 +951,26 @@
             (do (write-atomically! f bytes)
                 [200 {:version (sha1-hex bytes)}])))))))
 
-(defn- text-save-response [body-stream]
+(defn- save-response
+  "The JSON response of a save: (save parsed) on the request's JSON body
+  gives [status reply]; a body that is no JSON is 400, a failure
+  `fail-status` unless its ex-data names a :status. (logged parsed status
+  reply) when given."
+  [body-stream save fail-status logged]
   (let [parsed (read-json-body body-stream)
         [status out] (try
                        (if-let [err (:parse-error parsed)]
                          [400 {:error err}]
-                         (text-save parsed))
-                       (catch Exception e [400 {:error (ex-message e)}]))]
-    (log/event! "text-save" {:path (:path parsed) :status status
-                             :result (dissoc out :text)})
+                         (save parsed))
+                       (catch Exception e [(:status (ex-data e) fail-status) {:error (ex-message e)}]))]
+    (when (some? logged) (logged parsed status out))
     (assoc (json-response (json/generate-string out)) :status status)))
+
+(defn- text-save-response [body-stream]
+  (save-response body-stream text-save 400
+                 (fn [parsed status out]
+                   (log/event! "text-save" {:path (:path parsed) :status status
+                                            :result (dissoc out :text)}))))
 
 ;; ---- the answers to a deck's questions (?? and ??? slides): beside
 ;; the deck, so an agent presenting it reads them as they come in
@@ -1025,14 +1045,9 @@
         [200 {:answers (answers-of m)}]))))
 
 (defn- answers-save-response [body-stream]
-  (let [parsed (read-json-body body-stream)
-        [status out] (try
-                       (if-let [err (when (map? parsed) (:parse-error parsed))]
-                         [400 {:error err}]
-                         (answers-save parsed))
-                       (catch Exception e [(:status (ex-data e) 400) {:error (ex-message e)}]))]
-    (log/event! "answer" {:path (:path parsed) :id (:id parsed) :status status})
-    (assoc (json-response (json/generate-string out)) :status status)))
+  (save-response body-stream answers-save 400
+                 (fn [parsed status _]
+                   (log/event! "answer" {:path (:path parsed) :id (:id parsed) :status status}))))
 
 ;; ---- your choices in the page (theme, vi): one file for every
 ;; port, so they outlive the server — the page's localStorage did not,
@@ -1079,13 +1094,7 @@
                 [200 m])))))
 
 (defn- prefs-save-response [body-stream]
-  (let [parsed (read-json-body body-stream)
-        [status out] (try
-                       (if-let [err (when (map? parsed) (:parse-error parsed))]
-                         [400 {:error err}]
-                         (prefs-save parsed))
-                       (catch Exception e [500 {:error (ex-message e)}]))]
-    (assoc (json-response (json/generate-string out)) :status status)))
+  (save-response body-stream prefs-save 500 nil))
 
 (defn- post-only
   "The response of (f) for a guarded POST; 405 for any other method."

@@ -6,27 +6,19 @@
 // Same approach as dev/record-features.mjs: serve a workspace, drive a
 // headless Chromium over CDP — real mouse and key events — inject a
 // caption and a cursor dot, encode the screencast.
-import { spawn, execFileSync } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
+import { recorder, ROOT, W, H, sleep } from "./recorder.mjs";
 
-const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
 const OUT = path.resolve(process.argv[2] ?? path.join(ROOT, "docs/assets"));
-const W = 1280, H = 720, CDP_PORT = 9335, PORT = 7494;
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "simpleviz-042-"));
-// a snap chromium can't use a profile under /tmp
-const snapDir = path.join(os.homedir(), "snap/chromium/common");
-const profile = fs.mkdtempSync(path.join(fs.existsSync(snapDir) ? snapDir : os.tmpdir(), "simpleviz-rec-profile-"));
-const ws = path.join(tmp, "ws"), frames = path.join(tmp, "frames");
-const sleep = ms => new Promise(r => setTimeout(r, ms));
-const procs = [];
+const CDP_PORT = 9335, PORT = 7494;
+const { ws, start, waitFor, send, on, js, launch, moveTo, click, elAt, key, caption, settled,
+        capture, encode, report, close } = recorder("simpleviz-042-", { hover: true });
 
 // ---- workspace -------------------------------------------------------------
 
 fs.mkdirSync(path.join(ws, "api"), { recursive: true });
 fs.mkdirSync(path.join(ws, "docs"));
-fs.mkdirSync(frames);
 fs.copyFileSync(path.join(ROOT, "examples/api/internals.edn"), path.join(ws, "api/internals.edn"));
 const demo = path.join(ws, "demo.edn");
 fs.writeFileSync(demo, fs.readFileSync(path.join(ROOT, "examples/demo.edn"), "utf8")
@@ -34,45 +26,6 @@ fs.writeFileSync(demo, fs.readFileSync(path.join(ROOT, "examples/demo.edn"), "ut
 if (!fs.readFileSync(demo, "utf8").includes(":md-ref")) throw new Error("demo.edn: no Auth node to give an :md-ref");
 fs.writeFileSync(path.join(ws, "docs/auth.md"),
   "# Auth\n\nIssues bearer tokens for the Web UI.\nCalled by the API on every request.\n");
-
-// ---- processes -------------------------------------------------------------
-
-const env = { ...process.env, SIMPLEVIZ_HOME: path.join(tmp, "home") };
-function start(cmd, args) {
-  const p = spawn(cmd, args, { cwd: ROOT, env, stdio: ["ignore", "pipe", "pipe"], detached: true });
-  let log = ""; p.stdout.on("data", d => log += d); p.stderr.on("data", d => log += d);
-  p.log = () => log;
-  procs.push(p);
-  return p;
-}
-async function waitFor(url, ms = 20000) {
-  for (const t0 = Date.now(); Date.now() - t0 < ms; await sleep(200))
-    try { const r = await fetch(url); if (r.ok) return r; } catch {}
-  throw new Error(`timed out waiting for ${url}`);
-}
-function cleanup() {
-  for (const p of procs) try { process.kill(-p.pid); } catch {}
-  fs.rmSync(tmp, { recursive: true, force: true });
-  fs.rmSync(profile, { recursive: true, force: true });
-}
-process.on("exit", cleanup);
-process.on("SIGINT", () => process.exit(130));
-
-// ---- CDP -------------------------------------------------------------------
-
-let ws_, msgId = 0;
-const pending = new Map(), listeners = new Map();
-const send = (method, params = {}) => new Promise((res, rej) => {
-  const i = ++msgId;
-  pending.set(i, m => m.error ? rej(new Error(`${method}: ${m.error.message}`)) : res(m.result));
-  ws_.send(JSON.stringify({ id: i, method, params }));
-});
-const on = (method, f) => listeners.set(method, f);
-async function js(expr) {
-  const r = await send("Runtime.evaluate", { expression: expr, returnByValue: true, awaitPromise: true });
-  if (r.exceptionDetails) throw new Error(`eval failed: ${r.exceptionDetails.exception?.description ?? expr}`);
-  return r.result.value;
-}
 
 // caption pill bottom center (slides own the top), cursor dot, locators
 const OVERLAY = `(() => {
@@ -130,38 +83,6 @@ const OVERLAY = `(() => {
   };
 })()`;
 
-async function moveTo(target, ms = 550) {
-  const [x, y] = typeof target === "string" ? await js(`__rec.at(${JSON.stringify(target)})`) : target;
-  await js(`__rec.move(${x}, ${y}, ${ms})`);
-  // the real pointer follows, so hover tooltips show
-  await send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
-  return [x, y];
-}
-async function click(target, ms) {
-  const [x, y] = await moveTo(target, ms);
-  await sleep(120);
-  await js("__rec.press(true)");
-  for (const type of ["mousePressed", "mouseReleased"])
-    await send("Input.dispatchMouseEvent", { type, x, y, button: "left", clickCount: 1 });
-  await sleep(120);
-  await js("__rec.press(false)");
-}
-const elAt = (sel, text) => js(`__rec.el(${JSON.stringify(sel)}, ${JSON.stringify(text ?? null)})`);
-async function key(k) {
-  const codes = { Enter: 13, Escape: 27, ArrowRight: 39, ArrowLeft: 37 };
-  for (const type of ["keyDown", "keyUp"])
-    await send("Input.dispatchKeyEvent", { type, key: k, code: k, windowsVirtualKeyCode: codes[k] ?? 0 });
-}
-const caption = html => js(`__rec.caption(${JSON.stringify(html)})`);
-const settled = () => js(`(async () => {
-  const app = await import("/js/simpleviz/app.mjs");
-  for (let i = 0; i < 200; i++) {
-    const st = app.state.val;
-    if (st.scene && !st.layouting) return true;
-    await new Promise(r => setTimeout(r, 50));
-  }
-  return false;
-})()`);
 // the screen point of a scene item's middle (a box's too, not its title)
 const middleOf = id => js(`(async () => {
   const app = await import("/js/simpleviz/app.mjs"), cv = await import("/js/simpleviz/canvas.mjs");
@@ -210,24 +131,8 @@ const mdText = () => js(`document.getElementById("md-text")?.value ?? null`);
 
 try {
   start("bb", ["serve", demo, "--port", String(PORT)]);
-  const chrome = start(process.env.CHROMIUM ?? "chromium", ["--headless=new", `--remote-debugging-port=${CDP_PORT}`,
-    `--user-data-dir=${profile}`, `--window-size=${W},${H}`, "--hide-scrollbars",
-    "--force-color-profile=srgb", "--no-first-run", "about:blank"]);
   await waitFor(`http://127.0.0.1:${PORT}/`);
-  const targets = await (await waitFor(`http://127.0.0.1:${CDP_PORT}/json`)).json();
-  const page = targets.find(t => t.type === "page");
-  if (!page) throw new Error("no page target\n" + chrome.log());
-  ws_ = new WebSocket(page.webSocketDebuggerUrl);
-  await new Promise(r => ws_.onopen = r);
-  ws_.onmessage = ev => {
-    const m = JSON.parse(ev.data);
-    if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); }
-    else if (listeners.has(m.method)) listeners.get(m.method)(m.params);
-  };
-  await send("Page.enable"); await send("Runtime.enable");
-  await send("Emulation.setDeviceMetricsOverride", { width: W, height: H, deviceScaleFactor: 1, mobile: false });
-  await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "light" }] });
-  await send("Page.addScriptToEvaluateOnNewDocument", { source: OVERLAY });
+  await launch(CDP_PORT, OVERLAY);
   // auto asks before it drops the positions: yes
   on("Page.javascriptDialogOpening", () => send("Page.handleJavaScriptDialog", { accept: true }));
   await send("Page.navigate", { url: `http://127.0.0.1:${PORT}/` });
@@ -238,13 +143,7 @@ try {
   await settled();
   await sleep(800);
 
-  const shots = [];
-  on("Page.screencastFrame", ({ data, metadata, sessionId }) => {
-    const f = path.join(frames, `${String(shots.length).padStart(5, "0")}.png`);
-    fs.writeFileSync(f, Buffer.from(data, "base64"));
-    shots.push({ f, t: metadata.timestamp, at: Date.now() });
-    send("Page.screencastFrameAck", { sessionId });
-  });
+  const shots = capture();
 
   // 1 — the graph, laid out automatically
   await js(`__rec.jump(${W / 2}, ${H - 120})`);
@@ -316,32 +215,9 @@ try {
   await caption("simpleviz 0.42 — github.com/sstoehrm/simpleviz");
   await sleep(2400);
   await send("Page.stopScreencast");
-  const endHold = (Date.now() - shots.at(-1).at) / 1000;
-
-  // ---- encode ----------------------------------------------------------------
-  const list = [];
-  for (let i = 0; i < shots.length; i++) {
-    const d = i + 1 < shots.length ? shots[i + 1].t - shots[i].t : endHold;
-    list.push(`file '${shots[i].f}'`, `duration ${Math.min(Math.max(d, 0.001), 3).toFixed(3)}`);
-  }
-  list.push(`file '${shots.at(-1).f}'`);
-  const concat = path.join(tmp, "frames.txt");
-  fs.writeFileSync(concat, list.join("\n") + "\n");
-  fs.mkdirSync(OUT, { recursive: true });
-  const mp4 = path.join(OUT, "whats-new-0.42.mp4"), gif = path.join(OUT, "whats-new-0.42.gif");
-  execFileSync("ffmpeg", ["-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", concat,
-    "-vf", "fps=25,format=yuv420p", "-c:v", "libx264", "-preset", "slow", "-crf", "24",
-    "-movflags", "+faststart", mp4], { stdio: "inherit" });
-  execFileSync("ffmpeg", ["-y", "-v", "error", "-i", mp4, "-vf",
-    "fps=10,scale=960:-1:flags=lanczos,split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle",
-    gif], { stdio: "inherit" });
-  console.log(`wrote ${mp4} and ${gif} (${shots.length} frames)`);
-  await send("Browser.close").catch(() => {});
+  encode(shots, { out: OUT, name: "whats-new-0.42" });
 } catch (e) {
-  console.error(e.stack ?? e);
-  for (const p of procs) if (p.log().trim()) console.error(`--- ${p.spawnargs.join(" ")}\n${p.log().slice(-2000)}`);
-  process.exitCode = 1;
+  report(e);
 } finally {
-  ws_?.close();
-  cleanup();
+  await close();
 }

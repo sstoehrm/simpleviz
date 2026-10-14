@@ -4,6 +4,11 @@
 
 ;; Pure op-payload builders — the DOM-facing code in app.cljs stays thin.
 
+(defn elk-target
+  "The op target of top-level elk id `id` (\"n:a\", \"b:grp\")."
+  [id]
+  {:section (if (.startsWith id "n:") "nodes" "boxes") :id (.slice id 2)})
+
 (defn target
   "The op target for a selection. An edge is keyed by its pair as written
   in the file (carried in attrs :nodes): a :<- edge is displayed with
@@ -11,8 +16,7 @@
   [sel]
   (case (:kind sel)
     "edge" {:section "edges" :id (or (:nodes (:attrs sel)) [(:source sel) (:target sel)])}
-    "node" {:section "nodes" :id (.slice (:elk-id sel) 2)}
-    "box" {:section "boxes" :id (.slice (:elk-id sel) 2)}))
+    ("node" "box") (elk-target (:elk-id sel))))
 
 (defn retarget-end
   "Which end of the file key the displayed `end` (\"source\"/\"target\")
@@ -196,11 +200,9 @@
 
 (defn edit-body
   "The /api/edit POST body: routes ops to whichever file (\"old\"/\"new\")
-  is the current edit target, under the graph's `compare` suffix when
-  it has one."
-  [file ops & [compare]]
-  (cond-> {:file file :ops ops}
-    (some? compare) (assoc :compare compare)))
+  is the current edit target."
+  [file ops]
+  {:file file :ops ops})
 
 (defn theme-menu
   "The theme menu's state. It is yours: `pref`, the built-in you picked
@@ -326,33 +328,30 @@
   (let [pa (parent-box parent-of a)]
     (when (= pa (parent-box parent-of b)) pa)))
 
+(defn- trail-at
+  "A trail entry: the root-relative `path` visited, with the compare it
+  was shown under when there was one."
+  [path compare]
+  (if (and (some? compare) (not= compare "")) {:path path :compare compare} {:path path}))
+
 (defn- trail-entry
-  "[path compare-or-nil] of one trail entry as the URL has it: the path
+  "The trail entry one item of the URL's trail names: the path
   URL-encoded, then `:` and the compare suffix when that graph was
   compared (an encoded path holds no raw `:`); an empty one is none."
   [e]
-  (let [k (.indexOf e ":")
-        c (when-not (neg? k) (js/decodeURIComponent (.slice e (inc k))))]
-    [(js/decodeURIComponent (if (neg? k) e (.slice e 0 k)))
-     (if (or (nil? c) (= c "")) nil c)]))
-
-(defn- compare-at
-  "The compare of trail entry i in `trail-compare` (which may be nil or
-  shorter), nil when it has none."
-  [trail-compare i]
-  (let [c (when (some? trail-compare) (get trail-compare i))]
-    (if (nil? c) nil c)))
+  (let [k (.indexOf e ":")]
+    (trail-at (js/decodeURIComponent (if (neg? k) e (.slice e 0 k)))
+              (when-not (neg? k) (js/decodeURIComponent (.slice e (inc k)))))))
 
 (defn parse-nav
   "The page's navigation state from its query string: {:file
-  root-relative path or nil (the root file) :trail [paths visited
-  before it]}, plus :focus (a scene id, \"n:api\") when the URL names
-  an element to select, :side (root-relative) when an md page shows
-  a graph beside it, :slide (1-based) while it is presented, :compare
-  (a fork suffix) when the graph shown — the file, or the side graph —
-  is compared, and :trail-compare (each trail entry's compare, nil for
-  none) when a trail entry was. Each trail entry is URL-encoded on its
-  own inside the parameter, so commas in file names survive."
+  root-relative path or nil (the root file) :trail [entries visited
+  before it, trail-at]}, plus :focus (a scene id, \"n:api\") when the
+  URL names an element to select, :side (root-relative) when an md page
+  shows a graph beside it, :slide (1-based) while it is presented, and
+  :compare (a fork suffix) when the graph shown — the file, or the side
+  graph — is compared. Each trail entry is URL-encoded on its own
+  inside the parameter, so commas in file names survive."
   [query-string]
   (let [p (js/URLSearchParams. (str (if (nil? query-string) "" query-string)))
         file (.get p "file")
@@ -361,11 +360,9 @@
         side (.get p "side")
         compare (.get p "compare")
         slide (js/Number (.get p "slide"))
-        entries (if (or (nil? trail) (= trail "")) [] (mapv trail-entry (.split trail ",")))
-        tc (mapv second entries)]
+        entries (if (or (nil? trail) (= trail "")) [] (mapv trail-entry (.split trail ",")))]
     (cond-> {:file (if (or (nil? file) (= file "")) nil file)
-             :trail (mapv first entries)}
-      (some some? tc) (assoc :trail-compare tc)
+             :trail entries}
       (and (some? focus) (not= focus "")) (assoc :focus focus)
       (and (some? side) (not= side "")) (assoc :side side)
       (and (some? compare) (not= compare "")) (assoc :compare compare)
@@ -401,19 +398,17 @@
 (defn nav-query
   "The query string (\"\" or \"?file=..&trail=..&focus=..&compare=..\")
   for showing `file` (nil = root) with `trail` behind it and,
-  optionally, element `focus` selected, the graph compared under
-  `compare` and the trail's entries under `trail-compare` — the inverse
-  of parse-nav."
-  [file trail & [focus compare trail-compare]]
+  optionally, element `focus` selected and the graph compared under
+  `compare` — the inverse of parse-nav."
+  [file trail & [focus compare]]
   (let [p (js/URLSearchParams.)]
     (when (some? file) (.set p "file" file))
     (when (seq trail)
       (.set p "trail" (.join (into-array
-                              (map-indexed (fn [i f]
-                                             (let [c (compare-at trail-compare i)]
-                                               (str (js/encodeURIComponent f)
-                                                    (when (some? c) (str ":" (js/encodeURIComponent c))))))
-                                           trail))
+                              (map (fn [{:keys [path compare]}]
+                                     (str (js/encodeURIComponent path)
+                                          (when (some? compare) (str ":" (js/encodeURIComponent compare)))))
+                                   trail))
                              ",")))
     (when (some? focus) (.set p "focus" focus))
     (when (some? compare) (.set p "compare" compare))
@@ -424,11 +419,9 @@
   "Query string for following a ref or pair from `current-path` to
   `target`: the current file joins the end of the trail; `focus`, when
   given, is the element to select there. `from` is the current file's
-  compare, `trail-compare` the trail's, `to` the target's."
-  [current-path trail target & [focus {:keys [from trail-compare to]}]]
-  (let [n (count trail)]
-    (nav-query target (conj (vec trail) current-path) focus to
-               (conj (mapv (fn [i] (compare-at trail-compare i)) (range n)) (if (nil? from) nil from)))))
+  compare, `to` the target's."
+  [current-path trail target & [focus {:keys [from to]}]]
+  (nav-query target (conj (vec trail) (trail-at current-path from)) focus to))
 
 (defn follow-compare
   "The compare to show `target` under when it is followed: none for an
@@ -446,16 +439,13 @@
   graph followed from it (the next entry, or `current` after the last)
   shows beside it again: from an md page a graph opens beside it, so
   one after it was put in full view from there. Each entry keeps its
-  compare (`trail-compare`, and `compare` for `current`)."
-  [trail i & [current {:keys [trail-compare compare]}]]
-  (let [f (nth trail i)
-        last? (>= (inc i) (count trail))
-        nxt (if last? current (nth trail (inc i)))
-        nxt-c (if last? compare (compare-at trail-compare (inc i)))
-        q (nav-query f (vec (.slice trail 0 i)) nil (compare-at trail-compare i)
-                     (mapv (fn [k] (compare-at trail-compare k)) (range i)))]
-    (if (and (md-path? f) (some? nxt) (not (md-path? nxt)))
-      (with-compare (with-side q nxt) (if (nil? nxt-c) nil nxt-c))
+  compare, `current` the one `compare` names."
+  [trail i & [current {:keys [compare]}]]
+  (let [{f :path} (nth trail i)
+        nxt (if (>= (inc i) (count trail)) (trail-at current compare) (nth trail (inc i)))
+        q (nav-query f (subvec (vec trail) 0 i) nil (:compare (nth trail i)))]
+    (if (and (md-path? f) (some? (:path nxt)) (not (md-path? (:path nxt))))
+      (with-compare (with-side q (:path nxt)) (:compare nxt))
       q)))
 
 (defn banner-visible?
@@ -516,7 +506,10 @@
           []
           (filterv (fn [l] (mdlinks/followable? (:dest l))) links)))
 
-(defn- same-compare? [a b]
+(defn same-compare?
+  "Are compares `a` and `b` the same — none (nil or undefined alike), or
+  the same suffix?"
+  [a b]
   (if (nil? a) (nil? b) (= a b)))
 
 (defn mark-open?
@@ -548,7 +541,9 @@
   "The paths of `files` holding every word of query q, case ignored."
   [files q]
   (let [words (filterv (fn [w] (not= w "")) (.split (.toLowerCase (str q)) (js/RegExp. "\\s+")))]
-    (filterv (fn [f] (let [low (.toLowerCase f)] (every? (fn [w] (.includes low w)) words))) files)))
+    (if (empty? words)
+      files
+      (filterv (fn [f] (let [low (.toLowerCase f)] (every? (fn [w] (.includes low w)) words))) files))))
 
 (defn from-disk
   "Doc text as a textarea holds it: \\r\\n line ends become \\n."
@@ -618,14 +613,20 @@
 (defn selection-targets
   "The op targets ({:section :id}) of the scene ids of nodes and boxes."
   [ids]
-  (mapv (fn [id] {:section (if (.startsWith id "n:") "nodes" "boxes") :id (.slice id 2)}) ids))
+  (mapv elk-target ids))
+
+(defn delete-selection-op
+  "The op deleting the nodes and boxes of scene ids `ids` with what the
+  boxes hold and the edges touching them — what a cut deletes."
+  [ids]
+  {:op "delete-selection" :ids (selection-targets ids)})
 
 (defn paste-op
   "The op pasting clipboard text `edn`: into the box `sel` is, else at
   the top level."
   [edn sel]
   (if (= "box" (:kind sel))
-    {:op "paste" :edn edn :into (.slice (:elk-id sel) 2)}
+    {:op "paste" :edn edn :into (:id (elk-target (:elk-id sel)))}
     {:op "paste" :edn edn}))
 
 ;; ---- keyboard chords ----
@@ -636,44 +637,44 @@
 ;; select mode) to
 ;; [action label]; the action is what app.cljs dispatches on, the label
 ;; what the buttons and the pop-out show.
+(defn- for-kinds
+  "The same [action label] `entry` for each selection kind of `kinds`."
+  [kinds entry]
+  (zipmap kinds (repeat entry)))
+
 (def ^:private chord-table
-  [[["e" "1"] {"edge" [["direction" "->"] "→"]}]
-   [["e" "2"] {"edge" [["direction" "<-"] "←"]}]
-   [["e" "3"] {"edge" [["direction" "<->"] "↔"]}]
-   [["e" "4"] {"edge" [["direction" "-"] "—"]}]
-   [["c" "s"] {"edge" [["retarget" "source"] "change source"]}]
-   [["c" "t"] {"edge" [["retarget" "target"] "change target"]}]
-   [["a" "e"] {"node" ["add-edge" "add edge"] "box" ["add-edge" "add edge"]}]
-   [["a" "b"] {"node" ["add-to-box" "add to box"] "box" ["add-box-member" "add box"]}]
-   [["a" "n"] {"box" ["add-node-member" "add node"]}]
-   [["n" "n" "n"] {"none" ["new-node" "new node"] "node" ["new-connected-node" "new connected node"]
-                   "box" ["new-node-in-box" "new node inside"]}]
-   [["n" "n" "b"] {"none" ["new-free-box" "new box"] "box" ["new-box-in-box" "new box inside"]}]
-   [["n" "n" "s"] {"node" ["new-sibling" "new sibling node"] "box" ["new-sibling" "new sibling node"]}]
-   [["n" "n" "c"] {"node" ["new-connected-here" "new connected node, same box"]
-                   "box" ["new-connected-here" "new connected node, same box"]}]
-   [["n" "n" "i"] {"node" ["new-incoming" "new incoming node"] "box" ["new-incoming" "new incoming node"]}]
-   [["n" "n" "e"] {"edge" ["split-edge" "split edge"]}]
-   [["n" "b"] {"node" ["new-box" "wrap in box"] "box" ["new-box" "wrap in box"]}]
-   [["r" "r"] {"node" ["rename" "rename"] "box" ["rename" "rename"]}]
-   [["r" "n"] {"box" ["remove-node-member" "remove node"]}]
-   [["r" "b"] {"node" ["remove-from-box" "remove from box"]}]
-   [["f" "r"] {"node" ["follow-ref" "follow ref"] "edge" ["follow-ref" "follow ref"] "box" ["follow-ref" "follow ref"]}]
-   [["f" "p"] {"node" ["follow-pair" "follow pair"] "box" ["follow-pair" "follow pair"]}]
-   [["f" "m"] {"node" ["open-md" "open md"] "box" ["open-md" "open md"]}]
-   [["s" "s"] {"none" ["select-mode" "select"] "node" ["select-mode" "select"]
-               "edge" ["select-mode" "select"] "box" ["select-mode" "select"]}]
-   [["s" "a"] {"none" ["select-all" "select all"] "node" ["select-all" "select all"]
-               "edge" ["select-all" "select all"] "box" ["select-all" "select all"]
-               "select" ["select-all" "select all"]}]
-   [["s" "r"] {"none" ["select-rect" "select area"] "node" ["select-rect" "select area"]
-               "edge" ["select-rect" "select area"] "box" ["select-rect" "select area"]
-               "select" ["select-rect" "select area"]}]
-   [["y" "y"] {"select" ["copy" "copy"]}]
-   [["x" "x"] {"select" ["cut" "cut"]}]
-   [["p" "p"] {"none" ["paste" "paste"] "node" ["paste" "paste"] "edge" ["paste" "paste"] "box" ["paste" "paste"]}]
-   [["d" "d"] {"node" ["delete" "delete"] "edge" ["delete" "delete"] "box" ["delete" "delete"]
-               "select" ["delete-selected" "delete"]}]])
+  (let [elements ["node" "box"]
+        graph ["none" "node" "edge" "box"]]
+    [[["e" "1"] {"edge" [["direction" "->"] "→"]}]
+     [["e" "2"] {"edge" [["direction" "<-"] "←"]}]
+     [["e" "3"] {"edge" [["direction" "<->"] "↔"]}]
+     [["e" "4"] {"edge" [["direction" "-"] "—"]}]
+     [["c" "s"] {"edge" [["retarget" "source"] "change source"]}]
+     [["c" "t"] {"edge" [["retarget" "target"] "change target"]}]
+     [["a" "e"] (for-kinds elements ["add-edge" "add edge"])]
+     [["a" "b"] {"node" ["add-to-box" "add to box"] "box" ["add-box-member" "add box"]}]
+     [["a" "n"] {"box" ["add-node-member" "add node"]}]
+     [["n" "n" "n"] {"none" ["new-node" "new node"] "node" ["new-connected-node" "new connected node"]
+                     "box" ["new-node-in-box" "new node inside"]}]
+     [["n" "n" "b"] {"none" ["new-free-box" "new box"] "box" ["new-box-in-box" "new box inside"]}]
+     [["n" "n" "s"] (for-kinds elements ["new-sibling" "new sibling node"])]
+     [["n" "n" "c"] (for-kinds elements ["new-connected-here" "new connected node, same box"])]
+     [["n" "n" "i"] (for-kinds elements ["new-incoming" "new incoming node"])]
+     [["n" "n" "e"] {"edge" ["split-edge" "split edge"]}]
+     [["n" "b"] (for-kinds elements ["new-box" "wrap in box"])]
+     [["r" "r"] (for-kinds elements ["rename" "rename"])]
+     [["r" "n"] {"box" ["remove-node-member" "remove node"]}]
+     [["r" "b"] {"node" ["remove-from-box" "remove from box"]}]
+     [["f" "r"] (for-kinds ["node" "edge" "box"] ["follow-ref" "follow ref"])]
+     [["f" "p"] (for-kinds elements ["follow-pair" "follow pair"])]
+     [["f" "m"] (for-kinds elements ["open-md" "open md"])]
+     [["s" "s"] (for-kinds graph ["select-mode" "select"])]
+     [["s" "a"] (for-kinds (conj graph "select") ["select-all" "select all"])]
+     [["s" "r"] (for-kinds (conj graph "select") ["select-rect" "select area"])]
+     [["y" "y"] {"select" ["copy" "copy"]}]
+     [["x" "x"] {"select" ["cut" "cut"]}]
+     [["p" "p"] (for-kinds graph ["paste" "paste"])]
+     [["d" "d"] (assoc (for-kinds ["node" "edge" "box"] ["delete" "delete"]) "select" ["delete-selected" "delete"])]]))
 
 ;; what a group button and a group item in the pop-out are called, by
 ;; their keys joined with spaces

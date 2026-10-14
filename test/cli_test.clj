@@ -281,7 +281,7 @@
       (let [res (run-cli ["export" "nope.edn" "x.png"] :dir tmp)]
         (is (= "simpleviz: file not found: nope.edn" (str/trim (:err res)))))
       (let [res (run-cli ["export" "g.edn" "next" "x.png"] :dir tmp)]
-        (is (str/includes? (:err res) "g-next.edn not found")))
+        (is (str/includes? (:err res) "no g-next.edn — create it with")))
       (let [res (run-cli ["export" "g.edn" "x.gif"] :dir tmp)]
         (is (= 1 (:exit res)))
         (is (str/includes? (:err res) "the output must end in .png or .svg"))))))
@@ -347,7 +347,7 @@
 (deftest missing-fork-names-the-fork
   (let [res (run-cli [(str proc-util/repo-root "/examples/demo.edn") "nope"])]
     (is (= 1 (:exit res)))
-    (is (str/includes? (:err res) "demo-nope.edn not found — create it with: simpleviz fork"))))
+    (is (str/includes? (:err res) "demo-nope.edn — create it with: simpleviz fork"))))
 
 (deftest invalid-suffix-is-refused
   (let [res (run-cli [(str proc-util/repo-root "/examples/demo.edn") "a/b"])]

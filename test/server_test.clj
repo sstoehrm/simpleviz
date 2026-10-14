@@ -1969,3 +1969,25 @@
                (:ids (copy! {:file "new" :path "sub/api.edn" :compare "next" :ids [{:section "nodes" :id "only-in-fork"}]}))))
         (is (= "unknown node \"only-in-fork\""
                (:error (copy! {:file "new" :path "sub/api.edn" :ids [{:section "nodes" :id "only-in-fork"}]}))))))))
+
+(defn- calc-req
+  ([body] (calc-req body nil))
+  ([body opts] (assoc (edit-req body opts) :uri "/api/calc")))
+
+(deftest calc-runs-each-tables-formulas
+  (let [resp (serve/handler (calc-req {:tables [{:cells [["1"] ["2"] ["=(sum :a)"]]}
+                                                {:cells [["12%"] ["=(sum :a)"]] :defs "[:a] \"%\""}]}))
+        out (json/parse-string (:body resp) true)]
+    (is (= 200 (:status resp)))
+    (is (= {:value "3"} (get-in out [:tables 0 :results 2 0])))
+    (is (nil? (get-in out [:tables 0 :results 0 0])))
+    (is (= {:value "12"} (get-in out [:tables 1 :results 1 0])))))
+
+(deftest calc-is-a-guarded-post
+  (is (= 405 (:status (serve/handler {:uri "/api/calc" :request-method :get}))))
+  (is (= 403 (:status (serve/handler (calc-req {:tables []} {:headers {"origin" "http://evil.example"}})))))
+  (let [resp (serve/handler (assoc (calc-req {:tables []}) :body (java.io.ByteArrayInputStream. (.getBytes "{" "UTF-8"))))]
+    (is (= 400 (:status resp)))
+    (is (some? (:error (json/parse-string (:body resp) true)))))
+  (let [resp (serve/handler (calc-req {:tables "x"}))]
+    (is (= 400 (:status resp)))))

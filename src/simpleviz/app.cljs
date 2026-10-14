@@ -1014,6 +1014,7 @@
      (help-section
       "md pages"
       "simpleviz notes.md opens a markdown file rendered, in a centered column — headings, emphasis, quotes, lists and task lists, links, pictures, tables, footnotes, code; Edit switches to the plain text, Read back. Its links to graphs and md files follow on click — [text](sub/graph.edn), ![img](x.png), [text](other.md), reference links too; relative to the md file, never above the served folder. In the plain text a » in the gutter marks each line with such a link (»2 lists the links of that line). A graph or exported image opens to the right of the text, its link and » highlighted, and works like any graph; ⤢ full view opens it on its own, × closes it. A link to a graph in the md file's folder or below that isn't there yet offers, on the right, to create it empty or as a copy of another graph of the served folder — the copy keeps its :ref paths as written. A link with ?compare=next — [text](graph.edn?compare=next) — shows the graph compared with its fork graph-next.edn, refs followed inside it too. An md file opens in place of this one; the trail at the top leads back. Unsaved text is saved before you leave the page — when that fails you stay. A :ref to an .md file opens it the same way; the doc panel of :md-ref has the » gutter too."
+      "A table cell starting with =( is a formula: the cell shows its result, the formula on hover. Columns are letters, rows the body rows from 1: (sum :b) adds column b, (sum :a 4 8 :b 1 4) rows 4 to 8 of a and 1 to 4 of b; table, avg, count, min and max take the same ranges, the rest is plain Clojure. A cell counts as a plain number, else not at all; a ```simpleviz-table block right after the table reads others — [:c] \"$\" cuts a $, [:d] (fn [s] …) parses as it says. Formula cells are in no range."
       "Present shows the page as slides: a line of just --- starts the next one, and a slide whose first line is >> [text](path) — >> and a link — shows that graph, md file or picture beside its text (a graph link with ?compare=next shows it compared with its fork). → or space steps forward, ← back, Home and End jump; Esc leaves. The graph can be hovered, inspected, panned and collapsed, not edited. A slide whose first line is ?? name asks a question: its - [ ] lines are the choices, [x] the right one; ??? asks for Submit before → goes on, then shows the right choice and the explanation indented under the one picked. The answers are kept in talk.answers.edn beside talk.md.")
      (help-section
       "Keys"
@@ -1285,17 +1286,44 @@
                                   " — not a file simpleviz opens")}]
               kids)))))
 
-;; the read view's hiccup for the last [path text side compare], so rerenders
-;; for anything else neither re-parse nor rebuild its handlers
+;; md text → what /api/calc made of its tables: {} for text without a
+;; formula, {:pending true} while the server works, {:tables …} after,
+;; {:failed true} when it couldn't be asked
+(def ^:private calc-results (js/Map.))
+
+(defn- ^:async fetch-calc! [text]
+  (.set calc-results text {:pending true})
+  (let [out (try (let [resp (js-await (js/fetch "/api/calc"
+                                                {:method "POST"
+                                                 :headers {"Content-Type" "application/json"}
+                                                 :body (js/JSON.stringify {:tables (markdown/calc-tables text)})}))]
+                   (if (.-ok resp) {:tables (:tables (js-await (.json resp)))} {:failed true}))
+                 (catch :default _ {:failed true}))]
+    (when (> (.-size calc-results) 50) (.clear calc-results))
+    (.set calc-results text out)
+    (swap! state update :calc-tick (fnil inc 0))))
+
+(defn- calc-for!
+  "The formula results for md text's tables (markdown/render's calc),
+  nil until the server has them — asking it the first time."
+  [text]
+  (let [hit (.get calc-results text)]
+    (cond (some? hit) (:tables hit)
+          (markdown/calc? text) (do (fetch-calc! text) nil)
+          :else (do (.set calc-results text {}) nil))))
+
+;; the read view's hiccup for the last [path text side compare calc], so
+;; rerenders for anything else neither re-parse nor rebuild its handlers
 (def ^:private md-view-cache (atom nil))
 
 (defn- md-view [st]
   (let [md (:md st)
-        k [(:path md) (:text md) (:side st) (:compare st)]
+        calc (calc-for! (:text md))
+        k [(:path md) (:text md) (:side st) (:compare st) calc]
         hit @md-view-cache]
     (if (and (some? hit) (= k (:key hit)))
       (:view hit)
-      (let [bs (markdown/render (:text md) (md-link-fn (:path md) (:side st) (:compare st)))
+      (let [bs (markdown/render (:text md) (md-link-fn (:path md) (:side st) (:compare st)) calc)
             view (into [:div {:id "md-view" :on-click in-page-click}]
                        (if (seq bs) bs [[:p {:class "md-empty"} "Nothing here yet — Edit to write."]]))]
         (reset! md-view-cache {:key k :view view})
@@ -1447,7 +1475,7 @@
      [:div {:id "present-slide" :class (if (and (= i 0) (nil? (:side s)) (nil? (:ask s))) "title" "")}
       (into [:div {:class "md-doc" :on-click in-page-click}]
             (if (some? s)
-              (markdown/render (:text s) (present-link-fn (:path (:md st))))
+              (markdown/render (:text s) (present-link-fn (:path (:md st))) (calc-for! (:text s)))
               [[:p {:class "md-empty"} "No slides left — the text is empty."]]))
       (when (some? (:ask s)) (ask-view st (:ask s)))
       ;; on every slide: a presenter who went on must see it too
@@ -1473,7 +1501,7 @@
                                            {:kind "error" :text (str path " — no such picture, or not one the browser shows")})))}]
        "md" (into [:div {:class "md-doc" :on-click in-page-click}]
                   (if (some? text)
-                    (markdown/render text (present-link-fn path))
+                    (markdown/render text (present-link-fn path) (calc-for! text))
                     [[:p {:class "md-empty"} "loading…"]]))
        [:div {:class "present-side-error"} text])]))
 

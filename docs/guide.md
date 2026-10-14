@@ -350,6 +350,48 @@ understand too:
 - md files can't be compared, forked or exported; `simpleviz notes.md
   next` is refused.
 
+### Table formulas
+
+A table cell starting with `=(` is a formula. The page shows its
+result, and the formula when you hover the cell:
+
+    | item | qty | price |
+    |------|----:|------:|
+    | tea  | 2   | $ 3.5 |
+    | milk | 1   | $ 1.2 |
+    | sum  | =(sum :b) | =(sum :c) |
+
+    ```simpleviz-table
+    [:c] "$"
+    ```
+
+- Columns are letters (`:a`, `:b`, … `:z`, `:aa`). Rows are the body
+  rows, counted from 1. A range is a column, then no row (the whole
+  column), one row, or a first and a last row; ranges follow each other
+  flat: `(sum :a 4 8 :b 1 4)` adds rows 4 to 8 of column a and rows 1
+  to 4 of column b. A row past the table is an error, never cut off.
+- `(table :a 1 3)` is the values of the range, as a vector; `sum`,
+  `avg`, `count`, `min` and `max` take the same ranges. Without a
+  column keyword `count`, `min` and `max` are Clojure's own, and `sum`
+  and `avg` take numbers or a collection. Everything else is plain
+  Clojure: `(reduce * (table :b))`, `(format "%.2f" (avg :c))`.
+- A cell is a plain number (`12`, `-3`, `1.5`), or nothing, which the
+  functions skip. Formula cells are in no range, so a totals row can
+  sum its whole column.
+- A ```` ```simpleviz-table ```` block right after the table (blank
+  lines between are fine) says how other cells read: pairs of a range
+  and a parser. A string is cut from the start or end of the cell
+  (`"%"` reads `12%` as 12, `"$"` reads `$ 3.5` as 3.5); a
+  `(fn [s] …)` gets the cell's text and returns its value. A later pair
+  wins over an earlier one. The page hides the block; anywhere else it
+  is ordinary code.
+- A formula that fails shows its error in the cell, and so does every
+  formula of a table whose block fails.
+- The formulas run on the local server in a sandbox ([SCI](https://github.com/babashka/sci)):
+  no files, no network, no Java interop. A formula has a second; one
+  that runs longer shows an error, but keeps a CPU busy until the
+  server stops.
+
 ### Presenting
 
 Present (top right of the column) shows the md page as slides, one at a

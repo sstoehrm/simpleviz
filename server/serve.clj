@@ -3,6 +3,7 @@
   (shape checks, semantics) server-side via graph/normalize; the browser
   just renders the resulting JSON."
   (:require [babashka.cli :as cli]
+            [calc]
             [cheshire.core :as json]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
@@ -1087,6 +1088,24 @@
                        (catch Exception e [500 {:error (ex-message e)}]))]
     (assoc (json-response (json/generate-string out)) :status status)))
 
+(defn- calc-table? [t]
+  (and (map? t)
+       (sequential? (:cells t))
+       (every? (fn [row] (and (sequential? row) (every? string? row))) (:cells t))
+       (or (nil? (:defs t)) (string? (:defs t)))))
+
+(defn- calc-response
+  "The formula results of the request's md tables (calc/evaluate), in
+  the order they came."
+  [body-stream]
+  (let [parsed (read-json-body body-stream)
+        [status out] (cond
+                       (:parse-error parsed) [400 {:error (:parse-error parsed)}]
+                       (not (and (sequential? (:tables parsed)) (every? calc-table? (:tables parsed))))
+                       [400 {:error "expected {tables: [{cells: [[string]], defs: string}]}"}]
+                       :else [200 {:tables (mapv calc/evaluate (:tables parsed))}])]
+    (assoc (json-response (json/generate-string out)) :status status)))
+
 (defn- post-only
   "The response of (f) for a guarded POST; 405 for any other method."
   [{:keys [request-method] :as req} f]
@@ -1109,6 +1128,7 @@
     "/api/text"      (json-response (text-response-body query-string))
     "/api/file"      (file-response query-string)
     "/api/text/save" (post-only req #(text-save-response body))
+    "/api/calc"      (post-only req #(calc-response body))
     "/api/answers"   (if (= :post (:request-method req))
                        (post-only req #(answers-save-response body))
                        (json-response (answers-response-body query-string)))

@@ -1,7 +1,7 @@
 (ns simpleviz.markdown-test
   (:require ["node:test" :refer [test]]
             ["node:assert/strict$default" :as assert]
-            [simpleviz.markdown :refer [render tidy tidy-caret]]))
+            [simpleviz.markdown :refer [calc-tables render tidy tidy-caret]]))
 
 (defn- link [l kids] (into [:a {:href (:dest l) :kind (:kind l)}] kids))
 
@@ -105,6 +105,42 @@
     (assert/deepEqual (md "a | b\n--|--\n1 | 2")
                       [[:table [:thead [:tr [:th "a"] [:th "b"]]] [:tbody [:tr [:td "1"] [:td "2"]]]]])
     (assert/deepEqual (md "a | b\n--|--|--") [[:p "a | b\n--|--|--"]])))
+
+(def ^:private calc-doc
+  (str "| a | b |\n|--|--:|\n| 1 | 12% |\n| =(sum :a) | =(* 2 3) |\n\n"
+       "```simpleviz-table\n[:b] \"%\"\n```\n\n"
+       "> | x |\n> |--|\n> | =(sum :a) |\n"))
+
+(test "calc: each table's body cells, padded to the header, and its def block"
+  (fn []
+    (assert/deepEqual (calc-tables calc-doc)
+                      [{:cells [["1" "12%"] ["=(sum :a)" "=(* 2 3)"]] :defs "[:b] \"%\""}
+                       {:cells [["=(sum :a)"]] :defs nil}])
+    (assert/deepEqual (calc-tables "| a | b |\n|--|--|\n| 1 |") [{:cells [["1" ""]] :defs nil}])
+    (assert/deepEqual (calc-tables "no tables") [])))
+
+(test "calc: formula cells show their result, an error, or … while it runs; the def block hides"
+  (fn []
+    (let [pending (md calc-doc)
+          done (render calc-doc link [{:results [[nil nil] [{:value "1"} {:error "boom"}]]}
+                                      {:results [[{:value "0"}]]}])]
+      (assert/deepEqual (nth (nth (nth pending 0) 2) 2)
+                        [:tr [:td {:class "calc pending" :title "=(sum :a)"} "…"]
+                         [:td {:class "al-right calc pending" :title "=(* 2 3)"} "…"]])
+      (assert/deepEqual (count done) 2)
+      (assert/deepEqual (nth (nth (nth done 0) 2) 2)
+                        [:tr [:td {:class "calc" :title "=(sum :a)"} "1"]
+                         [:td {:class "al-right calc error" :title "=(* 2 3)"} "boom"]])
+      (assert/deepEqual (nth (nth done 1) 1)
+                        [:table [:thead [:tr [:th "x"]]]
+                         [:tbody [:tr [:td {:class "calc" :title "=(sum :a)"} "0"]]]]))))
+
+(test "calc: a def block anywhere but after a table is code; = text is no formula"
+  (fn []
+    (assert/deepEqual (md "text\n\n```simpleviz-table\n[:a] \"%\"\n```")
+                      [[:p "text"] [:pre [:code "[:a] \"%\""]]])
+    (assert/deepEqual (md "| a |\n|--|\n| = see |")
+                      [[:table [:thead [:tr [:th "a"]]] [:tbody [:tr [:td "= see"]]]]])))
 
 (test "the intro's shapes: list items with links across lines"
   (fn []

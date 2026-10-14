@@ -299,7 +299,7 @@
   (when-let [m (.exec fence-re l)]
     (let [mark (aget m 2)]
       (when-not (and (= "`" (.charAt mark 0)) (.includes (aget m 3) "`"))
-        {:indent (count (aget m 1)) :mark mark}))))
+        {:indent (count (aget m 1)) :mark mark :info (.trim (aget m 3))}))))
 
 (defn- fence-close? [l mark]
   (let [t (.trim l)]
@@ -466,18 +466,52 @@
                   (cond (and l r) "center" r "right" l "left" :else nil)))
         (cells sep)))
 
-(defn- table-block [lines i ctx]
+(defn- def-block
+  "The text of the ```simpleviz-table block right after a table ending
+  at line `end`, blank lines between allowed, and the line after it;
+  [nil end] when none follows."
+  [lines end]
+  (let [n (count lines)
+        j (loop [j end] (if (and (< j n) (blank? (nth lines j))) (recur (inc j)) j))
+        fence (when (< j n) (fence-open (nth lines j)))]
+    (if (and (some? fence) (= "simpleviz-table" (:info fence)))
+      (let [close (loop [k (inc j)]
+                    (if (or (>= k n) (fence-close? (nth lines k) (:mark fence))) k (recur (inc k))))]
+        [(.join (mapv (fn [ln] (subs ln (min (indent ln) (:indent fence)))) (.slice lines (inc j) close)) "\n")
+         (inc close)])
+      [nil end])))
+
+(defn- formula? [c] (.startsWith c "=("))
+
+(defn- calc-cell
+  "A formula cell: its result from the server, its error, or … while it
+  runs; the formula as its title."
+  [c res al]
+  (let [[cls text] (cond (some? (:value res)) ["calc" (:value res)]
+                         (some? (:error res)) ["calc error" (:error res)]
+                         :else ["calc pending" "…"])]
+    [:td {:class (if (some? al) (str al " " cls) cls) :title c} text]))
+
+(defn- table-block
+  "The table from line i to `end`, its body rows also collected in
+  (:tables ctx) with the def block `defs` for the server to calculate;
+  formula cells show the results (:calc ctx) holds for it."
+  [lines i end defs ctx]
   (let [aligns (aligns-of (nth lines (inc i)))
-        row (fn [tag l]
-              (let [cs (cells l)]
-                (into [:tr] (map-indexed (fn [k a]
-                                           (into (if (some? a) [tag {:class (str "al-" a)}] [tag])
-                                                 (inline (or (get cs k) "") ctx)))
-                                         aligns))))
-        end (table-end lines i)]
-    [[:table [:thead (row :th (nth lines i))]
-      (into [:tbody] (map (fn [j] (row :td (nth lines j))) (range (+ i 2) end)))]
-     end]))
+        grid (fn [l] (let [cs (cells l)] (mapv (fn [k] (or (get cs k) "")) (range (count aligns)))))
+        body (mapv (fn [j] (grid (nth lines j))) (range (+ i 2) end))
+        results (:results (get (:calc ctx) (count (:tables ctx))))
+        row (fn [tag cs r]
+              (into [:tr] (map-indexed (fn [k a]
+                                         (let [c (nth cs k)
+                                               al (if (some? a) (str "al-" a) nil)]
+                                           (if (and (= tag :td) (formula? c))
+                                             (calc-cell c (get (get results r) k) al)
+                                             (into (if (some? al) [tag {:class al}] [tag]) (inline c ctx)))))
+                                       aligns)))]
+    (conj! (:tables ctx) {:cells body :defs defs})
+    [:table [:thead (row :th (grid (nth lines i)) nil)]
+     (into [:tbody] (map-indexed (fn [r cs] (row :td cs r)) body))]))
 
 (defn- blocks
   "Hiccup for the block-level lines."
@@ -538,7 +572,9 @@
               (recur end (conj out (into [:blockquote] (blocks inner ctx)))))
 
             (table-start? lines i)
-            (let [[t end] (table-block lines i ctx)] (recur end (conj out t)))
+            (let [end (table-end lines i)
+                  [defs after] (def-block lines end)]
+              (recur after (conj out (table-block lines i end defs ctx))))
 
             (some? (item-of l))
             (let [[t end] (list-block lines i ctx)] (recur end (conj out t)))
@@ -612,18 +648,38 @@
   [l]
   (.replace l #"^[ \t]+" (fn [ws] (.replaceAll ws "\t" "    "))))
 
+(defn- rendered
+  "[blocks ctx] for markdown text, as render describes them."
+  [text link-fn calc]
+  (let [lines (mapv untab (.split (.replaceAll (str text) "\r\n" "\n") "\n"))
+        code (code-lines lines)
+        ctx {:defs (defs-of lines code) :notes (notes-of lines code) :order (js/Map.) :link-fn link-fn
+             :tables [] :calc calc}
+        bs (blocks lines ctx)
+        notes (footnotes ctx)]
+    [(if (some? notes) (conj bs notes) bs) ctx]))
+
 (defn render
   "Hiccup blocks for markdown text. (link-fn link children) renders each
   link, link {:dest :label :kind}: :dest as mdlinks cleans a path (or a
   URL kept whole), :kind \"inline\", \"image\" or \"ref\", plus :compare
-  when a path asks for one (?compare=<suffix>, mdlinks/dest-compare)."
-  [text link-fn]
-  (let [lines (mapv untab (.split (.replaceAll (str text) "\r\n" "\n") "\n"))
-        code (code-lines lines)
-        ctx {:defs (defs-of lines code) :notes (notes-of lines code) :order (js/Map.) :link-fn link-fn}
-        bs (blocks lines ctx)
-        notes (footnotes ctx)]
-    (if (some? notes) (conj bs notes) bs)))
+  when a path asks for one (?compare=<suffix>, mdlinks/dest-compare).
+  A table's =( cells show what `calc` — the server's reply to
+  calc-tables, per table {:results grid} — holds for them."
+  ([text link-fn] (render text link-fn nil))
+  ([text link-fn calc] (first (rendered text link-fn calc))))
+
+(defn calc-tables
+  "The text's tables, in the order render meets them, as the server
+  calculates them: {:cells (body rows, as wide as the header) :defs
+  (the def block's text, or nil)}."
+  [text]
+  (:tables (second (rendered text (fn [_ kids] kids) nil))))
+
+(defn calc?
+  "Has the text a table with a formula?"
+  [text]
+  (boolean (some (fn [t] (some (fn [row] (some formula? row)) (:cells t))) (calc-tables text))))
 
 ;; ---------------------------------------------------------------- tidy
 ;; Each step rewrites the text line by line, and counts only when the

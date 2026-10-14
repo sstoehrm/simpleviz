@@ -14,7 +14,8 @@
                                       md-target from-disk to-disk md-dirty? adopt-doc gone-doc poll-outcome save-result
                                       parent-box split-parent doc-kind link-target line-markers link-title
                                       with-side with-slide mark-open? with-compare follow-compare
-                                      downstream-graph? match-choices]]
+                                      downstream-graph? match-choices
+                                      selection-targets paste-op]]
             [paths :refer [resolve-ref]]))
 
 (test "target maps selection payloads to op targets"
@@ -636,10 +637,16 @@
 
 (test "chord-menu lists what comes next, collapsing chains and single chords"
   (fn []
-    ;; nothing selected: n → n n is a chain, so the root shows both chords
-    (assert/deepEqual (chord-menu nil [] all [])
+    ;; nothing selected: n → n n is a chain, so it shows both chords
+    (assert/deepEqual (chord-menu nil [] (fn [a] (contains? #{"new-node" "new-free-box"} a)) [])
                       [{:keys ["n" "n" "n"] :label "new node" :action "new-node"}
                        {:keys ["n" "n" "b"] :label "new box" :action "new-free-box"}])
+    (assert/deepEqual (chord-menu nil [] all [])
+                      [{:keys ["n"] :label "new" :group true}
+                       {:keys ["s"] :label "select" :group true}
+                       {:keys ["p" "p"] :label "paste" :action "paste"}])
+    (assert/deepEqual (mapv :keys (chord-menu "select" [] all []))
+                      [["s"] ["y" "y"] ["x" "x"] ["d" "d"]])
     (assert/deepEqual (chord-menu nil ["n"] all [])
                       [{:keys ["n" "n"] :label "new node" :action "new-node"}
                        {:keys ["n" "b"] :label "new box" :action "new-free-box"}])
@@ -803,3 +810,33 @@
       (assert/equal (mark-open? "n.md" m "pay.edn" nil) false)
       (assert/equal (mark-open? "n.md" {:links [{:label "a" :dest "pay.edn"}]} "pay.edn" nil) true)
       (assert/equal (link-title "n.md" (first (:links m))) "a → pay.edn?compare=next"))))
+
+(test "select mode: s s / s a / s r enter it, y y x x d d act on it, p p pastes outside it"
+  (fn []
+    (assert/equal (chord-action nil ["s" "s"] []) "select-mode")
+    (assert/equal (chord-action "node" ["s" "s"] []) "select-mode")
+    (assert/equal (chord-action "edge" ["s" "a"] []) "select-all")
+    (assert/equal (chord-action "box" ["s" "r"] []) "select-rect")
+    (assert/equal (chord-action "select" ["s" "a"] []) "select-all")
+    (assert/equal (chord-action "select" ["s" "r"] []) "select-rect")
+    (assert/equal (chord-action "select" ["y" "y"] []) "copy")
+    (assert/equal (chord-action "select" ["x" "x"] []) "cut")
+    (assert/equal (chord-action "select" ["d" "d"] []) "delete-selected")
+    (assert/equal (chord-action nil ["p" "p"] []) "paste")
+    (assert/equal (chord-action "box" ["p" "p"] []) "paste")
+    (assert/ok (nil? (chord-action "select" ["p" "p"] [])))
+    (assert/ok (nil? (chord-action "node" ["y" "y"] [])))
+    (assert/ok (nil? (chord-action "select" ["n" "n" "n"] [])))
+    (assert/equal (chord-for "select" "copy") "y y")))
+
+(test "selection-targets turns scene ids into op targets"
+  (fn []
+    (assert/deepEqual (selection-targets ["n:a" "b:grp"])
+                      [{:section "nodes" :id "a"} {:section "boxes" :id "grp"}])))
+
+(test "paste-op goes into the selected box, else the top level"
+  (fn []
+    (assert/deepEqual (paste-op "{:nodes {:a nil}}" {:kind "box" :elk-id "b:grp"})
+                      {:op "paste" :edn "{:nodes {:a nil}}" :into "grp"})
+    (assert/deepEqual (paste-op "{}" {:kind "node" :elk-id "n:a"}) {:op "paste" :edn "{}"})
+    (assert/deepEqual (paste-op "{}" nil) {:op "paste" :edn "{}"})))

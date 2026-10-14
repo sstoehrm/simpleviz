@@ -141,7 +141,7 @@ edit is rejected. A name with no usable characters leaves the id alone.
 Edges have no id; change their endpoints from the toolbar.
 
 **Toolbar.** The toolbar at the bottom shows the tools for the current
-selection, or "new node" and "new box" when nothing is selected. Creation prompts derive
+selection, or with nothing selected `new` (node, box), `select` and `paste`. Creation prompts derive
 the id from the name as above and accept `name::type`, so
 `Web Server::frontend` creates `web-server` with type "frontend". Pick modes
 wait for a click on the canvas. Every tool has a chord, shown on its button.
@@ -172,7 +172,22 @@ options pop out the same way.
 | `f r` | node, edge, box | follow the `:ref` |
 | `f p` | node, box | follow the pair; with several, `f p 1`…`f p 9` (numbered in the inspector) |
 | `f m` | node, box | open the `:md-ref` doc in the text panel |
+| `s s` | any | select mode: click nodes and boxes to add them to the selection or drop them |
+| `s a` | any | select mode with every node and box selected |
+| `s r` | any | select mode: drag a rectangle; the nodes and boxes wholly inside join the selection |
+| `y y` / `x x` / `d d` | select mode | copy / cut / delete the selection — a box with what it holds, and the edges among them all |
+| `p p` | none / node / box | paste what was copied or cut, here or in another graph — into the selected box, else at the top level |
 | `?` | any | toggle the help panel |
+
+**Copy and paste.** `y y` and `x x` put the selection on the clipboard as
+the EDN of a graph of its own — nodes, edges and boxes as the file writes
+them — so `p p` pastes it into any graph, in any simpleviz tab, and a text
+editor takes it too. Pasting a node or box whose id the graph already uses
+(or an edge or box names) gives it the first free `-1`, `-2`, …, on its id
+and its `:name`; the edges and box members among the pasted elements follow
+the new ids. A pasted element loses its `:pos`, so manual layout puts it
+under the rest. The browser may ask once before `p p` reads the clipboard.
+Esc ends select mode.
 
 **Layout and undo.** A relayout after an edit starts from the previous
 positions, so existing elements stay put and a new node appears next to the

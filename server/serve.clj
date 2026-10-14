@@ -338,7 +338,18 @@
             (do (push-undo! path before)
                 (spit path text)
                 {:ok true})))))
-    (catch Exception e {:error (ex-message e)})))
+    (catch Exception e {:error (or (ex-message e) (str e))})))
+
+(defn- copy-response
+  "The EDN text of nodes and boxes `ids` with what they hold (edit/copy),
+  and the targets that took (edit/closure), from the side `file` names —
+  what an edit there would change."
+  [{:keys [file ids path compare]}]
+  (try
+    (when (some? path) (refuse-embedded-compare!))
+    (let [text (side-source (sides path compare) file)]
+      {:edn (edit/copy text {:ids ids}) :ids (edit/closure text {:ids ids})})
+    (catch Exception e {:error (or (ex-message e) (str e))})))
 
 (defn- create-response
   "Create the graph file a followed ref names, with its folders, when
@@ -756,6 +767,10 @@
           (catch Exception e [400 {:error (ex-message e)}]))]
     (assoc (json-response (json/generate-string out)) :status status)))
 
+(defn- copy-response-body [body-stream]
+  (let [parsed (read-json-body body-stream)]
+    (json/generate-string (if-let [err (:parse-error parsed)] {:error err} (copy-response parsed)))))
+
 (defn- create-response-body [body-stream]
   (let [parsed (read-json-body body-stream)
         out (if-let [err (:parse-error parsed)]
@@ -1002,6 +1017,7 @@
     "/api/errors"  (json-response (errors-response-body query-string))
     "/api/edit"    (post-only req #(json-response (edit-response-body body)))
     "/api/create"  (post-only req #(json-response (create-response-body body)))
+    "/api/copy"    (post-only req #(json-response (copy-response-body body)))
     "/api/graphs"  (json-response (json/generate-string (graphs-response (query-param query-string "path")
                                                                         (query-param query-string "compare"))))
     "/api/lock"    (post-only req #(lock-response acquire-lock! body))

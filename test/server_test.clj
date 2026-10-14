@@ -444,6 +444,24 @@
       (is (= "{:nodes {:a nil}}" (slurp p)))
       (is (empty? (get @serve/undo-stacks p))))))
 
+;; --- /api/copy: what y y and x x put on the clipboard ------------------
+
+(defn- copy-req [body]
+  (assoc (edit-req body) :uri "/api/copy"))
+
+(deftest api-copy-answers-the-selection-as-edn
+  (let [p (temp-edn "{:nodes {:a {:name \"A\"} :b nil :c nil} :edges {[:a :b] nil [:a :c] nil}}")]
+    (serve! p)
+    (let [out (json/parse-string (:body (serve/handler (copy-req {:file "new" :ids [{:section "nodes" :id "a"}
+                                                                                  {:section "nodes" :id "b"}]})))
+                                 true)]
+      (is (= "{:nodes {:a {:name \"A\"}\n         :b nil}\n :edges {[:a :b] nil}}\n" (:edn out)))
+      (is (= [{:section "nodes" :id "a"} {:section "nodes" :id "b"}] (:ids out))))
+    (is (= "unknown node \"zz\""
+           (:error (json/parse-string (:body (serve/handler (copy-req {:file "new" :ids [{:section "nodes" :id "zz"}]})))
+                                      true))))
+    (is (= 405 (:status (serve/handler (assoc (copy-req {}) :request-method :get)))))))
+
 (deftest api-edit-undo-restores
   (let [p (temp-edn "{:nodes {:a nil}}")]
     (serve! p)
@@ -1830,3 +1848,15 @@
     (serve! png)
     (is (= "compare is not available in an embedded compare" (get (graph-at "compare=next") "error")))
     (is (nil? (get (graph-at nil) "error")))))
+
+(deftest copy-follows-a-request-compare
+  ;; y y on a graph compared under its own suffix copies from that fork
+  (with-temp-dir*
+    (fn [dir]
+      (compare-tree! dir)
+      (spit (java.io.File. dir "sub/api-next.edn") "{:nodes {:only-in-fork nil}}")
+      (let [copy! (fn [body] (json/parse-string (:body (serve/handler (copy-req body))) true))]
+        (is (= [{:section "nodes" :id "only-in-fork"}]
+               (:ids (copy! {:file "new" :path "sub/api.edn" :compare "next" :ids [{:section "nodes" :id "only-in-fork"}]}))))
+        (is (= "unknown node \"only-in-fork\""
+               (:error (copy! {:file "new" :path "sub/api.edn" :ids [{:section "nodes" :id "only-in-fork"}]}))))))))

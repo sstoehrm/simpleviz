@@ -42,6 +42,9 @@
    :placed nil :arrange false
    :selected nil :editing nil :edit-error nil :pick nil :pick-hint nil
    :chord nil :id-entry nil :focus-center true
+   ;; select mode (s s, s a, s r): {:ids the scene ids of the nodes and
+   ;; boxes selected, :rect true while the next drag spans a rectangle}
+   :multi nil
    :collapsed-boxes #{} :export-menu false
    ;; a link of the md page to a graph not there yet (offer-side!):
    ;; {:path :compare :files :truncated :query :busy :error}, shown beside the page
@@ -147,8 +150,11 @@
         c (:compare st)]
     (editor/with-compare (if (some? f) (str "?file=" (js/encodeURIComponent f)) "") c)))
 
-(defn- on-select [payload]
-  (swap! state assoc :selected payload :editing nil :id-entry nil :chord nil :nav-error nil))
+(defn- on-select
+  "Select one element (nil: none); selecting one ends select mode."
+  [payload]
+  (swap! state (fn [st] (assoc st :selected payload :editing nil :id-entry nil :chord nil :nav-error nil
+                               :multi (when (nil? payload) (:multi st))))))
 
 (defn- start-pick! [pick hint]
   (swap! state assoc :pick pick :pick-hint hint :chord nil))
@@ -168,7 +174,8 @@
 (declare relayout! post-edit! delete! current-edit-target-editable? follow-ref! navigate! run-chord-action!
          open-md! save-md! close-md! open-page! root-path! load-nav!
          save-if-dirty! save-before-leaving! follow-link! sync-gutter-scroll!
-         follow-to! close-side! start-side! focus-md-start! show-slide! leave-present!)
+         follow-to! close-side! start-side! focus-md-start! show-slide! leave-present!
+         enter-select! select-all! copy-selected! delete-selected! paste!)
 
 ;; layouts per collapsed-set, so expanding (or re-collapsing a seen
 ;; combination) is instant instead of a multi-second ELK run; demoted
@@ -435,6 +442,12 @@
             :on-click (fn [e] (.stopPropagation e) (post-edit! [(editor/direction-op tgt dir)]))}
    label (key-hint (editor/chord-for "edge" ["direction" dir]))])
 
+(defn- absent-status
+  "The compare status of the elements the file edited does not have:
+  the old file lacks what was added, the new one what was removed."
+  [st]
+  (if (= "old" (:edit-target st)) "added" "removed"))
+
 (defn- action-spec
   "What toolbar action `action` does for selection sel (tgt its op
   target): a pick mode to start, a name prompt to open, ops to post, a
@@ -456,6 +469,19 @@
         nil)
       (case action
         "delete" {:run #(delete! tgt)}
+        ;; the selection comes along — unless the file edited lacks it
+        "select-mode" {:run #(enter-select! (if (and (contains? #{"node" "box"} (:kind sel))
+                                                     (not= (absent-status @state) (:diff sel)))
+                                              #{(:elk-id sel)}
+                                              #{})
+                                            false)}
+        "select-all" {:run select-all!}
+        "select-rect" {:run #(enter-select! (or (:ids (:multi @state)) #{}) true)}
+        ;; what acts on the selection waits for something selected
+        ("copy" "cut" "delete-selected")
+        (when (seq (:ids (:multi @state)))
+          {:run (case action "copy" #(copy-selected! false) "cut" #(copy-selected! true) delete-selected!)})
+        "paste" {:run #(paste! sel)}
         "rename" {:run #(start-editing! ID-FIELD id)}
         "add-edge" {:label "add edge" :pick {:mode "connect" :from id}
                     :hint "click the target node or box"}
@@ -517,6 +543,12 @@
       (some? go) (follow-ref! go)
       (some? go-pair) (follow-pair! go-pair))))
 
+(defn- chord-kind
+  "The kind the chords and the toolbar go by: \"select\" in select
+  mode, else the selection's (nil for none)."
+  [st]
+  (if (some? (:multi st)) "select" (:kind (:selected st))))
+
 (defn- avail-fn
   "available? for selection sel, as the one-argument predicate the
   chord menus take."
@@ -530,7 +562,7 @@
   group is left out."
   [st]
   (let [sel (:selected st)
-        kind (:kind sel)]
+        kind (chord-kind st)]
     (filterv (fn [it] (not (and (= kind "edge") (= "e" (first (:keys it))))))
              (editor/chord-menu kind [] (avail-fn sel) (working-pairs sel)))))
 
@@ -549,7 +581,7 @@
 (defn- item-btn
   "A toolbar or pop-out button for chord item `it` below `path`."
   [path it]
-  [:button {:class (if (= "delete" (:action it)) "action-delete" "action-pick") :type "button"
+  [:button {:class (if (contains? #{"delete" "delete-selected"} (:action it)) "action-delete" "action-pick") :type "button"
             :on-click (fn [e] (.stopPropagation e) (choose-item! path it))}
    (:label it) (key-hint (str (.join (:keys it) " ") (if (= true (:group it)) " ▸" "")))])
 
@@ -563,7 +595,7 @@
      [:div {:class "chord-path"} (.join path " ") " … — Esc cancels"]
      (into [:div {:class "chord-items"}]
            (mapv (fn [it] (item-btn path it))
-                 (editor/chord-menu (:kind sel) path (avail-fn sel) (working-pairs sel))))]))
+                 (editor/chord-menu (chord-kind st) path (avail-fn sel) (working-pairs sel))))]))
 
 (defn- submit-id-entry!
   "Create what the open prompt is for (editor/creation-ops); a name that
@@ -746,12 +778,17 @@
 (defn- refresh-selection
   "st with :selected re-derived from scene sc: the payload is a snapshot,
   so after a reload its attrs would otherwise show the pre-edit values
-  until the element is clicked again. Cleared when the element is gone."
+  until the element is clicked again. Cleared when the element is gone —
+  and so is what select mode holds."
   [st sc]
-  (if-let [sel (:selected st)]
-    (let [item (some (fn [it] (when (= (:id it) (:elk-id sel)) it)) (:items sc))]
-      (assoc st :selected (if (some? item) (item->payload item) nil)))
-    st))
+  (let [st (if-let [sel (:selected st)]
+             (let [item (some (fn [it] (when (= (:id it) (:elk-id sel)) it)) (:items sc))]
+               (assoc st :selected (if (some? item) (item->payload item) nil)))
+             st)]
+    (if-let [m (:multi st)]
+      (let [here (set (map :id (:items sc)))]
+        (assoc st :multi (assoc m :ids (set (filter (fn [id] (contains? here id)) (:ids m))))))
+      st)))
 
 (defn- cycle-diff! [status]
   (let [stops (get (scene/diff-stops (:scene @state)) status)]
@@ -762,7 +799,8 @@
         (swap! state (fn [st]
                        (-> st
                            (assoc-in [:diff-cursors status] idx)
-                           (assoc :selected (item->payload item)))))
+                           ;; one element selected: select mode ends
+                           (assoc :selected (item->payload item) :multi nil))))
         (canvas/center-on! item)))))
 
 (defn- legend-row [st status stops]
@@ -907,7 +945,15 @@
       ;; only mid-drag) retargets them to the wrap
       (let [item (item-at e)
             pick (:pick @state)]
-        (if (some? pick)
+        (cond
+          ;; select mode: a node or box joins the selection, or leaves it
+          (and (nil? pick) (some? (:multi @state)))
+          (cond (= (:kind item) "collapse-button") (toggle-collapse! (.slice (:box-id item) 2))
+                (and (contains? #{"node" "box"} (:kind item)) (not= (absent-status @state) (:diff item)))
+                (swap! state update-in [:multi :ids]
+                       (fn [ids] (if (contains? ids (:id item)) (disj ids (:id item)) (conj ids (:id item))))))
+
+          (some? pick)
           ;; picking: a collapse-button hit is not a valid target (ignore,
           ;; keep picking, no mode toggle); a miss cancels; a valid-kind
           ;; hit sends the op and clears :pick; an invalid-kind hit keeps
@@ -923,9 +969,10 @@
                       (if (= (:mode pick) "connect")
                         (swap! state assoc :id-entry {:for "edge" :ops ops :text ""})
                         (post-edit! ops)))))
-          (if (= (:kind item) "collapse-button")
-            (toggle-collapse! (.slice (:box-id item) 2))
-            (on-select (when (some? item) (item->payload item)))))))}])
+          (= (:kind item) "collapse-button")
+          (toggle-collapse! (.slice (:box-id item) 2))
+          :else
+          (on-select (when (some? item) (item->payload item))))))}])
 
 (defn- current-edit-target-editable?
   "Can the graph shown be edited? Never while presenting."
@@ -965,7 +1012,7 @@
       "Present shows the page as slides: a line of just --- starts the next one, and a slide whose first line is >> [text](path) — >> and a link — shows that graph, md file or picture beside its text (a graph link with ?compare=next shows it compared with its fork). → or space steps forward, ← back, Home and End jump; Esc leaves. The graph can be hovered, inspected, panned and collapsed, not edited.")
      (help-section
       "Keys"
-      "Chords act on the selection, when no text field has focus (the toolbar buttons show them); the first key opens a pop-out of what comes next, which can be clicked too: d d delete · e 1/2/3/4 edge direction → ← ↔ — · c s / c t change an edge's source / target · a e add edge · a b add to box (node) or add a box as member (box) · a n add a node as member (box) — either moves it out of the box it was in · n n n new node (connected to the selected node, or inside the selected box) · n n b new box (inside the selected box) · n n s new node in the selection's box · n n c / n n i new node in the selection's box, connected from / to it · n n e split the selected edge with a new node · n b wrap the selection in a new box · r r rename the id · r n take a node out of the selected box · r b take the selected node out of its box · f r follow the selection's :ref · f p follow the selection's pair (f p 1–9 with several) · f m open the selection's :md-ref doc (Ctrl+S saves it). Esc cancels a pending chord; ? toggles this help; Ctrl+Z undoes.")
+      "Chords act on the selection, when no text field has focus (the toolbar buttons show them); the first key opens a pop-out of what comes next, which can be clicked too: d d delete · e 1/2/3/4 edge direction → ← ↔ — · c s / c t change an edge's source / target · a e add edge · a b add to box (node) or add a box as member (box) · a n add a node as member (box) — either moves it out of the box it was in · n n n new node (connected to the selected node, or inside the selected box) · n n b new box (inside the selected box) · n n s new node in the selection's box · n n c / n n i new node in the selection's box, connected from / to it · n n e split the selected edge with a new node · n b wrap the selection in a new box · r r rename the id · r n take a node out of the selected box · r b take the selected node out of its box · f r follow the selection's :ref · f p follow the selection's pair (f p 1–9 with several) · f m open the selection's :md-ref doc (Ctrl+S saves it) · s s select mode: click nodes and boxes to add or drop them · s a select all · s r select by dragging a rectangle · then y y copy / x x cut / d d delete them — a box with what it holds, and the edges among them all · p p paste what was copied or cut, here or in another graph (into the selected box; a taken id gets -1). Esc cancels a pending chord and ends select mode; ? toggles this help; Ctrl+Z undoes.")
      (help-section
       "Compare"
       "Serving a file with a suffix (simpleviz graph.edn next) renders it against its fork graph-next.edn as one merged diagram: added elements get a green +, modified an amber ~ (select for an old → new list), removed ones stay as red dashed ghosts. Click a legend row to jump through the changes; the old|new toggle picks which file edits apply to.")
@@ -1075,6 +1122,13 @@
   (cond
     (some? (:flash st))
     [:div {:id "pick-hint"} (:flash st)]
+
+    (some? (:multi st))
+    [:div {:id "pick-hint"}
+     (if (:rect (:multi st))
+       "drag a rectangle around nodes and boxes — Esc cancels"
+       (str (count (:ids (:multi st))) " selected — click nodes and boxes to add or drop them · "
+            "y y copy · x x cut · d d delete — Esc ends"))]
 
     (some? (:pick st))
     [:div {:id "pick-hint"} (:pick-hint st) " — Esc cancels"]
@@ -1504,7 +1558,10 @@
 (defn- paint-now! []
   (when-let [canvas-el (js/document.getElementById "canvas")]
     (if-let [s (:scene @state)]
-      (canvas/paint! canvas-el s (:elk-id (:selected @state)))
+      (canvas/paint! canvas-el s (let [st @state]
+                                   (cond (some? (:multi st)) (:ids (:multi st))
+                                         (some? (:selected st)) #{(:elk-id (:selected st))}
+                                         :else #{})))
       ;; no graph (an md page, a graph that failed): no stale picture either
       (canvas/clear! canvas-el))))
 
@@ -2573,6 +2630,102 @@
                 (nil? with) (start-editing! ID-FIELD to)
                 (some? (:field with)) (start-editing! (:field with) (:text with))))))))))
 
+(defn- enter-select!
+  "Select mode, with scene ids `ids` selected; with `rect?` the next drag
+  spans a rectangle whose nodes and boxes join them."
+  [ids rect?]
+  (cancel-pick!)
+  (swap! state assoc :multi {:ids ids :rect rect?} :selected nil :editing nil :id-entry nil :chord nil))
+
+(defn- select-all!
+  "s a: select mode with every node and box selected."
+  []
+  (let [sc (:scene @state)]
+    (enter-select! (set (hit/ids-in-rect sc {:x0 -1e9 :y0 -1e9 :x1 1e9 :y1 1e9} (absent-status @state))) false)))
+
+(defn- rect-drag
+  "The canvas's drag hook after s r: the drag spans a rectangle, and
+  letting go adds the nodes and boxes wholly inside it to the selection."
+  [gx gy]
+  (when (:rect (:multi @state))
+    (let [r (atom {:x0 gx :y0 gy :x1 gx :y1 gy})]
+      {:move (fn [dx dy]
+               (swap! r assoc :x1 (+ gx dx) :y1 (+ gy dy))
+               ;; Esc mid-drag cancelled it: no rectangle comes back
+               (when (:rect (:multi @state)) (canvas/set-marquee! @r)))
+       :end (fn []
+              (canvas/set-marquee! nil)
+              ;; Esc mid-drag cancelled it
+              (when-let [m (:multi @state)]
+                (when (:rect m)
+                  (swap! state assoc :multi {:ids (into (:ids m) (hit/ids-in-rect (:scene @state) @r (absent-status @state))) :rect false}))))
+       :cancel (fn [] (canvas/set-marquee! nil))})))
+
+(defn- ^:async fetch-copy
+  "What /api/copy answers for scene ids `ids`: {:edn the clipboard text
+  :ids the targets it took}; throws its error."
+  [ids]
+  (let [f (graph-file @state)
+        body (cond-> {:file (:edit-target @state) :ids (editor/selection-targets ids)}
+               (some? (:compare @state)) (assoc :compare (:compare @state)))
+        out (js-await (.json (js-await (post-json "/api/copy" (if (some? f) (assoc body :path f) body)))))]
+    (if (some? (:error out)) (throw (js/Error. (:error out))) out)))
+
+(defn- write-clipboard!
+  "Put the text that promise `text-p` resolves to on the clipboard. A
+  ClipboardItem takes the promise itself, so the write still counts as
+  the key press's when the text comes later (Safari insists)."
+  [text-p]
+  (if (some? (.-ClipboardItem js/window))
+    (.write js/navigator.clipboard
+            [(js/ClipboardItem. {"text/plain" (.then text-p (fn [t] (js/Blob. [t] {:type "text/plain"})))})])
+    (.then text-p (fn [t] (.writeText js/navigator.clipboard t)))))
+
+(defn- ^:async copy-selected!
+  "y y (cut false) / x x (cut true): the selected nodes and boxes, what
+  the boxes hold and the edges among them all onto the clipboard as EDN,
+  for p p here or in another graph. A cut then deletes all of it in one
+  edit. Select mode ends."
+  [cut]
+  (let [out-p (fetch-copy (vec (:ids (:multi @state))))
+        ok? (try (js-await (write-clipboard! (.then out-p (fn [o] (:edn o)))))
+                 true
+                 (catch :default e
+                   ;; the server's own error, when it had one, says more
+                   ;; than the clipboard's
+                   (let [msg (try (js-await out-p) (.-message e) (catch :default e2 (.-message e2)))]
+                     (swap! state assoc :notice (str (if cut "Cut" "Copy") " failed: " msg)))
+                   false))]
+    (when ok?
+      (let [n (count (:ids (js-await out-p)))]
+        (swap! state assoc :multi nil)
+        (if cut
+          (do (js-await (post-edit! (mapv editor/delete-op (:ids (js-await out-p)))))
+              (when (nil? (:edit-error @state)) (flash! (str "cut " n " — p p pastes them"))))
+          (flash! (str "copied " n " — p p pastes them, here or in another graph")))))))
+
+(defn- ^:async delete-selected!
+  "d d in select mode: delete the selected nodes and boxes with what the
+  boxes hold — what x x would cut — in one edit. Select mode ends."
+  []
+  (try
+    (let [out (js-await (fetch-copy (vec (:ids (:multi @state)))))]
+      (swap! state assoc :multi nil)
+      (js-await (post-edit! (mapv editor/delete-op (:ids out)))))
+    (catch :default e (swap! state assoc :edit-error (.-message e)))))
+
+(defn- ^:async paste!
+  "p p: the nodes and boxes on the clipboard into the graph — into the
+  selected box, else at the top level. Ids already taken get -1, -2, …"
+  [sel]
+  (let [text (try (js-await (.readText js/navigator.clipboard))
+                  (catch :default e
+                    (swap! state assoc :notice (str "Paste failed: the clipboard can't be read (" (.-message e) ")"))
+                    nil))]
+    (when (some? text)
+      (js-await (post-edit! [(editor/paste-op text sel)]))
+      (when (nil? (:edit-error @state)) (flash! "pasted — Ctrl+Z takes it back")))))
+
 (defn- ^:async delete! [tgt]
   (js-await (post-edit! [(editor/delete-op tgt)]))
   ;; :selected is a payload snapshot, not a live lookup — after a
@@ -2755,13 +2908,13 @@
         path (conj (or (:chord st) []) k)]
     (when (and (= 1 (.-length k)) (nil? (:pick st)) (some? (:scene st)))
       (cond
-        (editor/chord-prefix? (:kind sel) path (avail-fn sel) pairs)
+        (editor/chord-prefix? (chord-kind st) path (avail-fn sel) pairs)
         (do (.preventDefault e) (swap! state assoc :chord path))
 
         (some? (:chord st))
         (do (.preventDefault e)
             (swap! state assoc :chord nil)
-            (when-let [action (editor/chord-action (:kind sel) path pairs)]
+            (when-let [action (editor/chord-action (chord-kind st) path pairs)]
               (run-chord-action! sel action)))))))
 
 (js/window.addEventListener "keydown"
@@ -2777,6 +2930,13 @@
       (present-key! e)
 
       (= (.-key e) "Escape") (do (cancel-pick!)
+                                 ;; select mode ends, unless a chord or a rectangle was what Esc cancelled
+                                 (swap! state (fn [st]
+                                                (let [m (:multi st)]
+                                                  (assoc st :multi (cond (some? (:chord st)) m
+                                                                         (:rect m) (assoc m :rect false)
+                                                                         :else nil)))))
+                                 (canvas/set-marquee! nil)
                                  (swap! state assoc :help false :chord nil :export-menu false :link-menu nil
                                         :arrange false)
                                  (when (:full (:md @state))
@@ -2819,7 +2979,7 @@
 (apply-theme! (effective-theme (:graph @state) (:theme-pref @state) (:theme @state)))
 (add-watch state :render (fn [_ _ _ _] (rerender!)))
 (canvas/setup-pan-zoom! (js/document.getElementById "canvas-wrap"))
-(canvas/set-drag-hook! arrange-drag)
+(canvas/set-drag-hook! (fn [gx gy] (or (rect-drag gx gy) (arrange-drag gx gy))))
 ;; the grid's dots show while arranging
 (add-watch state :arrange-grid
   (fn [_ _ old new]

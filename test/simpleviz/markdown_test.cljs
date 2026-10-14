@@ -295,3 +295,12 @@
       (assert/equal (tidy-caret t t2 (.indexOf t "z")) (.indexOf t2 "z"))
       (assert/equal (tidy-caret t t2 0) 0)
       (assert/equal (tidy-caret t t2 (count t)) (inc (.indexOf t2 "z"))))))
+
+(test "a link's ?compare= reaches link-fn as :compare"
+  (fn []
+    (let [seen (atom [])
+          lf (fn [l kids] (swap! seen conj l) (into [:a] kids))]
+      (render "[a](api.edn?compare=next) [b](b.edn) [r][d]\n\n[d]: c.edn?compare=v2" lf)
+      (assert/deepEqual @seen [{:dest "api.edn" :label "a" :kind "inline" :compare "next"}
+                               {:dest "b.edn" :label "b" :kind "inline"}
+                               {:dest "c.edn" :label "r" :kind "ref" :compare "v2"}]))))

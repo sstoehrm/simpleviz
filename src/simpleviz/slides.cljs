@@ -39,26 +39,32 @@
         ls (reverse (drop-while blank? (reverse ls)))]
     (.join (into-array ls) "\n")))
 
-(defn side-dest
-  "What the rest of a `>>` line names: the destination of its first link
-  — [text](path) or ![alt](path), as a link means it — else the rest as
-  a plain path; nil when there is nothing."
+(defn side-target
+  "What the rest of a `>>` line names, {:dest} plus :compare when it
+  asks for one: the destination of its first link — [text](path) or
+  ![alt](path), as a link means it — else the rest as a plain path
+  (`path?compare=<suffix>` too); nil when there is nothing."
   [rest]
   (let [t (.trim rest)
         l (first (filter (fn [l] (or (= "inline" (:kind l)) (= "image" (:kind l))))
-                         (mdlinks/links t)))]
-    (cond (some? l) (:dest l)
+                         (mdlinks/links t)))
+        c (when (and (nil? l) (not= t "")) (mdlinks/dest-compare t))]
+    (cond (some? l) (cond-> {:dest (:dest l)} (some? (:compare l)) (assoc :compare (:compare l)))
           (= t "") nil
-          :else t)))
+          (some? c) {:dest (.slice t 0 (.indexOf t "?")) :compare c}
+          :else {:dest t})))
 
 (defn- slide
   "One slide from its lines: {:text :side}, :side the `>>` target of its
-  first line (nil when there is none)."
+  first line (nil when there is none), plus :side-compare when that
+  asks to compare."
   [lines]
   (let [ls (vec (drop-while blank? lines))
-        head (first ls)]
+        head (first ls)
+        target (when (and (some? head) (.startsWith head ">>")) (side-target (.slice head 2)))]
     (if (and (some? head) (.startsWith head ">>"))
-      {:text (trim-blank-lines (rest ls)) :side (side-dest (.slice head 2))}
+      (cond-> {:text (trim-blank-lines (rest ls)) :side (when (some? target) (:dest target))}
+        (some? (:compare target)) (assoc :side-compare (:compare target)))
       {:text (trim-blank-lines ls) :side nil})))
 
 (defn slides

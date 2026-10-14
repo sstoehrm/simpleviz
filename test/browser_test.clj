@@ -214,6 +214,38 @@
                  " ok(r); }, 50); })")
             :extra {"g.edn" "{:nodes {:a {}}}"})))))
 
+(deftest a-compare-link-opens-the-comparison-beside-the-md-page
+  ;; [x](g.edn?compare=next): the graph beside the text is compared with
+  ;; g-next.edn, an edit there goes to the fork, × drops the comparison
+  (with-real-browser
+    (is (= {:compare "next" :legend true :open true :fork true :original false :closed true}
+           (eval-on-served-page
+            path "notes.md" "See [the change](g.edn?compare=next) and [the graph](g.edn).\n"
+            (str "new Promise(ok => { let step = 0, r = {}; const t = setInterval(async () => {"
+                 " if (step === 0) { const link = document.querySelector('#md-view a.md-link'); if (!link) return;"
+                 "  link.click(); step = 1; return; }"
+                 " const bar = document.getElementById('side-bar');"
+                 " if (step === 1) { const legend = document.getElementById('diff-legend');"
+                 "  if (!bar || bar.querySelector('.side-loading') || !legend) return;"
+                 "  r.compare = new URLSearchParams(location.search).get('compare');"
+                 "  r.legend = legend.innerText.includes('g-next.edn');"
+                 "  r.open = [...document.querySelectorAll('#md-view a.md-link.open')].map(a => a.innerText).join() === 'the change';"
+                 "  [...document.querySelectorAll('button')].find(b => b.innerText.startsWith('new node')).click();"
+                 "  step = 2; return; }"
+                 " if (step === 2) { const input = document.querySelector('.id-entry-input'); if (!input) return;"
+                 "  input.value = 'queue'; input.dispatchEvent(new Event('input', {bubbles: true}));"
+                 "  input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true})); step = 3; return; }"
+                 " if (step === 3) { step = 4;"
+                 "  const src = async w => (await fetch('/api/source?file=g.edn&compare=next&which=' + w)).text();"
+                 "  const fork = await src('new'); if (!fork.includes(':queue')) { step = 3; return; }"
+                 "  r.fork = true; r.original = (await src('old')).includes(':queue');"
+                 "  bar.querySelector('[aria-label=Close]').click(); step = 5; return; }"
+                 " if (step === 4) return;"
+                 " clearInterval(t);"
+                 " r.closed = !document.getElementById('side-bar') && !location.search.includes('compare');"
+                 " ok(r); }, 50); })")
+            :extra {"g.edn" "{:nodes {:a {}}}" "g-next.edn" "{:nodes {:a {} :b {}}}"})))))
+
 (deftest a-presentation-steps-through-its-slides
   ;; Present: the title slide alone and centered, every tool hidden but
   ;; Leave; → shows the next slide and what its >> names beside it — a

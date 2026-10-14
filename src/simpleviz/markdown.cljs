@@ -224,7 +224,9 @@
               [])]
       (when (some? raw)
         {:end end
-         :node ((:link-fn ctx) {:dest (link-dest raw) :label label :kind kind}
+         :node ((:link-fn ctx) (let [c (when-not (.test scheme-re raw) (mdlinks/dest-compare raw))]
+                                 (cond-> {:dest (link-dest raw) :label label :kind kind}
+                                   (some? c) (assoc :compare c)))
                 (if img? [(if (= label "") raw label)] (inline label ctx)))}))))
 
 (defn- inline
@@ -613,7 +615,8 @@
 (defn render
   "Hiccup blocks for markdown text. (link-fn link children) renders each
   link, link {:dest :label :kind}: :dest as mdlinks cleans a path (or a
-  URL kept whole), :kind \"inline\", \"image\" or \"ref\"."
+  URL kept whole), :kind \"inline\", \"image\" or \"ref\", plus :compare
+  when a path asks for one (?compare=<suffix>, mdlinks/dest-compare)."
   [text link-fn]
   (let [lines (mapv untab (.split (.replaceAll (str text) "\r\n" "\n") "\n"))
         code (code-lines lines)
@@ -634,7 +637,7 @@
 (defn- shape
   "What text renders to, as a string to compare."
   [text]
-  (js/JSON.stringify (render text (fn [l kids] (into [:a {:href (:dest l)}] kids)))))
+  (js/JSON.stringify (render text (fn [l kids] (into [:a {:href (:dest l) :compare (:compare l)}] kids)))))
 
 (defn- fenced-lines
   "Per line: may it be a fenced code block's, fences included — the

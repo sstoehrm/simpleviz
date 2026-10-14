@@ -945,6 +945,79 @@
       ;; both created files open as an unchanged comparison
       (is (nil? (get (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "file=a%2Fn.edn"}))) "error"))))))
 
+(deftest api-create-copies-from-an-existing-graph
+  (with-temp-dir*
+    (fn [dir]
+      (serve! (write! dir "root.edn" "{:nodes {:a nil}}"))
+      (write! dir "lib/tpl.edn" "{:nodes {:t {:ref \"x.edn\"}}}\n")
+      (is (= {"ok" true "created" "docs/new.edn"} (create! {:path "docs/new.edn" :file "new" :from "lib/tpl.edn"})))
+      ;; a byte copy: refs stay as written
+      (is (= "{:nodes {:t {:ref \"x.edn\"}}}\n" (slurp (java.io.File. dir "docs/new.edn"))))
+      ;; never overwrites
+      (is (= {"ok" true "created" nil} (create! {:path "docs/new.edn" :file "new" :from "root.edn"})))
+      (is (= "{:nodes {:t {:ref \"x.edn\"}}}\n" (slurp (java.io.File. dir "docs/new.edn")))))))
+
+(deftest api-create-from-refusals
+  (with-temp-dir*
+    (fn [dir]
+      (serve! (write! dir "root.edn" "{:nodes {:a nil}}"))
+      (write! dir "pic.png" "not really")
+      (is (re-find #"no such file" (get (create! {:path "n.edn" :file "new" :from "gone.edn"}) "error")))
+      (is (re-find #"leaves the served folder" (get (create! {:path "n.edn" :file "new" :from "../x.edn"}) "error")))
+      (is (re-find #"not an \.edn file" (get (create! {:path "n.edn" :file "new" :from "pic.png"}) "error")))
+      (is (not (.exists (java.io.File. dir "n.edn"))))))
+  (with-temp-dir*
+    (fn [dir]
+      (suffix-tree! dir)
+      (is (= "copying is not available in a comparison"
+             (get (create! {:path "a/n.edn" :file "new" :from "lone.edn"}) "error")))
+      (is (not (.exists (java.io.File. dir "a/n-next.edn")))))))
+
+(defn- graphs [path]
+  (json/parse-string (:body (serve/handler {:uri "/api/graphs" :request-method :get
+                                            :query-string (str "path=" (java.net.URLEncoder/encode path "UTF-8"))}))))
+
+(deftest api-graphs-lists-the-graphs-a-new-one-can-copy
+  (with-temp-dir*
+    (fn [dir]
+      (serve! (write! dir "root.edn" "{:nodes {:a nil}}"))
+      (write! dir "docs/talk.md" "# t")
+      (write! dir "docs/sub/b.edn" "{}")
+      (write! dir "a.EDN" "{}")
+      (write! dir "pic.png" "x")
+      (write! dir ".git/hidden.edn" "{}")
+      (write! dir "node_modules/pkg/dep.edn" "{}")
+      (is (= {"exists" false "files" ["a.EDN" "docs/sub/b.edn" "root.edn"] "truncated" false}
+             (graphs "docs/new.edn")))
+      ;; a graph that is there needs no choices
+      (is (= {"exists" true "files" [] "truncated" false} (graphs "docs/sub/b.edn")))
+      (is (re-find #"leaves the served folder" (get (graphs "../x.edn") "error"))))))
+
+(deftest api-graphs-in-suffix-mode-offers-no-copies
+  (with-temp-dir*
+    (fn [dir]
+      (suffix-tree! dir)
+      ;; create refuses copying in a comparison
+      (is (= {"exists" false "files" [] "truncated" false} (graphs "a/n.edn")))
+      ;; a fork alone counts as there
+      (is (true? (get (graphs "fresh.edn") "exists"))))))
+
+(deftest api-graphs-and-create-under-a-links-own-compare
+  (with-temp-dir*
+    (fn [dir]
+      (serve! (write! dir "root.edn" "{:nodes {:a nil}}"))
+      (write! dir "only-next.edn" "{}")
+      (let [g (fn [q] (json/parse-string (:body (serve/handler {:uri "/api/graphs" :request-method :get :query-string q}))))]
+        ;; a fork alone counts as there under the link's compare, not without it
+        (is (true? (get (g "path=only.edn&compare=next") "exists")))
+        (is (false? (get (g "path=only.edn") "exists")))
+        ;; no copies offered in a comparison
+        (is (= [] (get (g "path=n.edn&compare=next") "files")))
+        (is (re-find #"invalid compare suffix" (get (g "path=n.edn&compare=-x") "error"))))
+      (is (= "copying is not available in a comparison"
+             (get (create! {:path "n.edn" :file "new" :compare "next" :from "root.edn"}) "error")))
+      (is (not (.exists (java.io.File. dir "n-next.edn")))))))
+
 (deftest api-edit-without-path-picks-the-root-sides-in-suffix-mode
   (with-temp-dir*
     (fn [dir]
@@ -1674,3 +1747,86 @@
   ;; forward another); no Host at all is a non-browser client
   (doseq [h ["localhost:7373" "127.0.0.1:7373" "LOCALHOST:7380" "localhost" "[::1]:7373" nil]]
     (is (= 200 (:status (serve/handler (cond-> {:uri "/api/root"} h (assoc :headers {"host" h}))))) (str h))))
+
+;; ---- a request's own compare (an md link's ?compare=<suffix>) ----
+
+(defn- compare-tree!
+  "The suffix tree, served without a suffix."
+  [dir]
+  (suffix-tree! dir)
+  (serve! (.getPath (java.io.File. dir "root.edn"))))
+
+(defn- graph-at [qs]
+  (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string qs}))))
+
+(deftest a-request-compares-under-its-own-suffix
+  (with-temp-dir*
+    (fn [dir]
+      (compare-tree! dir)
+      (let [sub (graph-at "file=sub%2Fapi.edn&compare=next")
+            plain (graph-at "file=sub%2Fapi.edn")]
+        (is (= {"old" "sub/api.edn" "new" "sub/api-next.edn"} (get sub "compare")))
+        (is (= "added" (get-in sub ["nodes" "h2" "diff"])))
+        (is (nil? (get plain "compare")) "the same file without compare stays plain")
+        ;; the root, too — and a missing fork is lenient under a request's compare
+        (is (= "added" (get-in (graph-at "compare=next") ["nodes" "added" "diff"])))
+        (is (nil? (get (graph-at "compare=nope") "error")))
+        (is (= {"old" "lone.edn" "new" "lone-nope.edn"} (get (graph-at "file=lone.edn&compare=nope") "compare")))
+        (is (= "no such file: nowhere.edn" (get (graph-at "file=nowhere.edn&compare=next") "error")))
+        (is (= "sub/api-next.edn is the fork of sub/api.edn — ref the original"
+               (get (graph-at "file=sub%2Fapi-next.edn&compare=next") "error")))
+        (is (= "invalid compare suffix: \"a b\"" (get (graph-at "file=lone.edn&compare=a%20b") "error")))
+        (is (= "invalid compare suffix: \"\"" (get (graph-at "file=lone.edn&compare=") "error")))
+        ;; /api/errors reads the same comparison
+        (is (= {"error" nil "warnings" []} (api-errors "file=sub%2Fapi.edn&compare=next")))
+        (is (= "invalid compare suffix: \"-x\"" (get (api-errors "file=lone.edn&compare=-x") "error")))))))
+
+(deftest a-request-compare-overrides-the-startup-suffix
+  (with-temp-dir*
+    (fn [dir]
+      (suffix-tree! dir)
+      (write! dir "sub/api-v2.edn" "{:nodes {:h nil :v2 nil}}")
+      (let [v2 (graph-at "file=sub%2Fapi.edn&compare=v2")]
+        (is (= {"old" "sub/api.edn" "new" "sub/api-v2.edn"} (get v2 "compare")))
+        (is (= "added" (get-in v2 ["nodes" "v2" "diff"])))
+        (is (nil? (get-in v2 ["nodes" "h2"]))))
+      ;; without one, the startup suffix still applies — strictly at the root
+      (.delete (java.io.File. dir "root-next.edn"))
+      (is (= "no root-next.edn — create it with: simpleviz fork root.edn next" (get (graph-at nil) "error"))))))
+
+(deftest version-and-source-follow-a-request-compare
+  (with-temp-dir*
+    (fn [dir]
+      (compare-tree! dir)
+      (let [old (java.io.File. dir "sub/api.edn")
+            new (java.io.File. dir "sub/api-next.edn")]
+        (is (= (str (.lastModified old) "-" (.lastModified new))
+               (get (json/parse-string (:body (serve/handler {:uri "/api/version" :query-string "file=sub%2Fapi.edn&compare=next"}))) "mtime")))
+        (is (= (.lastModified old)
+               (get (json/parse-string (:body (serve/handler {:uri "/api/version" :query-string "file=sub%2Fapi.edn"}))) "mtime")))
+        (is (= (slurp old) (:body (serve/handler {:uri "/api/source" :query-string "file=sub%2Fapi.edn&compare=next&which=old"}))))
+        (is (= (slurp new) (:body (serve/handler {:uri "/api/source" :query-string "file=sub%2Fapi.edn&compare=next&which=new"}))))
+        (is (= 404 (:status (serve/handler {:uri "/api/source" :query-string "file=sub%2Fapi.edn&which=old"}))))))))
+
+(deftest edit-and-create-follow-a-request-compare
+  (with-temp-dir*
+    (fn [dir]
+      (compare-tree! dir)
+      (is (true? (get (json/parse-string (:body (serve/handler (edit-req {:file "new" :path "sub/api.edn" :compare "next" :ops [{:op "add-node" :id "n"}]})))) "ok")))
+      (is (clojure.string/includes? (slurp (java.io.File. dir "sub/api-next.edn")) ":n nil"))
+      (is (not (clojure.string/includes? (slurp (java.io.File. dir "sub/api.edn")) ":n nil")))
+      (is (true? (get (json/parse-string (:body (serve/handler (edit-req {:file "new" :path "sub/api.edn" :ops [{:op "add-node" :id "p"}]})))) "ok")))
+      (is (clojure.string/includes? (slurp (java.io.File. dir "sub/api.edn")) ":p nil"))
+      (is (= "invalid compare suffix: \"a b\""
+             (get (json/parse-string (:body (serve/handler (edit-req {:file "new" :path "lone.edn" :compare "a b" :ops [{:op "add-node" :id "x"}]})))) "error")))
+      (is (= {"ok" true "created" "a/n-next.edn"} (create! {:path "a/n.edn" :file "new" :compare "next"})))
+      (is (not (.exists (java.io.File. dir "a/n.edn"))))
+      (is (= {"ok" true "created" "a/m.edn"} (create! {:path "a/m.edn" :file "new"})))
+      (is (= "invalid compare suffix: \"\"" (get (create! {:path "a/q.edn" :file "new" :compare ""}) "error"))))))
+
+(deftest an-embedded-compare-refuses-a-request-compare
+  (let [png (temp-png* [(itxt* "simpleviz-edn" "{:nodes {:a {}}}")
+                        (itxt* "simpleviz-edn-old" "{:nodes {}}")])]
+    (serve! png)
+    (is (= "compare is not available in an embedded compare" (get (graph-at "compare=next") "error")))
+    (is (nil? (get (graph-at nil) "error")))))

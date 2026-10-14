@@ -39,7 +39,7 @@ Nothing fails loudly, so checking is the only way to know a file is right.
 Copy this checklist and work through it:
 
 ```
-- [ ] 1. A server serves the file (the user's, another agent's or yours)? Take its lock (see Concurrent writes). None does? Skip this and step 5
+- [ ] 1. A server serves the file (the user's, another agent's or yours)? Take its lock and re-read the file (see Concurrent writes). None does? Skip this and step 5
 - [ ] 2. Write the file (a graph in map form, see Data format)
 - [ ] 3. Check every file you wrote, :ref targets and forks included: simpleviz check <file>, or $URL/api/errors while served (see Checking)
 - [ ] 4. Fix each warning, check again; repeat until clean
@@ -255,9 +255,9 @@ its fork (`<name>-<suffix>.<ext>`).
 
 ## Concurrent writes (lock before editing a served file)
 
-When a server is serving the file and someone else may write it too
-(another agent, the user editing in the page), take the server's advisory
-lock around your write:
+Whenever a server serves the file, take its advisory lock around your
+write: the user can edit in the page at any time, and so can another
+agent.
 
     curl -s -X POST -H 'Content-Type: application/json' -d '{"owner":"<your-id>","path":"sub/api.edn"}' $URL/api/lock
     # ... write the file ...

@@ -1095,15 +1095,15 @@
        (or (nil? (:defs t)) (string? (:defs t)))))
 
 (defn- calc-response
-  "The formula results of the request's md tables (calc/evaluate), in
-  the order they came."
+  "The formula results of the request's md tables (calc/evaluate-tables),
+  in the order they came."
   [body-stream]
   (let [parsed (read-json-body body-stream)
         [status out] (cond
                        (:parse-error parsed) [400 {:error (:parse-error parsed)}]
                        (not (and (sequential? (:tables parsed)) (every? calc-table? (:tables parsed))))
                        [400 {:error "expected {tables: [{cells: [[string]], defs: string}]}"}]
-                       :else [200 {:tables (mapv calc/evaluate (:tables parsed))}])]
+                       :else [200 {:tables (calc/evaluate-tables (:tables parsed))}])]
     (assoc (json-response (json/generate-string out)) :status status)))
 
 (defn- post-only

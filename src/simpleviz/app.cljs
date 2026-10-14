@@ -1288,19 +1288,27 @@
 
 ;; md text → what /api/calc made of its tables: {} for text without a
 ;; formula, {:pending true} while the server works, {:tables …} after,
-;; {:failed true} when it couldn't be asked
+;; {:failed msg} when it couldn't be asked; the oldest go past 50
 (def ^:private calc-results (js/Map.))
 
+(defn- remember-calc! [text v]
+  (.delete calc-results text)
+  (.set calc-results text v)
+  (when (> (.-size calc-results) 50)
+    (.delete calc-results (.-value (.next (.keys calc-results))))))
+
 (defn- ^:async fetch-calc! [text]
-  (.set calc-results text {:pending true})
+  (remember-calc! text {:pending true})
   (let [out (try (let [resp (js-await (js/fetch "/api/calc"
                                                 {:method "POST"
                                                  :headers {"Content-Type" "application/json"}
                                                  :body (js/JSON.stringify {:tables (markdown/calc-tables text)})}))]
-                   (if (.-ok resp) {:tables (:tables (js-await (.json resp)))} {:failed true}))
-                 (catch :default _ {:failed true}))]
-    (when (> (.-size calc-results) 50) (.clear calc-results))
-    (.set calc-results text out)
+                   (if (.-ok resp)
+                     {:tables (:tables (js-await (.json resp)))}
+                     {:failed (str "couldn't calculate: " (or (try (:error (js-await (.json resp))) (catch :default _ nil))
+                                                              (.-status resp)))}))
+                 (catch :default _ {:failed "couldn't calculate: no server"}))]
+    (remember-calc! text out)
     (swap! state update :calc-tick (fnil inc 0))))
 
 (defn- calc-for!
@@ -1308,9 +1316,10 @@
   nil until the server has them — asking it the first time."
   [text]
   (let [hit (.get calc-results text)]
-    (cond (some? hit) (:tables hit)
+    (cond (some? (:failed hit)) hit
+          (some? hit) (:tables hit)
           (markdown/calc? text) (do (fetch-calc! text) nil)
-          :else (do (.set calc-results text {}) nil))))
+          :else (do (remember-calc! text {}) nil))))
 
 ;; the read view's hiccup for the last [path text side compare calc], so
 ;; rerenders for anything else neither re-parse nor rebuild its handlers
@@ -1460,7 +1469,7 @@
           (when (:blocked (:present st))
             [:span {:class "ask-hint"} "Submit an answer to go on"])])
        (when (some? note)
-         (into [:div {:class "md-doc ask-note"}] (markdown/render note link-fn)))])))
+         (into [:div {:class "md-doc ask-note"}] (markdown/render note link-fn (calc-for! note))))])))
 
 (defn- present-panel
   "The slide presented, in the md page's place: the window, or its left

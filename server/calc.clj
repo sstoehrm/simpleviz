@@ -6,13 +6,24 @@
   take the same ranges. Columns are letters, rows count the body rows
   from 1. A cell is a plain number or nil, unless the table's def block
   — pairs of a range and a parser, a string to strip or a (fn [s] ...)
-  — says otherwise. Formula cells are in no range."
-  (:require [clojure.string :as str]
+  — says otherwise. Formula cells are in no range.
+
+  SCI under bb shares bb's own clojure.* vars, so a formula could alter
+  the functions of the process it runs in: the server runs formulas
+  only in a child bb of their own (evaluate-tables), killed when late."
+  (:require [babashka.classpath :as cp]
+            [babashka.process :as p]
+            [cheshire.core :as json]
+            [clojure.string :as str]
             [sci.core :as sci]))
 
 (def ^:dynamic *timeout-ms*
   "How long a formula, or a def block with the values it parses, may run."
   1000)
+
+(def ^:dynamic *child-ms*
+  "How long the child may run, nil for a second per formula plus two."
+  nil)
 
 (defn col-index
   "Column keyword :a → 0, :z → 25, :aa → 26; nil for anything else."
@@ -25,6 +36,8 @@
     (if (zero? i) (keyword s) (recur (quot (dec i) 26) (str (char (+ 97 (mod (dec i) 26))) s)))))
 
 (defn- fail [& msg] (throw (ex-info (apply str msg) {:calc true})))
+
+(defn- message [^Throwable e] (or (ex-message e) (.getSimpleName (class e))))
 
 (defn ranges
   "The flat range groups of args — a column keyword, then no row (the
@@ -58,7 +71,7 @@
   "The number cell text s is, in plain English notation, else nil."
   [s]
   (let [t (str/trim (str s))]
-    (cond (re-matches #"-?\d+" t) (parse-long t)
+    (cond (re-matches #"-?\d+" t) (or (parse-long t) (bigint t))
           (re-matches #"-?\d+\.\d+" t) (parse-double t))))
 
 (defn- formula? [s] (str/starts-with? (str/trim (str s)) "=("))
@@ -84,8 +97,8 @@
                       (try (cond (nil? p) (number-of s)
                                  (string? p) (number-of (strip s p))
                                  :else (p s))
-                           (catch Exception e
-                             (fail "row " (inc r) ", " (col-name c) ": " (ex-message e)))))))
+                           (catch Throwable e
+                             (fail "row " (inc r) ", " (col-name c) ": " (message e)))))))
                 row)))
         cells)))
 
@@ -106,6 +119,7 @@
   (cond (nil? v) ""
         (string? v) v
         (ratio? v) (str (double v))
+        (instance? clojure.lang.BigInt v) (str v)
         :else (binding [*print-length* 100] (pr-str v))))
 
 (defn- context
@@ -164,12 +178,56 @@
             ctx (context vals rows cols)
             err (try (reset! vals (run #(values cells (if (str/blank? defs) [] (rules-of ctx defs rows cols)))))
                      nil
-                     (catch Exception e (str "def block: " (ex-message e))))
+                     (catch Throwable e (str "def block: " (message e))))
             cell (fn [s]
                    (when (formula? s)
                      (if (some? err)
                        {:error err}
                        (try {:value (run #(show (eval-in (sci/fork ctx) (subs (str/trim s) 1))))}
-                            (catch Exception e {:error (ex-message e)})))))]
+                            (catch Throwable e {:error (message e)})))))]
         (cond-> {:results (mapv (fn [row] (mapv cell row)) cells)}
           (some? err) (assoc :error err))))))
+
+(defn child
+  "The child's main: tables as JSON on stdin, their results as JSON on
+  stdout, then exit — whatever a formula left running or altered goes
+  with the process."
+  []
+  (let [tables (:tables (json/parse-string (slurp *in*) true))
+        out (try (json/generate-string {:tables (mapv evaluate tables)})
+                 (catch Throwable e (json/generate-string {:error (message e)})))]
+    (println out)
+    (flush)
+    (System/exit 0)))
+
+(defn- bb-path []
+  (or (.orElse (.command (.info (java.lang.ProcessHandle/current))) nil) "bb"))
+
+(defn- failed
+  "The results of `tables` with every formula failing with `msg`."
+  [tables msg]
+  (mapv (fn [{:keys [cells]}]
+          {:results (mapv (fn [row] (mapv (fn [s] (when (formula? s) {:error msg})) row)) cells)})
+        tables))
+
+(defn evaluate-tables
+  "calc/evaluate of each table, run in a child bb that is gone after —
+  killed past *child-ms*. A table without formulas needs no child."
+  [tables]
+  (let [n (count (filter formula? (mapcat flatten (map :cells tables))))]
+    (if (zero? n)
+      (mapv evaluate tables)
+      (let [ms (or *child-ms* (min 30000 (+ 2000 (* n *timeout-ms*))))
+            proc (p/process {:in (json/generate-string {:tables tables})
+                             :out :string :err :string
+                             :dir (System/getProperty "java.io.tmpdir")}
+                            (bb-path) "-cp" (cp/get-classpath) "-e" "(require 'calc) (calc/child)")
+            done (deref proc ms ::late)]
+        (if (= ::late done)
+          (do (p/destroy-tree proc)
+              (failed tables (str "took too long (over " ms " ms)")))
+          (let [out (try (json/parse-string (:out done) true) (catch Exception _ nil))]
+            (cond
+              (some? (:tables out)) (:tables out)
+              (some? (:error out)) (failed tables (:error out))
+              :else (failed tables (str "the calculation failed" (some->> (:err done) str/trim not-empty (str ": ")))))))))))

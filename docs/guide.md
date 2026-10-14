@@ -387,10 +387,11 @@ result, and the formula when you hover the cell:
   is ordinary code.
 - A formula that fails shows its error in the cell, and so does every
   formula of a table whose block fails.
-- The formulas run on the local server in a sandbox ([SCI](https://github.com/babashka/sci)):
-  no files, no network, no Java interop. A formula has a second; one
-  that runs longer shows an error, but keeps a CPU busy until the
-  server stops.
+- The formulas run in a sandbox ([SCI](https://github.com/babashka/sci)):
+  no files, no network, no Java interop — in a bb process of their own
+  that the server starts for each page and that is gone after it, so
+  nothing a formula does outlives it. A formula has a second; the
+  process is killed when its formulas run past their time.
 
 ### Presenting
 

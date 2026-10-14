@@ -469,16 +469,20 @@
 (defn- def-block
   "The text of the ```simpleviz-table block right after a table ending
   at line `end`, blank lines between allowed, and the line after it;
-  [nil end] when none follows."
+  [nil end] when none follows, or it never closes."
   [lines end]
   (let [n (count lines)
         j (loop [j end] (if (and (< j n) (blank? (nth lines j))) (recur (inc j)) j))
         fence (when (< j n) (fence-open (nth lines j)))]
     (if (and (some? fence) (= "simpleviz-table" (:info fence)))
       (let [close (loop [k (inc j)]
-                    (if (or (>= k n) (fence-close? (nth lines k) (:mark fence))) k (recur (inc k))))]
-        [(.join (mapv (fn [ln] (subs ln (min (indent ln) (:indent fence)))) (.slice lines (inc j) close)) "\n")
-         (inc close)])
+                    (cond (>= k n) nil
+                          (fence-close? (nth lines k) (:mark fence)) k
+                          :else (recur (inc k))))]
+        (if (nil? close)
+          [nil end]
+          [(.join (mapv (fn [ln] (subs ln (min (indent ln) (:indent fence)))) (.slice lines (inc j) close)) "\n")
+           (inc close)]))
       [nil end])))
 
 (defn- formula? [c] (.startsWith c "=("))
@@ -495,18 +499,20 @@
 (defn- table-block
   "The table from line i to `end`, its body rows also collected in
   (:tables ctx) with the def block `defs` for the server to calculate;
-  formula cells show the results (:calc ctx) holds for it."
+  formula cells show the results (:calc ctx) holds for it, or
+  {:failed msg} for every table."
   [lines i end defs ctx]
   (let [aligns (aligns-of (nth lines (inc i)))
         grid (fn [l] (let [cs (cells l)] (mapv (fn [k] (or (get cs k) "")) (range (count aligns)))))
         body (mapv (fn [j] (grid (nth lines j))) (range (+ i 2) end))
-        results (:results (get (:calc ctx) (count (:tables ctx))))
+        failed (:failed (:calc ctx))
+        results (when (nil? failed) (:results (get (:calc ctx) (count (:tables ctx)))))
         row (fn [tag cs r]
               (into [:tr] (map-indexed (fn [k a]
                                          (let [c (nth cs k)
                                                al (if (some? a) (str "al-" a) nil)]
                                            (if (and (= tag :td) (formula? c))
-                                             (calc-cell c (get (get results r) k) al)
+                                             (calc-cell c (if (some? failed) {:error failed} (get (get results r) k)) al)
                                              (into (if (some? al) [tag {:class al}] [tag]) (inline c ctx)))))
                                        aligns)))]
     (conj! (:tables ctx) {:cells body :defs defs})
@@ -665,7 +671,8 @@
   URL kept whole), :kind \"inline\", \"image\" or \"ref\", plus :compare
   when a path asks for one (?compare=<suffix>, mdlinks/dest-compare).
   A table's =( cells show what `calc` — the server's reply to
-  calc-tables, per table {:results grid} — holds for them."
+  calc-tables, per table {:results grid}, or {:failed msg} — holds for
+  them."
   ([text link-fn] (render text link-fn nil))
   ([text link-fn calc] (first (rendered text link-fn calc))))
 

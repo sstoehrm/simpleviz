@@ -135,6 +135,18 @@
                         [:table [:thead [:tr [:th "x"]]]
                          [:tbody [:tr [:td {:class "calc" :title "=(sum :a)"} "0"]]]]))))
 
+(test "calc: when the server can't be asked, every formula cell says why"
+  (fn []
+    (assert/deepEqual (nth (nth (nth (render calc-doc link {:failed "no server"}) 0) 2) 2)
+                      [:tr [:td {:class "calc error" :title "=(sum :a)"} "no server"]
+                       [:td {:class "al-right calc error" :title "=(* 2 3)"} "no server"]])))
+
+(test "calc: an unclosed def block is no def block"
+  (fn []
+    (let [doc "| a |\n|--|\n| 1 |\n\n```simpleviz-table\n[:a] \"%\"\n\nafter"]
+      (assert/deepEqual (calc-tables doc) [{:cells [["1"]] :defs nil}])
+      (assert/deepEqual (nth (md doc) 1) [:pre [:code "[:a] \"%\"\n\nafter"]]))))
+
 (test "calc: a def block anywhere but after a table is code; = text is no formula"
   (fn []
     (assert/deepEqual (md "text\n\n```simpleviz-table\n[:a] \"%\"\n```")

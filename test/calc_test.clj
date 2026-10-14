@@ -112,3 +112,35 @@
   (binding [*ns* (create-ns 'calc-test.elsewhere)]
     (is (= "1" (value-at (results [["1" "=(sum :a)"]]) 0 1)))
     (is (= "1" (value-at (results [["x" "=(sum :a)"]] "[:a] (fn [s] (count [s]))") 0 1)))))
+
+(deftest a-stack-overflow-stays-in-its-cell
+  (let [out (results [["1" "=((fn f [x] (f x)) 1)" "=(sum :a)"]])]
+    (is (some? (error-at out 0 1)))
+    (is (= "1" (value-at out 0 2))))
+  (is (some? (:error (results [["1" "=(sum :a)"]] "[:a] (fn f [s] (f s))")))))
+
+(deftest big-whole-numbers-are-numbers
+  (is (= "100000000000000000001" (value-at (results [["99999999999999999999"] ["2"] ["=(sum :a)"]]) 2 0))))
+
+;; through the child process, as the server runs them
+
+(deftest formulas-cannot-touch-the-server
+  (let [out (calc/evaluate-tables
+             [{:cells [["=(alter-var-root #'clojure.string/starts-with? (fn [f] (fn [s p] true)))"
+                        "=(sum :a)"]]}])]
+    (is (false? (clojure.string/starts-with? "abc" "/")) "the server's own var is untouched")
+    (is (some? (get-in out [0 :results 0 0])))))
+
+(deftest the-child-runs-every-table
+  (is (= [{:results [[nil {:value "1"}]]} {:results [[nil]]} {:results [[{:value "12"}]]}]
+         (calc/evaluate-tables [{:cells [["1" "=(sum :a)"]]}
+                                {:cells [["2"]]}
+                                {:cells [["=(+ 5 7)"]]}]))))
+
+(deftest a-child-past-its-deadline-is-killed
+  (binding [calc/*child-ms* 300]
+    (let [t0 (System/currentTimeMillis)
+          out (calc/evaluate-tables [{:cells [["1" "=(loop [] (recur))" "x"]]}])]
+      (is (< (- (System/currentTimeMillis) t0) 900))
+      (is (re-find #"too long" (get-in out [0 :results 0 1 :error])))
+      (is (nil? (get-in out [0 :results 0 2]))))))

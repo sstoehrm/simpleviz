@@ -69,6 +69,11 @@
                   ;; :compare its compare :side what shows beside it when that is
                   ;; no graph}, nil when not
                   :present nil
+                  ;; the answers to the questions of the deck presented
+                  ;; (load-answers!), name -> {:answer :num}; why the
+                  ;; answers file could not be read; and the answers not
+                  ;; written to it yet, name -> why (post-answer!)
+                  :answers {} :answer-error nil :unsaved {}
                   :nav (editor/parse-nav js/location.search) :nav-error nil
                   ;; your theme (#115), for files without :theme (load-prefs!)
                   :theme-pref nil
@@ -174,7 +179,7 @@
 (declare relayout! post-edit! delete! current-edit-target-editable? follow-ref! navigate! run-chord-action!
          open-md! save-md! close-md! open-page! root-path! load-nav!
          save-if-dirty! save-before-leaving! follow-link! sync-gutter-scroll!
-         follow-to! close-side! start-side! focus-md-start! show-slide! leave-present!
+         follow-to! close-side! start-side! focus-md-start! show-slide! leave-present! pick! submit!
          enter-select! select-all! copy-selected! delete-selected! paste!)
 
 ;; layouts per collapsed-set, so expanding (or re-collapsing a seen
@@ -1009,7 +1014,7 @@
      (help-section
       "md pages"
       "simpleviz notes.md opens a markdown file rendered, in a centered column — headings, emphasis, quotes, lists and task lists, links, pictures, tables, footnotes, code; Edit switches to the plain text, Read back. Its links to graphs and md files follow on click — [text](sub/graph.edn), ![img](x.png), [text](other.md), reference links too; relative to the md file, never above the served folder. In the plain text a » in the gutter marks each line with such a link (»2 lists the links of that line). A graph or exported image opens to the right of the text, its link and » highlighted, and works like any graph; ⤢ full view opens it on its own, × closes it. A link to a graph in the md file's folder or below that isn't there yet offers, on the right, to create it empty or as a copy of another graph of the served folder — the copy keeps its :ref paths as written. A link with ?compare=next — [text](graph.edn?compare=next) — shows the graph compared with its fork graph-next.edn, refs followed inside it too. An md file opens in place of this one; the trail at the top leads back. Unsaved text is saved before you leave the page — when that fails you stay. A :ref to an .md file opens it the same way; the doc panel of :md-ref has the » gutter too."
-      "Present shows the page as slides: a line of just --- starts the next one, and a slide whose first line is >> [text](path) — >> and a link — shows that graph, md file or picture beside its text (a graph link with ?compare=next shows it compared with its fork). → or space steps forward, ← back, Home and End jump; Esc leaves. The graph can be hovered, inspected, panned and collapsed, not edited.")
+      "Present shows the page as slides: a line of just --- starts the next one, and a slide whose first line is >> [text](path) — >> and a link — shows that graph, md file or picture beside its text (a graph link with ?compare=next shows it compared with its fork). → or space steps forward, ← back, Home and End jump; Esc leaves. The graph can be hovered, inspected, panned and collapsed, not edited. A slide whose first line is ?? name asks a question: its - [ ] lines are the choices, [x] the right one; ??? asks for Submit before → goes on, then shows the right choice and the explanation indented under the one picked. The answers are kept in talk.answers.edn beside talk.md.")
      (help-section
       "Keys"
       "Chords act on the selection, when no text field has focus (the toolbar buttons show them); the first key opens a pop-out of what comes next, which can be clicked too: d d delete · e 1/2/3/4 edge direction → ← ↔ — · c s / c t change an edge's source / target · a e add edge · a b add to box (node) or add a box as member (box) · a n add a node as member (box) — either moves it out of the box it was in · n n n new node (connected to the selected node, or inside the selected box) · n n b new box (inside the selected box) · n n s new node in the selection's box · n n c / n n i new node in the selection's box, connected from / to it · n n e split the selected edge with a new node · n b wrap the selection in a new box · r r rename the id · r n take a node out of the selected box · r b take the selected node out of its box · f r follow the selection's :ref · f p follow the selection's pair (f p 1–9 with several) · f m open the selection's :md-ref doc (Ctrl+S saves it) · s s select mode: click nodes and boxes to add or drop them · s a select all · s r select by dragging a rectangle · then y y copy / x x cut / d d delete them — a box with what it holds, and the edges among them all · p p paste what was copied or cut, here or in another graph (into the selected box; a taken id gets -1). Esc cancels a pending chord and ends select mode; ? toggles this help; Ctrl+Z undoes.")
@@ -1384,21 +1389,74 @@
         (into [:a {:href (:dest l) :target "_blank" :rel "noopener noreferrer" :title (:dest l)}] kids)
         :else (into [:span] kids)))))
 
+(defn- inline-md
+  "Hiccup for a line of md inside a button: its paragraph's children."
+  [text link-fn]
+  (let [b (first (markdown/render text link-fn))]
+    (if (= "p" (first b)) (rest b) [text])))
+
+(defn- ask-view
+  "The choices of question `a` under its slide: a box each. A ??? asks
+  for Submit and then shows the answer locked, the right choice marked
+  and the explanation of the one picked; a ?? takes clicks at any time."
+  [st a]
+  (let [link-fn (present-link-fn (:path (:md st)))
+        got (slides/answer (:answers st) (:id a))
+        locked (and (:submit a) (some? got))
+        chosen (cond (and (:submit a) (not locked)) (:draft (:present st))
+                     (some? got) (:num got)
+                     :else nil)
+        quiz (some :correct (:choices a))
+        note (when locked (:note (nth (:choices a) (:num got) nil)))]
+    (if (some? (:error a))
+      [:p {:class "ask-error"} (:error a)]
+      [:div {:class (str "ask" (when locked " locked"))}
+       (into [:div {:class "ask-choices"}]
+             (map-indexed
+              (fn [k c]
+                (let [on (= k chosen)]
+                  (into [:button {:type "button"
+                                  :class (str "ask-choice" (when on " chosen")
+                                              (when (and locked quiz (:correct c)) " correct")
+                                              (when (and locked quiz on (not (:correct c))) " wrong"))
+                                  :aria-pressed (if on "true" "false")
+                                  :disabled locked
+                                  :on-click (fn [e] (.stopPropagation e) (.blur (.-currentTarget e)) (pick! a k))}]
+                        (inline-md (:text c) link-fn))))
+              (:choices a)))
+       (when (and (:submit a) (not locked))
+         [:div {:class "ask-submit-row"}
+          [:button {:type "button" :class "ask-submit" :disabled (nil? chosen)
+                    :on-click (fn [e] (.stopPropagation e) (.blur (.-currentTarget e)) (submit! a))}
+           "Submit"]
+          (when (:blocked (:present st))
+            [:span {:class "ask-hint"} "Submit an answer to go on"])])
+       (when (some? note)
+         (into [:div {:class "md-doc ask-note"}] (markdown/render note link-fn)))])))
+
 (defn- present-panel
   "The slide presented, in the md page's place: the window, or its left
   half while something shows beside it. The first slide, alone, is the
-  title slide, centered."
+  title slide, centered. A question's choices show under its text."
   [st]
   (let [ds (deck st)
         n (count ds)
         i (:slide (:present st))
         s (nth ds i nil)]
     [:aside {:id "md-panel" :class "page"}
-     [:div {:id "present-slide" :class (if (and (= i 0) (nil? (:side s))) "title" "")}
+     [:div {:id "present-slide" :class (if (and (= i 0) (nil? (:side s)) (nil? (:ask s))) "title" "")}
       (into [:div {:class "md-doc" :on-click in-page-click}]
             (if (some? s)
               (markdown/render (:text s) (present-link-fn (:path (:md st))))
-              [[:p {:class "md-empty"} "No slides left — the text is empty."]]))]
+              [[:p {:class "md-empty"} "No slides left — the text is empty."]]))
+      (when (some? (:ask s)) (ask-view st (:ask s)))
+      ;; on every slide: a presenter who went on must see it too
+      (when (some? (:answer-error st))
+        [:p {:class "ask-error"} (:answer-error st)])
+      (when (seq (:unsaved st))
+        [:p {:class "ask-error"}
+         (str "Answers not saved (" (.join (into-array (keys (:unsaved st))) ", ") "): "
+              (last (vals (:unsaved st))))])]
      [:div {:id "present-counter"} (str (min (inc i) n) " / " n)]]))
 
 (defn- present-side-view
@@ -2317,13 +2375,66 @@
                    (not (:exists out)) {:kind "error" :text (str "no such file: " (:path side))}
                    :else (assoc side :text (:text out)))))))
 
+(defn- ^:async load-answers!
+  "Take the answers to the questions of the md page presented from its
+  answers file (talk.md's talk.answers.edn)."
+  []
+  (let [path (:path (:md @state))
+        out (try (js-await (.json (js-await (js/fetch (str "/api/answers?path=" (js/encodeURIComponent path))))))
+                 (catch :default _ {:error "not connected"}))]
+    (swap! state assoc
+           :answers (if (some? (:answers out)) (:answers out) {})
+           :unsaved {}
+           :answer-error (if (some? (:error out)) (str "Answers not read: " (:error out)) nil))))
+
+;; answers go to the server one at a time, in the order given: two quick
+;; clicks on a ?? must not land in the file the other way round
+(def ^:private answer-queue (atom (js/Promise.resolve nil)))
+
+(defn- ^:async post-answer!
+  "Write answer `body` into the deck's answers file. The page keeps the
+  answer either way — a ??? stays locked, the deck goes on — and every
+  slide says which answers are not in the file yet."
+  [body]
+  (let [out (try (js-await (.json (js-await (post-json "/api/answers" body))))
+                 (catch :default _ {:error "not connected"}))]
+    (swap! state update :unsaved
+           (fn [m] (if (some? (:error out)) (assoc m (:id body) (:error out)) (dissoc m (:id body)))))))
+
+(defn- save-answer!
+  "Answer question `a` with its choice `num`: in the page at once, then,
+  after the answers before it, in the deck's answers file."
+  [a num]
+  (let [entry {:answer (:text (nth (:choices a) num)) :num num}
+        body (assoc entry :path (:path (:md @state)) :id (:id a))]
+    (swap! state assoc-in [:answers (:id a)] entry)
+    ;; one save that throws must not stop the ones after it
+    (swap! answer-queue (fn [p] (let [f (fn [_] (post-answer! body))] (.then p f f))))))
+
+(defn- pick!
+  "Choice `num` of question `a` clicked: a ?? takes it as the answer, a
+  ??? holds it until Submit — and, once submitted, ignores clicks."
+  [a num]
+  (cond (not (:submit a)) (save-answer! a num)
+        (some? (slides/answer (:answers @state) (:id a))) nil
+        :else (swap! state update :present assoc :draft num)))
+
+(defn- submit!
+  "Submit the choice held for ??? question `a`: it is the answer now."
+  [a]
+  (let [num (:draft (:present @state))]
+    (when (some? num)
+      (swap! state update :present dissoc :draft :blocked)
+      (save-answer! a num))))
+
 (defn- ^:async show-slide!
   "Present slide i of the md page, clamped to the deck: keep its number
   in the URL (no history entry) and show what its >> names beside it — a
   graph as the side graph, an md file or a picture in the canvas's
   place. A slide with the same >> as the one before (path and compare)
-  keeps it as it is."
+  keeps it as it is. Starting to present reads the deck's answers first."
   [i]
+  (when (nil? (:present @state)) (js-await (load-answers!)))
   (let [st @state
         ds (deck st)
         i (max 0 (min i (dec (count ds))))
@@ -2368,19 +2479,29 @@
 
 (defn- present-key!
   "A key while presenting: → ↓ space and Page Down step forward, ← ↑ and
-  Page Up back, Home and End jump to the ends; Esc closes the inspector,
-  else leaves. Other keys do nothing."
+  Page Up back, Home and End jump to the ends — forward never past a ???
+  waiting for its Submit; Esc closes the inspector, else leaves. Space
+  on a focused choice or Submit presses it. Other keys do nothing."
   [e]
   (let [st @state
+        ds (deck st)
         i (:slide (:present st))
         to (case (.-key e)
              ("ArrowRight" "ArrowDown" "PageDown" " ") (inc i)
              ("ArrowLeft" "ArrowUp" "PageUp") (dec i)
              "Home" 0
-             "End" (dec (count (deck st)))
+             "End" (dec (count ds))
              nil)]
     (cond
-      (some? to) (do (.preventDefault e) (show-slide! to))
+      (and (= (.-key e) " ") (some? (.-activeElement js/document))
+           (some? (.closest (.-activeElement js/document) "#present-slide button")))
+      nil
+      (some? to) (let [to (max 0 (min to (dec (count ds))))
+                       land (slides/stop-at ds (:answers st) i to)]
+                   (.preventDefault e)
+                   (if (and (= land i) (> to i))
+                     (swap! state update :present assoc :blocked true)
+                     (show-slide! land)))
       (= (.-key e) "Escape") (if (some? (:selected st)) (on-select nil) (leave-present!))
       :else nil)))
 

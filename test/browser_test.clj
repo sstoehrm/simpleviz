@@ -335,6 +335,76 @@
                          :extra {"notes.md" "# Notes\n\nhello\n" "other.md" "# Other\n"})
                         [:errs :view :h1 :side])))))
 
+(deftest a-quiz-asks-and-locks
+  ;; ??? holds → until Submit, then shows the answer locked, the right
+  ;; choice and the explanation of the one picked; ?? takes a click, the
+  ;; last of two quick ones wins; the answers are in deck.answers.edn and
+  ;; come back locked when the deck is presented again
+  (with-real-browser
+    (is (= {:asked {:choices 2 :submit-disabled true :slide "2"}
+            :blocked {:slide "2" :hint "Submit an answer to go on"}
+            :locked {:wrong "Browser" :correct "Redis" :note "Per tab." :disabled true :slide "2"}
+            :stored {:storage {:answer "Browser" :num 0} :poll {:answer "No" :num 1}}
+            :again {:locked true :next "3"}}
+           (eval-on-served-page
+                path "deck.md"
+                "# Quiz\n---\n??? storage\n# Where?\n- [ ] Browser\n  > Per tab.\n- [x] Redis\n  > Right: shared.\n---\n?? poll\n# Sure?\n- [ ] Yes\n- [ ] No\n"
+                (str "new Promise(ok => { let step = 0; const r = {};"
+                     " const q = k => new URLSearchParams(location.search).get(k);"
+                     " const key = k => document.dispatchEvent(new KeyboardEvent('keydown', {key: k, bubbles: true}));"
+                     " const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];"
+                     " const t = setInterval(async () => {"
+                     " if (step === 0) { const b = $('.md-present'); if (!b) return; b.click(); step = 1; return; }"
+                     " if (step === 1) { if (!$('#present-slide')) return; key('ArrowRight'); step = 2; return; }"
+                     " if (step === 2) { if (!$('.ask-choice')) return;"
+                     "  r.asked = {choices: $$('.ask-choice').length, 'submit-disabled': $('.ask-submit').disabled, slide: q('slide')};"
+                     "  key('ArrowRight'); step = 3; return; }"
+                     " if (step === 3) { if (!$('.ask-hint')) return;"
+                     "  r.blocked = {slide: q('slide'), hint: $('.ask-hint').textContent};"
+                     "  $$('.ask-choice')[0].click(); step = 4; return; }"
+                     " if (step === 4) { if ($('.ask-submit').disabled) return; $('.ask-submit').click(); step = 5; return; }"
+                     " if (step === 5) { if (!$('.ask.locked')) return;"
+                     "  r.locked = {wrong: $('.ask-choice.wrong').textContent, correct: $('.ask-choice.correct').textContent,"
+                     "   note: $('.ask-note').textContent, disabled: $$('.ask-choice').every(b => b.disabled), slide: q('slide')};"
+                     "  key('ArrowRight'); step = 6; return; }"
+                     " if (step === 6) { if (q('slide') !== '3') return; $$('.ask-choice')[0].click(); $$('.ask-choice')[1].click(); step = 7; return; }"
+                     " if (step === 7) { if (!$('.ask-choice.chosen')) return;"
+                     "  step = 9; clearInterval(t); await new Promise(go => setTimeout(go, 500));"
+                     "  r.stored = (await (await fetch('/api/answers?path=deck.md')).json()).answers;"
+                     "  key('Escape');"
+                     "  const t2 = setInterval(() => {"
+                     "   if (step === 9) { const b = $('.md-present'); if (!b) return; b.click(); step = 10; return; }"
+                     "   if (step === 10) { if (!$('#present-slide')) return; key('ArrowRight'); step = 11; return; }"
+                     "   if (step === 11) { if (!$('.ask.locked')) return; r.again = {locked: true}; key('ArrowRight'); step = 12; return; }"
+                     "   if (q('slide') !== '3') return; r.again.next = q('slide'); clearInterval(t2); ok(r); }, 50);"
+                     "  return; }"
+                     " }, 50); })"))))))
+
+(deftest a-quiz-goes-on-when-an-answer-is-not-saved
+  ;; the answers file can't be read, so no answer is written: the ???
+  ;; still locks and the deck goes on, saying so on every slide after
+  (with-real-browser
+    (let [r (eval-on-served-page
+             path "deck.md"
+             "# T\n---\n??? q\n# Q\n- [ ] a\n- [x] b\n---\n# After\n"
+             (str "new Promise(ok => { let step = 0; const r = {};"
+                  " const q = k => new URLSearchParams(location.search).get(k);"
+                  " const key = k => document.dispatchEvent(new KeyboardEvent('keydown', {key: k, bubbles: true}));"
+                  " const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];"
+                  " const t = setInterval(() => {"
+                  " if (step === 0) { const b = $('.md-present'); if (!b) return; b.click(); step = 1; return; }"
+                  " if (step === 1) { if (!$('#present-slide')) return; key('ArrowRight'); step = 2; return; }"
+                  " if (step === 2) { if (!$('.ask-choice')) return; $$('.ask-choice')[0].click(); step = 3; return; }"
+                  " if (step === 3) { if ($('.ask-submit').disabled) return; $('.ask-submit').click(); step = 4; return; }"
+                  " if (step === 4) { if (!$('.ask.locked') || !$$('.ask-error').some(e => e.textContent.includes('not saved'))) return;"
+                  "  key('ArrowRight'); step = 5; return; }"
+                  " if (q('slide') !== '3') return; clearInterval(t);"
+                  " r.slide = q('slide'); r.h1 = $('#present-slide h1').textContent;"
+                  " r.error = $$('.ask-error').map(e => e.textContent); ok(r); }, 50); })")
+             :extra {"deck.answers.edn" "{:oops"})]
+      (is (= {:slide "3" :h1 "After"} (select-keys r [:slide :h1])))
+      (is (some #(re-find #"not saved \(q\): deck.answers.edn does not parse" %) (:error r)) (pr-str r)))))
+
 (deftest a-slide-says-why-its-picture-does-not-show
   (with-real-browser
     (is (= {:h1 "A" :side "missing.jpg — no such picture, or not one the browser shows"}

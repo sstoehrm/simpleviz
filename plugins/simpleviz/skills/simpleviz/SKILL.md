@@ -1,11 +1,11 @@
 ---
 name: simpleviz
-description: Use when creating or editing simpleviz graph EDN files, visualizing an architecture or system diagram with simpleviz, or serving and comparing graphs (bb serve, the simpleviz launcher, nodes/edges/boxes .edn files, exported PNGs/SVGs with embedded EDN)
+description: Use when creating or editing simpleviz graph EDN files, visualizing an architecture or system diagram with simpleviz, writing simpleviz markdown docs or slide decks that link graphs, or serving and comparing graphs (bb serve, the simpleviz launcher, nodes/edges/boxes .edn files, exported PNGs/SVGs with embedded EDN)
 ---
 
-# simpleviz — graph EDN authoring and usage
+# simpleviz — graph EDN and md authoring and usage
 
-EDN-driven graph visualization: nodes, directed edges, nested grouping boxes; auto-layouted canvas that live-reloads while the file is edited.
+Diagrams, docs and slides from plain markdown and EDN files: nodes, directed edges and nested grouping boxes in EDN, laid out automatically or by hand; markdown docs that link graphs and present as slides; a page that live-reloads while the files are edited.
 
 ## Data format (canonical map forms)
 

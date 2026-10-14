@@ -353,40 +353,50 @@ understand too:
 ### Table formulas
 
 A table cell starting with `=(` is a formula. The page shows its
-result, and the formula when you hover the cell:
-
-    | item | qty | price |
-    |------|----:|------:|
-    | tea  | 2   | $ 3.5 |
-    | milk | 1   | $ 1.2 |
-    | sum  | =(sum :b) | =(sum :c) |
+result, and the formula when you hover the cell. A
+```` ```simpleviz-table ```` block right above the table formats its
+cells:
 
     ```simpleviz-table
-    [:c] "$"
+    [:c] #(str %1 " €")
+    [:d] #(str (* %1 100) "%")
+    [:d 3] (fn [v ctx] {:color "green"})
     ```
+
+    | item | qty | price | share |
+    |------|----:|------:|------:|
+    | tea  | 2   | 3.5   | 0.1   |
+    | milk | 1   | 1.2   | 0.25  |
+    | sum  | =(sum :b) | =(sum :c) | =(sum :d 1 2) |
 
 - Columns are letters (`:a`, `:b`, … `:z`, `:aa`). Rows are the body
   rows, counted from 1. A range is a column, then no row (the whole
   column), one row, or a first and a last row; ranges follow each other
   flat: `(sum :a 4 8 :b 1 4)` adds rows 4 to 8 of column a and rows 1
   to 4 of column b. A row past the table is an error, never cut off.
-- `(table :a 1 3)` is the values of the range, as a vector; `sum`,
-  `avg`, `count`, `min` and `max` take the same ranges. Without a
-  column keyword `count`, `min` and `max` are Clojure's own, and `sum`
-  and `avg` take numbers or a collection. Everything else is plain
-  Clojure: `(reduce * (table :b))`, `(format "%.2f" (avg :c))`.
-- A cell is a plain number (`12`, `-3`, `1.5`), or nothing, which the
-  functions skip. Formula cells are in no range, so a totals row can
-  sum its whole column.
-- A ```` ```simpleviz-table ```` block right after the table (blank
-  lines between are fine) says how other cells read: pairs of a range
-  and a parser. A string is cut from the start or end of the cell
-  (`"%"` reads `12%` as 12, `"$"` reads `$ 3.5` as 3.5); a
-  `(fn [s] …)` gets the cell's text and returns its value. A later pair
-  wins over an earlier one. The page hides the block; anywhere else it
-  is ordinary code.
-- A formula that fails shows its error in the cell, and so does every
-  formula of a table whose block fails.
+- A cell's value is its number, written plainly (`12`, `-3`, `1.5`),
+  else its text; a blank cell has none. `(table :a 1 3)` is the values
+  of the range, as a vector; `sum`, `avg`, `count`, `min` and `max`
+  take the same ranges and count only the numbers. Without a column
+  keyword `count`, `min` and `max` are Clojure's own, and `sum` and
+  `avg` take numbers or a collection. Everything else is plain Clojure:
+  `(reduce * (table :b))`, `(format "%.2f" (avg :c))`. Formula cells
+  are in no range, so a totals row can sum its whole column.
+- The block holds pairs of a range and a fn. Each cell's value — a
+  formula's result, else the cell's own — goes through the fn of every
+  pair covering it, top to bottom, as its first argument; the second is
+  the cell's place, `{:row 2 :col :b :raw "…"}`, and a fn may take only
+  the first. A string or number it returns is what the cell shows (and
+  what the next fn gets): `#(str %1 " €")`, or
+  `#(clojure.string/replace (str %1) "." ",")` for a decimal comma. A
+  map colours the cell — `:color`, `:background`, `:border`, each a
+  colour name, `#hex`, `rgb()` or `hsl()` — and its `:text`, if any,
+  replaces the value: `(fn [v _] (if (neg? v) {:color "red"} v))`.
+  Formulas always see the unformatted values. Blank cells are left
+  alone. The page hides the block; a block with no table right below
+  it is ordinary code.
+- A formula or fn that fails shows its error in the cell; when the
+  block fails, every formula of its table shows the block's error.
 - The formulas run in a sandbox ([SCI](https://github.com/babashka/sci)):
   no files, no network, no Java interop — in a bb process of their own
   that the server starts for each page and that is gone after it, so

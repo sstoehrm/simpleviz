@@ -1976,12 +1976,12 @@
 
 (deftest calc-runs-each-tables-formulas
   (let [resp (serve/handler (calc-req {:tables [{:cells [["1"] ["2"] ["=(sum :a)"]]}
-                                                {:cells [["12%"] ["=(sum :a)"]] :defs "[:a] \"%\""}]}))
+                                                {:cells [["12"] ["=(sum :a)"]] :defs "[:a] #(str %1 \"%\")"}]}))
         out (json/parse-string (:body resp) true)]
     (is (= 200 (:status resp)))
     (is (= {:value "3"} (get-in out [:tables 0 :results 2 0])))
     (is (nil? (get-in out [:tables 0 :results 0 0])))
-    (is (= {:value "12"} (get-in out [:tables 1 :results 1 0])))))
+    (is (= {:value "12%"} (get-in out [:tables 1 :results 1 0])))))
 
 (deftest calc-is-a-guarded-post
   (is (= 405 (:status (serve/handler {:uri "/api/calc" :request-method :get}))))

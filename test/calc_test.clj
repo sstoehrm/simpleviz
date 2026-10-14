@@ -80,23 +80,39 @@
       (is (re-find #"too long" (error-at out 0 1)))
       (is (= "1" (value-at out 0 2))))))
 
-(deftest def-block-parsers
-  (let [cells [["12%" "$ 3" "a"] ["4 %" "$5" "b"] ["=(sum :a)" "=(sum :b)" "=(sum :c)"]]]
-    (testing "a string parser strips a prefix or suffix"
-      (let [out (results cells "[:a] \"%\"\n[:b 1 2] \"$\"")]
-        (is (= "16" (value-at out 2 0)))
-        (is (= "8" (value-at out 2 1)))))
-    (testing "a fn parser gets the raw cell"
-      (let [out (results cells "[:c] (fn [s] (if (= s \"a\") 1 2)) ; comment")]
-        (is (= "3" (value-at out 2 2)))))
-    (testing "a later rule wins"
-      (let [out (results cells "[:a] (fn [s] 100)\n[:a 2] \"%\"")]
-        (is (= "104" (value-at out 2 0)))))
+(deftest text-cells-are-text-and-the-maths-skips-them
+  (let [out (results [["2" "x" "" "=(table :a 1 1 :b :c)" "=(count :a :b)" "=(max :a :b)"]])]
+    (is (= "[2 \"x\"]" (value-at out 0 3)))
+    (is (= "1" (value-at out 0 4)))
+    (is (= "2" (value-at out 0 5)))))
+
+(deftest def-block-formatters
+  (let [cells [["0.12" "3.5" "a" ""] ["0.5" "-2" "b" ""] ["=(sum :a)" "=(sum :b)" "c" "=(sum :b)"]]
+        cell (fn [defs r c] (get-in (results cells defs) [:results r c]))]
+    (testing "a fn's string or number replaces the value; formulas see the raw one"
+      (is (= {:value "12.0%"} (cell "[:a] #(str (* %1 100) \"%\")" 0 0)))
+      (is (= {:value "62.0%"} (cell "[:a] #(str (* %1 100) \"%\")" 2 0)))
+      (is (= {:value "1,5 €"} (cell "[:b] #(str (clojure.string/replace (str %1) \".\" \",\") \" €\")" 2 1))))
+    (testing "the second argument is the cell's place"
+      (is (= {:value "2 :b -2"} (cell "[:b 2] (fn [v ctx] (str (:row ctx) \" \" (:col ctx) \" \" (:raw ctx)))" 1 1))))
+    (testing "a map styles the cell, its :text replaces the value"
+      (is (= {:value "-2" :style {:color "red"}}
+             (cell "[:b] (fn [v _] (if (neg? v) {:color \"red\"} v))" 1 1)))
+      (is (= {:value "neg" :style {:background "#fee" :border "rgb(200, 0, 0)"}}
+             (cell "[:b] (fn [v _] {:text \"neg\" :background \"#fee\" :border \"rgb(200, 0, 0)\"})" 1 1))))
+    (testing "pairs chain from top to bottom"
+      (is (= {:value "-200%" :style {:color "red"}}
+             (cell "[:b] #(* %1 100)\n[:b 2] #(str %1 \"%\")\n[:b] (fn [v _] {:color \"red\"})" 1 1))))
+    (testing "blank cells and cells outside every range are left alone"
+      (is (nil? (cell "[:d] (fn [v _] {:color \"red\"})" 0 3)))
+      (is (nil? (cell "[:a] str" 0 2))))
+    (testing "a failing fn or a bad map is the cell's error"
+      (is (some? (:error (cell "[:c] #(* %1 2)" 0 2))))
+      (is (re-find #":size" (:error (cell "[:a] (fn [v _] {:size 3})" 0 0)))))
     (testing "a bad block is the table's error"
       (is (re-find #"pairs" (:error (results cells "[:a]"))))
-      (is (re-find #"row 9" (:error (results cells "[:a 9] \"%\""))))
-      (is (re-find #"string or a fn" (:error (results cells "[:a] 3"))))
-      (is (re-find #"row 1, :a" (:error (results cells "[:a] (fn [s] (throw (ex-info \"boom\" {})))")))))))
+      (is (re-find #"row 9" (:error (results cells "[:a 9] str"))))
+      (is (re-find #"a fn" (:error (results cells "[:a] \"%\"")))))))
 
 (deftest results-print-plainly
   (let [f (fn [formula] (value-at (results [[formula]]) 0 0))]
@@ -105,19 +121,19 @@
     (is (= "" (f "=(first [])")))
     (is (= ":x" (f "=(keyword \"x\")")))))
 
-(deftest a-table-without-formulas-is-left-alone
-  (is (= {:results [[nil]]} (results [["1"]] "[:a] (fn [s] (loop [] (recur)))"))))
+(deftest a-table-without-formulas-or-block-is-left-alone
+  (is (= {:results [[nil]]} (results [["1"]]))))
 
 (deftest formulas-run-in-user-whatever-the-callers-ns
   (binding [*ns* (create-ns 'calc-test.elsewhere)]
     (is (= "1" (value-at (results [["1" "=(sum :a)"]]) 0 1)))
-    (is (= "1" (value-at (results [["x" "=(sum :a)"]] "[:a] (fn [s] (count [s]))") 0 1)))))
+    (is (= "1!" (value-at (results [["1" "=(sum :a)"]] "[:b] #(str %1 \"!\")") 0 1)))))
 
 (deftest a-stack-overflow-stays-in-its-cell
   (let [out (results [["1" "=((fn f [x] (f x)) 1)" "=(sum :a)"]])]
     (is (some? (error-at out 0 1)))
     (is (= "1" (value-at out 0 2))))
-  (is (some? (:error (results [["1" "=(sum :a)"]] "[:a] (fn f [s] (f s))")))))
+  (is (some? (error-at (results [["1"]] "[:a] (fn f [s] (f s))") 0 0))))
 
 (deftest big-whole-numbers-are-numbers
   (is (= "100000000000000000001" (value-at (results [["99999999999999999999"] ["2"] ["=(sum :a)"]]) 2 0))))
@@ -132,10 +148,23 @@
     (is (some? (get-in out [0 :results 0 0])))))
 
 (deftest the-child-runs-every-table
-  (is (= [{:results [[nil {:value "1"}]]} {:results [[nil]]} {:results [[{:value "12"}]]}]
+  (is (= [{:results [[nil {:value "1"}]]} {:results [[nil]]} {:results [[{:value "12"}]]}
+          {:results [[{:value "2" :style {:color "green"}}]]}]
          (calc/evaluate-tables [{:cells [["1" "=(sum :a)"]]}
                                 {:cells [["2"]]}
-                                {:cells [["=(+ 5 7)"]]}]))))
+                                {:cells [["=(+ 5 7)"]]}
+                                {:cells [["2"]] :defs "[:a] (fn [v _] {:color :green})"}]))))
+
+(deftest the-server-lets-only-colours-through
+  (doseq [bad ["red; background: url(http://x)" "url(http://x)" "#12" "expression(1)" "rgb(1,2,3);x"]]
+    (is (re-find #"colour" (get-in (calc/evaluate-tables
+                                     [{:cells [["2"]] :defs (str "[:a] (fn [v _] {:color " (pr-str bad) "})")}])
+                                    [0 :results 0 0 :error]))
+        bad))
+  (is (= {:value "2" :style {:background "#ffeedd" :border "rgba(0, 0, 0, .5)" :color "Crimson"}}
+         (get-in (calc/evaluate-tables
+                  [{:cells [["2"]] :defs "[:a] (fn [v _] {:color \"Crimson\" :background \"#ffeedd\" :border \"rgba(0, 0, 0, .5)\"})"}])
+                 [0 :results 0 0]))))
 
 (deftest a-child-past-its-deadline-is-killed
   (binding [calc/*child-ms* 300]

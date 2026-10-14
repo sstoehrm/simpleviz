@@ -107,50 +107,56 @@
     (assert/deepEqual (md "a | b\n--|--|--") [[:p "a | b\n--|--|--"]])))
 
 (def ^:private calc-doc
-  (str "| a | b |\n|--|--:|\n| 1 | 12% |\n| =(sum :a) | =(* 2 3) |\n\n"
-       "```simpleviz-table\n[:b] \"%\"\n```\n\n"
+  (str "```simpleviz-table\n[:b] #(str %1 \"%\")\n```\n\n"
+       "| a | b |\n|--|--:|\n| 1 | 12 |\n| =(sum :a) | =(* 2 3) |\n\n"
        "> | x |\n> |--|\n> | =(sum :a) |\n"))
 
-(test "calc: each table's body cells, padded to the header, and its def block"
+(test "calc: each table's body cells, padded to the header, and the def block above it"
   (fn []
     (assert/deepEqual (calc-tables calc-doc)
-                      [{:cells [["1" "12%"] ["=(sum :a)" "=(* 2 3)"]] :defs "[:b] \"%\""}
+                      [{:cells [["1" "12"] ["=(sum :a)" "=(* 2 3)"]] :defs "[:b] #(str %1 \"%\")"}
                        {:cells [["=(sum :a)"]] :defs nil}])
     (assert/deepEqual (calc-tables "| a | b |\n|--|--|\n| 1 |") [{:cells [["1" ""]] :defs nil}])
     (assert/deepEqual (calc-tables "no tables") [])))
 
-(test "calc: formula cells show their result, an error, or … while it runs; the def block hides"
+(test "calc: cells show their result, style or error, formulas … while they run; the def block hides"
   (fn []
     (let [pending (md calc-doc)
-          done (render calc-doc link [{:results [[nil nil] [{:value "1"} {:error "boom"}]]}
+          done (render calc-doc link [{:results [[nil {:value "12%" :style {:color "red" :border "#ccc"}}]
+                                                 [{:value "1"} {:error "boom"}]]}
                                       {:results [[{:value "0"}]]}])]
-      (assert/deepEqual (nth (nth (nth pending 0) 2) 2)
-                        [:tr [:td {:class "calc pending" :title "=(sum :a)"} "…"]
-                         [:td {:class "al-right calc pending" :title "=(* 2 3)"} "…"]])
-      (assert/deepEqual (count done) 2)
-      (assert/deepEqual (nth (nth (nth done 0) 2) 2)
-                        [:tr [:td {:class "calc" :title "=(sum :a)"} "1"]
-                         [:td {:class "al-right calc error" :title "=(* 2 3)"} "boom"]])
+      (assert/deepEqual (count pending) 2)
+      (assert/deepEqual (nth (nth pending 0) 2)
+                        [:tbody [:tr [:td "1"] [:td {:class "al-right"} "12"]]
+                         [:tr [:td {:class "calc pending" :title "=(sum :a)"} "…"]
+                          [:td {:class "al-right calc pending" :title "=(* 2 3)"} "…"]]])
+      (assert/deepEqual (nth (nth done 0) 2)
+                        [:tbody [:tr [:td "1"]
+                                 [:td {:class "al-right" :title "12" :style {:color "red" :border-color "#ccc"}} "12%"]]
+                         [:tr [:td {:class "calc" :title "=(sum :a)"} "1"]
+                          [:td {:class "al-right calc error" :title "=(* 2 3)"} "boom"]]])
       (assert/deepEqual (nth (nth done 1) 1)
                         [:table [:thead [:tr [:th "x"]]]
                          [:tbody [:tr [:td {:class "calc" :title "=(sum :a)"} "0"]]]]))))
 
-(test "calc: when the server can't be asked, every formula cell says why"
+(test "calc: when the server can't be asked, every formula cell says why, the rest shows as written"
   (fn []
-    (assert/deepEqual (nth (nth (nth (render calc-doc link {:failed "no server"}) 0) 2) 2)
-                      [:tr [:td {:class "calc error" :title "=(sum :a)"} "no server"]
-                       [:td {:class "al-right calc error" :title "=(* 2 3)"} "no server"]])))
+    (assert/deepEqual (nth (nth (render calc-doc link {:failed "no server"}) 0) 2)
+                      [:tbody [:tr [:td "1"] [:td {:class "al-right"} "12"]]
+                       [:tr [:td {:class "calc error" :title "=(sum :a)"} "no server"]
+                        [:td {:class "al-right calc error" :title "=(* 2 3)"} "no server"]]])))
 
-(test "calc: an unclosed def block is no def block"
+(test "calc: a def block not right above a table, or unclosed, is code; = text is no formula"
   (fn []
-    (let [doc "| a |\n|--|\n| 1 |\n\n```simpleviz-table\n[:a] \"%\"\n\nafter"]
-      (assert/deepEqual (calc-tables doc) [{:cells [["1"]] :defs nil}])
-      (assert/deepEqual (nth (md doc) 1) [:pre [:code "[:a] \"%\"\n\nafter"]]))))
-
-(test "calc: a def block anywhere but after a table is code; = text is no formula"
-  (fn []
-    (assert/deepEqual (md "text\n\n```simpleviz-table\n[:a] \"%\"\n```")
-                      [[:p "text"] [:pre [:code "[:a] \"%\""]]])
+    (assert/deepEqual (md "text\n\n```simpleviz-table\n[:a] str\n```")
+                      [[:p "text"] [:pre [:code "[:a] str"]]])
+    (assert/deepEqual (md "| a |\n|--|\n| 1 |\n\n```simpleviz-table\n[:a] str\n```")
+                      [[:table [:thead [:tr [:th "a"]]] [:tbody [:tr [:td "1"]]]] [:pre [:code "[:a] str"]]])
+    (assert/deepEqual (md "```simpleviz-table\n[:a] str\n```\ntext\n\n| a |\n|--|\n| 1 |")
+                      [[:pre [:code "[:a] str"]] [:p "text"] [:table [:thead [:tr [:th "a"]]] [:tbody [:tr [:td "1"]]]]])
+    (let [doc "```simpleviz-table\n[:a] str\n| a |\n|--|\n| 1 |"]
+      (assert/deepEqual (calc-tables doc) [])
+      (assert/deepEqual (md doc) [[:pre [:code "[:a] str\n| a |\n|--|\n| 1 |"]]]))
     (assert/deepEqual (md "| a |\n|--|\n| = see |")
                       [[:table [:thead [:tr [:th "a"]]] [:tbody [:tr [:td "= see"]]]]])))
 

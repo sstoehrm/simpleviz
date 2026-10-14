@@ -467,25 +467,36 @@
         (cells sep)))
 
 (defn- def-block
-  "The text of the ```simpleviz-table block right after a table ending
-  at line `end`, blank lines between allowed, and the line after it;
-  [nil end] when none follows, or it never closes."
-  [lines end]
+  "For the ```simpleviz-table fence opening at line i: its text and the
+  line of the table right below it, blank lines between allowed; nil
+  when it never closes or no table follows."
+  [lines i fence]
   (let [n (count lines)
-        j (loop [j end] (if (and (< j n) (blank? (nth lines j))) (recur (inc j)) j))
-        fence (when (< j n) (fence-open (nth lines j)))]
-    (if (and (some? fence) (= "simpleviz-table" (:info fence)))
-      (let [close (loop [k (inc j)]
-                    (cond (>= k n) nil
-                          (fence-close? (nth lines k) (:mark fence)) k
-                          :else (recur (inc k))))]
-        (if (nil? close)
-          [nil end]
-          [(.join (mapv (fn [ln] (subs ln (min (indent ln) (:indent fence)))) (.slice lines (inc j) close)) "\n")
-           (inc close)]))
-      [nil end])))
+        close (loop [k (inc i)]
+                (cond (>= k n) nil
+                      (fence-close? (nth lines k) (:mark fence)) k
+                      :else (recur (inc k))))
+        t (when (some? close)
+            (loop [j (inc close)] (if (and (< j n) (blank? (nth lines j))) (recur (inc j)) j)))]
+    (when (and (some? t) (< t n)
+               (let [l (nth lines t)]
+                 (and (< (indent l) 4) (not (.test heading-re l)) (not (quote? l)) (not (hr? l))
+                      (table-start? lines t))))
+      [(.join (mapv (fn [ln] (subs ln (min (indent ln) (:indent fence)))) (.slice lines (inc i) close)) "\n")
+       t])))
 
 (defn- formula? [c] (.startsWith c "=("))
+
+(defn- style-of
+  "A result's :style as the cell's inline style: colours only, the
+  server checked them."
+  [style]
+  (cond-> {}
+    (some? (:color style)) (assoc :color (:color style))
+    (some? (:background style)) (assoc :background (:background style))
+    (some? (:border style)) (assoc :border-color (:border style))))
+
+(defn- with-class [al cls] (if (some? al) (str al " " cls) cls))
 
 (defn- calc-cell
   "A formula cell: its result from the server, its error, or … while it
@@ -494,13 +505,26 @@
   (let [[cls text] (cond (some? (:value res)) ["calc" (:value res)]
                          (some? (:error res)) ["calc error" (:error res)]
                          :else ["calc pending" "…"])]
-    [:td {:class (if (some? al) (str al " " cls) cls) :title c} text]))
+    [:td (cond-> {:class (with-class al cls) :title c}
+           (some? (:style res)) (assoc :style (style-of (:style res))))
+     text]))
+
+(defn- formatted-cell
+  "A cell the def block formats: the server's value and style, or its
+  error, the cell as written as the title."
+  [c res al]
+  (if (some? (:error res))
+    [:td {:class (with-class al "calc error") :title c} (:error res)]
+    [:td (cond-> {:title c}
+           (some? al) (assoc :class al)
+           (some? (:style res)) (assoc :style (style-of (:style res))))
+     (:value res)]))
 
 (defn- table-block
   "The table from line i to `end`, its body rows also collected in
   (:tables ctx) with the def block `defs` for the server to calculate;
-  formula cells show the results (:calc ctx) holds for it, or
-  {:failed msg} for every table."
+  its cells show the results (:calc ctx) holds for it. {:failed msg}
+  fails every formula and leaves the other cells as written."
   [lines i end defs ctx]
   (let [aligns (aligns-of (nth lines (inc i)))
         grid (fn [l] (let [cs (cells l)] (mapv (fn [k] (or (get cs k) "")) (range (count aligns)))))
@@ -511,9 +535,12 @@
               (into [:tr] (map-indexed (fn [k a]
                                          (let [c (nth cs k)
                                                al (if (some? a) (str "al-" a) nil)]
-                                           (if (and (= tag :td) (formula? c))
+                                           (cond
+                                             (and (= tag :td) (formula? c))
                                              (calc-cell c (if (some? failed) {:error failed} (get (get results r) k)) al)
-                                             (into (if (some? al) [tag {:class al}] [tag]) (inline c ctx)))))
+                                             (and (= tag :td) (some? (get (get results r) k)))
+                                             (formatted-cell c (get (get results r) k) al)
+                                             :else (into (if (some? al) [tag {:class al}] [tag]) (inline c ctx)))))
                                        aligns)))]
     (conj! (:tables ctx) {:cells body :defs defs})
     [:table [:thead (row :th (grid (nth lines i)) nil)]
@@ -531,6 +558,11 @@
               heading (.exec heading-re l)]
           (cond
             (blank? l) (recur (inc i) out)
+
+            (and (some? fence) (= "simpleviz-table" (:info fence)) (some? (def-block lines i fence)))
+            (let [[defs t] (def-block lines i fence)
+                  end (table-end lines t)]
+              (recur end (conj out (table-block lines t end defs ctx))))
 
             (some? fence)
             (let [end (loop [j (inc i)]
@@ -578,9 +610,8 @@
               (recur end (conj out (into [:blockquote] (blocks inner ctx)))))
 
             (table-start? lines i)
-            (let [end (table-end lines i)
-                  [defs after] (def-block lines end)]
-              (recur after (conj out (table-block lines i end defs ctx))))
+            (let [end (table-end lines i)]
+              (recur end (conj out (table-block lines i end nil ctx))))
 
             (some? (item-of l))
             (let [[t end] (list-block lines i ctx)] (recur end (conj out t)))
@@ -684,9 +715,10 @@
   (:tables (second (rendered text (fn [_ kids] kids) nil))))
 
 (defn calc?
-  "Has the text a table with a formula?"
+  "Has the text a table with a formula or a def block?"
   [text]
-  (boolean (some (fn [t] (some (fn [row] (some formula? row)) (:cells t))) (calc-tables text))))
+  (boolean (some (fn [t] (or (some? (:defs t)) (some (fn [row] (some formula? row)) (:cells t))))
+                 (calc-tables text))))
 
 ;; ---------------------------------------------------------------- tidy
 ;; Each step rewrites the text line by line, and counts only when the

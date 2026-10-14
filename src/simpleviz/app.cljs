@@ -1468,37 +1468,58 @@
                     [[:p {:class "md-empty"} "loading…"]]))
        [:div {:class "present-side-error"} text])]))
 
+(def ^:private max-choices-shown 200)
+
+;; the graphs to copy as last drawn: every keystroke in the md text
+;; re-renders the page, the list only when what it shows changed
+(def ^:private choose-list-cache (atom nil))
+
+(defn- choose-list-view
+  "The graphs of `files` matching `query`, each a button copying it —
+  the first max-choices-shown of them."
+  [files query busy]
+  (let [hit @choose-list-cache]
+    (if (and (some? hit) (identical? files (:files hit)) (= query (:query hit)) (= busy (:busy hit)))
+      (:view hit)
+      (let [shown (editor/match-choices files query)
+            view [:div
+                  (into [:ul {:class "choose-list"}]
+                        (map (fn [f]
+                               [:li [:button {:class "choose-file" :type "button" :disabled busy :title (str "Copy " f)
+                                              :on-click (fn [e] (.stopPropagation e) (start-side! f))}
+                                     f]])
+                             (take max-choices-shown shown)))
+                  (cond (empty? shown) [:p {:class "choose-note"} "No graph matches."]
+                        (> (count shown) max-choices-shown)
+                        [:p {:class "choose-note"} (str "The first " max-choices-shown " of " (count shown) " — type to narrow.")]
+                        :else nil)]]
+        (reset! choose-list-cache {:files files :query query :busy busy :view view})
+        view))))
+
 (defn- side-choose-view
   "Beside the md page, for a link to a graph not there yet: start it
   empty, or as a copy of one of the served folder's graphs."
   [{:keys [path files truncated query busy error]}]
-  (let [shown (editor/match-choices files query)]
-    [:div {:id "side-choose"}
-     [:div {:class "choose-head"}
-      [:span {:class "side-path" :title path} path]
-      [:span {:class "choose-missing"} "isn't there yet"]
-      [:button {:class "side-btn" :type "button" :title "Close" :aria-label "Close"
-                :on-click (fn [e] (.stopPropagation e) (swap! side-gen inc) (swap! state assoc :side-choose nil))}
-       "×"]]
-     [:button {:class "choose-empty" :type "button" :disabled busy
-               :on-click (fn [e] (.stopPropagation e) (start-side! nil))}
-      "Create an empty graph"]
-     (when (some? error) [:div {:class "choose-error"} error])
-     (if (empty? files)
-       [:p {:class "choose-note"} "No other graphs in the served folder to copy."]
-       [:div
-        [:p {:class "choose-note"} "or start it as a copy — its :ref paths stay as written:"]
-        [:input {:class "choose-filter" :type "search" :placeholder "filter" :value query
-                 :aria-label "Filter the graphs"
-                 :on-input (fn [e] (swap! state assoc-in [:side-choose :query] (.. e -target -value)))}]
-        (into [:ul {:class "choose-list"}]
-              (map (fn [f]
-                     [:li [:button {:class "choose-file" :type "button" :disabled busy :title (str "Copy " f)
-                                    :on-click (fn [e] (.stopPropagation e) (start-side! f))}
-                           f]])
-                   shown))
-        (when (empty? shown) [:p {:class "choose-note"} "No graph matches."])
-        (when truncated [:p {:class "choose-note"} (str "Only the first " (count files) " graphs are listed.")])])]))
+  [:div {:id "side-choose"}
+   [:div {:class "choose-head"}
+    [:span {:class "side-path" :title path} path]
+    [:span {:class "choose-missing"} "isn't there yet"]
+    [:button {:class "side-btn" :type "button" :title "Close" :aria-label "Close"
+              :on-click (fn [e] (.stopPropagation e) (swap! side-gen inc) (swap! state assoc :side-choose nil))}
+     "×"]]
+   [:button {:class "choose-empty" :type "button" :disabled busy
+             :on-click (fn [e] (.stopPropagation e) (start-side! nil))}
+    "Create an empty graph"]
+   (when (some? error) [:div {:class "choose-error"} error])
+   (if (empty? files)
+     [:p {:class "choose-note"} "No other graphs in the served folder to copy."]
+     [:div
+      [:p {:class "choose-note"} "or start it as a copy — its :ref paths stay as written:"]
+      [:input {:class "choose-filter" :type "search" :placeholder "filter" :value query
+               :aria-label "Filter the graphs"
+               :on-input (fn [e] (swap! state assoc-in [:side-choose :query] (.. e -target -value)))}]
+      (choose-list-view files query busy)
+      (when truncated [:p {:class "choose-note"} (str "Only the first " (count files) " graphs are listed.")])])])
 
 (defn- side-view
   "Over the graph beside an md page: its path, a button that opens it

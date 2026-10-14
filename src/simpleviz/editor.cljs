@@ -541,7 +541,9 @@
   "The paths of `files` holding every word of query q, case ignored."
   [files q]
   (let [words (filterv (fn [w] (not= w "")) (.split (.toLowerCase (str q)) (js/RegExp. "\\s+")))]
-    (filterv (fn [f] (let [low (.toLowerCase f)] (every? (fn [w] (.includes low w)) words))) files)))
+    (if (empty? words)
+      files
+      (filterv (fn [f] (let [low (.toLowerCase f)] (every? (fn [w] (.includes low w)) words))) files))))
 
 (defn from-disk
   "Doc text as a textarea holds it: \\r\\n line ends become \\n."

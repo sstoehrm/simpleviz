@@ -1094,16 +1094,35 @@
        (every? (fn [row] (and (sequential? row) (every? string? row))) (:cells t))
        (or (nil? (:defs t)) (string? (:defs t)))))
 
+(def ^:private data-extensions #{"csv" "jsonl" "json" "edn"})
+
+(def ^:private max-data-bytes (* 50 1024 1024))
+
+(defn- data-reader
+  "calc/with-data's reader for the tables of md file `md` (root-relative):
+  a >> link resolves as the md file's links do, and must name a csv,
+  jsonl, json or edn file of the served folder."
+  [md]
+  (fn [dest]
+    (when-not (string? md) (throw (ex-info "data needs the md file's path" {})))
+    (let [rel (or (paths/resolve-ref md dest) (throw (ex-info (str dest " leaves the served folder") {})))
+          f (resolve-path @root-dir rel true data-extensions)]
+      (when (> (.length f) max-data-bytes)
+        (throw (ex-info (str rel " is over 50 MiB") {})))
+      [(str/lower-case (last (str/split (.getName f) #"\."))) (slurp f)])))
+
 (defn- calc-response
   "The formula results of the request's md tables (calc/evaluate-tables),
-  in the order they came."
+  in the order they came, the data their blocks link read for them."
   [body-stream]
   (let [parsed (read-json-body body-stream)
         [status out] (cond
                        (:parse-error parsed) [400 {:error (:parse-error parsed)}]
-                       (not (and (sequential? (:tables parsed)) (every? calc-table? (:tables parsed))))
-                       [400 {:error "expected {tables: [{cells: [[string]], defs: string}]}"}]
-                       :else [200 {:tables (calc/evaluate-tables (:tables parsed))}])]
+                       (not (and (sequential? (:tables parsed)) (every? calc-table? (:tables parsed))
+                                 (or (nil? (:path parsed)) (string? (:path parsed)))))
+                       [400 {:error "expected {path: string, tables: [{cells: [[string]], defs: string}]}"}]
+                       :else [200 {:tables (calc/evaluate-tables
+                                            (calc/with-data (:tables parsed) (data-reader (:path parsed))))}])]
     (assoc (json-response (json/generate-string out)) :status status)))
 
 (defn- post-only

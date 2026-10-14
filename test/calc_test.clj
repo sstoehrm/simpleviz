@@ -180,3 +180,66 @@
 (deftest a-formula-that-prints-breaks-nothing
   (is (= [{:results [[nil {:value "5"} {:value "1"}]]}]
          (calc/evaluate-tables [{:cells [["1" "=(do (println \"hi\") 5)" "=(sum :a)"]]}]))))
+
+;; data behind a table
+
+(deftest the-block-names-its-data-first
+  (is (= {:source "data/s.csv" :fields nil :defs "[:a] str"}
+         (calc/split-block ">> [sales](data/s.csv)\n[:a] str")))
+  (is (= {:source "s.jsonl" :fields [:item [:price :net]] :defs ""}
+         (calc/split-block ">> [s](s.jsonl)\n>> [:item [:price :net]]")))
+  (is (= {:source nil :fields nil :defs "[:a] str"} (calc/split-block "[:a] str")))
+  (is (thrown-with-msg? Exception #"link" (calc/split-block ">> data.csv")))
+  (is (thrown-with-msg? Exception #"vector" (calc/split-block ">> [s](s.json)\n>> :item")))
+  (is (thrown-with-msg? Exception #"two" (calc/split-block ">> [s](s.json)\n>> [:a]\n>> [:b]"))))
+
+(deftest records-become-rows-of-values
+  (testing "csv: its first line names the columns"
+    (is (= [["tea" 2 3.5] ["milk" nil 1.2]]
+           (calc/records "csv" "item,qty,price\ntea,2,3.5\nmilk,,1.2\n" nil)))
+    (is (= [[3.5 "tea"] [1.2 "milk, fresh"]]
+           (calc/records "csv" "item,qty,price\ntea,2,3.5\n\"milk, fresh\",1,1.2" ["price" "item"])))
+    (is (thrown-with-msg? Exception #"no column \"cost\"" (calc/records "csv" "a,b\n1,2" ["cost"]))))
+  (testing "json, jsonl and edn: records, the fields picked by path"
+    (let [fields [:item "qty" [:price :net] :gone]]
+      (is (= [["tea" 2 3.5 nil] ["milk" "1" nil nil]]
+             (calc/records "json" "[{\"item\":\"tea\",\"qty\":2,\"price\":{\"net\":3.5}},{\"item\":\"milk\",\"qty\":\"1\"}]" fields)))
+      (is (= [["tea" 2 3.5 nil]]
+             (calc/records "jsonl" "{\"item\":\"tea\",\"qty\":2,\"price\":{\"net\":3.5}}\n\n" fields)))
+      (is (= [["tea" nil 3.5 nil] [":x" nil nil nil]]
+             (calc/records "edn" "[{:item \"tea\" :price {:net 3.5}} {:item :x}]" fields)))))
+  (testing "the wrong shape is an error"
+    (is (thrown-with-msg? Exception #"list the fields" (calc/records "json" "[]" nil)))
+    (is (thrown-with-msg? Exception #"array of objects" (calc/records "json" "{\"a\":1}" [:a])))
+    (is (thrown-with-msg? Exception #"line 2" (calc/records "jsonl" "{\"a\":1}\n[1]" [:a])))
+    (is (thrown-with-msg? Exception #"maps" (calc/records "edn" "[1 2]" [:a])))
+    (is (thrown-with-msg? Exception #"\.txt" (calc/records "txt" "" [:a])))))
+
+(deftest formulas-address-the-data
+  (let [data [["tea" 2 3.5] ["milk" nil 1.2] ["tea" 1 3.0]]
+        out (calc/evaluate {:cells [["n" "=(sum :b)"] ["€" "=(reduce + (map #(* (or (:b %) 0) (:c %)) (rows)))"]
+                                    ["tea" "=(count (filter #(= \"tea\" (:a %)) (rows)))"] ["last" "=(table :a 3)"]]
+                            :data data
+                            :defs "[:b 1] #(str %1 \" items\")"})]
+    (is (= "3 items" (value-at out 0 1)) "formatter ranges address the table, formula ranges the data")
+    (is (= "10.0" (value-at out 1 1)))
+    (is (= "2" (value-at out 2 1)))
+    (is (= "[\"tea\"]" (value-at out 3 1))))
+  (is (re-find #"row 4" (error-at (calc/evaluate {:cells [["=(sum :b 4)"]] :data [[1 2]]}) 0 0))))
+
+(deftest data-errors-are-the-tables
+  (let [out (calc/evaluate {:cells [["x" "=(sum :a)"]] :data-error "no such file: s.csv"})]
+    (is (re-find #"no such file" (:error out)))
+    (is (re-find #"no such file" (error-at out 0 1)))))
+
+(deftest with-data-reads-each-source-through-the-reader
+  (let [read (fn [dest] (case dest "s.csv" ["csv" "a,b\n1,2"] (throw (ex-info (str "no such file: " dest) {}))))
+        [t1 t2 t3] (calc/with-data [{:cells [["=(sum :b)"]] :defs ">> [s](s.csv)\n[:a] str"}
+                                    {:cells [["=(sum :b)"]] :defs ">> [s](gone.csv)"}
+                                    {:cells [["1"]]}]
+                     read)]
+    (is (= {:cells [["=(sum :b)"]] :defs "[:a] str" :data [[1 2]]} t1))
+    (is (re-find #"no such file: gone.csv" (:data-error t2)))
+    (is (= {:cells [["1"]]} t3))
+    (is (= [{:results [[{:value "2"}]]}]
+           (calc/evaluate-tables (calc/with-data [{:cells [["=(sum :b)"]] :defs ">> [s](s.csv)"}] read))))))

@@ -1014,7 +1014,7 @@
      (help-section
       "md pages"
       "simpleviz notes.md opens a markdown file rendered, in a centered column — headings, emphasis, quotes, lists and task lists, links, pictures, tables, footnotes, code; Edit switches to the plain text, Read back. Its links to graphs and md files follow on click — [text](sub/graph.edn), ![img](x.png), [text](other.md), reference links too; relative to the md file, never above the served folder. In the plain text a » in the gutter marks each line with such a link (»2 lists the links of that line). A graph or exported image opens to the right of the text, its link and » highlighted, and works like any graph; ⤢ full view opens it on its own, × closes it. A link to a graph in the md file's folder or below that isn't there yet offers, on the right, to create it empty or as a copy of another graph of the served folder — the copy keeps its :ref paths as written. A link with ?compare=next — [text](graph.edn?compare=next) — shows the graph compared with its fork graph-next.edn, refs followed inside it too. An md file opens in place of this one; the trail at the top leads back. Unsaved text is saved before you leave the page — when that fails you stay. A :ref to an .md file opens it the same way; the doc panel of :md-ref has the » gutter too."
-      "A table cell starting with =( is a formula: the cell shows its result, the formula on hover. Columns are letters, rows the body rows from 1: (sum :b) adds column b, (sum :a 4 8 :b 1 4) rows 4 to 8 of a and 1 to 4 of b; table, avg, count, min and max take the same ranges, the rest is plain Clojure. A ```simpleviz-table block right above the table formats cells: pairs of a range and a fn, run top to bottom on each cell's value (and its place, {:row :col :raw}) — [:c] #(str %1 \" €\") shows what it returns, [:d] (fn [v _] {:color \"red\"}) colours the cell (:color, :background, :border, plus :text). Formulas see the plain values; formula cells are in no range."
+      "A table cell starting with =( is a formula: the cell shows its result, the formula on hover. Columns are letters, rows the body rows from 1: (sum :b) adds column b, (sum :a 4 8 :b 1 4) rows 4 to 8 of a and 1 to 4 of b; table, avg, count, min and max take the same ranges, the rest is plain Clojure. A ```simpleviz-table block right above the table formats cells: pairs of a range and a fn, run top to bottom on each cell's value (and its place, {:row :col :raw}) — [:c] #(str %1 \" €\") shows what it returns, [:d] (fn [v _] {:color \"red\"}) colours the cell (:color, :background, :border, plus :text). Formulas see the plain values; formula cells are in no range. A block starting >> [sales](data/sales.csv) (then optionally >> [:item :qty] — fields, needed for .json, .jsonl, .edn) puts data behind the table: its formulas then address the data — columns in the order of the fields, rows the records — and (rows) gives every record as a map {:a … :b …}."
       "Present shows the page as slides: a line of just --- starts the next one, and a slide whose first line is >> [text](path) — >> and a link — shows that graph, md file or picture beside its text (a graph link with ?compare=next shows it compared with its fork). → or space steps forward, ← back, Home and End jump; Esc leaves. The graph can be hovered, inspected, panned and collapsed, not edited. A slide whose first line is ?? name asks a question: its - [ ] lines are the choices, [x] the right one; ??? asks for Submit before → goes on, then shows the right choice and the explanation indented under the one picked. The answers are kept in talk.answers.edn beside talk.md.")
      (help-section
       "Keys"
@@ -1286,42 +1286,44 @@
                                   " — not a file simpleviz opens")}]
               kids)))))
 
-;; md text → what /api/calc made of its tables: {} for text without a
+;; md file and text → what /api/calc made of its tables: {} for text without a
 ;; formula, {:pending true} while the server works, {:tables …} after,
 ;; {:failed msg :at ms} when it couldn't be asked — asked again after
 ;; 5 s; the oldest go past 50
 (def ^:private calc-results (js/Map.))
 
-(defn- remember-calc! [text v]
-  (.delete calc-results text)
-  (.set calc-results text v)
+(defn- remember-calc! [k v]
+  (.delete calc-results k)
+  (.set calc-results k v)
   (when (> (.-size calc-results) 50)
     (.delete calc-results (.-value (.next (.keys calc-results))))))
 
-(defn- ^:async fetch-calc! [text]
-  (remember-calc! text {:pending true})
+(defn- ^:async fetch-calc! [k path text]
+  (remember-calc! k {:pending true})
   (let [out (try (let [resp (js-await (js/fetch "/api/calc"
                                                 {:method "POST"
                                                  :headers {"Content-Type" "application/json"}
-                                                 :body (js/JSON.stringify {:tables (markdown/calc-tables text)})}))]
+                                                 :body (js/JSON.stringify {:path path :tables (markdown/calc-tables text)})}))]
                    (if (.-ok resp)
                      {:tables (:tables (js-await (.json resp)))}
                      {:failed (str "couldn't calculate: " (or (try (:error (js-await (.json resp))) (catch :default _ nil))
                                                               (.-status resp)))
                       :at (js/Date.now)}))
                  (catch :default _ {:failed "couldn't calculate: no server" :at (js/Date.now)}))]
-    (remember-calc! text out)
+    (remember-calc! k out)
     (swap! state update :calc-tick (fnil inc 0))))
 
 (defn- calc-for!
-  "The formula results for md text's tables (markdown/render's calc),
-  nil until the server has them — asking it the first time."
-  [text]
-  (let [hit (.get calc-results text)]
-    (cond (some? (:failed hit)) (do (when (> (- (js/Date.now) (:at hit)) 5000) (fetch-calc! text)) hit)
+  "The formula results for the tables of text from md file `path`
+  (markdown/render's calc) — the path, for the data their blocks link —
+  nil until the server has them, asking it the first time."
+  [path text]
+  (let [k (str path "\n" text)
+        hit (.get calc-results k)]
+    (cond (some? (:failed hit)) (do (when (> (- (js/Date.now) (:at hit)) 5000) (fetch-calc! k path text)) hit)
           (some? hit) (:tables hit)
-          (markdown/calc? text) (do (fetch-calc! text) nil)
-          :else (do (remember-calc! text {}) nil))))
+          (markdown/calc? text) (do (fetch-calc! k path text) nil)
+          :else (do (remember-calc! k {}) nil))))
 
 ;; the read view's hiccup for the last [path text side compare calc], so
 ;; rerenders for anything else neither re-parse nor rebuild its handlers
@@ -1329,7 +1331,7 @@
 
 (defn- md-view [st]
   (let [md (:md st)
-        calc (calc-for! (:text md))
+        calc (calc-for! (:path md) (:text md))
         k [(:path md) (:text md) (:side st) (:compare st) calc]
         hit @md-view-cache]
     (if (and (some? hit) (= k (:key hit)))
@@ -1471,7 +1473,7 @@
           (when (:blocked (:present st))
             [:span {:class "ask-hint"} "Submit an answer to go on"])])
        (when (some? note)
-         (into [:div {:class "md-doc ask-note"}] (markdown/render note link-fn (calc-for! note))))])))
+         (into [:div {:class "md-doc ask-note"}] (markdown/render note link-fn (calc-for! (:path (:md st)) note))))])))
 
 (defn- present-panel
   "The slide presented, in the md page's place: the window, or its left
@@ -1486,7 +1488,7 @@
      [:div {:id "present-slide" :class (if (and (= i 0) (nil? (:side s)) (nil? (:ask s))) "title" "")}
       (into [:div {:class "md-doc" :on-click in-page-click}]
             (if (some? s)
-              (markdown/render (:text s) (present-link-fn (:path (:md st))) (calc-for! (:text s)))
+              (markdown/render (:text s) (present-link-fn (:path (:md st))) (calc-for! (:path (:md st)) (:text s)))
               [[:p {:class "md-empty"} "No slides left — the text is empty."]]))
       (when (some? (:ask s)) (ask-view st (:ask s)))
       ;; on every slide: a presenter who went on must see it too
@@ -1512,7 +1514,7 @@
                                            {:kind "error" :text (str path " — no such picture, or not one the browser shows")})))}]
        "md" (into [:div {:class "md-doc" :on-click in-page-click}]
                   (if (some? text)
-                    (markdown/render text (present-link-fn path) (calc-for! text))
+                    (markdown/render text (present-link-fn path) (calc-for! path text))
                     [[:p {:class "md-empty"} "loading…"]]))
        [:div {:class "present-side-error"} text])]))
 

@@ -14,7 +14,10 @@
   (:require [babashka.classpath :as cp]
             [babashka.process :as p]
             [cheshire.core :as json]
+            [clojure.data.csv :as csv]
+            [clojure.edn :as edn]
             [clojure.string :as str]
+            [mdlinks]
             [sci.core :as sci]))
 
 (def ^:dynamic *timeout-ms*
@@ -111,7 +114,8 @@
 
 (defn- context
   "A SCI context whose range functions read the values in `vals`: table
-  has every value, the others the numbers only."
+  has every value, the others the numbers only; (rows) is every row as
+  a map of column keyword to value."
   [vals rows cols]
   (let [table (fn [& args]
                 (vec (for [{:keys [col from to]} (ranges args rows cols)
@@ -123,9 +127,11 @@
         nums (fn [args] (cond (ranged? args) (filterv number? (apply table args))
                               (and (= 1 (count args)) (coll? (first args))) (first args)
                               :else args))
-        sum (fn [& args] (reduce + 0 (nums args)))]
+        sum (fn [& args] (reduce + 0 (nums args)))
+        rows (fn [] (mapv (fn [row] (into {} (map-indexed (fn [i v] [(col-name i) v]) row))) vals))]
     (sci/init {:namespaces
                {'user {'table table
+                       'rows rows
                        'sum sum
                        'avg (fn [& args] (let [xs (nums args)]
                                            (when (seq xs) (/ (double (reduce + 0 xs)) (count xs)))))
@@ -183,18 +189,23 @@
   {:value s} with :style {:color :background :border} when a def block
   fn gave one, or {:error s}; plus :error when the def block fails.
   A cell's value — a formula's result, else the cell's — goes through
-  the fns of every pair covering it, top to bottom."
-  [{:keys [cells defs]}]
+  the fns of every pair covering it, top to bottom. With `data` (rows of
+  values, with-data) formula ranges address the data, not the table;
+  `data-error` fails every formula."
+  [{:keys [cells defs data data-error]}]
   (let [cells (vec (map vec cells))
         rows (count cells)
         cols (apply max 0 (map count cells))
         blank (mapv (fn [row] (mapv (constantly nil) row)) cells)]
     (if (and (not (some formula? (flatten cells))) (str/blank? defs))
       {:results blank}
-      (let [vals (values cells)
-            ctx (context vals rows cols)
-            [rules err] (try [(if (str/blank? defs) [] (run #(rules-of ctx defs rows cols))) nil]
-                             (catch Throwable e [[] (str "def block: " (message e))]))
+      (let [vals (if (some? data) (mapv vec data) (values cells))
+            ctx (context vals (count vals) (apply max 0 (map count vals)))
+            [rules err] (cond
+                          (some? data-error) [[] data-error]
+                          (str/blank? defs) [[] nil]
+                          :else (try [(run #(rules-of ctx defs rows cols)) nil]
+                                     (catch Throwable e [[] (str "def block: " (message e))])))
             cell (fn [r c s]
                    (let [fs (keep (fn [{:keys [ranges f]}] (when (some #(in? % r c) ranges) f)) rules)
                          ctx-map {:row (inc r) :col (col-name c) :raw s}]
@@ -211,6 +222,86 @@
                             (catch Throwable e {:error (message e)})))))]
         (cond-> {:results (vec (map-indexed (fn [r row] (vec (map-indexed (fn [c s] (cell r c s)) row))) cells))}
           (some? err) (assoc :error err))))))
+
+;; ---------------------------------------------------------------- data
+
+(defn split-block
+  "A def block's data lines and the rest: >> [text](data.csv) first,
+  then optionally >> [field ...] — keywords, strings or get-in paths."
+  [defs]
+  (let [lines (str/split-lines (str defs))
+        head (take-while #(str/starts-with? (str/trim %) ">>") lines)
+        rest-text (str/join "\n" (drop (count head) lines))]
+    (when (> (count head) 2) (fail "a block takes two >> lines at most: the data, then its fields"))
+    (if (empty? head)
+      {:source nil :fields nil :defs defs}
+      (let [link (re-matches #">>\s*\[[^\]]*\]\(\s*(.+?)\s*\)\s*" (str/trim (first head)))
+            fields (when-let [l (second head)]
+                     (let [f (try (edn/read-string (subs (str/trim l) 2)) (catch Exception _ nil))]
+                       (when-not (vector? f) (fail "the second >> line is a vector of fields, like >> [:item :qty]"))
+                       f))]
+        (when (nil? link) (fail "the first >> line links the data: >> [sales](data/sales.csv)"))
+        {:source (mdlinks/clean-dest (second link)) :fields fields :defs rest-text}))))
+
+(defn- lookup [m k]
+  (cond (map? m) (let [v (get m k)]
+                   (cond (some? v) v
+                         (keyword? k) (get m (name k))
+                         (string? k) (get m (keyword k))))
+        (and (sequential? m) (integer? k)) (nth m k nil)))
+
+(defn- plain [v] (if (or (nil? v) (number? v) (string? v) (boolean? v)) v (pr-str v)))
+
+(defn records
+  "The rows of values in data file text of type ext: a csv's columns,
+  all or those `fields` names, its first line the names; each record of
+  a json array, jsonl lines or edn vector the values at `fields`."
+  [ext text fields]
+  (let [pick (fn [ms] (mapv (fn [m] (mapv (fn [f] (plain (reduce lookup m (if (vector? f) f [f])))) fields)) ms))
+        need-fields #(when (empty? fields) (fail "list the fields of a ." ext " file: >> [:item :qty]"))]
+    (case ext
+      "csv" (let [[header & body] (csv/read-csv text)
+                  idx (if (empty? fields)
+                        (range (count header))
+                        (mapv (fn [f] (let [n (if (keyword? f) (name f) (str f))
+                                            i (.indexOf ^java.util.List (vec header) n)]
+                                        (when (neg? i) (fail "no column " (pr-str n) " in the csv"))
+                                        i))
+                              fields))]
+              (mapv (fn [row] (mapv (fn [i] (value-of (get row i))) idx))
+                    (remove #(every? str/blank? %) body)))
+      "json" (let [_ (need-fields)
+                   v (json/parse-string text)]
+               (when-not (and (sequential? v) (every? map? v)) (fail "a json file holds an array of objects"))
+               (pick v))
+      "jsonl" (do (need-fields)
+                  (pick (keep-indexed (fn [i l]
+                                        (when-not (str/blank? l)
+                                          (let [m (try (json/parse-string l) (catch Exception _ nil))]
+                                            (when-not (map? m) (fail "line " (inc i) " is no json object"))
+                                            m)))
+                                      (str/split-lines text))))
+      "edn" (let [_ (need-fields)
+                  v (edn/read-string text)]
+              (when-not (and (sequential? v) (every? map? v)) (fail "an edn file holds a vector of maps"))
+              (pick v))
+      (fail "." ext " files can't be read — csv, jsonl, json or edn"))))
+
+(defn with-data
+  "The tables with their def block's data read: (read dest) is [ext
+  text] for the block's >> link or throws; a table gets :data, its rows,
+  and :defs without the >> lines — or :data-error."
+  [tables read]
+  (mapv (fn [t]
+          (if (str/blank? (:defs t))
+            t
+            (try (let [{:keys [source fields defs]} (split-block (:defs t))]
+                   (if (nil? source)
+                     t
+                     (let [[ext text] (read source)]
+                       (assoc t :defs defs :data (records ext text fields)))))
+                 (catch Exception e (assoc t :defs "" :data-error (message e))))))
+        tables))
 
 (defn child
   "The child's main: tables as JSON on stdin, their results as JSON on

@@ -395,8 +395,40 @@ cells:
   Formulas always see the unformatted values. Blank cells are left
   alone. The page hides the block; a block with no table right below
   it is ordinary code.
+- A block may start with data: `>> [sales](data/sales.csv)`, a link
+  to a `.csv`, `.jsonl`, `.json` or `.edn` file (relative to the md
+  file, inside the served folder, at most 50 MiB), then optionally
+  `>> [:item :qty [:price :net]]`, its fields. Then the table's
+  formulas work on that data, not on the table: columns are letters in
+  the order of the fields, rows the records from 1, so `(sum :b)` adds
+  every qty. `(rows)` is every record as a map, `{:a "tea" :b 2 :c 3.5}`,
+  for anything else — `(count (filter #(= "tea" (:a %)) (rows)))`. No
+  row of the data shows on its own: each cell you want is a formula.
+  The block's other pairs still format the table's cells.
+
+      ```simpleviz-table
+      >> [sales](data/sales.jsonl)
+      >> [:item :qty [:price :net]]
+      [:b] #(str %1 " €")
+      ```
+
+      | what       | value |
+      |------------|------:|
+      | items sold | =(sum :b) |
+      | revenue    | =(reduce + (map #(* (or (:b %) 0) (or (:c %) 0)) (rows))) |
+
+  A csv's first line names its columns; without fields every column
+  counts, in order, and fields pick them by name: `>> ["item" "qty"]`.
+  A json file is an array of objects, a jsonl file one object per line,
+  an edn file a vector of maps; they need the fields — a keyword or
+  string is a key, a vector a path into nested objects and arrays. A
+  value that isn't there is nil, which `sum` and the others skip and
+  plain Clojure has to allow for. Numbers and text stay as they are in
+  json and edn, anything else becomes its printed form; in a csv a
+  plain number is a number. The data is read whenever the page
+  calculates the table.
 - A formula or fn that fails shows its error in the cell; when the
-  block fails, every formula of its table shows the block's error.
+  block or its data fails, every formula of its table shows why.
 - The formulas run in a sandbox ([SCI](https://github.com/babashka/sci)):
   no files, no network, no Java interop — in a bb process of their own
   that the server starts for each page and that is gone after it, so

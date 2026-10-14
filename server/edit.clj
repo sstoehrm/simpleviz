@@ -265,28 +265,28 @@
         (box-add text' {:box parent :member member})
         text'))))
 
-(defn- remove-entry
-  "Remove one map entry (key+value) from a section; nil when absent."
-  [text section pred]
-  (when-let [sect (sect-val (zroot text) section)]
-    (when-let [k (find-key sect pred)]
-      (z/root-string (remove-pair k)))))
-
-(defn- edit-first-component
-  "Apply f (a zloc -> zloc edit) to the first occurrence of member-id in
-  any box's :components; nil when no box contains it. Elements with no
-  sexpr (`#_` uneval forms) are skipped."
-  [text member-id f]
-  (when-let [sect (sect-val (zroot text) :boxes)]
+(defn- first-component
+  "The zloc of the first occurrence of member-id in any box's
+  :components under root zloc `root`, or nil. Elements with no sexpr
+  (`#_` uneval forms) are skipped; the :boxes form is not checked here
+  (sect-val does)."
+  [root member-id]
+  (when-let [sect (find-val root #(= % :boxes))]
     (loop [k (z/down sect)]
       (when (some? k)
         (let [v (z/right k)
               comps (when (map? (z/sexpr v)) (find-val v #(= % :components)))
               hit (when (and (some? comps) (coll? (z/sexpr comps)))
                     (find-component comps member-id))]
-          (if (some? hit)
-            (z/root-string (f hit))
-            (recur (z/right v))))))))
+          (or hit (recur (z/right v))))))))
+
+(defn- edit-first-component
+  "Apply f (a zloc -> zloc edit) to the first occurrence of member-id in
+  any box's :components; nil when no box contains it."
+  [text member-id f]
+  (let [root (zroot text)]
+    (when (some? (sect-val root :boxes))
+      (some-> (first-component root member-id) f z/root-string))))
 
 (defn- remove-first-component
   "Remove the first occurrence of member-id from any box's :components;
@@ -297,24 +297,43 @@
 (defn- until-done [text f]
   (if-let [t (f text)] (recur t f) text))
 
-(defn- remove-edges-touching [text id]
-  (until-done text
-    (fn [t] (remove-entry t :edges
-              (fn [s] (and (vector? s) (some #(= id (ident->str %)) s)))))))
-
-(defn delete [text {:keys [section id]}]
-  (case section
-    :edges (or (remove-entry text :edges (edge-key-pred id)) (unknown! :edges id))
-    (:nodes :boxes) (let [t (or (remove-entry text section (entry-pred section id))
-                                (unknown! section id))]
-                      (-> t (remove-edges-touching id)
-                          (until-done (fn [t'] (remove-first-component t' id)))))))
-
 (defn- root-loc
   "The root map's zloc, from any zloc inside the file."
   [loc]
   (loop [c loc]
     (if (nil? (z/up c)) (z/down c) (recur (z/up c)))))
+
+(defn- drop-key
+  "Root zloc `root` without the first entry of `section` whose key
+  satisfies pred, or nil when none does. The section's form is not
+  checked here (sect-val does)."
+  [root section pred]
+  (when-let [k (some-> (find-val root #(= % section)) (find-key pred))]
+    (root-loc (remove-pair k))))
+
+(defn- check-sections!
+  "Refuse a pre-v2 vector form of the sections deleting from `section`
+  touches: the edges alone, or for a node or box all three."
+  [root section]
+  (doseq [s (if (= section :edges) [:edges] [section :edges :boxes])]
+    (sect-val root s)))
+
+(defn- delete-at
+  "Root zloc `root` with target {:section :id} deleted: an edge, or a
+  node or box with the edges touching it and its box memberships —
+  removed one by one in the one zipper, never re-parsed."
+  [root {:keys [section id]}]
+  (case section
+    :edges (or (drop-key root :edges (edge-key-pred id)) (unknown! :edges id))
+    (:nodes :boxes)
+    (-> (or (drop-key root section (entry-pred section id)) (unknown! section id))
+        (until-done (fn [r] (drop-key r :edges (fn [s] (and (vector? s) (some #(= id (ident->str %)) s))))))
+        (until-done (fn [r] (some-> (first-component r id) z/remove root-loc))))))
+
+(defn delete [text {:keys [section] :as target}]
+  (let [root (zroot text)]
+    (check-sections! root section)
+    (z/root-string (delete-at root target))))
 
 (defn- rename-elems
   "zloc of a vector/set with every element naming `old` replaced by
@@ -505,18 +524,39 @@
                        [:nodes :edges :boxes])]
     (str "{" (str/join "\n " sections) "}\n")))
 
+(defn- picked
+  "The entries [k v] (zlocs) per section that nodes and boxes `ids`
+  ({:section :id}) take — each box with its members at any depth, and
+  the edges among them all — in file order."
+  [text ids]
+  (let [in (closure-ids (parsed text) ids)
+        in? (fn [k] (if (vector? k) (every? #(contains? in (ident->str %)) k) (contains? in (ident->str k))))]
+    (into {} (map (fn [s] [s (filterv (fn [[k _]] (in? (z/sexpr k))) (section-entries text s))])
+                  [:nodes :edges :boxes]))))
+
+(defn- picked-targets
+  "The node and box targets ({:section :id}) of `picked`, in file order."
+  [picked]
+  (vec (for [s [:nodes :boxes] [k _] (get picked s)] {:section s :id (ident->str (z/sexpr k))})))
+
 (defn copy
   "Nodes and boxes `ids` ({:section :id}), each box with its members at
   any depth, and the edges among them all: {:edn the EDN text of a graph
   of their own, entries in file order and as written; :ids the targets
   ({:section :id}) that took, in file order — what a cut deletes}."
   [text {:keys [ids]}]
-  (let [in (closure-ids (parsed text) ids)
-        in? (fn [k] (if (vector? k) (every? #(contains? in (ident->str %)) k) (contains? in (ident->str k))))
-        picked (into {} (map (fn [s] [s (filterv (fn [[k _]] (in? (z/sexpr k))) (section-entries text s))])
-                             [:nodes :edges :boxes]))]
-    {:edn (entries-text (update-vals picked (fn [es] (map (fn [[k v]] [(z/string k) (z/string v)]) es))))
-     :ids (vec (for [s [:nodes :boxes] [k _] (get picked s)] {:section s :id (ident->str (z/sexpr k))}))}))
+  (let [p (picked text ids)]
+    {:edn (entries-text (update-vals p (fn [es] (map (fn [[k v]] [(z/string k) (z/string v)]) es))))
+     :ids (picked-targets p)}))
+
+(defn delete-selection
+  "Delete nodes and boxes `ids` ({:section :id}) with all copy takes for
+  them — the boxes' members at any depth — and the edges touching any:
+  what a cut deletes, in one parse."
+  [text {:keys [ids]}]
+  (let [root (zroot text)]
+    (check-sections! root :nodes)
+    (z/root-string (reduce delete-at root (picked-targets (picked text ids))))))
 
 (defn- nothing-to-paste! []
   (fail! "nothing to paste: the clipboard holds no simpleviz nodes or boxes"))
@@ -678,6 +718,7 @@
       "retarget-edge" (retarget-edge text o)
       "set-direction" (set-direction text o)
       "delete" (delete text o)
+      "delete-selection" (delete-selection text o)
       "rename" (rename text o)
       "wrap" (wrap text o)
       "set-theme" (set-theme text o)

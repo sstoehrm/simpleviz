@@ -624,6 +624,12 @@
   [ids]
   (mapv elk-target ids))
 
+(defn delete-selection-op
+  "The op deleting the nodes and boxes of scene ids `ids` with what the
+  boxes hold and the edges touching them — what a cut deletes."
+  [ids]
+  {:op "delete-selection" :ids (selection-targets ids)})
+
 (defn paste-op
   "The op pasting clipboard text `edn`: into the box `sel` is, else at
   the top level."

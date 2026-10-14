@@ -15,7 +15,7 @@
                                       parent-box split-parent doc-kind link-target line-markers link-title
                                       with-side with-slide mark-open? with-compare follow-compare
                                       downstream-graph? match-choices
-                                      selection-targets paste-op]]
+                                      selection-targets paste-op delete-selection-op]]
             [paths :refer [resolve-ref]]))
 
 (test "target maps selection payloads to op targets"
@@ -839,3 +839,8 @@
                       {:op "paste" :edn "{:nodes {:a nil}}" :into "grp"})
     (assert/deepEqual (paste-op "{}" {:kind "node" :elk-id "n:a"}) {:op "paste" :edn "{}"})
     (assert/deepEqual (paste-op "{}" nil) {:op "paste" :edn "{}"})))
+
+(test "delete-selection-op names the selection's targets"
+  (fn []
+    (assert/deepEqual (delete-selection-op ["n:a" "b:grp"])
+                      {:op "delete-selection" :ids [{:section "nodes" :id "a"} {:section "boxes" :id "grp"}]})))

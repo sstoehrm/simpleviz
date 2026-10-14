@@ -2811,7 +2811,8 @@
   for p p here or in another graph. A cut then deletes all of it in one
   edit. Select mode ends."
   [cut]
-  (let [out-p (fetch-copy (vec (:ids (:multi @state))))
+  (let [sel (vec (:ids (:multi @state)))
+        out-p (fetch-copy sel)
         ok? (try (js-await (write-clipboard! (.then out-p (fn [o] (:edn o)))))
                  true
                  (catch :default e
@@ -2825,7 +2826,7 @@
             n (count ids)]
         (swap! state assoc :multi nil)
         (if cut
-          (do (js-await (post-edit! (mapv editor/delete-op ids)))
+          (do (js-await (post-edit! [(editor/delete-selection-op sel)]))
               (when (nil? (:edit-error @state)) (flash! (str "cut " n " — p p pastes them"))))
           (flash! (str "copied " n " — p p pastes them, here or in another graph")))))))
 
@@ -2833,11 +2834,9 @@
   "d d in select mode: delete the selected nodes and boxes with what the
   boxes hold — what x x would cut — in one edit. Select mode ends."
   []
-  (try
-    (let [out (js-await (fetch-copy (vec (:ids (:multi @state)))))]
-      (swap! state assoc :multi nil)
-      (js-await (post-edit! (mapv editor/delete-op (:ids out)))))
-    (catch :default e (swap! state assoc :edit-error (.-message e)))))
+  (let [sel (vec (:ids (:multi @state)))]
+    (swap! state assoc :multi nil)
+    (js-await (post-edit! [(editor/delete-selection-op sel)]))))
 
 (defn- ^:async paste!
   "p p: the nodes and boxes on the clipboard into the graph — into the

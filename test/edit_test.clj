@@ -617,6 +617,21 @@
           {:section :boxes :id "back"} {:section :boxes :id "inner"}]
          (:ids (edit/copy clip-file {:ids [{:section :boxes :id "back"}]})))))
 
+(deftest delete-selection-deletes-what-a-cut-takes-in-one-edit
+  (let [ids [{:section "boxes" :id "back"} {:section "nodes" :id "web"}]
+        targets (:ids (edit/copy clip-file {:ids ids}))
+        one-by-one (:text (edit/apply-ops clip-file (mapv #(assoc % :op "delete" :section (name (:section %))) targets)))
+        out (edit/apply-ops clip-file [{:op "delete-selection" :ids ids}])]
+    ;; the same text as deleting each target in turn
+    (is (= {:text one-by-one} out))
+    (let [g (read-clip (:text out))]
+      (is (= #{:mail} (set (keys (:nodes g)))))
+      (is (nil? (get-in g [:boxes :back])))
+      (is (empty? (filter (fn [[a b]] (or (#{:web :api :db} a) (#{:web :api :db} b))) (keys (:edges g)))))))
+  (is (= {:error "nothing selected"} (edit/apply-ops clip-file [{:op "delete-selection" :ids []}])))
+  (is (= {:error "unknown node \"nope\""}
+         (edit/apply-ops clip-file [{:op "delete-selection" :ids [{:section "nodes" :id "nope"}]}]))))
+
 (deftest copy-refuses-unknown-and-empty-selections
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"unknown node \"nope\""
         (edit/copy clip-file {:ids [{:section :nodes :id "nope"}]})))

@@ -15,6 +15,22 @@ Terms used below: a *graph* is an EDN file, an *md file* a markdown doc,
 element's attributes), the *served folder* the folder of the
 file simpleviz was started with.
 
+## Contents
+- Writing a graph or md file: the checklist
+- Data format: example, shapes that are easy to get wrong, attributes
+- Md files and slides
+- Checking
+- Running
+- Proposing a change: fork and compare
+- Concurrent writes (lock before editing a served file)
+- The page
+- Old patterns
+
+Reference files, read only when needed:
+- [reference/page.md](reference/page.md): the page in the browser
+  (inspector, toolbar, keyboard chords, compare legend, export menu). Read
+  it when the user asks how to do something in the page.
+
 ## Writing a graph or md file
 
 Validation is lenient: an invalid element is skipped with a warning banner

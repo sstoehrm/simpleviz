@@ -957,7 +957,7 @@
       "Edit"
       "When the served file is editable EDN, the floating toolbar at the bottom holds the tools for the current selection, grouped by first key with options that pop out: delete, edge direction, and pick modes such as \"add edge\" (click the other element on the canvas, then name the edge; Esc cancels). New nodes and boxes are created by name: the prompt types a name, and the id is derived from it — lowercased, illegal characters turned into dashes; name::type also sets the type. With nothing selected it creates a standalone node or box. A :ref attribute naming another graph file (relative path) makes \"follow ref\" open it — in a suffix comparison (simpleviz graph.edn next) it opens that file's own comparison; the trail at the top leads back. Following a ref to an .edn file that does not exist yet creates it as an empty graph — in a comparison the side picked by the old|new toggle."
       "In the inspector, click a value or its ✎ to edit it inline — Enter commits, Shift+Enter inserts a line break, Escape cancels. × deletes an attribute; the key/value row at the bottom adds one. Ctrl+Z or ↶ undoes the last edit."
-      "\"open md\" (f m) opens the markdown file a node's or box's :md-ref names in a text panel on the right; ⤢ makes it fill the window, Esc docks it again. Ctrl+S or Save writes it, and so does closing it (×) or opening another; a missing file is created on the first save. If the file changes on disk while you have unsaved edits, the panel says so — Reload takes the file, Overwrite keeps yours."
+      "\"open md\" (f m) opens the markdown file a node's or box's :md-ref names in a text panel on the right; ⤢ makes it fill the window, Esc docks it again. Ctrl+S or Save writes it, and so does closing it (×) or opening another; a missing file is created on the first save. Format (while editing the text, an md page's too) tidies the markdown — headings, tables, bullets, blank lines and trailing spaces, code left as it is — Ctrl+Z (u in vi mode) undoes it. If the file changes on disk while you have unsaved edits, the panel says so — Reload takes the file, Overwrite keeps yours."
       "vi (top of a doc's text) turns on vi keys for the text of every doc, until you turn them off: Esc for normal mode, i a I A o O for insert; h j k l w b e W B E 0 ^ $ gg G f t F T ; , { } / ? n N move, with a count too; d c y take a motion or a text object (iw aw i\" a\" i( a( i[ i{ …), dd cc yy D C Y; x X s S r J ~ p P edit, v and V select, u and Ctrl+R undo and redo, . repeats. :w saves, :q closes the doc panel — on an md page it shows the text read — :wq does both, :12 goes to line 12. A bare Esc in normal mode still docks the panel; :q! drops unsaved edits first.")
      (help-section
       "md pages"
@@ -1266,6 +1266,11 @@
                   :title (if (:vi-pref st) "Vi mode is on — click to type plainly" "Edit with vi keys")
                   :on-click (fn [e] (.stopPropagation e) (toggle-vi!))}
          "vi"])
+      (when-not reading
+        [:button {:class "md-btn md-format" :type "button"
+                  :title "Format the markdown: headings, tables, bullets, blank lines — Ctrl+Z (u in vi mode) undoes"
+                  :on-click (fn [e] (.stopPropagation e) (format-md!))}
+         "Format"])
       (when (:page md)
         [:button {:class "md-btn md-mode" :type "button"
                   :title (if reading "Edit the text" "Show it rendered")
@@ -2088,6 +2093,28 @@
     (when-let [el (js/document.getElementById "md-text")]
       (.focus el {:preventScroll true})
       (vim-select! el (.-selectionStart el)))))
+
+(defn- format-md!
+  "Tidy the doc's text (markdown/tidy), undoable: in vi mode by u, else
+  by the browser's own undo, as the text goes in like typed."
+  []
+  (when-let [el (js/document.getElementById "md-text")]
+    (let [t (.-value el)
+          t2 (markdown/tidy t)
+          p (markdown/tidy-caret t t2 (.-selectionStart el))
+          top (.-scrollTop el)]
+      (when (not= t t2)
+        (.focus el {:preventScroll true})
+        (if (:vi-pref @state)
+          (swap! state (fn [st] (-> st
+                                    (update :vim vim/replaced t (.-selectionStart el))
+                                    (assoc-in [:md :text] t2))))
+          (do (.setSelectionRange el 0 (count t))
+              ;; fires input, which takes the text into the state
+              (when-not (js/document.execCommand "insertText" false t2)
+                (swap! state assoc-in [:md :text] t2))))
+        (vim-select! el p)
+        (set! (.-scrollTop el) top)))))
 
 (defn- ^:async save-md!
   "Write the open doc; `overwrite?` saves over the version the conflict

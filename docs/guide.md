@@ -227,6 +227,14 @@ other elements or follow refs.
   what someone else wrote; with unsaved changes it says "changed on disk"
   — Reload takes the file, Overwrite keeps your text. A save is refused
   while an agent holds the file's lock.
+- Format tidies the markdown — in the panel, and on an md page while
+  you edit: one space after a heading's `#`s and no closing ones, a
+  blank line around unindented headings, table columns aligned, `-`
+  for bullets (when that would join two lists, every bullet stays), no
+  trailing spaces but a line break's two, one blank line between
+  blocks. Code stays as it is, and so does how simpleviz renders the
+  text: a change that would alter it is left out. Ctrl+Z (Cmd+Z)
+  undoes it, `u` in vi mode.
 - Same path rules as refs: relative to the graph file, never above the
   served folder. Only `.md` files in UTF-8, up to 1 MiB.
 

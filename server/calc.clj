@@ -63,11 +63,11 @@
            (not (keyword? k)) (fail "expected a column keyword like :a, got " (pr-str k))
            (nil? col) (fail "no column " k " — columns are :a, :b, …")
            (and (some? cols) (>= col cols)) (fail "no column " k " — the table has " cols))
-         (doseq [r [from to]]
+         (doseq [r (if (seq nums) [from to] [])]
            (cond (not (integer? r)) (fail "row " r " is no whole number")
                  (< r 1) (fail "row " r " — rows count from 1")
                  (> r rows) (fail "row " r " is past the last row (" rows ")")))
-         (when (> from to) (fail "row range " from " > " to))
+         (when (and (seq nums) (> from to)) (fail "row range " from " > " to))
          (recur (seq (drop (inc (count nums)) args)) (conj out {:col col :from from :to to})))))))
 
 (defn number-of
@@ -125,7 +125,7 @@
                        v)))
         ranged? (fn [args] (keyword? (first args)))
         nums (fn [args] (cond (ranged? args) (filterv number? (apply table args))
-                              (and (= 1 (count args)) (coll? (first args))) (first args)
+                              (and (= 1 (count args)) (coll? (first args))) (filterv number? (first args))
                               :else args))
         sum (fn [& args] (reduce + 0 (nums args)))
         rows (fn [] (mapv (fn [row] (into {} (map-indexed (fn [i v] [(col-name i) v]) row))) vals))]
@@ -136,8 +136,8 @@
                        'avg (fn [& args] (let [xs (nums args)]
                                            (when (seq xs) (/ (double (reduce + 0 xs)) (count xs)))))
                        'count (fn [& args] (if (ranged? args) (count (nums args)) (apply count args)))
-                       'min (fn [& args] (apply min (if (ranged? args) (nums args) args)))
-                       'max (fn [& args] (apply max (if (ranged? args) (nums args) args)))}}})))
+                       'min (fn [& args] (apply min (nums args)))
+                       'max (fn [& args] (apply max (nums args)))}}})))
 
 (defn- eval-in
   "The value of source s in ctx's user namespace — pinned, as SCI
@@ -161,11 +161,13 @@
 (def ^:private style-keys #{:color :background :border})
 
 (defn- call
-  "(f v ctx), or (f v) when f takes one argument."
+  "(f v ctx), or (f v) when f — a fn of the block — takes one argument."
   [f v ctx]
   (try (f v ctx)
        (catch clojure.lang.ArityException e
-         (if (str/includes? (str (ex-message e)) "(2)") (f v) (throw e)))))
+         (if (and (= 2 (.-actual e)) (str/includes? (str (ex-message e)) "sci.impl.fns/fun/arity-1"))
+           (f v)
+           (throw e)))))
 
 (defn- chain
   "{:v :style} after each of fs, top to bottom: a map's colours add to
@@ -200,7 +202,7 @@
     (if (and (not (some formula? (flatten cells))) (str/blank? defs))
       {:results blank}
       (let [vals (if (some? data) (mapv vec data) (values cells))
-            ctx (context vals (count vals) (apply max 0 (map count vals)))
+            ctx (context vals (count vals) (when (seq vals) (apply max 0 (map count vals))))
             [rules err] (cond
                           (some? data-error) [[] data-error]
                           (str/blank? defs) [[] nil]
@@ -217,8 +219,12 @@
                             (catch Throwable e {:error (message e)}))
                        (or (empty? fs) (nil? (value-of s))) nil
                        :else
-                       (try (run #(let [{:keys [v style]} (chain fs (value-of s) ctx-map)]
-                                    (cond-> {:value (show v)} (seq style) (assoc :style style))))
+                       ;; a value the fns leave as it was keeps the cell as written
+                       (try (run #(let [v0 (value-of s)
+                                        {:keys [v style]} (chain fs v0 ctx-map)]
+                                    (not-empty (cond-> {}
+                                                 (not= v v0) (assoc :value (show v))
+                                                 (seq style) (assoc :style style)))))
                             (catch Throwable e {:error (message e)})))))]
         (cond-> {:results (vec (map-indexed (fn [r row] (vec (map-indexed (fn [c s] (cell r c s)) row))) cells))}
           (some? err) (assoc :error err))))))
@@ -300,7 +306,10 @@
                      t
                      (let [[ext text] (read source)]
                        (assoc t :defs defs :data (records ext text fields)))))
-                 (catch Exception e (assoc t :defs "" :data-error (message e))))))
+                 (catch Exception e
+                   (assoc t
+                          :defs (try (:defs (split-block (:defs t))) (catch Exception _ ""))
+                          :data-error (message e))))))
         tables))
 
 (defn child
@@ -351,8 +360,10 @@
       (cond
         (string? (:error cell)) {:error (:error cell)}
         (some? bad) {:error (str "not a colour: " (pr-str (val bad)))}
-        (string? (:value cell)) (cond-> {:value (:value cell)}
-                                  (seq style) (assoc :style (select-keys style style-keys)))))))
+        (or (string? (:value cell)) (map? style))
+        (not-empty (cond-> {}
+                     (string? (:value cell)) (assoc :value (:value cell))
+                     (seq style) (assoc :style (select-keys style style-keys))))))))
 
 (defn- checked [tables]
   (mapv (fn [t] (cond-> {:results (mapv (fn [row] (mapv checked-cell row)) (:results t))}

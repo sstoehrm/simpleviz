@@ -510,15 +510,18 @@
      text]))
 
 (defn- formatted-cell
-  "A cell the def block formats: the server's value and style, or its
-  error, the cell as written as the title."
-  [c res al]
-  (if (some? (:error res))
-    [:td {:class (with-class al "calc error") :title c} (:error res)]
-    [:td (cond-> {:title c}
-           (some? al) (assoc :class al)
-           (some? (:style res)) (assoc :style (style-of (:style res))))
-     (:value res)]))
+  "A cell the def block formats: the server's value — the cell as
+  written its title — or the cell as written, styled either way; or
+  its error."
+  [c res al ctx]
+  (cond
+    (some? (:error res)) [:td {:class (with-class al "calc error") :title c} (:error res)]
+    (some? (:value res)) [:td (cond-> {:title c}
+                                (some? al) (assoc :class al)
+                                (some? (:style res)) (assoc :style (style-of (:style res))))
+                          (:value res)]
+    :else (into [:td (cond-> {:style (style-of (:style res))} (some? al) (assoc :class al))]
+                (inline c ctx))))
 
 (defn- table-block
   "The table from line i to `end`, its body rows also collected in
@@ -530,7 +533,8 @@
         grid (fn [l] (let [cs (cells l)] (mapv (fn [k] (or (get cs k) "")) (range (count aligns)))))
         body (mapv (fn [j] (grid (nth lines j))) (range (+ i 2) end))
         failed (:failed (:calc ctx))
-        results (when (nil? failed) (:results (get (:calc ctx) (count (:tables ctx)))))
+        mine (when (nil? failed) (get (:calc ctx) (count (:tables ctx))))
+        results (:results mine)
         row (fn [tag cs r]
               (into [:tr] (map-indexed (fn [k a]
                                          (let [c (nth cs k)
@@ -539,12 +543,14 @@
                                              (and (= tag :td) (formula? c))
                                              (calc-cell c (if (some? failed) {:error failed} (get (get results r) k)) al)
                                              (and (= tag :td) (some? (get (get results r) k)))
-                                             (formatted-cell c (get (get results r) k) al)
+                                             (formatted-cell c (get (get results r) k) al ctx)
                                              :else (into (if (some? al) [tag {:class al}] [tag]) (inline c ctx)))))
                                        aligns)))]
     (conj! (:tables ctx) {:cells body :defs defs})
-    [:table [:thead (row :th (grid (nth lines i)) nil)]
-     (into [:tbody] (map-indexed (fn [r cs] (row :td cs r)) body))]))
+    (cond-> [:table]
+      (some? (:error mine)) (conj [:caption {:class "calc-error"} (:error mine)])
+      true (conj [:thead (row :th (grid (nth lines i)) nil)]
+                 (into [:tbody] (map-indexed (fn [r cs] (row :td cs r)) body))))))
 
 (defn- blocks
   "Hiccup for the block-level lines."
@@ -555,12 +561,13 @@
         out
         (let [l (nth lines i)
               fence (fence-open l)
+              table-def (when (= "simpleviz-table" (:info fence)) (def-block lines i fence))
               heading (.exec heading-re l)]
           (cond
             (blank? l) (recur (inc i) out)
 
-            (and (some? fence) (= "simpleviz-table" (:info fence)) (some? (def-block lines i fence)))
-            (let [[defs t] (def-block lines i fence)
+            (some? table-def)
+            (let [[defs t] table-def
                   end (table-end lines t)]
               (recur end (conj out (table-block lines t end defs ctx))))
 
@@ -715,10 +722,10 @@
   (:tables (second (rendered text (fn [_ kids] kids) nil))))
 
 (defn calc?
-  "Has the text a table with a formula or a def block?"
-  [text]
+  "Has one of `tables` (calc-tables) a formula or a def block?"
+  [tables]
   (boolean (some (fn [t] (or (some? (:defs t)) (some (fn [row] (some formula? row)) (:cells t))))
-                 (calc-tables text))))
+                 tables)))
 
 ;; ---------------------------------------------------------------- tidy
 ;; Each step rewrites the text line by line, and counts only when the

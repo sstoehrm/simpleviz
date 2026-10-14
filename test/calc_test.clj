@@ -96,7 +96,7 @@
     (testing "the second argument is the cell's place"
       (is (= {:value "2 :b -2"} (cell "[:b 2] (fn [v ctx] (str (:row ctx) \" \" (:col ctx) \" \" (:raw ctx)))" 1 1))))
     (testing "a map styles the cell, its :text replaces the value"
-      (is (= {:value "-2" :style {:color "red"}}
+      (is (= {:style {:color "red"}}
              (cell "[:b] (fn [v _] (if (neg? v) {:color \"red\"} v))" 1 1)))
       (is (= {:value "neg" :style {:background "#fee" :border "rgb(200, 0, 0)"}}
              (cell "[:b] (fn [v _] {:text \"neg\" :background \"#fee\" :border \"rgb(200, 0, 0)\"})" 1 1))))
@@ -149,7 +149,7 @@
 
 (deftest the-child-runs-every-table
   (is (= [{:results [[nil {:value "1"}]]} {:results [[nil]]} {:results [[{:value "12"}]]}
-          {:results [[{:value "2" :style {:color "green"}}]]}]
+          {:results [[{:style {:color "green"}}]]}]
          (calc/evaluate-tables [{:cells [["1" "=(sum :a)"]]}
                                 {:cells [["2"]]}
                                 {:cells [["=(+ 5 7)"]]}
@@ -161,10 +161,10 @@
                                      [{:cells [["2"]] :defs (str "[:a] (fn [v _] {:color " (pr-str bad) "})")}])
                                     [0 :results 0 0 :error]))
         bad))
-  (is (= {:value "2" :style {:color "hsl(120deg 50% 50%)"}}
+  (is (= {:style {:color "hsl(120deg 50% 50%)"}}
          (get-in (calc/evaluate-tables [{:cells [["2"]] :defs "[:a] (fn [v _] {:color \"hsl(120deg 50% 50%)\"})"}])
                  [0 :results 0 0])))
-  (is (= {:value "2" :style {:background "#ffeedd" :border "rgba(0, 0, 0, .5)" :color "Crimson"}}
+  (is (= {:style {:background "#ffeedd" :border "rgba(0, 0, 0, .5)" :color "Crimson"}}
          (get-in (calc/evaluate-tables
                   [{:cells [["2"]] :defs "[:a] (fn [v _] {:color \"Crimson\" :background \"#ffeedd\" :border \"rgba(0, 0, 0, .5)\"})"}])
                  [0 :results 0 0]))))
@@ -243,3 +243,37 @@
     (is (= {:cells [["1"]]} t3))
     (is (= [{:results [[{:value "2"}]]}]
            (calc/evaluate-tables (calc/with-data [{:cells [["=(sum :b)"]] :defs ">> [s](s.csv)"}] read))))))
+
+;; review findings
+
+(deftest a-colour-only-fn-keeps-the-cell-as-written
+  (let [out (results [["007" "[a](b.md)"] ["1.50" "x"]] "[:a 1 :a 2 :b 1] (fn [v _] {:color \"red\"})\n[:b 2] (fn [v _] v)")]
+    (is (= {:style {:color "red"}} (get-in out [:results 0 0])))
+    (is (= {:style {:color "red"}} (get-in out [:results 0 1])))
+    (is (= {:style {:color "red"}} (get-in out [:results 1 0])))
+    (is (nil? (get-in out [:results 1 1])) "an unchanged value without style is no result")
+    (is (= [{:results [[{:style {:color "red"}}]]}]
+           (calc/evaluate-tables [{:cells [["007"]] :defs "[:a] (fn [v _] {:color \"red\"})"}])))))
+
+(deftest min-and-max-take-a-collection-like-sum
+  (let [f (fn [formula] (value-at (results [["3" "5" formula]]) 0 2))]
+    (is (= "5" (f "=(max (table :a :b))")))
+    (is (= "3" (f "=(min [5 nil 3])")))
+    (is (= "8" (f "=(sum [5 nil 3])")))
+    (is (= "7" (f "=(max 1 7)")))))
+
+(deftest empty-data-sums-to-nothing
+  (let [out (calc/evaluate {:cells [["=(sum :a)" "=(count :b)" "=(table :a)"]] :data []})]
+    (is (= "0" (value-at out 0 0)))
+    (is (= "0" (value-at out 0 1)))
+    (is (= "[]" (value-at out 0 2)))))
+
+(deftest an-arity-error-inside-the-fn-is-its-own
+  (is (re-find #"inc" (error-at (results [["1"]] "[:a] (fn [v ctx] (inc v ctx))") 0 0))))
+
+(deftest a-failing-data-link-keeps-the-formatting
+  (let [[t] (calc/with-data [{:cells [["1"]] :defs ">> [s](gone.csv)\n[:a] str"}]
+              (fn [d] (throw (ex-info (str "no such file: " d) {}))))]
+    (is (= "[:a] str" (:defs t)))
+    (is (some? (:data-error t)))
+    (is (re-find #"no such file" (:error (calc/evaluate t))))))

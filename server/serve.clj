@@ -94,6 +94,12 @@
     (when (and (str/ends-with? stem tail) (> (count stem) (count tail)))
       (str (subs stem 0 (- (count stem) (count tail))) ext))))
 
+(defn- ext-of
+  "File name nm's extension, lower case; nil without a dot."
+  [nm]
+  (when-let [dot (str/last-index-of nm ".")]
+    (str/lower-case (subs nm (inc dot)))))
+
 (defn resolve-path
   "The canonical file for the root-relative path `rel` under `root`.
   Refuses (ex-info, message names the problem) an absolute path, a
@@ -109,9 +115,7 @@
        (throw (ex-info (str "absolute path refused: " rel) {})))
      (let [root-c (.getCanonicalFile (io/file root))
            f (.getCanonicalFile (io/file root-c rel))
-           nm (.getName f)
-           dot (str/last-index-of nm ".")
-           ext (when (some? dot) (str/lower-case (subs nm (inc dot))))]
+           ext (ext-of (.getName f))]
        (when-not (str/starts-with? (.getPath f) (str (.getPath root-c) java.io.File/separator))
          (throw (ex-info (str rel " leaves the served folder") {})))
        (when-not (contains? exts ext)
@@ -671,7 +675,7 @@
     (let [rel (query-param query-string "path")
           _ (when-not (seq rel) (throw (ex-info "path required" {})))
           f (resolve-path @root-dir rel true (set (keys image-types)))
-          ext (str/lower-case (last (str/split (.getName f) #"\.")))]
+          ext (ext-of (.getName f))]
       {:status 200
        :headers {"Content-Type" (get image-types ext)
                  "Content-Security-Policy" "default-src 'none'; style-src 'unsafe-inline'; sandbox"
@@ -1109,7 +1113,7 @@
           f (resolve-path @root-dir rel true data-extensions)]
       (when (> (.length f) max-data-bytes)
         (throw (ex-info (str rel " is over 50 MiB") {})))
-      [(str/lower-case (last (str/split (.getName f) #"\."))) (slurp f)])))
+      [(ext-of (.getName f)) (slurp f)])))
 
 (defn- calc-response
   "The formula results of the request's md tables (calc/evaluate-tables),

@@ -139,6 +139,16 @@
                         [:table [:thead [:tr [:th "x"]]]
                          [:tbody [:tr [:td {:class "calc" :title "=(sum :a)"} "0"]]]]))))
 
+(test "calc: a style alone keeps the cell's markdown; a table's own error shows as its caption"
+  (fn []
+    (let [doc "```simpleviz-table\n[:a] f\n```\n| a |\n|--|\n| *x* |"]
+      (assert/deepEqual (render doc link [{:results [[{:style {:background "#fee"}}]]}])
+                        [[:table [:thead [:tr [:th "a"]]]
+                          [:tbody [:tr [:td {:style {:background "#fee"}} [:em "x"]]]]]])
+      (assert/deepEqual (render doc link [{:results [[nil]] :error "def block: boom"}])
+                        [[:table [:caption {:class "calc-error"} "def block: boom"]
+                          [:thead [:tr [:th "a"]]] [:tbody [:tr [:td [:em "x"]]]]]]))))
+
 (test "calc: when the server can't be asked, every formula cell says why, the rest shows as written"
   (fn []
     (assert/deepEqual (nth (nth (render calc-doc link {:failed "no server"}) 0) 2)

@@ -4,6 +4,11 @@
 
 ;; Pure op-payload builders — the DOM-facing code in app.cljs stays thin.
 
+(defn elk-target
+  "The op target of top-level elk id `id` (\"n:a\", \"b:grp\")."
+  [id]
+  {:section (if (.startsWith id "n:") "nodes" "boxes") :id (.slice id 2)})
+
 (defn target
   "The op target for a selection. An edge is keyed by its pair as written
   in the file (carried in attrs :nodes): a :<- edge is displayed with
@@ -11,8 +16,7 @@
   [sel]
   (case (:kind sel)
     "edge" {:section "edges" :id (or (:nodes (:attrs sel)) [(:source sel) (:target sel)])}
-    "node" {:section "nodes" :id (.slice (:elk-id sel) 2)}
-    "box" {:section "boxes" :id (.slice (:elk-id sel) 2)}))
+    ("node" "box") (elk-target (:elk-id sel))))
 
 (defn retarget-end
   "Which end of the file key the displayed `end` (\"source\"/\"target\")
@@ -196,11 +200,9 @@
 
 (defn edit-body
   "The /api/edit POST body: routes ops to whichever file (\"old\"/\"new\")
-  is the current edit target, under the graph's `compare` suffix when
-  it has one."
-  [file ops & [compare]]
-  (cond-> {:file file :ops ops}
-    (some? compare) (assoc :compare compare)))
+  is the current edit target."
+  [file ops]
+  {:file file :ops ops})
 
 (defn theme-menu
   "The theme menu's state. It is yours: `pref`, the built-in you picked
@@ -340,8 +342,7 @@
   "The compare of trail entry i in `trail-compare` (which may be nil or
   shorter), nil when it has none."
   [trail-compare i]
-  (let [c (when (some? trail-compare) (get trail-compare i))]
-    (if (nil? c) nil c)))
+  (get trail-compare i))
 
 (defn parse-nav
   "The page's navigation state from its query string: {:file
@@ -428,7 +429,7 @@
   [current-path trail target & [focus {:keys [from trail-compare to]}]]
   (let [n (count trail)]
     (nav-query target (conj (vec trail) current-path) focus to
-               (conj (mapv (fn [i] (compare-at trail-compare i)) (range n)) (if (nil? from) nil from)))))
+               (conj (mapv (fn [i] (compare-at trail-compare i)) (range n)) from))))
 
 (defn follow-compare
   "The compare to show `target` under when it is followed: none for an
@@ -455,7 +456,7 @@
         q (nav-query f (vec (.slice trail 0 i)) nil (compare-at trail-compare i)
                      (mapv (fn [k] (compare-at trail-compare k)) (range i)))]
     (if (and (md-path? f) (some? nxt) (not (md-path? nxt)))
-      (with-compare (with-side q nxt) (if (nil? nxt-c) nil nxt-c))
+      (with-compare (with-side q nxt) nxt-c)
       q)))
 
 (defn banner-visible?
@@ -516,7 +517,10 @@
           []
           (filterv (fn [l] (mdlinks/followable? (:dest l))) links)))
 
-(defn- same-compare? [a b]
+(defn same-compare?
+  "Are compares `a` and `b` the same — none (nil or undefined alike), or
+  the same suffix?"
+  [a b]
   (if (nil? a) (nil? b) (= a b)))
 
 (defn mark-open?
@@ -618,14 +622,14 @@
 (defn selection-targets
   "The op targets ({:section :id}) of the scene ids of nodes and boxes."
   [ids]
-  (mapv (fn [id] {:section (if (.startsWith id "n:") "nodes" "boxes") :id (.slice id 2)}) ids))
+  (mapv elk-target ids))
 
 (defn paste-op
   "The op pasting clipboard text `edn`: into the box `sel` is, else at
   the top level."
   [edn sel]
   (if (= "box" (:kind sel))
-    {:op "paste" :edn edn :into (.slice (:elk-id sel) 2)}
+    {:op "paste" :edn edn :into (:id (elk-target (:elk-id sel)))}
     {:op "paste" :edn edn}))
 
 ;; ---- keyboard chords ----

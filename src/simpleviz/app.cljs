@@ -475,10 +475,7 @@
       (case action
         "delete" {:run #(delete! tgt)}
         ;; the selection comes along — unless the file edited lacks it
-        "select-mode" {:run #(enter-select! (if (and (contains? #{"node" "box"} (:kind sel))
-                                                     (not= (absent-status @state) (:diff sel)))
-                                              #{(:elk-id sel)}
-                                              #{})
+        "select-mode" {:run #(enter-select! (if (hit/selectable? sel (absent-status @state)) #{(:elk-id sel)} #{})
                                             false)}
         "select-all" {:run select-all!}
         "select-rect" {:run #(enter-select! (or (:ids (:multi @state)) #{}) true)}
@@ -954,7 +951,7 @@
           ;; select mode: a node or box joins the selection, or leaves it
           (and (nil? pick) (some? (:multi @state)))
           (cond (= (:kind item) "collapse-button") (toggle-collapse! (.slice (:box-id item) 2))
-                (and (contains? #{"node" "box"} (:kind item)) (not= (absent-status @state) (:diff item)))
+                (hit/selectable? item (absent-status @state))
                 (swap! state update-in [:multi :ids]
                        (fn [ids] (if (contains? ids (:id item)) (disj ids (:id item)) (conj ids (:id item))))))
 
@@ -1052,13 +1049,8 @@
   (when-let [e (.get layout-cache (cache-key (:collapsed-boxes @state)))]
     (when (some? (:scene e)) (show-layout! e))))
 
-(defn- elk-target
-  "The edit op target of top-level elk id `id` (\"n:a\", \"b:grp\")."
-  [id]
-  {:section (if (.startsWith id "n:") "nodes" "boxes") :id (.slice id 2)})
-
 (defn- pos-op [id [col row]]
-  (editor/set-attr-op (elk-target id) "pos" (str "[" col " " row "]") false))
+  (editor/set-attr-op (editor/elk-target id) "pos" (str "[" col " " row "]") false))
 
 (defn- ^:async toggle-arrange!
   "✥: arrange on or off. Turned on in a file laid out automatically, it
@@ -1082,9 +1074,9 @@
   []
   (when (js/confirm "Forget where you placed the nodes and boxes and lay the graph out automatically again?")
     (let [g (:graph @state)
-          ops (into (vec (keep (fn [n] (when (some? (:pos n)) (editor/del-attr-op (elk-target (str "n:" (:id n))) "pos")))
+          ops (into (vec (keep (fn [n] (when (some? (:pos n)) (editor/del-attr-op (editor/elk-target (str "n:" (:id n))) "pos")))
                                (js/Object.values (:nodes g))))
-                    (keep (fn [b] (when (some? (:pos b)) (editor/del-attr-op (elk-target (str "b:" (:name b))) "pos"))))
+                    (keep (fn [b] (when (some? (:pos b)) (editor/del-attr-op (editor/elk-target (str "b:" (:name b))) "pos"))))
                     (:boxes g))]
       (swap! state assoc :arrange false)
       (post-edit! ops))))
@@ -1495,7 +1487,7 @@
      (when (some? error) [:div {:class "choose-error"} error])
      (if (empty? files)
        [:p {:class "choose-note"} "No other graphs in the served folder to copy."]
-       [:div {:class "choose-copy"}
+       [:div
         [:p {:class "choose-note"} "or start it as a copy — its :ref paths stay as written:"]
         [:input {:class "choose-filter" :type "search" :placeholder "filter" :value query
                  :aria-label "Filter the graphs"
@@ -1932,6 +1924,23 @@
                  :headers {"Content-Type" "application/json"}
                  :body (js/JSON.stringify body)}))
 
+(defn- ^:async json-of
+  "The JSON body fetch promise `p` resolves to, or {:error `fallback`}
+  when the server did not answer."
+  [p fallback]
+  (try (js-await (.json (js-await p)))
+       (catch :default _ {:error fallback})))
+
+(defn- graph-request
+  "Request body `body` about the graph shown: with its compare, and its
+  root-relative path unless it is the root."
+  [body]
+  (let [st @state
+        f (graph-file st)]
+    (cond-> body
+      (some? (:compare st)) (assoc :compare (:compare st))
+      (some? f) (assoc :path f))))
+
 (defn- ^:async follow-to!
   "Navigate to root-relative `path` (selecting `focus`, when given), the
   file shown joining the trail. With `create?` the server is first asked
@@ -1969,7 +1978,7 @@
   everything that belongs to it, and keep both in the URL without a
   history entry, so a reload shows it again."
   [side & [compare]]
-  (let [compare (when (some? side) compare)]
+  (let [compare (if (and (some? side) (some? compare)) compare nil)]
     (swap! graph-gen inc)
     (swap! state (fn [st] (merge st per-file {:side side :compare compare})))
     (.clear layout-cache)
@@ -1982,9 +1991,8 @@
   under `compare` when given, creating it first when `create?` (as
   following a link to it would)."
   [path create? & [compare]]
-  (let [st @state
-        compare (if (nil? compare) nil compare)]
-    (when-not (and (= path (:side st)) (= compare (:compare st)))
+  (let [st @state]
+    (when-not (and (= path (:side st)) (editor/same-compare? compare (:compare st)))
       (when create?
         (try (js-await (post-json "/api/create" (editor/create-body "new" path compare)))
              (catch :default _ nil)))
@@ -2005,10 +2013,8 @@
   created, as that comparison's side — no copies there."
   [path compare]
   (let [gen (swap! side-gen inc)
-        out (try (js-await (.json (js-await (js/fetch (str "/api/graphs?path=" (js/encodeURIComponent path)
-                                                            (when (some? compare)
-                                                              (str "&compare=" (js/encodeURIComponent compare))))))))
-                 (catch :default _ {:error "the server did not answer"}))]
+        out (js-await (json-of (js/fetch (str "/api/graphs" (editor/with-compare (str "?path=" (js/encodeURIComponent path)) compare)))
+                               "the server did not answer"))]
     (cond
       ;; another link was followed, or the page left, meanwhile
       (not= gen @side-gen) nil
@@ -2027,10 +2033,10 @@
         gen @side-gen]
     (when-not busy
       (swap! state assoc-in [:side-choose :busy] true)
-      (let [out (try (js-await (.json (js-await (post-json "/api/create"
-                                                           (cond-> (editor/create-body "new" path compare)
-                                                             (some? from) (assoc :from from))))))
-                     (catch :default _ {:error "the server did not answer"}))]
+      (let [out (js-await (json-of (post-json "/api/create"
+                                              (cond-> (editor/create-body "new" path compare)
+                                                (some? from) (assoc :from from)))
+                                   "the server did not answer"))]
         (cond
           (not= gen @side-gen) nil
           (some? (:error out))
@@ -2380,8 +2386,7 @@
   answers file (talk.md's talk.answers.edn)."
   []
   (let [path (:path (:md @state))
-        out (try (js-await (.json (js-await (js/fetch (str "/api/answers?path=" (js/encodeURIComponent path))))))
-                 (catch :default _ {:error "not connected"}))]
+        out (js-await (json-of (js/fetch (str "/api/answers?path=" (js/encodeURIComponent path))) "not connected"))]
     (swap! state assoc
            :answers (if (some? (:answers out)) (:answers out) {})
            :unsaved {}
@@ -2396,8 +2401,7 @@
   answer either way — a ??? stays locked, the deck goes on — and every
   slide says which answers are not in the file yet."
   [body]
-  (let [out (try (js-await (.json (js-await (post-json "/api/answers" body))))
-                 (catch :default _ {:error "not connected"}))]
+  (let [out (js-await (json-of (post-json "/api/answers" body) "not connected"))]
     (swap! state update :unsaved
            (fn [m] (if (some? (:error out)) (assoc m (:id body) (:error out)) (dissoc m (:id body)))))))
 
@@ -2427,6 +2431,11 @@
       (swap! state update :present dissoc :draft :blocked)
       (save-answer! a num))))
 
+(defn- slide-compare
+  "The compare the graph slide `s`'s >> names shows under."
+  [s]
+  (editor/follow-compare (str (:side s)) (:side-compare s) nil))
+
 (defn- ^:async show-slide!
   "Present slide i of the md page, clamped to the deck: keep its number
   in the URL (no history entry) and show what its >> names beside it — a
@@ -2439,9 +2448,9 @@
         ds (deck st)
         i (max 0 (min i (dec (count ds))))
         dest (:side (nth ds i nil))
-        compare (editor/follow-compare (str dest) (:side-compare (nth ds i nil)) nil)
+        compare (slide-compare (nth ds i nil))
         same? (and (some? (:present st)) (= dest (:dest (:present st)))
-                   (= compare (:compare (:present st))))]
+                   (editor/same-compare? compare (:compare (:present st))))]
     (replace-query! (editor/with-slide js/location.search (inc i)))
     (swap! state assoc :present {:slide i :dest dest :compare compare
                                  :side (when same? (:side (:present st)))})
@@ -2474,7 +2483,7 @@
             ds (deck new)
             s (nth ds slide nil)]
         (when (or (>= slide (count ds)) (not= dest (:side s))
-                  (not= compare (editor/follow-compare (str dest) (:side-compare s) nil)))
+                  (not (editor/same-compare? compare (slide-compare s))))
           (show-slide! slide))))))
 
 (defn- present-key!
@@ -2656,9 +2665,7 @@
       (and (:page md) (= kind "graph"))
       (let [c (editor/follow-compare path (:compare l) nil)]
         (if (and (editor/downstream-graph? (:path md) path)
-                 ;; nil or undefined alike: no compare
-                 (not (and (= path (:side st))
-                           (or (= c (:compare st)) (and (nil? c) (nil? (:compare st)))))))
+                 (not (and (= path (:side st)) (editor/same-compare? c (:compare st)))))
           (js-await (offer-side! path c))
           (js-await (open-side! path (.endsWith (.toLowerCase path) ".edn") c))))
       :else
@@ -2670,9 +2677,7 @@
   "POST ops to the edit target — or to `file` (\"old\"/\"new\") when given."
   [ops & [file]]
   (let [resp (js-await (post-json "/api/edit"
-                                  (let [body (editor/edit-body (or file (:edit-target @state)) ops (:compare @state))
-                                        f (graph-file @state)]
-                                    (if (some? f) (assoc body :path f) body))))
+                                  (graph-request (editor/edit-body (or file (:edit-target @state)) ops))))
         out (js-await (.json resp))]
     (if (some? (:error out))
       ;; a failed edit invalidates any pending-focus jump that was armed
@@ -2762,7 +2767,7 @@
   "s a: select mode with every node and box selected."
   []
   (let [sc (:scene @state)]
-    (enter-select! (set (hit/ids-in-rect sc {:x0 -1e9 :y0 -1e9 :x1 1e9 :y1 1e9} (absent-status @state))) false)))
+    (enter-select! (set (hit/selectable-ids sc (absent-status @state))) false)))
 
 (defn- rect-drag
   "The canvas's drag hook after s r: the drag spans a rectangle, and
@@ -2786,10 +2791,8 @@
   "What /api/copy answers for scene ids `ids`: {:edn the clipboard text
   :ids the targets it took}; throws its error."
   [ids]
-  (let [f (graph-file @state)
-        body (cond-> {:file (:edit-target @state) :ids (editor/selection-targets ids)}
-               (some? (:compare @state)) (assoc :compare (:compare @state)))
-        out (js-await (.json (js-await (post-json "/api/copy" (if (some? f) (assoc body :path f) body)))))]
+  (let [out (js-await (.json (js-await (post-json "/api/copy" (graph-request {:file (:edit-target @state)
+                                                                               :ids (editor/selection-targets ids)})))))]
     (if (some? (:error out)) (throw (js/Error. (:error out))) out)))
 
 (defn- write-clipboard!
@@ -2818,10 +2821,11 @@
                      (swap! state assoc :notice (str (if cut "Cut" "Copy") " failed: " msg)))
                    false))]
     (when ok?
-      (let [n (count (:ids (js-await out-p)))]
+      (let [ids (:ids (js-await out-p))
+            n (count ids)]
         (swap! state assoc :multi nil)
         (if cut
-          (do (js-await (post-edit! (mapv editor/delete-op (:ids (js-await out-p)))))
+          (do (js-await (post-edit! (mapv editor/delete-op ids)))
               (when (nil? (:edit-error @state)) (flash! (str "cut " n " — p p pastes them"))))
           (flash! (str "copied " n " — p p pastes them, here or in another graph")))))))
 
@@ -3051,15 +3055,15 @@
       (present-key! e)
 
       (= (.-key e) "Escape") (do (cancel-pick!)
-                                 ;; select mode ends, unless a chord or a rectangle was what Esc cancelled
+                                 (canvas/set-marquee! nil)
                                  (swap! state (fn [st]
                                                 (let [m (:multi st)]
-                                                  (assoc st :multi (cond (some? (:chord st)) m
-                                                                         (:rect m) (assoc m :rect false)
-                                                                         :else nil)))))
-                                 (canvas/set-marquee! nil)
-                                 (swap! state assoc :help false :chord nil :export-menu false :link-menu nil
-                                        :arrange false)
+                                                  (assoc st :help false :chord nil :export-menu false :link-menu nil
+                                                         :arrange false
+                                                         ;; select mode ends, unless a chord or a rectangle was what Esc cancelled
+                                                         :multi (cond (some? (:chord st)) m
+                                                                      (:rect m) (assoc m :rect false)
+                                                                      :else nil)))))
                                  (when (:full (:md @state))
                                    (swap! state assoc-in [:md :full] false)))
       ;; a held key must not complete its own chord

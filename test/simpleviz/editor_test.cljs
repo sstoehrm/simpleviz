@@ -797,9 +797,8 @@
     (assert/equal (follow-compare "notes.md" "next" "next") nil)
     (assert/equal (follow-compare "api.edn" nil nil) nil)))
 
-(test "edit-body and create-body carry a compare"
+(test "create-body carries a compare"
   (fn []
-    (assert/deepEqual (edit-body "new" [] "next") {:file "new" :ops [] :compare "next"})
     (assert/deepEqual (create-body "new" "a.edn" "next") {:file "new" :path "a.edn" :compare "next"})
     (assert/deepEqual (create-body "new" "a.edn" nil) {:file "new" :path "a.edn"})))
 

@@ -135,16 +135,25 @@
                       (when (box-hit? p it) it)))
                 boxes-rev))))))
 
+(defn selectable?
+  "Can scene item (or selection) `it` join select mode: a node or box,
+  but not one of compare status `absent` — in the file edited it is not
+  there (\"removed\" when editing the new file, \"added\" the old)."
+  [it absent]
+  (and (contains? #{"node" "box"} (:kind it)) (not= absent (:diff it))))
+
+(defn selectable-ids
+  "The ids of `scene`'s selectable nodes and boxes, in draw order."
+  [scene absent]
+  (vec (keep (fn [it] (when (selectable? it absent) (:id it))) (:items scene))))
+
 (defn ids-in-rect
-  "The ids of the nodes and boxes wholly inside the graph-space rect
-  spanned by (x0, y0) and (x1, y1), in draw order — but those whose
-  compare status is `absent`: in the file edited they are not there to
-  select (\"removed\" when editing the new file, \"added\" the old)."
+  "The ids of the selectable nodes and boxes wholly inside the
+  graph-space rect spanned by (x0, y0) and (x1, y1), in draw order."
   [scene {:keys [x0 y0 x1 y1]} absent]
   (let [lx (min x0 x1) hx (max x0 x1) ly (min y0 y1) hy (max y0 y1)]
     (vec (keep (fn [it]
-                 (when (and (contains? #{"node" "box"} (:kind it))
-                            (not= absent (:diff it))
+                 (when (and (selectable? it absent)
                             (<= lx (:x it)) (<= (+ (:x it) (:w it)) hx)
                             (<= ly (:y it)) (<= (+ (:y it) (:h it)) hy))
                    (:id it)))

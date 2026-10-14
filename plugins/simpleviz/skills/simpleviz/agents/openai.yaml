@@ -1,4 +1,4 @@
 interface:
   display_name: "Simpleviz"
-  short_description: "Create and serve EDN system diagrams"
-  default_prompt: "Use $simpleviz to create or update an EDN system diagram and explain how to view it."
+  short_description: "Diagrams, docs and slides from plain files"
+  default_prompt: "Use $simpleviz to create or update an EDN system diagram or an md doc that links it, and explain how to view it."

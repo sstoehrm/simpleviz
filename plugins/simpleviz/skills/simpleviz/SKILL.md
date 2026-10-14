@@ -1,20 +1,46 @@
 ---
 name: simpleviz
-description: Use when creating or editing simpleviz graph EDN files, visualizing an architecture or system diagram with simpleviz, writing simpleviz markdown docs or slide decks that link graphs, or serving and comparing graphs (bb serve, the simpleviz launcher, nodes/edges/boxes .edn files, exported PNGs/SVGs with embedded EDN)
+description: Writes and checks simpleviz files — EDN graphs of nodes, edges and nested boxes, and markdown docs and slide decks that link them — and serves, compares, exports and presents them with the simpleviz CLI. Use when creating or editing simpleviz graph EDN files or md docs and decks that link graphs, visualizing an architecture or system diagram with simpleviz, or serving, forking and comparing graphs (bb serve, the simpleviz launcher, nodes/edges/boxes .edn files, exported PNGs/SVGs with embedded EDN).
 ---
 
-# simpleviz — graph EDN and md authoring and usage
+# simpleviz
 
-Diagrams, docs and slides from plain markdown and EDN files: nodes, directed edges and nested grouping boxes in EDN, laid out automatically or by hand; markdown docs that link graphs and present as slides; a page that live-reloads while the files are edited.
+Diagrams, docs and slides from plain markdown and EDN files. A graph is an
+EDN file of nodes, edges and nested boxes; an md file explains graphs and
+presents as slides. `simpleviz` serves either as a page in the browser that
+reloads while the files change.
+
+Terms used below: a *graph* is an EDN file, an *md file* a markdown doc,
+*the page* what the browser shows (its *inspector* lists a clicked
+element's attributes), the *served folder* the folder of the
+file simpleviz was started with.
+
+## Writing a graph or md file
+
+Validation is lenient: an invalid element is skipped with a warning banner
+and the rest still renders; a parse error keeps the last good render.
+Nothing fails loudly, so checking is the only way to know a file is right.
+Copy this checklist and work through it:
+
+```
+- [ ] 1. Served by a running server? Take its lock (see Concurrent writes)
+- [ ] 2. Write the file in map form (see Data format)
+- [ ] 3. simpleviz check <file> — every file you wrote, :ref targets included
+- [ ] 4. Fix each warning, check again; repeat until it prints ok
+- [ ] 5. Release the lock
+- [ ] 6. To show it: simpleviz <file> --no-open in the background, give the user the URL
+```
 
 ## Data format (canonical map forms)
 
 ```edn
 {:nodes {:api {:name "API"           ; display name (defaults to the key)
                :type "service"       ; free-form string; determines color, shown as (type)
-               :lang "clojure"}      ; any other attr: shown in the click inspector only
+               :text "Order intake"  ; shown inside the node
+               :state :in-progress   ; corner mark: :new :in-progress :blocked :done
+               :lang "clojure"}      ; any other attr: shown in the inspector only
          :web {:type "frontend"}
-         :db {:type "database"}
+         :db {:type "database"}      ; drawn as a database cylinder
          :cache {:type "cache"}}
  :edges {[:web :api]                 ; key = the two endpoints; order defines left/right
          {:direction :->             ; :-> | :<- | :<-> | :- (default :-)
@@ -27,101 +53,196 @@ Diagrams, docs and slides from plain markdown and EDN files: nodes, directed edg
          :storage {:type "zone" :components #{:db :cache}}}}
 ```
 
-Rules that are easy to get wrong:
-- `:nodes` is a MAP keyed by id — not a vector. There is no `:id`, `:label`, or nested `:attrs` key; the display key is `:name`, and every other key in the node map is a free-form attribute shown in the inspector.
-- `:ref "sub/other.edn"` on a node, box or edge links another graph file (or an `.md` file, which opens in the doc editor as an md page), relative to the file it is in and never above the folder of the served root file; the viewer's "follow ref" (`f r`) opens it and shows a clickable trail back. In a suffix comparison it opens the referenced file's own comparison.
-- `:pair "views/deploy.edn#api-svc"` (or a vector of them) on a node or box names the same element in another graph file, path relative to the file it's in, same folder rules as `:ref`. The viewer marks paired elements with ⇄, lists pairs in both directions in the inspector (a pair declared on one side shows on both), and "follow pair" (`f p` — `f p 1`…`f p 9` with several, numbered in the inspector) opens the other graph with that element selected. A missing file or id is a warning — check it like any other.
-- `:state` on a node — `:new`, `:in-progress`, `:blocked` or `:done` — draws a mark on the node's corner (grey disc, blue half disc, red square, green check); use it to show progress on a plan or spec figure. Any other value is an ordinary attribute. A node with a `:ref` is drawn with a double border. A node of `:type "database"` is drawn as a database cylinder — use that type for data stores. `:text "..."` (or a vector of lines; `\n` breaks a line) on a node or box is shown inside it, wrapped at about 220 px — use it for the one or two lines a reader needs at a glance, not for whole specs (that's what `:md-ref` is for).
-- `:md-ref "docs/specs/api.md"` on a node or box points at the markdown doc that describes it (spec, ADR, notes) — set it when such a doc exists so readers know where the detail lives. Same path rules as `:ref`, `.md` only. The element gets a dotted border, and the viewer's "open md" (`f m`) edits the doc as plain text — the user may have it open: before writing a doc while a server runs, take the lock on its path (`/api/lock` with `"path":"docs/specs/api.md"`, see Concurrent writes); a save from the browser is refused while you hold it, and an unlocked write shows the user a conflict instead of being lost.
-- An `.md` file can be served too (`simpleviz notes.md --no-open`): it opens rendered (what GitHub renders: headings, emphasis, quotes, lists and task lists, links, images, tables, footnotes, code; not raw HTML; Edit shows the plain text), and its ordinary markdown links — `[text](sub/api.edn)`, `![x](diagram.png)`, `[text](other.md)`, reference links — follow on click (in the plain text, by a » beside the line), with the same trail and folder rules as `:ref`; a graph opens to the right of the text (`?side=<path>` in the URL). Use it as the entry point that explains a set of graphs. Its Present button shows it as slides: a line of just `---` starts the next slide, and a slide whose first line is `>> [the API](sub/api.edn)` — `>>` and a link to a graph, an md file or a picture (`>> ![alt](pic.png)`), path relative to the md file, checked like any link — shows it to the right of the text — write a talk this way. `?compare=<suffix>` on a link to a graph (`[the change](sub/api.edn?compare=next)`, also after `>>`) shows it compared with its fork `sub/api-next.edn` (made with `simpleviz fork`), as `simpleviz sub/api.edn next` would, while the file's other links stay plain — use it to show a proposed change in a doc or talk; refs followed inside stay compared. `simpleviz check notes.md` lists broken links (`line N: <dest> not found` / `leaves the served folder`, and for `?compare=` a missing fork or invalid suffix); `/api/errors` reports them for a served md file. The lock rule for docs applies: lock the `.md` path before writing a doc that is being served.
-- `:theme` at the top level sets the graph's colors for every viewer and export: a built-in name — `:light :dark :print :high-contrast :blueprint :paper :solarized-light :solarized-dark :nord :dracula :carbonfox :one-dark :tabak-light :tabak-dark` — or overrides on one, `{:base :nord :accent "#b58900" :edge "#81a1c1"}` (colors as `#hex`, `rgb()`, `hsl()`; the key list is in the guide's Themes section). It wins over the theme the viewer picked (and over the OS light/dark setting). An unknown name, key or bad value warns and is skipped.
-- `:edges` is a map keyed by `[from to]` vectors — not `:from`/`:to` maps. Direction lives in `:direction`; there is no `:bidirectional` (use `:<->`). The same pair cannot appear twice; writing both `[:a :b]` and `[:b :a]` triggers a "same connection" warning.
-- Grouping is `:boxes` with `:components` — there is no `:zones`, `:groups`, or `:children`. Boxes nest by listing another box's id in `:components`. Edge endpoints may be node ids or box ids (never display names); an edge between a box and its own content — or a box and itself — is skipped with a warning.
-- `:pos [col row]` on a top-level node or box places it by hand on a grid of 20 px cells (whole numbers, from 0); once any element has one, the file is laid out by hand — boxes still arrange their insides, edges between top-level elements run straight. The page writes `:pos` when someone drags (✥); don't invent coordinates — leave layout to the default unless asked to keep a given arrangement. On a nested element it warns and is ignored.
-- Identifiers may be keywords or strings, interchangeably (`:api` ≡ `"api"`); namespaced keywords keep their namespace (`:backend.server/db` ≡ `"backend.server/db"`). When a name refers to both a node and a box, an edge endpoint resolves to the node (with a warning).
-- A node's attribute map may be empty or nil: `{:nodes {:api {} :db nil}}` is valid. A box without `:components` is valid too — it renders as a small node-style shell.
-- An element may belong to at most one box; contested membership goes to the first box by sorted name, with a warning.
-- Colors are stable: a `:type` string keeps its color across restarts and unrelated edits.
-- Pre-v2 vector forms are still accepted: `:edges [{:nodes [:a :b] :direction :->}]` and `:boxes [{:name "backend" :components #{..}}]`.
-- The editor rewrites the served file. Vector-form files refuse edits; convert to map form first.
+Shapes that are easy to get wrong:
+- `:nodes` is a MAP keyed by id, not a vector. There is no `:id`, `:label`
+  or nested `:attrs`; the display key is `:name`, every other key is a
+  free-form attribute.
+- `:edges` is a map keyed by `[from to]` vectors, not `:from`/`:to` maps.
+  Direction lives in `:direction`; there is no `:bidirectional` (use
+  `:<->`). A pair appears once: `[:a :b]` and `[:b :a]` together warn
+  "same connection".
+- Grouping is `:boxes` with `:components`; there is no `:zones`, `:groups`
+  or `:children`. Boxes nest by listing another box's id.
+- Edge endpoints are node or box ids, never display names. An edge between
+  a box and its own content, or a box and itself, is skipped with a
+  warning. When an id names both a node and a box, an endpoint resolves to
+  the node (with a warning).
+- Identifiers may be keywords or strings interchangeably (`:api` ≡
+  `"api"`); namespaced keywords keep their namespace
+  (`:backend.server/db` ≡ `"backend.server/db"`).
+- An element belongs to at most one box; contested membership goes to the
+  first box by sorted name, with a warning.
+- A node's attribute map may be empty or nil (`{:api {} :db nil}`); a box
+  without `:components` renders as a small node-style shell.
 
-## Validation is lenient — check what you wrote
+Attributes simpleviz reads:
+- `:type` colors a node's name or a box, and keeps its color across
+  restarts and edits. `"database"` (any case) draws the node as a cylinder;
+  use it for data stores.
+- `:text` on a node or box shows inside it, wrapped at about 220 px; `\n`
+  or a vector of strings for more lines. Use it for the line or two a
+  reader needs at a glance; whole specs belong in an md file (`:md-ref`).
+- `:state` on a node (`:new`, `:in-progress`, `:blocked`, `:done`) draws a
+  grey disc, blue half disc, red square or green check on its corner; use
+  it to show progress on a plan or spec. Other values are ordinary
+  attributes.
+- `:ref "sub/other.edn"` on a node, box or edge links another graph (or an
+  md file). The node gets a double border; "follow ref" in the page opens
+  it with a trail back, in a comparison into the referenced file's own
+  comparison.
+- `:md-ref "docs/specs/api.md"` on a node or box names the md file that
+  describes it (spec, ADR, notes); set it when such a doc exists. `.md`
+  only. The element gets a dotted border and the page can edit the doc —
+  so lock it before writing it while a server runs.
+- `:pair "views/deploy.edn#api-svc"` (or a vector of them) on a node or box
+  names the same element in another graph. The page marks both sides with
+  ⇄ and jumps between them. A missing file or id is a warning.
+- `:theme` at the top level sets the colors for every viewer and export: a
+  built-in (`:light :dark :print :high-contrast :blueprint :paper
+  :solarized-light :solarized-dark :nord :dracula :carbonfox :one-dark
+  :tabak-light :tabak-dark`) or overrides on one, `{:base :nord :accent
+  "#b58900" :edge "#81a1c1"}` (`#hex`, `rgb()`, `hsl()`; the keys are in
+  the [guide's Themes section](https://github.com/sstoehrm/simpleviz/blob/main/docs/guide.md#themes)). It wins over the viewer's choice. An unknown
+  name, key or value warns and is skipped.
+- `:pos [col row]` on a top-level node or box places it on a grid of 20 px
+  cells (whole numbers from 0). Once any element has one, the file is laid
+  out by hand: boxes still arrange their insides, edges between top-level
+  elements run straight. The page writes `:pos` when someone drags; don't
+  invent coordinates unless asked to keep a given arrangement. On a nested
+  element it warns and is ignored.
 
-Unknown node references, duplicate memberships, containment cycles, wrong shapes: the offending element is skipped and a warning banner explains it; everything else still renders. A parse error shows an error banner and keeps the last good render; so does anything after the root map, such as the rest of the file behind an extra `}`. Nothing fails loudly, so after every write, get the banners' text yourself — no server or browser needed:
+Paths in `:ref`, `:md-ref`, `:pair` and md links are relative to the file
+they are in and never reach above the served folder.
 
-    simpleviz check graph.edn        # from a bundle/repo dir: bb check graph.edn
+## Md files and slides
+
+An md file is served like a graph (`simpleviz notes.md --no-open`) and
+opens rendered as GitHub markdown (headings, lists, task lists, tables,
+footnotes, code, images; no raw HTML). Use it as the entry point that
+explains a set of graphs.
+
+- Ordinary links follow in the page: `[text](sub/api.edn)`,
+  `[text](other.md)`, `![x](diagram.png)`, reference links. A graph opens
+  to the right of the text.
+- Slides: a line of just `---` starts the next slide. A slide whose first
+  line is `>> [the API](sub/api.edn)` shows that graph — or an md file, or
+  a picture (`>> ![alt](pic.png)`) — beside its text. Write talks this way;
+  `simpleviz init talk.md -t presentation` writes a starter deck and its
+  graph.
+- `?compare=<suffix>` on a link to a graph (`[the change](sub/api.edn?compare=next)`,
+  also after `>>`) shows it compared with its fork `sub/api-next.edn`, as
+  `simpleviz sub/api.edn next` would. Refs followed inside stay compared;
+  the file's other links stay plain. Use it to show a proposed change in a
+  doc or talk.
+- `simpleviz check notes.md` lists broken links: `line N: <dest> not found`
+  or `leaves the served folder`, and for `?compare=` a missing fork or
+  invalid suffix.
+
+## Checking
+
+    simpleviz check graph.edn        # or notes.md
     # `ok` (exit 0), or `error: ..` / one `warning: ..` line per problem (exit 1)
 
-While a server is serving the file, its `/api/errors` route gives the same report (`$URL` is the address the server printed; `file` is relative to the served root file's folder):
+No server or browser needed. While a server runs, `/api/errors` gives the
+same report (`$URL` is the address it printed; `file` is relative to the
+served folder):
 
     curl -s $URL/api/errors                      # {"error":null,"warnings":[]} means clean
     curl -s "$URL/api/errors?file=sub/api.edn"   # a file reached through a :ref
 
-In compare mode `file` names the original, never the fork (`sub/api.edn`, not `sub/api-next.edn` — unlike locks); the report covers both sides, each warning prefixed with the name of the file it is in. Every warning means the picture differs from what the file says: fix it and check again until the report is clean. Check each file you wrote — a `:ref` target is checked on its own.
+In compare mode `file` names the original, never the fork (`sub/api.edn`,
+not `sub/api-next.edn`, unlike locks); the report covers both sides, each
+warning prefixed with its file's name. Every warning means the picture
+differs from what the file says. Anything after the root map (the rest of
+the file behind an extra `}`) is a parse error too.
 
 ## Running
 
-From a bundle/install/repo directory (repo needs `bb build` once):
-
-    bb serve graph.edn               # default port 7373
-    bb serve graph.edn --port 9000   # or -p
-    bb fork graph.edn next           # graph-next.edn + forks of every referenced file
-    bb serve graph.edn next          # compare mode: graph.edn → graph-next.edn, ONE merged diff view
-    bb promote graph.edn next        # each fork replaces its original
-    bb check graph.edn               # parse error / validation warnings, exit 1 on any
-    bb serve diagram.png             # exported PNGs/SVGs work in place of EDN files (embedded
-                                     # source; a compare export re-opens as the comparison)
-
-With the `simpleviz` command, installed by `install.sh` (files in `~/.simpleviz`, launcher in `~/.local/bin`) or by bbin (`bbin install https://github.com/sstoehrm/simpleviz/releases/latest/download/simpleviz.jar`; there `update` prints the bbin command and `clean-all` is unavailable):
-
-    simpleviz graph.edn              # random free port 7370-7469, prints the URL, opens browser
-    simpleviz graph.edn --no-open    # the same without a browser — use this as an agent
-    simpleviz notes.md               # an md file; its links to graphs and md files followable
-    simpleviz demo                   # copy the bundled examples to a temp folder and serve them
-    simpleviz fork graph.edn next    # fork the graph and its ref closure
-    simpleviz graph.edn next         # compare graph.edn → graph-next.edn (refs follow into
-                                     # the referenced file's own comparison)
-    simpleviz promote graph.edn next # move each fork over its original
-    simpleviz init graph.edn         # write a starter graph file (refuses to overwrite)
+    simpleviz graph.edn --no-open    # serve on a free port 7370-7469; prints the URL
+    simpleviz notes.md --no-open     # serve an md file
+    simpleviz diagram.png --no-open  # exported PNGs/SVGs serve like EDN (embedded source;
+                                     # a compare export re-opens as the comparison)
+    simpleviz demo                   # copy the bundled examples to a temp folder, serve them
+    simpleviz init graph.edn         # starter file (refuses to overwrite)
     simpleviz init graph.edn -t web  # ...from ~/.simpleviz/templates/web.edn (or
-                                     # $SIMPLEVIZ_HOME/templates); drop .edn files there
-                                     # to add templates — updates keep them
-    simpleviz init talk.md -t presentation  # a slide deck (md) plus talk.edn, the
-                                     # graph its >> slide shows
-    simpleviz check graph.edn        # print what the warning/error banners would say
-    simpleviz check notes.md         # an md file's broken links
+                                     # $SIMPLEVIZ_HOME/templates); add your own there,
+                                     # updates keep them
+    simpleviz check graph.edn        # see Checking
+    simpleviz export graph.edn out.png  # PNG/SVG via headless Chrome or Chromium, never a
+                                     # window (suffix for a compare export, --theme <name>,
+                                     # --force to overwrite)
+    simpleviz extract diagram.png    # print the embedded EDN (a compare export embeds both:
+                                     # --old for the old one; out.edn arg writes a file)
     simpleviz update                 # install the latest release if newer
-    simpleviz --version              # print the installed version
-    simpleviz export graph.edn out.png  # PNG/SVG of the whole graph via headless Chrome or
-                                     # Chromium; never opens a window (suffix for a compare
-                                     # export, --theme <name>, --force to overwrite)
-    simpleviz extract diagram.png    # print the EDN embedded in an exported PNG or SVG
-                                     # (compare exports embed BOTH files: default
-                                     #  prints the new one, --old the old one;
-                                     #  add an out.edn arg to write a file)
+    simpleviz --version
 
-To serve as an agent, run `simpleviz graph.edn --no-open` in the background: it prints `simpleviz: http://localhost:<port>` (that is `$URL`) and keeps running until you stop it.
-An install older than this skill may not know --no-open or demo yet: run simpleviz update.
+As an agent, always pass `--no-open` and run the server in the background:
+it prints `simpleviz: http://localhost:<port>` (that is `$URL`) and runs
+until stopped. To hand someone an image, run `simpleviz export` rather than
+asking them to click ⇩.
 
-There is no `bb diff` or similar — comparing is serving a file with the suffix of its fork (`<name>-<suffix>.<ext>`; `fork` creates it, `promote` folds it back). Two-file compare (`simpleviz old.edn new.edn`) no longer exists. In compare mode: added elements get a green `+` ring, modified an amber `~` ring (click for attribute-level old → new), removed stay visible as red dashed ghosts; nodes and boxes match by key (renaming a display `:name` is a modification, not remove+add), edges by endpoints. A legend at the top center names both files (basenames) and shows a count per status — each legend row is a button: clicking jumps to that status's next element (selecting it and centering the view, `2/3`-style position, wrap-around). Collapsed boxes hiding changes count as stops.
+`simpleviz` comes from `install.sh` (files in `~/.simpleviz`, launcher in
+`~/.local/bin`) or bbin (there `update` prints the bbin command and
+`clean-all` is unavailable). In a repo or bundle checkout without it, the
+same commands run as `bb serve`, `bb fork`, `bb promote`, `bb check`
+(a repo needs `bb build` once; `bb serve` uses port 7373, `--port N`/`-p N`
+changes it).
 
-## Viewer
+## Proposing a change: fork and compare
 
-Click any node/edge/box for its full attributes. Hovering shows a tooltip with the element's name and its attributes (an unnamed edge is headed by its `[from to]` key). Drag pans, wheel zooms. Boxes collapse/expand via the `−` button in their header (a collapsed box showing an amber dot hides changes in compare mode). The theme menu top-right picks the viewer's own theme for every graph without `:theme` (saved in the browser; "default" follows the OS light/dark setting) — it never writes the file. A file's `:theme` wins, and the menu shows it disabled; to theme a file, write `:theme` in it. Saving the file live-reloads the page (~1s); the tab title names the served file (or `old → new` in compare mode). The ⇩ button opens an export menu for the whole diagram: PNG embeds the source EDN as metadata, SVG in its `<metadata>`; either is recoverable via simpleviz extract, or serve the export directly. To hand someone an image, run `simpleviz export` instead of asking them to click ⇩.
+There is no diff command; comparing is serving a graph with the suffix of
+its fork (`<name>-<suffix>.<ext>`).
 
-## Editing (in the browser)
-
-Map-form files are editable in place. The inspector (right panel) is the data view: click an attribute value or its ✎ to edit inline (scalars as text, collections as raw EDN), `×` deletes an attr, a key/value row at the bottom adds one; in compare mode a modified element's old → new changes show as a card at the top. Editing tools sit in a floating toolbar at the bottom center: with nothing selected, "new node" (name prompt — the id is derived from the name: lowercased, illegal characters to dashes; `name::type` also sets the type; jumps to the new node) and "new box" (an empty top-level box); with a selection, that element's tools — Delete (cascades — removes touching edges and box membership); edges: direction row and source/target retarget (pick mode: click the new node/box, Esc cancels); nodes: "add edge" (pick the endpoint, then name the edge — empty leaves it unnamed), "add to box", "new connected node" (`n n n`), "new sibling node" (`n n s`), "new connected node, same box" (`n n c`), "new incoming node" (`n n i`), "wrap in box" (`n b`); boxes: the same plus "add node"/"add box" (pick a member), "new node inside" (`n n n`), "new box inside" (`n n b`); edges: "split edge" (`n n e`, A→X→B). Chords are shown on the buttons; typing a first key pops out what comes next, clickable. A toggle at the toolbar's right end switches between every tool in a row and one button per first key with pop-outs (saved per browser). Any element with a string `:ref` also offers "follow ref" (`f r`) — in an editable (EDN-served) graph; a PNG or SVG target can be reached but not followed from. Editing a node's or box's `name` in the inspector renames its id the same way. In compare mode the top-center legend carries the old|new toggle picking which file edits apply to. Ctrl+Z or the ↶ button undoes the last edit; the server keeps one undo stack per file, shared by all viewers, capped at 100. Edits rewrite the file on disk, preserving comments and formatting; PNG- and SVG-served sessions are read-only.
+1. `simpleviz fork graph.edn next` writes `graph-next.edn` and a fork of
+   every file it refs.
+2. Edit the forks with the writing checklist; `simpleviz check` each fork
+   file, and lock a fork by its real name (`graph-next.edn`).
+3. `simpleviz graph.edn next --no-open` shows one merged view: added
+   elements green `+`, modified amber `~`, removed as red dashed ghosts.
+   Nodes and boxes match by key (a changed `:name` is a modification, not
+   remove + add), edges by endpoints. Refs follow into each referenced
+   file's own comparison.
+4. Once accepted, `simpleviz promote graph.edn next` moves each fork over
+   its original.
 
 ## Concurrent writes (lock before editing a served file)
 
-When a simpleviz server is serving the file and someone else may write it too (another agent, a user editing in the browser), take the server's advisory lock around your write — `$URL` is the address the server printed:
+When a server is serving the file and someone else may write it too
+(another agent, the user editing in the page), take the server's advisory
+lock around your write:
 
     curl -s -X POST -H 'Content-Type: application/json' -d '{"owner":"<your-id>","path":"sub/api.edn"}' $URL/api/lock
     # ... write the file ...
     curl -s -X POST -H 'Content-Type: application/json' -d '{"owner":"<your-id>","path":"sub/api.edn"}' $URL/api/unlock
 
-- `owner` is any string unique to you; `path` is the real file name relative to the served folder (a fork is `graph-next.edn`), default the root file. Locks are per file.
-- `{"ok":true,"ttl":60}` means you hold it; HTTP 409 `{"error":"locked by <owner>"}` means wait a moment and retry — do not write.
-- A lock expires after 60 seconds; repeat the lock call to renew during longer work, and always unlock when done. Re-read the file after getting the lock: it may have changed while you waited.
-- While locked, browser edits to that file are refused ("locked by <owner>"). The lock is advisory — it only protects against writers that ask. No server running means no lock; just write.
+- `owner` is any string unique to you; `path` is the real file name
+  relative to the served folder (a fork is `graph-next.edn`; md files too),
+  default the root file. Locks are per file.
+- `{"ok":true,"ttl":60}` means you hold it; HTTP 409 `{"error":"locked by
+  <owner>"}` means wait a moment and retry — do not write.
+- A lock expires after 60 seconds; repeat the lock call to renew during
+  longer work, and always unlock when done. Re-read the file after getting
+  the lock: it may have changed while you waited.
+- While locked, edits from the page to that file are refused; an unlocked
+  write shows the user a conflict instead of being lost. The lock is
+  advisory and only protects against writers that ask. No server running
+  means no lock; just write.
+
+## The page
+
+Edits in the page rewrite the file, preserving comments and formatting;
+saving a file reloads the page within about a second. The page's theme
+menu never writes the file — to theme a file, write `:theme`. For the
+inspector, toolbar, keyboard chords, compare legend and export menu, read
+[reference/page.md](reference/page.md) when the user asks how to do
+something in the page.
+
+## Old patterns
+
+- Pre-v2 vector forms still parse — `:edges [{:nodes [:a :b] :direction :->}]`,
+  `:boxes [{:name "backend" :components #{..}}]` — but the page refuses to
+  edit them. Convert to map form first.
+- Two-file compare (`simpleviz old.edn new.edn`) no longer exists; use fork
+  and a suffix.
+- An install older than this skill may not know `--no-open` or `demo`:
+  run `simpleviz update`.

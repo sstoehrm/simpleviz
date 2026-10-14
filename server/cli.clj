@@ -127,23 +127,12 @@
        (spit f text)
        (catch java.io.IOException e (die "cannot write " f ": " (ex-message e)))))
 
-(defn- side-dest
-  "What the rest of a >> line names: its first link's destination, else
-  the rest as a plain path, a ?compare= cut off (as the page reads it,
-  simpleviz.slides)."
-  [rest]
-  (let [t (str/trim rest)]
-    (or (:dest (first (filter #(#{"inline" "image"} (:kind %)) (mdlinks/links t))))
-        (cond (= t "") nil
-              (some? (mdlinks/dest-compare t)) (subs t 0 (str/index-of t "?"))
-              :else t))))
-
 (defn- shown-graphs
   "The .edn files the >> lines of md `text` name, relative to its folder
   and staying below it: what a presentation template needs beside it."
   [text]
   (->> (str/split-lines text)
-       (keep #(when (str/starts-with? % ">>") (side-dest (subs % 2))))
+       (keep #(when (str/starts-with? % ">>") (:dest (mdlinks/side-target (subs % 2)))))
        (filter #(and (str/ends-with? (str/lower-case %) ".edn")
                      (not (.isAbsolute (io/file %)))
                      (not-any? #{".."} (str/split % #"[/\\]"))))
@@ -189,7 +178,7 @@
 (def example-files
   "The files under examples/, relative to it: what `demo` copies. A test
   keeps this equal to the folder, since a jar cannot list a directory."
-  ["demo.edn" "demo-next.edn" "states.edn" "big-5k.edn" "intro.md" "deck.md" "overview.png"
+  ["demo.edn" "demo-next.edn" "states.edn" "big-5k.edn" "intro.md" "deck.md" "quiz.md" "overview.png"
    "api/internals.edn" "api/internals-next.edn" "api/notes.md"])
 
 (def ^:private flag? #{"--debug" "--no-open"})
@@ -256,9 +245,8 @@
            " <suffix>, then simpleviz " file " <suffix>"))
     (when-not (re-matches serve/suffix-re suffix)
       (die "invalid suffix: " suffix))
-    (let [fk (serve/fork-name file suffix)]
-      (when-not (.isFile (io/file fk))
-        (die fk " not found — create it with: simpleviz fork " file " " suffix)))))
+    (when-not (.isFile (io/file (serve/fork-name file suffix)))
+      (die (serve/missing-fork file suffix)))))
 
 (defn- serve-cmd [args]
   (let [[[file suffix & extra] flags] (split-flags args)]

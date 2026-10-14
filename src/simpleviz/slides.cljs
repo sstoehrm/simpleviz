@@ -9,7 +9,8 @@
   list (- [ ] lines, [x] the right ones) gives the 2 to 4 choices, the
   lines indented under a choice its explanation. `??? name` asks for a
   submit before the deck goes on."
-  (:require [mdlinks :as mdlinks]))
+  (:require [mdlinks :as mdlinks]
+            [simpleviz.markdown :as markdown :refer [indent untab]]))
 
 (defn- fence-mark
   "The fence a line opens or closes (\"```\" or \"~~~\"), or nil."
@@ -44,30 +45,6 @@
         ls (reverse (drop-while blank? (reverse ls)))]
     (.join (into-array ls) "\n")))
 
-(defn side-target
-  "What the rest of a `>>` line names, {:dest} plus :compare when it
-  asks for one: the destination of its first link — [text](path) or
-  ![alt](path), as a link means it — else the rest as a plain path
-  (`path?compare=<suffix>` too); nil when there is nothing."
-  [rest]
-  (let [t (.trim rest)
-        l (first (filter (fn [l] (or (= "inline" (:kind l)) (= "image" (:kind l))))
-                         (mdlinks/links t)))
-        c (when (and (nil? l) (not= t "")) (mdlinks/dest-compare t))]
-    (cond (some? l) (cond-> {:dest (:dest l)} (some? (:compare l)) (assoc :compare (:compare l)))
-          (= t "") nil
-          (some? c) {:dest (.slice t 0 (.indexOf t "?")) :compare c}
-          :else {:dest t})))
-
-(def ^:private choice-re #"^ {0,3}[-*+][ \t]+\[([ xX])\][ \t]+(.*)$")
-
-(defn- indent [line] (- (count line) (count (.trimStart line))))
-
-(defn- untab
-  "The line with tabs in its indent as 4 spaces, as markdown reads them."
-  [line]
-  (.replace line #"^[ \t]+" (fn [ws] (.replaceAll ws "\t" "    "))))
-
 (defn- dedent
   "The lines without the indent they share, blank ends dropped; nil when
   nothing is left."
@@ -89,13 +66,13 @@
         [text (close)]
         (let [line (first ls)
               mark (fence-mark line)
-              m (when (nil? fence) (.exec choice-re line))]
+              m (when (nil? fence) (markdown/task-item line))]
           (cond
             (some? fence) (recur (rest ls) (if (= mark fence) nil fence) (conj text line) choices cur)
             (and (some? cur) (or (blank? line) (>= (indent line) 2)))
             (recur (rest ls) nil text choices (update cur :note conj line))
             (some? m) (recur (rest ls) nil text (close)
-                             {:choice {:text (.trim (aget m 2)) :correct (not= " " (aget m 1))} :note []})
+                             {:choice {:text (:text m) :correct (:checked m)} :note []})
             :else (recur (rest ls) mark (conj text line) (close) nil)))))))
 
 (defn- ask
@@ -110,9 +87,8 @@
                     (= id "__proto__") (str marker " __proto__ can't be a question's name")
                     (not (<= 2 n 4)) (str marker " " id " takes 2 to 4 choices, - [ ] lines; it has " n)
                     :else nil)]
-    (if (some? error)
-      [(trim-blank-lines lines) {:id id :submit (= marker "???") :error error :choices []}]
-      [(trim-blank-lines text) {:id id :submit (= marker "???") :error nil :choices choices}])))
+    [(trim-blank-lines (if (some? error) lines text))
+     {:id id :submit (= marker "???") :error error :choices (if (some? error) [] choices)}]))
 
 (defn- slide
   "One slide from its lines: {:text :side}, :side the `>>` target of its
@@ -123,7 +99,7 @@
     (let [head (first ls)]
       (cond
         (and (nil? side) (some? head) (.startsWith head ">>"))
-        (recur (vec (drop-while blank? (subvec ls 1))) {:target (side-target (.slice head 2))} q)
+        (recur (vec (drop-while blank? (subvec ls 1))) {:target (mdlinks/side-target (.slice head 2))} q)
 
         (and (nil? q) (some? head) (.startsWith head "??"))
         (let [marker (if (.startsWith head "???") "???" "??")]

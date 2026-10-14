@@ -335,6 +335,28 @@
                          :extra {"notes.md" "# Notes\n\nhello\n" "other.md" "# Other\n"})
                         [:errs :view :h1 :side])))))
 
+(deftest a-missing-graph-link-offers-the-graphs-to-copy-a-page-at-a-time
+  ;; a link to a graph not there yet lists the served folder's graphs to
+  ;; start it as a copy of: the first 200, the filter narrows them
+  (with-real-browser
+    (is (= {:shown 200 :note "The first 200 of 205 — type to narrow." :narrowed ["g-150.edn"] :none "No graph matches."}
+           (eval-on-served-page
+            path "notes.md" "See [the new one](new.edn).\n"
+            (str "new Promise(ok => { let step = 0; const r = {};"
+                 " const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];"
+                 " const type = v => { const f = $('.choose-filter'); f.value = v; f.dispatchEvent(new Event('input', {bubbles: true})); };"
+                 " const t = setInterval(() => {"
+                 " if (step === 0) { const a = $('#md-view a.md-link'); if (!a) return; a.click(); step = 1; return; }"
+                 " if (step === 1) { if (!$('.choose-file')) return;"
+                 "  r.shown = $$('.choose-file').length;"
+                 "  r.note = $$('.choose-note').map(p => p.textContent).find(t => t.includes('narrow'));"
+                 "  type('g-150'); step = 2; return; }"
+                 " if (step === 2) { if ($$('.choose-file').length !== 1) return;"
+                 "  r.narrowed = $$('.choose-file').map(b => b.textContent); type('zzz'); step = 3; return; }"
+                 " if ($$('.choose-file').length) return; clearInterval(t);"
+                 " r.none = $$('.choose-note').map(p => p.textContent).find(t => t.includes('matches')); ok(r); }, 50); })")
+            :extra (into {} (map (fn [i] [(str "g-" i ".edn") "{:nodes {:a {}}}"]) (range 205))))))))
+
 (deftest a-quiz-asks-and-locks
   ;; ??? holds → until Submit, then shows the answer locked, the right
   ;; choice and the explanation of the one picked; ?? takes a click, the

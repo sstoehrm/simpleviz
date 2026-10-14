@@ -1,7 +1,7 @@
 {
   "name": "simpleviz",
-  "version": "0.42.0",
-  "description": "Teaches Grok the simpleviz EDN graph format (nodes, edges, boxes) and how to serve and compare graphs",
+  "version": "0.43.0",
+  "description": "Teaches Grok simpleviz: EDN graphs (nodes, edges, boxes) and the markdown docs and slides around them, and how to serve, compare and present them",
   "author": {
     "name": "Sören Stöhrmann",
     "url": "https://github.com/sstoehrm"

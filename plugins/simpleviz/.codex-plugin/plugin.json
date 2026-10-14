@@ -1,7 +1,7 @@
 {
   "name": "simpleviz",
-  "version": "0.42.0",
-  "description": "Create, serve, and compare EDN-driven system diagrams with simpleviz",
+  "version": "0.43.0",
+  "description": "Diagrams, docs and slides from plain markdown and EDN files, with simpleviz",
   "author": {
     "name": "Sören Stöhrmann",
     "url": "https://github.com/sstoehrm"
@@ -13,8 +13,8 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "Simpleviz",
-    "shortDescription": "Create and serve EDN system diagrams.",
-    "longDescription": "Author canonical simpleviz graph EDN, serve live diagrams, and compare architecture versions.",
+    "shortDescription": "Diagrams, docs and slides from plain files.",
+    "longDescription": "Author simpleviz EDN graphs and the markdown docs and slides that link them, serve them live, and compare architecture versions.",
     "developerName": "Sören Stöhrmann",
     "category": "Productivity",
     "capabilities": ["Write"],

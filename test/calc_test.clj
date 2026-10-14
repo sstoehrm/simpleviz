@@ -161,6 +161,9 @@
                                      [{:cells [["2"]] :defs (str "[:a] (fn [v _] {:color " (pr-str bad) "})")}])
                                     [0 :results 0 0 :error]))
         bad))
+  (is (= {:value "2" :style {:color "hsl(120deg 50% 50%)"}}
+         (get-in (calc/evaluate-tables [{:cells [["2"]] :defs "[:a] (fn [v _] {:color \"hsl(120deg 50% 50%)\"})"}])
+                 [0 :results 0 0])))
   (is (= {:value "2" :style {:background "#ffeedd" :border "rgba(0, 0, 0, .5)" :color "Crimson"}}
          (get-in (calc/evaluate-tables
                   [{:cells [["2"]] :defs "[:a] (fn [v _] {:color \"Crimson\" :background \"#ffeedd\" :border \"rgba(0, 0, 0, .5)\"})"}])

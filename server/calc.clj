@@ -246,7 +246,7 @@
         tables))
 
 (def ^:private colour-re
-  #"[a-zA-Z]{3,30}|#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})|(?:rgba?|hsla?)\(\s*[0-9.%]+(?:\s*[,/\s]\s*[0-9.%]+){2,3}\s*\)")
+  #"[a-zA-Z]{3,30}|#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})|(?:rgba?|hsla?)\(\s*[0-9.]+(?:%|deg)?(?:\s*[,/\s]\s*[0-9.]+%?){2,3}\s*\)")
 
 (defn- checked-cell
   "A child's result cell as the page may get it — the child ran the

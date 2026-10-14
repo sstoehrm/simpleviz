@@ -11,3 +11,7 @@
 (doseq [[d want] cases/FOLLOWABLE]
   (test (str "followable?: " (pr-str d))
     (fn [] (assert/equal (mdlinks/followable? d) want))))
+
+(doseq [[raw want] cases/DEST_COMPARE]
+  (test (str "dest-compare: " (pr-str raw))
+    (fn [] (assert/equal (or (mdlinks/dest-compare raw) nil) want))))

@@ -108,6 +108,31 @@
                     (count d) ["#" "?"])]
     (percent-decode (subs d 0 cut))))
 
+(defn dest-compare
+  "The fork suffix raw destination `raw` asks to compare with: the value
+  of its first `compare` query parameter, %XX decoded (\"\" when it is
+  empty), or nil when there is none. Escapes resolve and a #fragment
+  ends the query, as clean-dest has it."
+  [raw]
+  (let [d (unescape raw)
+        h (.indexOf d "#")
+        d (if (>= h 0) (subs d 0 h) d)
+        q (.indexOf d "?")]
+    (when (>= q 0)
+      (loop [from (inc q)]
+        (when (<= from (count d))
+          (let [amp (.indexOf d "&" from)
+                end (if (neg? amp) (count d) amp)
+                kv (subs d from end)]
+            (cond (= kv "compare") ""
+                  (str/starts-with? kv "compare=") (percent-decode (subs kv 8))
+                  :else (recur (inc end)))))))))
+
+(defn- with-compare
+  "Link map l with :compare from raw destination `raw`, when it has one."
+  [l raw]
+  (if-let [c (dest-compare raw)] (assoc l :compare c) l))
+
 (defn- normalize-label
   "A reference label as definitions match it: trimmed, whitespace runs
   collapsed to one space, lower case."
@@ -264,8 +289,8 @@
                 (if (contains? defs k)
                   (recur (inc li) nil (conj code li) defs order)
                   (recur (inc li) nil (conj code li)
-                         (assoc defs k {:dest (clean-dest raw) :line (inc li)})
-                         (conj order {:line (inc li) :label label :dest (clean-dest raw) :kind "def"}))))
+                         (assoc defs k (with-compare {:dest (clean-dest raw) :line (inc li)} raw))
+                         (conj order (with-compare {:line (inc li) :label label :dest (clean-dest raw) :kind "def"} raw)))))
               (recur (inc li) nil code defs order))))))))
 
 (defn- blank-lines
@@ -283,10 +308,18 @@
                               seg)))
                         starts))))
 
+(defn- ref-use
+  "A reference use on `line` of definition d, taking its destination."
+  [line label d]
+  (cond-> {:line line :label label :dest (:dest d) :kind "ref"}
+    (contains? d :compare) (assoc :compare (:compare d))))
+
 (defn links
   "The links in markdown `text`, in text order: [{:line :label :dest
-  :kind}], :kind one of \"inline\", \"image\", \"ref\", \"def\".
-  A link with an empty destination is left out."
+  :kind}], :kind one of \"inline\", \"image\", \"ref\", \"def\", plus
+  :compare when the destination asks for one (dest-compare; a reference
+  use takes its definition's). A link with an empty destination is left
+  out."
   [text]
   (let [t (normalize-breaks (str text))
         starts (line-starts t)
@@ -325,8 +358,9 @@
                             (cond
                               (= nxt "(")
                               (if-let [[raw end] (inline-tail s (inc e))]
-                                (recur end bound (conj acc {:line line :label label :dest (clean-dest raw)
-                                                      :kind (if img "image" "inline")}))
+                                (recur end bound (conj acc (with-compare {:line line :label label :dest (clean-dest raw)
+                                                                    :kind (if img "image" "inline")}
+                                                                   raw)))
                                 (recur (inc open) bound acc))
                               (= nxt "[")
                               (let [e2 (get pairs (inc e))
@@ -334,11 +368,11 @@
                                     d (when (some? id)
                                         (get defs (normalize-label (if (= id "") label id))))]
                                 (if (some? d)
-                                  (recur (inc e2) bound (conj acc {:line line :label label :dest (:dest d) :kind "ref"}))
+                                  (recur (inc e2) bound (conj acc (ref-use line label d)))
                                   (recur (inc open) bound acc)))
                               :else
                               (if-let [d (get defs (normalize-label label))]
-                                (recur (inc e) bound (conj acc {:line line :label label :dest (:dest d) :kind "ref"}))
+                                (recur (inc e) bound (conj acc (ref-use line label d)))
                                 (recur (inc open) bound acc))))))
                       :else (recur (inc i) bound acc)))))]
     (vec (remove (fn [l] (= "" (:dest l))) (sort-by :line (concat found def-lines))))))

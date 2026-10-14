@@ -196,6 +196,17 @@
       (is (fs/exists? (fs/path tmp "d" "sub" "in.edn")))
       (is (not (fs/exists? (fs/path tmp "d" "pic.png")))))))
 
+(deftest init-writes-the-graph-a-compare-slide-shows
+  ;; >> [x](g.edn?compare=next) and >> h.edn?compare=next show g.edn and h.edn
+  (with-tmp
+    (fn [tmp]
+      (fs/create-dirs (fs/path tmp "home" "templates"))
+      (spit (str (fs/path tmp "home" "templates" "deck.md"))
+            ">> [g](g.edn?compare=next)\n# a\n---\n>> h.edn?compare=next\n")
+      (let [res (run-cli ["init" "t.md" "-t" "deck"] :dir tmp :env (home-env tmp))]
+        (is (= 0 (:exit res)) (:err res))
+        (is (= "created t.md, g.edn, h.edn — view it with: simpleviz t.md" (str/trim (:out res))))))))
+
 (deftest init-names-the-md-templates-for-an-md-file
   (with-tmp
     (fn [tmp]

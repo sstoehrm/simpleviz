@@ -44,8 +44,11 @@
    :chord nil :id-entry nil :focus-center true
    :collapsed-boxes #{} :export-menu false
    ;; a link of the md page to a graph not there yet (offer-side!):
-   ;; {:path :files :truncated :query :busy :error}, shown beside the page
-   :side-choose nil})
+   ;; {:path :compare :files :truncated :query :busy :error}, shown beside the page
+   :side-choose nil
+   ;; the fork suffix the graph shown is compared under by its own (an md
+   ;; link's ?compare=, the URL's compare), nil for the server's default
+   :compare nil})
 
 (def state (atom (merge per-file
                  {:colors nil :collapsed false :layouting false
@@ -60,7 +63,8 @@
                   ;; the graph an md page shows beside it (open-side!), root-relative
                   :side nil
                   ;; the md page presented (show-slide!): {:slide i :dest its >> target
-                  ;; :side what shows beside it when that is no graph}, nil when not
+                  ;; :compare its compare :side what shows beside it when that is
+                  ;; no graph}, nil when not
                   :present nil
                   :nav (editor/parse-nav js/location.search) :nav-error nil
                   ;; your theme (#115), for files without :theme (load-prefs!)
@@ -135,10 +139,13 @@
   (or (:file nav) @root-path))
 
 (defn- file-query
-  "\"?file=<rel>\" for the graph the page is showing, \"\" for the root."
+  "\"?file=<rel>\" for the graph the page is showing, \"\" for the root —
+  with \"compare=<suffix>\" when it is compared by its own."
   []
-  (let [f (graph-file @state)]
-    (if (some? f) (str "?file=" (js/encodeURIComponent f)) "")))
+  (let [st @state
+        f (graph-file st)
+        c (:compare st)]
+    (editor/with-compare (if (some? f) (str "?file=" (js/encodeURIComponent f)) "") c)))
 
 (defn- on-select [payload]
   (swap! state assoc :selected payload :editing nil :id-entry nil :chord nil :nav-error nil))
@@ -817,7 +824,9 @@
                                   :title (str "back to " f)
                                   :on-click (fn [e]
                                               (.stopPropagation e)
-                                              (navigate! (editor/crumb-url trail i (or (current-path st) (:file (:nav st))))))}
+                                              (navigate! (editor/crumb-url trail i (or (current-path st) (:file (:nav st)))
+                                                                         {:trail-compare (:trail-compare (:nav st))
+                                                                          :compare (when-not (page? st) (:compare st))})))}
                          f]
                         [:span {:class "trail-sep" :key (str "s" i)} "›"]])
                      trail))
@@ -952,8 +961,8 @@
       "vi (top of a doc's text) turns on vi keys for the text of every doc, until you turn them off: Esc for normal mode, i a I A o O for insert; h j k l w b e W B E 0 ^ $ gg G f t F T ; , { } / ? n N move, with a count too; d c y take a motion or a text object (iw aw i\" a\" i( a( i[ i{ …), dd cc yy D C Y; x X s S r J ~ p P edit, v and V select, u and Ctrl+R undo and redo, . repeats. :w saves, :q closes the doc panel — on an md page it shows the text read — :wq does both, :12 goes to line 12. A bare Esc in normal mode still docks the panel; :q! drops unsaved edits first.")
      (help-section
       "md pages"
-      "simpleviz notes.md opens a markdown file rendered, in a centered column — headings, emphasis, quotes, lists and task lists, links, pictures, tables, footnotes, code; Edit switches to the plain text, Read back. Its links to graphs and md files follow on click — [text](sub/graph.edn), ![img](x.png), [text](other.md), reference links too; relative to the md file, never above the served folder. In the plain text a » in the gutter marks each line with such a link (»2 lists the links of that line). A graph or exported image opens to the right of the text, its link and » highlighted, and works like any graph; ⤢ full view opens it on its own, × closes it. A link to a graph in the md file's folder or below that isn't there yet offers, on the right, to create it empty or as a copy of another graph of the served folder — the copy keeps its :ref paths as written. An md file opens in place of this one; the trail at the top leads back. Unsaved text is saved before you leave the page — when that fails you stay. A :ref to an .md file opens it the same way; the doc panel of :md-ref has the » gutter too."
-      "Present shows the page as slides: a line of just --- starts the next one, and a slide whose first line is >> [text](path) — >> and a link — shows that graph, md file or picture beside its text. → or space steps forward, ← back, Home and End jump; Esc leaves. The graph can be hovered, inspected, panned and collapsed, not edited.")
+      "simpleviz notes.md opens a markdown file rendered, in a centered column — headings, emphasis, quotes, lists and task lists, links, pictures, tables, footnotes, code; Edit switches to the plain text, Read back. Its links to graphs and md files follow on click — [text](sub/graph.edn), ![img](x.png), [text](other.md), reference links too; relative to the md file, never above the served folder. In the plain text a » in the gutter marks each line with such a link (»2 lists the links of that line). A graph or exported image opens to the right of the text, its link and » highlighted, and works like any graph; ⤢ full view opens it on its own, × closes it. A link to a graph in the md file's folder or below that isn't there yet offers, on the right, to create it empty or as a copy of another graph of the served folder — the copy keeps its :ref paths as written. A link with ?compare=next — [text](graph.edn?compare=next) — shows the graph compared with its fork graph-next.edn, refs followed inside it too. An md file opens in place of this one; the trail at the top leads back. Unsaved text is saved before you leave the page — when that fails you stay. A :ref to an .md file opens it the same way; the doc panel of :md-ref has the » gutter too."
+      "Present shows the page as slides: a line of just --- starts the next one, and a slide whose first line is >> [text](path) — >> and a link — shows that graph, md file or picture beside its text (a graph link with ?compare=next shows it compared with its fork). → or space steps forward, ← back, Home and End jump; Esc leaves. The graph can be hovered, inspected, panned and collapsed, not edited.")
      (help-section
       "Keys"
       "Chords act on the selection, when no text field has focus (the toolbar buttons show them); the first key opens a pop-out of what comes next, which can be clicked too: d d delete · e 1/2/3/4 edge direction → ← ↔ — · c s / c t change an edge's source / target · a e add edge · a b add to box (node) or add a box as member (box) · a n add a node as member (box) — either moves it out of the box it was in · n n n new node (connected to the selected node, or inside the selected box) · n n b new box (inside the selected box) · n n s new node in the selection's box · n n c / n n i new node in the selection's box, connected from / to it · n n e split the selected edge with a new node · n b wrap the selection in a new box · r r rename the id · r n take a node out of the selected box · r b take the selected node out of its box · f r follow the selection's :ref · f p follow the selection's pair (f p 1–9 with several) · f m open the selection's :md-ref doc (Ctrl+S saves it). Esc cancels a pending chord; ? toggles this help; Ctrl+Z undoes.")
@@ -1129,7 +1138,7 @@
                   (let [ls (:links m)
                         one (= 1 (count ls))]
                     [:button {:class (str "md-mark" (when (:bad m) " bad")
-                                          (when (editor/mark-open? (:path (:md st)) m side) " open"))
+                                          (when (editor/mark-open? (:path (:md st)) m side (:compare st)) " open"))
                               :type "button"
                               :key (str "m" (:line m))
                               :style {:top (str (:top m) "px")}
@@ -1194,7 +1203,7 @@
   opens in a new tab, anything else is text that says why it isn't a
   link. An image shows as the picture — one that also follows (an
   exported graph) inside its link."
-  [md-path side]
+  [md-path side side-compare]
   (fn [l kids]
     (let [dest (:dest l)
           pic (when (= "image" (:kind l)) (picture md-path l))
@@ -1207,7 +1216,7 @@
         (into [:a {:href "#"
                    :class (str "md-link"
                                (when (some? (:error (editor/link-target md-path dest))) " bad")
-                               (when (editor/mark-open? md-path {:links [l]} side) " open"))
+                               (when (editor/mark-open? md-path {:links [l]} side side-compare) " open"))
                    :title (editor/link-title md-path l)
                    :on-click (fn [e] (.preventDefault e) (.stopPropagation e) (follow-link! l))}]
               kids)
@@ -1217,17 +1226,17 @@
                                   " — not a file simpleviz opens")}]
               kids)))))
 
-;; the read view's hiccup for the last [path text side], so rerenders
+;; the read view's hiccup for the last [path text side compare], so rerenders
 ;; for anything else neither re-parse nor rebuild its handlers
 (def ^:private md-view-cache (atom nil))
 
 (defn- md-view [st]
   (let [md (:md st)
-        k [(:path md) (:text md) (:side st)]
+        k [(:path md) (:text md) (:side st) (:compare st)]
         hit @md-view-cache]
     (if (and (some? hit) (= k (:key hit)))
       (:view hit)
-      (let [bs (markdown/render (:text md) (md-link-fn (:path md) (:side st)))
+      (let [bs (markdown/render (:text md) (md-link-fn (:path md) (:side st) (:compare st)))
             view (into [:div {:id "md-view" :on-click in-page-click}]
                        (if (seq bs) bs [[:p {:class "md-empty"} "Nothing here yet — Edit to write."]]))]
         (reset! md-view-cache {:key k :view view})
@@ -1757,6 +1766,7 @@
     (swap! state (fn [st]
                    (merge st per-file
                           {:nav nav :pending-focus (:focus nav) :side nil :present nil
+                           :compare (or (:compare nav) nil)
                            :md (when-not (or (page? st) md-target?) (:md st))})))
     (.clear layout-cache)
     (reset! last-mtime nil)
@@ -1809,16 +1819,22 @@
   there yet; a failed create, like a path the server refuses, shows as
   the graph error after navigating, with the trail intact to go back.
   A second follow while the first still waits on the server is dropped,
-  or it would push the same URL onto the history twice."
-  [path {:keys [create? focus]}]
-  (let [st @state]
+  or it would push the same URL onto the history twice. A link (`link?`)
+  shows the target under its own `compare`; a ref, pair or full view
+  under the compare of the graph shown (editor/follow-compare)."
+  [path {:keys [create? focus link? compare]}]
+  (let [st @state
+        to (editor/follow-compare path compare (when-not link? (:compare st)))]
     (when-not (:following st)
       (swap! state assoc :following true)
       (try
         (when create?
-          (try (js-await (post-json "/api/create" (editor/create-body (:edit-target st) path)))
+          (try (js-await (post-json "/api/create" (editor/create-body (:edit-target st) path to)))
                (catch :default _ nil)))
-        (js-await (navigate! (editor/follow-url (current-path st) (:trail (:nav st)) path focus)))
+        (js-await (navigate! (editor/follow-url (current-path st) (:trail (:nav st)) path focus
+                                                {:from (when-not (page? st) (:compare st))
+                                                 :trail-compare (:trail-compare (:nav st))
+                                                 :to to})))
         (finally (swap! state assoc :following false))))))
 
 (defn- replace-query!
@@ -1828,28 +1844,32 @@
   (reset! shown-query q))
 
 (defn- show-side!
-  "Put `side` (root-relative, nil for none) beside the md page: drop the
-  graph shown before, with everything that belongs to it, and keep the
-  side in the URL without a history entry, so a reload shows it again."
-  [side]
-  (swap! graph-gen inc)
-  (swap! side-gen inc)
-  (swap! state (fn [st] (merge st per-file {:side side})))
-  (.clear layout-cache)
-  (reset! last-mtime nil)
-  (canvas/refit-next!)
-  (replace-query! (editor/with-side js/location.search side)))
+  "Put `side` (root-relative, nil for none) beside the md page, compared
+  under `compare` when given: drop the graph shown before, with
+  everything that belongs to it, and keep both in the URL without a
+  history entry, so a reload shows it again."
+  [side & [compare]]
+  (let [compare (when (some? side) compare)]
+    (swap! graph-gen inc)
+    (swap! state (fn [st] (merge st per-file {:side side :compare compare})))
+    (.clear layout-cache)
+    (reset! last-mtime nil)
+    (canvas/refit-next!)
+    (replace-query! (editor/with-compare (editor/with-side js/location.search side) compare))))
 
 (defn- ^:async open-side!
-  "Show the graph at root-relative `path` beside the md page, creating
-  it first when `create?` (as following a link to it would)."
-  [path create?]
-  (when-not (= path (:side @state))
-    (when create?
-      (try (js-await (post-json "/api/create" (editor/create-body "new" path)))
-           (catch :default _ nil)))
-    (show-side! path)
-    (js-await (tick))))
+  "Show the graph at root-relative `path` beside the md page, compared
+  under `compare` when given, creating it first when `create?` (as
+  following a link to it would)."
+  [path create? & [compare]]
+  (let [st @state
+        compare (if (nil? compare) nil compare)]
+    (when-not (and (= path (:side st)) (= compare (:compare st)))
+      (when create?
+        (try (js-await (post-json "/api/create" (editor/create-body "new" path compare)))
+             (catch :default _ nil)))
+      (show-side! path compare)
+      (js-await (tick)))))
 
 (defn- close-side!
   "Close the graph beside the md page; the page takes back its theme."
@@ -1861,30 +1881,34 @@
   "A link to the graph at root-relative `path`, in the md page's folder
   or below: show it beside the page when it is there, else offer beside
   the page to start it empty or as a copy of a graph of the served
-  folder."
-  [path]
+  folder. Under `compare` (the link's ?compare=) it is checked, and
+  created, as that comparison's side — no copies there."
+  [path compare]
   (let [gen (swap! side-gen inc)
-        out (try (js-await (.json (js-await (js/fetch (str "/api/graphs?path=" (js/encodeURIComponent path))))))
+        out (try (js-await (.json (js-await (js/fetch (str "/api/graphs?path=" (js/encodeURIComponent path)
+                                                            (when (some? compare)
+                                                              (str "&compare=" (js/encodeURIComponent compare))))))))
                  (catch :default _ {:error "the server did not answer"}))]
     (cond
       ;; another link was followed, or the page left, meanwhile
       (not= gen @side-gen) nil
       (some? (:error out)) (swap! state assoc :nav-error (:error out))
-      (:exists out) (js-await (open-side! path false))
+      (:exists out) (js-await (open-side! path false compare))
       :else (do (when (some? (:side @state)) (close-side!))
-                (swap! state assoc :side-choose {:path path :files (:files out) :truncated (:truncated out)
+                (swap! state assoc :side-choose {:path path :compare compare
+                                                 :files (:files out) :truncated (:truncated out)
                                                  :query "" :busy false :error nil})))))
 
 (defn- ^:async start-side!
   "Create the graph the open choice is for — empty, or a copy of
   root-relative `from` — and show it beside the md page."
   [from]
-  (let [{:keys [path busy]} (:side-choose @state)
+  (let [{:keys [path compare busy]} (:side-choose @state)
         gen @side-gen]
     (when-not busy
       (swap! state assoc-in [:side-choose :busy] true)
       (let [out (try (js-await (.json (js-await (post-json "/api/create"
-                                                           (cond-> (editor/create-body "new" path)
+                                                           (cond-> (editor/create-body "new" path compare)
                                                              (some? from) (assoc :from from))))))
                      (catch :default _ {:error "the server did not answer"}))]
         (cond
@@ -1892,7 +1916,7 @@
           (some? (:error out))
           (swap! state update :side-choose
                  (fn [c] (when (some? c) (assoc c :busy false :error (:error out)))))
-          :else (js-await (open-side! path false)))))))
+          :else (js-await (open-side! path false compare)))))))
 
 (defn- ^:async follow-ref!
   "Follow the selection's ref: resolve it against the graph shown and
@@ -2175,26 +2199,26 @@
   (swap! state assoc :side-choose nil)
   (if (some? (:side @state))
     (close-side!)
-    (replace-query! (editor/with-side js/location.search nil))))
+    (replace-query! (editor/with-compare (editor/with-side js/location.search nil) nil))))
 
 (defn- ^:async export-kind
   "\"image\" when the .png or .svg at root-relative `path` is a plain
   picture, else \"graph\" — a failure then shows as the graph's error."
-  [path]
-  (try (let [out (js-await (.json (js-await (js/fetch (str "/api/graph?file=" (js/encodeURIComponent path))))))]
+  [path compare]
+  (try (let [out (js-await (.json (js-await (js/fetch (str "/api/graph" (editor/with-compare (str "?file=" (js/encodeURIComponent path)) compare))))))]
          (if (= true (:image out)) "image" "graph"))
        (catch :default _ "graph")))
 
 (defn- ^:async side-of
   "What `>> dest` on a slide of the md page at `md-path` shows: {:kind
   \"graph\"|\"md\"|\"image\" :path root-relative}, or {:kind \"error\"
-  :text why} when it can't."
-  [md-path dest]
+  :text why} when it can't. A graph is compared under `compare`."
+  [md-path dest compare]
   (let [{:keys [path error]} (editor/link-target md-path dest)
         kind (when (some? path) (slides/side-kind path))]
     (cond (some? error) {:kind "error" :text error}
           (nil? kind) {:kind "error" :text (str dest " — not a graph, an md file or an image")}
-          (= kind "export") {:kind (js-await (export-kind path)) :path path}
+          (= kind "export") {:kind (js-await (export-kind path compare)) :path path}
           :else {:kind kind :path path})))
 
 (defn- ^:async show-md-side!
@@ -2213,22 +2237,26 @@
   "Present slide i of the md page, clamped to the deck: keep its number
   in the URL (no history entry) and show what its >> names beside it — a
   graph as the side graph, an md file or a picture in the canvas's
-  place. A slide with the same >> as the one before keeps it as it is."
+  place. A slide with the same >> as the one before (path and compare)
+  keeps it as it is."
   [i]
   (let [st @state
         ds (deck st)
         i (max 0 (min i (dec (count ds))))
         dest (:side (nth ds i nil))
-        same? (and (some? (:present st)) (= dest (:dest (:present st))))]
+        compare (editor/follow-compare (str dest) (:side-compare (nth ds i nil)) nil)
+        same? (and (some? (:present st)) (= dest (:dest (:present st)))
+                   (= compare (:compare (:present st))))]
     (replace-query! (editor/with-slide js/location.search (inc i)))
-    (swap! state assoc :present {:slide i :dest dest :side (when same? (:side (:present st)))})
+    (swap! state assoc :present {:slide i :dest dest :compare compare
+                                 :side (when same? (:side (:present st)))})
     ;; the same >> stays — and so does a load of it still under way
     (when-not same?
       (let [gen (swap! present-gen inc)
-            side (when (some? dest) (js-await (side-of (:path (:md st)) dest)))]
+            side (when (some? dest) (js-await (side-of (:path (:md st)) dest compare)))]
         (when (= gen @present-gen)
           (if (= "graph" (:kind side))
-            (js-await (open-side! (:path side) false))
+            (js-await (open-side! (:path side) false compare))
             (do (drop-side!)
                 (swap! state assoc-in [:present :side] side)
                 (when (= "md" (:kind side))
@@ -2247,9 +2275,11 @@
 (add-watch state :present
   (fn [_ _ old new]
     (when (and (presenting? new) (not= (:text (:md old)) (:text (:md new))))
-      (let [{:keys [slide dest]} (:present new)
-            ds (deck new)]
-        (when (or (>= slide (count ds)) (not= dest (:side (nth ds slide nil))))
+      (let [{:keys [slide dest compare]} (:present new)
+            ds (deck new)
+            s (nth ds slide nil)]
+        (when (or (>= slide (count ds)) (not= dest (:side s))
+                  (not= compare (editor/follow-compare (str dest) (:side-compare s) nil)))
           (show-slide! slide))))))
 
 (defn- present-key!
@@ -2407,7 +2437,8 @@
   destination resolves against the doc's own path; the page shown joins
   the trail. An .edn target is first created as an empty graph when
   missing (from the md page always, from the docked panel when the
-  graph shown is editable) — as follow ref does."
+  graph shown is editable) — as follow ref does. A graph shows under
+  the link's ?compare=, when it has one."
   [l]
   (let [st @state
         md (:md st)
@@ -2418,18 +2449,23 @@
       ;; the md page shows a graph beside it rather than leaving; one
       ;; of its own folder that isn't there yet may start as a copy
       (and (:page md) (= kind "graph"))
-      (if (and (editor/downstream-graph? (:path md) path) (not= path (:side st)))
-        (js-await (offer-side! path))
-        (js-await (open-side! path (.endsWith (.toLowerCase path) ".edn"))))
+      (let [c (editor/follow-compare path (:compare l) nil)]
+        (if (and (editor/downstream-graph? (:path md) path)
+                 ;; nil or undefined alike: no compare
+                 (not (and (= path (:side st))
+                           (or (= c (:compare st)) (and (nil? c) (nil? (:compare st)))))))
+          (js-await (offer-side! path c))
+          (js-await (open-side! path (.endsWith (.toLowerCase path) ".edn") c))))
       :else
       (js-await (follow-to! path {:create? (and (= kind "graph") (.endsWith (.toLowerCase path) ".edn")
-                                                (or (:page md) (current-edit-target-editable? st)))})))))
+                                                (or (:page md) (current-edit-target-editable? st)))
+                                  :link? true :compare (:compare l)})))))
 
 (defn- ^:async post-edit!
   "POST ops to the edit target — or to `file` (\"old\"/\"new\") when given."
   [ops & [file]]
   (let [resp (js-await (post-json "/api/edit"
-                                  (let [body (editor/edit-body (or file (:edit-target @state)) ops)
+                                  (let [body (editor/edit-body (or file (:edit-target @state)) ops (:compare @state))
                                         f (graph-file @state)]
                                     (if (some? f) (assoc body :path f) body))))
         out (js-await (.json resp))]

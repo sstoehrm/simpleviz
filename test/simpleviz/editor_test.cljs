@@ -13,7 +13,8 @@
                                       theme-menu top-box-of load-readiness export-readiness
                                       md-target from-disk to-disk md-dirty? adopt-doc gone-doc poll-outcome save-result
                                       parent-box split-parent doc-kind link-target line-markers link-title
-                                      with-side with-slide mark-open? downstream-graph? match-choices]]
+                                      with-side with-slide mark-open? with-compare follow-compare
+                                      downstream-graph? match-choices]]
             [paths :refer [resolve-ref]]))
 
 (test "target maps selection payloads to op targets"
@@ -744,3 +745,61 @@
     (assert/equal (with-slide "?file=d.md" 2) "?file=d.md&slide=2")
     (assert/equal (with-slide "?file=d.md&slide=2&side=g.edn" nil) "?file=d.md&side=g.edn")
     (assert/equal (with-slide "?slide=2" nil) "")))
+
+(test "parse-nav and nav-query carry the compare of the graph shown and of each trail entry"
+  (fn []
+    (assert/deepEqual (parse-nav "?file=api.edn&compare=next") {:file "api.edn" :trail [] :compare "next"})
+    (assert/deepEqual (parse-nav "?file=api.edn&compare=") {:file "api.edn" :trail []})
+    (let [q (nav-query "db.edn" ["n,1.md" "a:b.edn" "api.edn"] nil "next" [nil "v2" "next"])]
+      (assert/deepEqual (parse-nav q) {:file "db.edn" :trail ["n,1.md" "a:b.edn" "api.edn"]
+                                       :trail-compare [nil "v2" "next"] :compare "next"}))
+    ;; no compare anywhere: the URL and the parsed nav are as before
+    (assert/equal (nav-query "db.edn" ["a.edn"] nil nil [nil]) "?file=db.edn&trail=a.edn")
+    (assert/deepEqual (parse-nav "?trail=a%253Ab.edn") {:file nil :trail ["a:b.edn"]})
+    ;; an empty compare, as in a hand-made URL, is none
+    (assert/deepEqual (parse-nav "?trail=a.edn%3A") {:file nil :trail ["a.edn"]})))
+
+(test "follow-url and crumb-url keep each entry's compare"
+  (fn []
+    ;; md page with a compared side graph → follow a ref from it
+    (let [q (follow-url "api.edn" ["notes.md"] "db.edn" nil {:from "next" :trail-compare [nil] :to "next"})]
+      (assert/deepEqual (parse-nav q) {:file "db.edn" :trail ["notes.md" "api.edn"]
+                                       :trail-compare [nil "next"] :compare "next"})
+      (let [nav (parse-nav q)]
+        ;; back to the graph: it is compared again
+        (assert/deepEqual (parse-nav (crumb-url (:trail nav) 1 "db.edn" {:trail-compare (:trail-compare nav) :compare "next"}))
+                          {:file "api.edn" :trail ["notes.md"] :compare "next"})
+        ;; back to the md page: the graph after it shows beside it, compared
+        (assert/deepEqual (parse-nav (crumb-url (:trail nav) 0 "db.edn" {:trail-compare (:trail-compare nav) :compare "next"}))
+                          {:file "notes.md" :trail [] :side "api.edn" :compare "next"})))
+    ;; the md page itself was last: its side takes the current compare
+    (assert/deepEqual (parse-nav (crumb-url ["notes.md"] 0 "api.edn" {:compare "v2"}))
+                      {:file "notes.md" :trail [] :side "api.edn" :compare "v2"})
+    (assert/deepEqual (parse-nav (follow-url "a.edn" [] "b.edn")) {:file "b.edn" :trail ["a.edn"]})))
+
+(test "with-compare sets or drops the compare parameter"
+  (fn []
+    (assert/equal (with-compare "?file=n.md&side=a.edn" "next") "?file=n.md&side=a.edn&compare=next")
+    (assert/equal (with-compare "?file=n.md&side=a.edn&compare=next" nil) "?file=n.md&side=a.edn")))
+
+(test "follow-compare: a link says its own, a ref or pair keeps the current, an md file has none"
+  (fn []
+    (assert/equal (follow-compare "api.edn" "next" nil) "next")
+    (assert/equal (follow-compare "api.edn" nil "next") "next")
+    (assert/equal (follow-compare "api.edn" "v2" "next") "v2")
+    (assert/equal (follow-compare "notes.md" "next" "next") nil)
+    (assert/equal (follow-compare "api.edn" nil nil) nil)))
+
+(test "edit-body and create-body carry a compare"
+  (fn []
+    (assert/deepEqual (edit-body "new" [] "next") {:file "new" :ops [] :compare "next"})
+    (assert/deepEqual (create-body "new" "a.edn" "next") {:file "new" :path "a.edn" :compare "next"})
+    (assert/deepEqual (create-body "new" "a.edn" nil) {:file "new" :path "a.edn"})))
+
+(test "mark-open? and link-title know a link's compare"
+  (fn []
+    (let [m {:links [{:label "a" :dest "pay.edn" :compare "next"}]}]
+      (assert/equal (mark-open? "n.md" m "pay.edn" "next") true)
+      (assert/equal (mark-open? "n.md" m "pay.edn" nil) false)
+      (assert/equal (mark-open? "n.md" {:links [{:label "a" :dest "pay.edn"}]} "pay.edn" nil) true)
+      (assert/equal (link-title "n.md" (first (:links m))) "a → pay.edn?compare=next"))))

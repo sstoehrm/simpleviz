@@ -300,10 +300,24 @@ understand too:
   created empty, as a followed ref is.
 - Following an md file opens it in place of this one, and the trail at
   the top leads back.
+- `?compare=<suffix>` on a link to a graph shows it compared with its
+  fork, as `simpleviz graph.edn <suffix>` does — added, modified and
+  removed marked, both sides live and editable — while the file's other
+  links keep opening plain graphs:
+
+      The API before and after: [api change](api.edn?compare=next)
+
+  Refs and pairs followed from it, and ⤢ full view, stay in that
+  comparison; an md file reached from it is not compared. The URL
+  (`compare=next`) and the trail keep it, so crumbs, back and a reload
+  restore it. A missing fork shows the graph unchanged — `simpleviz
+  check` warns about it. On GitHub the link still opens `api.edn`. In a
+  session started with a suffix every graph is compared already; a
+  link's `?compare=` picks another fork.
 - Followable: inline links, images, reference links and their
   definitions, to `.edn`, `.png`, `.svg` and `.md` files. Relative to
   the md file, never above the served folder; `#section` and `?query`
-  are ignored. Links in code blocks and code spans, web links and other
+  are ignored, except `?compare=`. Links in code blocks and code spans, web links and other
   file types get no », and links to other file types don't follow.
 - Unsaved text is saved before the page changes — with a link, a crumb,
   or the browser's back and forward; if the save fails, the page stays.
@@ -341,7 +355,8 @@ line is `>>` and a link shows the linked file to the right of its text:
   `.gif`, `.webp` without simpleviz EDN in it) — `>> [text](path)`, or
   `>> ![alt](pic.png)` for a picture. Being a link, it gets its » in Edit
   and `simpleviz check` reports it when broken. A plain `>> path` works
-  too. The path is relative to the md file, never above the served
+  too. `>> [the change](pay/flow.edn?compare=next)` shows the graph
+  compared with its fork. The path is relative to the md file, never above the served
   folder.
 - → ↓ space and Page Down step forward, ← ↑ and Page Up back, Home and
   End jump to the first and last slide. Esc closes the inspector, else
@@ -460,7 +475,9 @@ without a browser, for example from a script or an agent:
 clean file. In compare mode `file` names the original, not the fork; the
 report covers both sides, and each warning starts with its file's name.
 
-For an md file, each warning names the line and the link: `line 3: pay.edn not found`, `line 7: ../x.edn leaves the served folder`.
+For an md file, each warning names the line and the link: `line 3: pay.edn not found`, `line 7: ../x.edn leaves the served folder`. A link with `?compare=` is also checked for its fork: `line 4: api.edn: no api-next.edn — create it with: simpleviz fork api.edn next`, an invalid suffix, an md file, or a fork named instead of its original.
+
+`/api/errors` takes `compare=<suffix>` as well, for the comparison a link opens: `/api/errors?file=api.edn&compare=next`.
 
 ## Write locks
 

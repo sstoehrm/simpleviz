@@ -8,7 +8,7 @@
   A slide whose first lines hold `?? name` asks a question: its task
   list (- [ ] lines, [x] the right ones) gives the 2 to 4 choices, the
   lines indented under a choice its explanation. `??? name` asks for a
-  submit before the deck goes on; `?? results` shows the answers."
+  submit before the deck goes on."
   (:require [mdlinks :as mdlinks]))
 
 (defn- fence-mark
@@ -112,7 +112,7 @@
 (defn- slide
   "One slide from its lines: {:text :side}, :side the `>>` target of its
   first lines (nil when there is none); with `?? name` there too, :ask
-  the question, with `?? results` :results true."
+  the question."
   [lines]
   (loop [ls (vec (drop-while blank? lines)) side nil q nil]
     (let [head (first ls)]
@@ -126,15 +126,15 @@
 
         :else
         (let [base {:text (trim-blank-lines ls) :side (if (some? side) (:dest side) nil)}]
-          (cond (nil? q) base
-                (= "results" (:id q)) (assoc base :results true)
-                :else (let [[text a] (ask (:marker q) (:id q) ls)]
-                        (assoc base :text text :ask a))))))))
+          (if (nil? q)
+            base
+            (let [[text a] (ask (:marker q) (:id q) ls)]
+              (assoc base :text text :ask a))))))))
 
 (defn slides
   "The slides of md `text`, in order: [{:text md :side path-or-nil}]."
   [text]
-  (filterv (fn [s] (or (some? (:side s)) (some? (:ask s)) (:results s) (not= (:text s) "")))
+  (filterv (fn [s] (or (some? (:side s)) (some? (:ask s)) (not= (:text s) "")))
            (mapv slide (chunks (str (if (nil? text) "" text))))))
 
 (defn side-kind
@@ -166,37 +166,3 @@
   [ds answers from to]
   (or (first (filter (fn [k] (waiting? (nth ds k) answers)) (range from to)))
       to))
-
-(def ^:private heading-re #"^ {0,3}#{1,6}[ \t]+(.*?)[ \t#]*$")
-
-(defn- title
-  "What a question slide is called: its first heading, else its name."
-  [s]
-  (or (some (fn [l] (when-let [m (.exec heading-re l)] (aget m 1)))
-            (.split (:text s) "\n"))
-      (:id (:ask s))))
-
-(defn results
-  "The answers to deck `ds`'s questions: {:rows [{:id :title :answer
-  :correct}] :score :total}, one row per name in deck order. :correct is
-  nil for an unanswered question or a poll (no [x]); :total counts the
-  questions with one, :score those answered right."
-  [ds answers]
-  (let [qs (:qs (reduce (fn [acc s] (let [a (:ask s)]
-                                       (if (or (nil? a) (some? (:error a)) (contains? (:seen acc) (:id a)))
-                                         acc
-                                         {:seen (conj (:seen acc) (:id a)) :qs (conj (:qs acc) s)})))
-                        {:seen #{} :qs []} ds))
-        rows (mapv (fn [s]
-                     (let [{:keys [id choices]} (:ask s)
-                           got (answer answers id)
-                           quiz (some :correct choices)]
-                       {:id id :title (title s)
-                        :answer (if (some? got) (:answer got) nil)
-                        :correct (if (and (some? got) quiz)
-                                   (= true (:correct (nth choices (:num got) nil)))
-                                   nil)}))
-                   qs)]
-    {:rows rows
-     :score (count (filter :correct rows))
-     :total (count (filter (fn [s] (some :correct (:choices (:ask s)))) qs))}))

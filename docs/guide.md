@@ -370,17 +370,12 @@ right one. Lines indented under a choice explain it.
 
     - [ ] Very
     - [ ] Not at all
-    ---
-    ?? results
-    # Results
 
 - `??` takes a click at any time, and a new click changes the answer.
 - `???` asks for Submit, and → stops there until then. Submitted, the
   answer is locked: the right choice is marked, and the explanation of
   the one picked shows.
 - A question without an `[x]` is a poll: answered, not scored.
-- `?? results` lists every question with its answer, ✓ or ✗ for the
-  ones with a right choice, and the score.
 - A question takes 2 to 4 choices; with fewer or more the slide says so
   and shows its list as text. `>>` and `??` go together in the first
   lines, in either order.

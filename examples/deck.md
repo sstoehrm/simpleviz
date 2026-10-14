@@ -64,9 +64,3 @@ A slide whose first line is `?? name` turns its task list into boxes, `[x]` the 
   > Right: beside the deck, so an agent presenting it can read them.
 - [ ] Answers are lost on reload
   > No: presenting again reads them back from the file.
-
----
-
-?? results
-
-# ?? results sums them up

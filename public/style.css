@@ -180,7 +180,7 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
 #present-slide.title { text-align: center; }
 #present-slide.title h1 { font-size: 2.6em; margin: 0 0 .3em; }
 #present-slide.title h2 { font-size: 1.5em; font-weight: 400; color: var(--text-muted); margin: 0 0 1.4em; }
-/* a question's choices under its text (?? and ???), and the results */
+/* a question's choices under its text (?? and ???) */
 #present-slide .ask { width: 100%; max-width: 46em; margin-top: .8em; }
 .ask-choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(10em, 1fr)); gap: .6em; }
 .ask-choice { font: inherit; color: var(--text); background: var(--bg); text-align: left;
@@ -199,13 +199,6 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
 .ask-hint { font-size: .8em; color: var(--text-muted); }
 #present-slide .ask-note { margin-top: .8em; font-size: .9em; }
 #present-slide .ask-error { width: 100%; max-width: 46em; font-size: .8em; color: var(--diff-removed); }
-#present-slide .ask-results { width: 100%; max-width: 46em; }
-.ask-results table { width: 100%; border-collapse: collapse; }
-.ask-results td { padding: .35em .6em; border-bottom: 1px solid var(--panel-divider); }
-.ask-results td.ask-none { color: var(--text-dim); }
-.ask-results td.ask-right { color: var(--diff-added); }
-.ask-results td.ask-wrong { color: var(--diff-removed); }
-.ask-score { font-weight: 600; margin-top: .8em; }
 #present-counter { position: absolute; left: 16px; bottom: 10px; font: 12px system-ui, sans-serif;
                    color: var(--text-dim); }
 #present-side { position: fixed; top: 0; right: 0; bottom: 0; left: 50vw; z-index: 4;

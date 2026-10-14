@@ -301,21 +301,20 @@
                          :extra {"notes.md" "# Notes\n\nhello\n" "other.md" "# Other\n"})
                         [:errs :view :h1 :side])))))
 
-(deftest a-quiz-asks-locks-and-sums-up
+(deftest a-quiz-asks-and-locks
   ;; ??? holds → until Submit, then shows the answer locked, the right
-  ;; choice and the explanation of the one picked; ?? takes a click; the
-  ;; results slide sums up; the answers are in deck.answers.edn and come
-  ;; back locked when the deck is presented again
+  ;; choice and the explanation of the one picked; ?? takes a click, the
+  ;; last of two quick ones wins; the answers are in deck.answers.edn and
+  ;; come back locked when the deck is presented again
   (with-real-browser
     (is (= {:asked {:choices 2 :submit-disabled true :slide "2"}
             :blocked {:slide "2" :hint "Submit an answer to go on"}
             :locked {:wrong "Browser" :correct "Redis" :note "Per tab." :disabled true :slide "2"}
-            :results {:rows ["Where?Browser✗" "Sure?No"] :score "Score: 0 of 1"}
             :stored {:storage {:answer "Browser" :num 0} :poll {:answer "No" :num 1}}
             :again {:locked true :next "3"}}
            (eval-on-served-page
                 path "deck.md"
-                "# Quiz\n---\n??? storage\n# Where?\n- [ ] Browser\n  > Per tab.\n- [x] Redis\n  > Right: shared.\n---\n?? poll\n# Sure?\n- [ ] Yes\n- [ ] No\n---\n?? results\n# Results\n"
+                "# Quiz\n---\n??? storage\n# Where?\n- [ ] Browser\n  > Per tab.\n- [x] Redis\n  > Right: shared.\n---\n?? poll\n# Sure?\n- [ ] Yes\n- [ ] No\n"
                 (str "new Promise(ok => { let step = 0; const r = {};"
                      " const q = k => new URLSearchParams(location.search).get(k);"
                      " const key = k => document.dispatchEvent(new KeyboardEvent('keydown', {key: k, bubbles: true}));"
@@ -335,10 +334,8 @@
                      "   note: $('.ask-note').textContent, disabled: $$('.ask-choice').every(b => b.disabled), slide: q('slide')};"
                      "  key('ArrowRight'); step = 6; return; }"
                      " if (step === 6) { if (q('slide') !== '3') return; $$('.ask-choice')[0].click(); $$('.ask-choice')[1].click(); step = 7; return; }"
-                     " if (step === 7) { if (!$('.ask-choice.chosen')) return; key('End'); step = 8; return; }"
-                     " if (step === 8) { if (!$('.ask-results')) return;"
-                     "  r.results = {rows: $$('.ask-results tr').map(tr => tr.textContent), score: $('.ask-score').textContent};"
-                     "  step = 9; clearInterval(t);"
+                     " if (step === 7) { if (!$('.ask-choice.chosen')) return;"
+                     "  step = 9; clearInterval(t); await new Promise(go => setTimeout(go, 500));"
                      "  r.stored = (await (await fetch('/api/answers?path=deck.md')).json()).answers;"
                      "  key('Escape');"
                      "  const t2 = setInterval(() => {"

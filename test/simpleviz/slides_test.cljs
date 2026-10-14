@@ -1,7 +1,7 @@
 (ns simpleviz.slides-test
   (:require ["node:test" :refer [test]]
             ["node:assert/strict$default" :as assert]
-            [simpleviz.slides :refer [slides side-kind stop-at results answer]]))
+            [simpleviz.slides :refer [slides side-kind stop-at answer]]))
 
 (test "--- lines split the slides; empty ones are dropped"
   (fn []
@@ -97,17 +97,12 @@
     (assert/equal (:error (:ask (first (slides "???\n- [ ] a\n- [ ] b"))))
                   "??? needs a name, as in ??? storage")))
 
-(test "?? results marks the slide that shows the answers"
-  (fn []
-    (assert/deepEqual (slides "?? results\n# Results") [{:text "# Results" :side nil :results true}])
-    (assert/deepEqual (slides "?? results") [{:text "" :side nil :results true}])))
-
 (def ^:private quiz
   (slides (str "# Title\n---\n"
                "?? poll\n# How sure?\n- [ ] Very\n- [ ] Not\n---\n"
                "??? storage\n# Where?\n- [ ] Browser\n- [x] Redis\n---\n"
                "??? entry\n- [x] gateway\n- [ ] auth\n---\n"
-               "?? results\n# Results")))
+               "# End")))
 
 (test "stop-at: stepping forward stops at a ??? not yet submitted"
   (fn []
@@ -119,25 +114,6 @@
     (assert/equal (stop-at quiz {} 1 2) 2)
     (assert/equal (stop-at quiz {} 4 0) 0)))
 
-(test "results: each question once, in deck order, with the answer and whether it is right"
-  (fn []
-    (assert/deepEqual (results quiz {"poll" {:answer "Not" :num 1}
-                                     "storage" {:answer "Redis" :num 1}
-                                     "entry" {:answer "auth" :num 1}})
-                      {:rows [{:id "poll" :title "How sure?" :answer "Not" :correct nil}
-                              {:id "storage" :title "Where?" :answer "Redis" :correct true}
-                              {:id "entry" :title "entry" :answer "auth" :correct false}]
-                       :score 1 :total 2})
-    (assert/deepEqual (:rows (results quiz {}))
-                      [{:id "poll" :title "How sure?" :answer nil :correct nil}
-                       {:id "storage" :title "Where?" :answer nil :correct nil}
-                       {:id "entry" :title "entry" :answer nil :correct nil}])))
-
-(test "results keep deck order for numbered names, and a repeated name counts once"
-  (fn []
-    (assert/deepEqual (mapv :id (:rows (results (slides "?? b\n- [ ] x\n- [ ] y\n---\n?? 10\n- [ ] x\n- [ ] y\n---\n?? 2\n- [ ] x\n- [ ] y\n---\n?? b\n- [ ] x\n- [ ] y") {})))
-                      ["b" "10" "2"])))
-
 (test "a tab-indented explanation, or a nested list in one, stays the choice's"
   (fn []
     (let [[s] (slides "??? q\n# Q\n- [ ] A\n\t> Gone on restart.\n- [x] B\n  - [ ] not a choice\n- [ ] C")]
@@ -147,8 +123,6 @@
 
 (test "a question named like an Object property is still unanswered"
   (fn []
-    (let [ds (slides "??? constructor\n- [x] a\n- [ ] b\n---\n?? results")]
+    (let [ds (slides "??? constructor\n- [x] a\n- [ ] b\n---\n# End")]
       (assert/equal (stop-at ds {} 0 1) 0)
-      (assert/ok (nil? (answer {} "toString")))
-      (assert/deepEqual (:rows (results ds {}))
-                        [{:id "constructor" :title "constructor" :answer nil :correct nil}]))))
+      (assert/ok (nil? (answer {} "toString"))))))

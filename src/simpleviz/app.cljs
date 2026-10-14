@@ -950,7 +950,7 @@
      (help-section
       "md pages"
       "simpleviz notes.md opens a markdown file rendered, in a centered column — headings, emphasis, quotes, lists and task lists, links, pictures, tables, footnotes, code; Edit switches to the plain text, Read back. Its links to graphs and md files follow on click — [text](sub/graph.edn), ![img](x.png), [text](other.md), reference links too; relative to the md file, never above the served folder. In the plain text a » in the gutter marks each line with such a link (»2 lists the links of that line). A graph or exported image opens to the right of the text, its link and » highlighted, and works like any graph; ⤢ full view opens it on its own, × closes it. An md file opens in place of this one; the trail at the top leads back. Unsaved text is saved before you leave the page — when that fails you stay. A :ref to an .md file opens it the same way; the doc panel of :md-ref has the » gutter too."
-      "Present shows the page as slides: a line of just --- starts the next one, and a slide whose first line is >> [text](path) — >> and a link — shows that graph, md file or picture beside its text. → or space steps forward, ← back, Home and End jump; Esc leaves. The graph can be hovered, inspected, panned and collapsed, not edited. A slide whose first line is ?? name asks a question: its - [ ] lines are the choices, [x] the right one; ??? asks for Submit before → goes on, then shows the right choice and the explanation indented under the one picked. ?? results lists the answers and the score; they are kept in talk.answers.edn beside talk.md.")
+      "Present shows the page as slides: a line of just --- starts the next one, and a slide whose first line is >> [text](path) — >> and a link — shows that graph, md file or picture beside its text. → or space steps forward, ← back, Home and End jump; Esc leaves. The graph can be hovered, inspected, panned and collapsed, not edited. A slide whose first line is ?? name asks a question: its - [ ] lines are the choices, [x] the right one; ??? asks for Submit before → goes on, then shows the right choice and the explanation indented under the one picked. The answers are kept in talk.answers.edn beside talk.md.")
      (help-section
       "Keys"
       "Chords act on the selection, when no text field has focus (the toolbar buttons show them); the first key opens a pop-out of what comes next, which can be clicked too: d d delete · e 1/2/3/4 edge direction → ← ↔ — · c s / c t change an edge's source / target · a e add edge · a b add to box (node) or add a box as member (box) · a n add a node as member (box) — either moves it out of the box it was in · n n n new node (connected to the selected node, or inside the selected box) · n n b new box (inside the selected box) · n n s new node in the selection's box · n n c / n n i new node in the selection's box, connected from / to it · n n e split the selected edge with a new node · n b wrap the selection in a new box · r r rename the id · r n take a node out of the selected box · r b take the selected node out of its box · f r follow the selection's :ref · f p follow the selection's pair (f p 1–9 with several) · f m open the selection's :md-ref doc (Ctrl+S saves it). Esc cancels a pending chord; ? toggles this help; Ctrl+Z undoes.")
@@ -1358,46 +1358,23 @@
        (when (some? note)
          (into [:div {:class "md-doc ask-note"}] (markdown/render note link-fn)))])))
 
-(defn- results-view
-  "The answers to the deck's questions, in deck order, and the score of
-  the ones with a right choice."
-  [st]
-  (let [{:keys [rows score total]} (slides/results (deck st) (:answers st))]
-    (if (empty? rows)
-      [:p {:class "md-empty"} "No questions in this deck yet."]
-      [:div {:class "ask-results"}
-       [:table
-        (into [:tbody]
-              (map (fn [{:keys [title answer correct]}]
-                     [:tr
-                      [:td title]
-                      [:td {:class (if (some? answer) "" "ask-none")} (if (some? answer) answer "—")]
-                      (cond (= true correct) [:td {:class "ask-right"} "✓"]
-                            (= false correct) [:td {:class "ask-wrong"} "✗"]
-                            :else [:td])])
-                   rows))]
-       (when (pos? total)
-         [:p {:class "ask-score"} (str "Score: " score " of " total)])])))
-
 (defn- present-panel
   "The slide presented, in the md page's place: the window, or its left
   half while something shows beside it. The first slide, alone, is the
-  title slide, centered. A question's choices, or the deck's results,
-  show under its text."
+  title slide, centered. A question's choices show under its text."
   [st]
   (let [ds (deck st)
         n (count ds)
         i (:slide (:present st))
         s (nth ds i nil)]
     [:aside {:id "md-panel" :class "page"}
-     [:div {:id "present-slide" :class (if (and (= i 0) (nil? (:side s)) (nil? (:ask s)) (not (:results s))) "title" "")}
+     [:div {:id "present-slide" :class (if (and (= i 0) (nil? (:side s)) (nil? (:ask s))) "title" "")}
       (into [:div {:class "md-doc" :on-click in-page-click}]
             (if (some? s)
               (markdown/render (:text s) (present-link-fn (:path (:md st))))
               [[:p {:class "md-empty"} "No slides left — the text is empty."]]))
       (when (some? (:ask s)) (ask-view st (:ask s)))
-      (when (:results s) (results-view st))
-      (when (and (some? (:answer-error st)) (or (some? (:ask s)) (:results s)))
+      (when (and (some? (:answer-error st)) (some? (:ask s)))
         [:p {:class "ask-error"} (:answer-error st)])]
      [:div {:id "present-counter"} (str (min (inc i) n) " / " n)]]))
 

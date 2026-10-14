@@ -93,6 +93,12 @@
     (when (and (str/ends-with? stem tail) (> (count stem) (count tail)))
       (str (subs stem 0 (- (count stem) (count tail))) ext))))
 
+(defn missing-fork
+  "Why `rel` can't be compared under `suffix`: its fork is not there,
+  and how to make it."
+  [rel suffix]
+  (str "no " (fork-name rel suffix) " — create it with: simpleviz fork " rel " " suffix))
+
 (defn resolve-path
   "The canonical file for the root-relative path `rel` under `root`.
   Refuses (ex-info, message names the problem) an absolute path, a
@@ -267,7 +273,7 @@
              {:old old :new new}
              (throw (ex-info (str "no such file: " rel) {})))
            (not (.isFile new))
-           (throw (ex-info (str "no " fk " — create it with: simpleviz fork " rel " " suffix) {}))
+           (throw (ex-info (missing-fork rel suffix) {}))
            :else
            (throw (ex-info (str "no " rel " (only " fk ")") {}))))))))
 
@@ -886,7 +892,7 @@
     (str dest " is the fork of " (fork-base dest suffix) " — link the original")
     (not (try (.isFile (resolve-path root (fork-name target suffix) false link-extensions))
               (catch Exception _ false)))
-    (str dest ": no " (fork-name dest suffix) " — create it with: simpleviz fork " dest " " suffix)))
+    (str dest ": " (missing-fork dest suffix))))
 
 (defn md-warnings
   "The broken links of md file `rel` (root-relative, under folder `root`)

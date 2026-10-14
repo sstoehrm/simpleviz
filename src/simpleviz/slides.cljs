@@ -10,7 +10,7 @@
   lines indented under a choice its explanation. `??? name` asks for a
   submit before the deck goes on."
   (:require [mdlinks :as mdlinks]
-            [simpleviz.markdown :refer [indent untab]]))
+            [simpleviz.markdown :as markdown :refer [indent untab]]))
 
 (defn- fence-mark
   "The fence a line opens or closes (\"```\" or \"~~~\"), or nil."
@@ -45,8 +45,6 @@
         ls (reverse (drop-while blank? (reverse ls)))]
     (.join (into-array ls) "\n")))
 
-(def ^:private choice-re #"^ {0,3}[-*+][ \t]+\[([ xX])\][ \t]+(.*)$")
-
 (defn- dedent
   "The lines without the indent they share, blank ends dropped; nil when
   nothing is left."
@@ -68,13 +66,13 @@
         [text (close)]
         (let [line (first ls)
               mark (fence-mark line)
-              m (when (nil? fence) (.exec choice-re line))]
+              m (when (nil? fence) (markdown/task-item line))]
           (cond
             (some? fence) (recur (rest ls) (if (= mark fence) nil fence) (conj text line) choices cur)
             (and (some? cur) (or (blank? line) (>= (indent line) 2)))
             (recur (rest ls) nil text choices (update cur :note conj line))
             (some? m) (recur (rest ls) nil text (close)
-                             {:choice {:text (.trim (aget m 2)) :correct (not= " " (aget m 1))} :note []})
+                             {:choice {:text (:text m) :correct (:checked m)} :note []})
             :else (recur (rest ls) mark (conj text line) (close) nil)))))))
 
 (defn- ask

@@ -245,9 +245,8 @@
            " <suffix>, then simpleviz " file " <suffix>"))
     (when-not (re-matches serve/suffix-re suffix)
       (die "invalid suffix: " suffix))
-    (let [fk (serve/fork-name file suffix)]
-      (when-not (.isFile (io/file fk))
-        (die fk " not found — create it with: simpleviz fork " file " " suffix)))))
+    (when-not (.isFile (io/file (serve/fork-name file suffix)))
+      (die (serve/missing-fork file suffix)))))
 
 (defn- serve-cmd [args]
   (let [[[file suffix & extra] flags] (split-flags args)]

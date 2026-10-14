@@ -1288,7 +1288,8 @@
 
 ;; md text → what /api/calc made of its tables: {} for text without a
 ;; formula, {:pending true} while the server works, {:tables …} after,
-;; {:failed msg} when it couldn't be asked; the oldest go past 50
+;; {:failed msg :at ms} when it couldn't be asked — asked again after
+;; 5 s; the oldest go past 50
 (def ^:private calc-results (js/Map.))
 
 (defn- remember-calc! [text v]
@@ -1306,8 +1307,9 @@
                    (if (.-ok resp)
                      {:tables (:tables (js-await (.json resp)))}
                      {:failed (str "couldn't calculate: " (or (try (:error (js-await (.json resp))) (catch :default _ nil))
-                                                              (.-status resp)))}))
-                 (catch :default _ {:failed "couldn't calculate: no server"}))]
+                                                              (.-status resp)))
+                      :at (js/Date.now)}))
+                 (catch :default _ {:failed "couldn't calculate: no server" :at (js/Date.now)}))]
     (remember-calc! text out)
     (swap! state update :calc-tick (fnil inc 0))))
 
@@ -1316,7 +1318,7 @@
   nil until the server has them — asking it the first time."
   [text]
   (let [hit (.get calc-results text)]
-    (cond (some? (:failed hit)) hit
+    (cond (some? (:failed hit)) (do (when (> (- (js/Date.now) (:at hit)) 5000) (fetch-calc! text)) hit)
           (some? hit) (:tables hit)
           (markdown/calc? text) (do (fetch-calc! text) nil)
           :else (do (remember-calc! text {}) nil))))

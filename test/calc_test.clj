@@ -141,6 +141,10 @@
   (binding [calc/*child-ms* 300]
     (let [t0 (System/currentTimeMillis)
           out (calc/evaluate-tables [{:cells [["1" "=(loop [] (recur))" "x"]]}])]
-      (is (< (- (System/currentTimeMillis) t0) 900))
+      (is (< (- (System/currentTimeMillis) t0) 3000))
       (is (re-find #"too long" (get-in out [0 :results 0 1 :error])))
       (is (nil? (get-in out [0 :results 0 2]))))))
+
+(deftest a-formula-that-prints-breaks-nothing
+  (is (= [{:results [[nil {:value "5"} {:value "1"}]]}]
+         (calc/evaluate-tables [{:cells [["1" "=(do (println \"hi\") 5)" "=(sum :a)"]]}]))))

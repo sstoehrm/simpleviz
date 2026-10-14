@@ -191,17 +191,28 @@
 (defn child
   "The child's main: tables as JSON on stdin, their results as JSON on
   stdout, then exit — whatever a formula left running or altered goes
-  with the process."
+  with the process. What formulas print goes nowhere, and the reply
+  goes to the writer stdout was before any formula ran."
   []
-  (let [tables (:tables (json/parse-string (slurp *in*) true))
-        out (try (json/generate-string {:tables (mapv evaluate tables)})
-                 (catch Throwable e (json/generate-string {:error (message e)})))]
-    (println out)
-    (flush)
+  (let [stdout *out*
+        tables (:tables (json/parse-string (slurp *in*) true))
+        out (binding [*out* (java.io.StringWriter.)]
+              (try (json/generate-string {:tables (mapv evaluate tables)})
+                   (catch Throwable e (json/generate-string {:error (message e)}))))]
+    (.write ^java.io.Writer stdout (str out "\n"))
+    (.flush ^java.io.Writer stdout)
     (System/exit 0)))
 
 (defn- bb-path []
   (or (.orElse (.command (.info (java.lang.ProcessHandle/current))) nil) "bb"))
+
+(defn- classpath
+  "This process's classpath, its entries absolute — the child runs
+  elsewhere."
+  []
+  (->> (str/split (cp/get-classpath) (re-pattern java.io.File/pathSeparator))
+       (map (fn [e] (.getAbsolutePath (java.io.File. ^String e))))
+       (str/join java.io.File/pathSeparator)))
 
 (defn- failed
   "The results of `tables` with every formula failing with `msg`."
@@ -212,16 +223,19 @@
 
 (defn evaluate-tables
   "calc/evaluate of each table, run in a child bb that is gone after —
-  killed past *child-ms*. A table without formulas needs no child."
+  killed past *child-ms*, by default the time its formulas and def
+  blocks may take plus two seconds. A table without formulas needs no
+  child."
   [tables]
-  (let [n (count (filter formula? (mapcat flatten (map :cells tables))))]
+  (let [n (count (filter formula? (mapcat flatten (map :cells tables))))
+        defs (count (remove (comp str/blank? :defs) tables))]
     (if (zero? n)
       (mapv evaluate tables)
-      (let [ms (or *child-ms* (min 30000 (+ 2000 (* n *timeout-ms*))))
+      (let [ms (or *child-ms* (min 60000 (+ 2000 (* (+ n defs) *timeout-ms*))))
             proc (p/process {:in (json/generate-string {:tables tables})
                              :out :string :err :string
                              :dir (System/getProperty "java.io.tmpdir")}
-                            (bb-path) "-cp" (cp/get-classpath) "-e" "(require 'calc) (calc/child)")
+                            (bb-path) "-cp" (classpath) "-e" "(require 'calc) (calc/child)")
             done (deref proc ms ::late)]
         (if (= ::late done)
           (do (p/destroy-tree proc)

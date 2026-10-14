@@ -39,13 +39,17 @@ Nothing fails loudly, so checking is the only way to know a file is right.
 Copy this checklist and work through it:
 
 ```
-- [ ] 1. Served by a running server? Take its lock (see Concurrent writes)
-- [ ] 2. Write the file in map form (see Data format)
-- [ ] 3. simpleviz check <file> — every file you wrote, :ref targets included
-- [ ] 4. Fix each warning, check again; repeat until it prints ok
-- [ ] 5. Release the lock
-- [ ] 6. To show it: simpleviz <file> --no-open in the background, give the user the URL
+- [ ] 1. A server serves the file (the user's, another agent's or yours)? Take its lock (see Concurrent writes). None does? Skip this and step 5
+- [ ] 2. Write the file (a graph in map form, see Data format)
+- [ ] 3. Check every file you wrote, :ref targets and forks included: simpleviz check <file>, or $URL/api/errors while served (see Checking)
+- [ ] 4. Fix each warning, check again; repeat until clean
+- [ ] 5. Release the lock (after the check, so the fixes are covered too)
+- [ ] 6. To show it: a server already serves it? Give the user that URL; the page reloads by itself. Else start one: simpleviz <file> --no-open in the background
 ```
+
+`curl -s $URL/api/root` names the file a running server was started with
+(`{"path":"arch.edn"}`), so you can tell whether it serves the file you
+are about to write.
 
 ## Data format (canonical map forms)
 
@@ -57,11 +61,11 @@ Copy this checklist and work through it:
                :lang "clojure"}      ; any other attr: shown in the inspector only
          :web {:type "frontend"}
          :db {:type "database"}      ; drawn as a database cylinder
-         :cache {:type "cache"}}
+         :cache {:type "cache"}}     ; any other type: the plain shape, its own color
  :edges {[:web :api]                 ; key = the two endpoints; order defines left/right
          {:direction :->             ; :-> | :<- | :<-> | :- (default :-)
           :name "REST"               ; edge label
-          :type "http"}}             ; free-form; colors/labels like node types
+          :type "http"}}             ; free-form; appended to the label: REST (http)
  :boxes {:backend                    ; key is the box id
          {:name "Backend"            ; display name (defaults to the key)
           :type "zone"               ; free-form; colors the box (separate palette)
@@ -93,8 +97,14 @@ Shapes that are easy to get wrong:
 
 Attributes simpleviz reads:
 - `:type` colors a node's name or a box, and keeps its color across
-  restarts and edits. `"database"` (any case) draws the node as a cylinder;
-  use it for data stores.
+  restarts and edits. On an edge it only follows the name in the label
+  (`REST (http)`), so don't repeat the name there. `"database"` (any case)
+  draws the node as a cylinder; use it for data stores (a cache too, when
+  it should look like one). Other types are yours to name; reuse one
+  string per kind across a set of graphs, e.g. `"external"` for systems
+  outside the one drawn (and outside its boxes), `"queue"` for a broker or
+  topic that deserves its own node — or name the edge instead
+  (`:name "order events (Kafka)"`).
 - `:text` on a node or box shows inside it, wrapped at about 220 px; `\n`
   or a vector of strings for more lines. Use it for the line or two a
   reader needs at a glance; whole specs belong in an md file (`:md-ref`).
@@ -140,16 +150,23 @@ explains a set of graphs.
 - Ordinary links follow in the page: `[text](sub/api.edn)`,
   `[text](other.md)`, `![x](diagram.png)`, reference links. A graph opens
   to the right of the text.
-- Slides: a line of just `---` starts the next slide. A slide whose first
+- Slides: a line of just `---` starts the next slide; the text before the
+  first `---` is the first slide. A slide whose first
   line is `>> [the API](sub/api.edn)` shows that graph — or an md file, or
   a picture (`>> ![alt](pic.png)`) — beside its text. Write talks this way;
   `simpleviz init talk.md -t presentation` writes a starter deck and its
   graph.
-- Questions: a slide whose first line is `?? name` asks one. Its task list
-  is the 2 to 4 choices (`- [x]` the right one, none for a poll); lines
-  indented under a choice explain it. `??? name` waits for Submit before
-  the deck goes on, then marks the right choice and shows the explanation
-  of the one picked. `>>` and `??` may share a slide's first lines.
+- Questions: a slide whose first line is `?? name` (a name such as
+  `cache-policy`) asks one. Its task list is the 2 to 4 choices: `- [x]`
+  a right one, `- [ ]` the others; no `[x]` at all makes it a poll. Lines
+  indented two or more spaces under a choice explain it. The slide's other
+  text shows above the choices. `?? name` takes an answer any time;
+  `??? name` waits for Submit before the deck goes on, then marks the right
+  choice and shows the explanation of the picked one only — put what
+  everyone should read in the slide text. `>>` and `??` may share a
+  slide's first lines. Without a name or with the wrong number of choices,
+  the slide says so and shows the list as text; `simpleviz check` doesn't
+  catch that, so count the choices yourself.
 - Answers land in `talk.answers.edn` beside `talk.md` as
   `{"name" {:answer "choice text" :num 0-based-index}}`. Read it to react,
   e.g. append the next slide (the presented text follows the file).
@@ -169,11 +186,13 @@ explains a set of graphs.
     # `ok` (exit 0), or `error: ..` / one `warning: ..` line per problem (exit 1)
 
 No server or browser needed. While a server runs, `/api/errors` gives the
-same report (`$URL` is the address it printed; `file` is relative to the
-served folder):
+same report (`$URL` is the address it printed, or the one the user gave
+you; `file` is relative to the served folder):
 
     curl -s $URL/api/errors                      # {"error":null,"warnings":[]} means clean
-    curl -s "$URL/api/errors?file=sub/api.edn"   # a file reached through a :ref
+    curl -s "$URL/api/errors?file=sub/api.edn"   # a file reached through a :ref or md link
+    curl -s "$URL/api/errors?file=sub/api.edn&compare=next"  # both sides of a comparison,
+                                                 # e.g. one an md file links with ?compare=
 
 In compare mode `file` names the original, never the fork (`sub/api.edn`,
 not `sub/api-next.edn`, unlike locks); the report covers both sides, each
@@ -193,6 +212,7 @@ the file behind an extra `}`) is a parse error too.
                                      # $SIMPLEVIZ_HOME/templates); add your own there,
                                      # updates keep them
     simpleviz check graph.edn        # see Checking
+    simpleviz fork graph.edn next    # see Proposing a change (also promote)
     simpleviz export graph.edn out.png  # PNG/SVG via headless Chrome or Chromium, never a
                                      # window (suffix for a compare export, --theme <name>,
                                      # --force to overwrite)
@@ -203,7 +223,9 @@ the file behind an extra `}`) is a parse error too.
 
 As an agent, always pass `--no-open` and run the server in the background:
 it prints `simpleviz: http://localhost:<port>` (that is `$URL`) and runs
-until stopped. To hand someone an image, run `simpleviz export` rather than
+until its process is stopped. Leave it running while the user needs the
+link; stop a server you started once they don't, and never stop one you
+didn't start. To hand someone an image, run `simpleviz export` rather than
 asking them to click ⇩.
 
 `simpleviz` comes from `install.sh` (files in `~/.simpleviz`, launcher in
@@ -218,8 +240,9 @@ changes it).
 There is no diff command; comparing is serving a graph with the suffix of
 its fork (`<name>-<suffix>.<ext>`).
 
-1. `simpleviz fork graph.edn next` writes `graph-next.edn` and a fork of
-   every file it refs.
+1. `simpleviz fork graph.edn next` writes `graph-next.edn` beside it and a
+   fork of every file it refs, each a copy to edit; the originals stay
+   untouched.
 2. Edit the forks with the writing checklist; `simpleviz check` each fork
    file, and lock a fork by its real name (`graph-next.edn`).
 3. `simpleviz graph.edn next --no-open` shows one merged view: added
@@ -241,8 +264,9 @@ lock around your write:
     curl -s -X POST -H 'Content-Type: application/json' -d '{"owner":"<your-id>","path":"sub/api.edn"}' $URL/api/unlock
 
 - `owner` is any string unique to you; `path` is the real file name
-  relative to the served folder (a fork is `graph-next.edn`; md files too),
-  default the root file. Locks are per file.
+  relative to the served folder (a fork is `graph-next.edn`; md files too).
+  Leaving it out means the root file, the same as naming it. Locks are per
+  file.
 - `{"ok":true,"ttl":60}` means you hold it; HTTP 409 `{"error":"locked by
   <owner>"}` means wait a moment and retry — do not write.
 - A lock expires after 60 seconds; repeat the lock call to renew during

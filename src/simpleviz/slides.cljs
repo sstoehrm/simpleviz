@@ -44,17 +44,20 @@
         ls (reverse (drop-while blank? (reverse ls)))]
     (.join (into-array ls) "\n")))
 
-(defn side-dest
-  "What the rest of a `>>` line names: the destination of its first link
-  — [text](path) or ![alt](path), as a link means it — else the rest as
-  a plain path; nil when there is nothing."
+(defn side-target
+  "What the rest of a `>>` line names, {:dest} plus :compare when it
+  asks for one: the destination of its first link — [text](path) or
+  ![alt](path), as a link means it — else the rest as a plain path
+  (`path?compare=<suffix>` too); nil when there is nothing."
   [rest]
   (let [t (.trim rest)
         l (first (filter (fn [l] (or (= "inline" (:kind l)) (= "image" (:kind l))))
-                         (mdlinks/links t)))]
-    (cond (some? l) (:dest l)
+                         (mdlinks/links t)))
+        c (when (and (nil? l) (not= t "")) (mdlinks/dest-compare t))]
+    (cond (some? l) (cond-> {:dest (:dest l)} (some? (:compare l)) (assoc :compare (:compare l)))
           (= t "") nil
-          :else t)))
+          (some? c) {:dest (.slice t 0 (.indexOf t "?")) :compare c}
+          :else {:dest t})))
 
 (def ^:private choice-re #"^ {0,3}[-*+][ \t]+\[([ xX])\][ \t]+(.*)$")
 
@@ -111,21 +114,23 @@
 
 (defn- slide
   "One slide from its lines: {:text :side}, :side the `>>` target of its
-  first lines (nil when there is none); with `?? name` there too, :ask
-  the question."
+  first lines (nil when there is none), plus :side-compare when that
+  asks to compare; with `?? name` there too, :ask the question."
   [lines]
   (loop [ls (vec (drop-while blank? lines)) side nil q nil]
     (let [head (first ls)]
       (cond
         (and (nil? side) (some? head) (.startsWith head ">>"))
-        (recur (subvec ls 1) {:dest (side-dest (.slice head 2))} q)
+        (recur (subvec ls 1) {:target (side-target (.slice head 2))} q)
 
         (and (nil? q) (some? head) (.startsWith head "??"))
         (let [marker (if (.startsWith head "???") "???" "??")]
           (recur (subvec ls 1) side {:marker marker :id (.trim (.slice head (count marker)))}))
 
         :else
-        (let [base {:text (trim-blank-lines ls) :side (if (some? side) (:dest side) nil)}]
+        (let [target (:target side)
+              base (cond-> {:text (trim-blank-lines ls) :side (if (some? target) (:dest target) nil)}
+                     (some? (:compare target)) (assoc :side-compare (:compare target)))]
           (if (nil? q)
             base
             (let [[text a] (ask (:marker q) (:id q) ls)]

@@ -13,7 +13,9 @@
                                       theme-menu top-box-of load-readiness export-readiness
                                       md-target from-disk to-disk md-dirty? adopt-doc gone-doc poll-outcome save-result
                                       parent-box split-parent doc-kind link-target line-markers link-title
-                                      with-side with-slide mark-open?]]
+                                      with-side with-slide mark-open? with-compare follow-compare
+                                      downstream-graph? match-choices
+                                      selection-targets paste-op]]
             [paths :refer [resolve-ref]]))
 
 (test "target maps selection payloads to op targets"
@@ -635,10 +637,16 @@
 
 (test "chord-menu lists what comes next, collapsing chains and single chords"
   (fn []
-    ;; nothing selected: n → n n is a chain, so the root shows both chords
-    (assert/deepEqual (chord-menu nil [] all [])
+    ;; nothing selected: n → n n is a chain, so it shows both chords
+    (assert/deepEqual (chord-menu nil [] (fn [a] (contains? #{"new-node" "new-free-box"} a)) [])
                       [{:keys ["n" "n" "n"] :label "new node" :action "new-node"}
                        {:keys ["n" "n" "b"] :label "new box" :action "new-free-box"}])
+    (assert/deepEqual (chord-menu nil [] all [])
+                      [{:keys ["n"] :label "new" :group true}
+                       {:keys ["s"] :label "select" :group true}
+                       {:keys ["p" "p"] :label "paste" :action "paste"}])
+    (assert/deepEqual (mapv :keys (chord-menu "select" [] all []))
+                      [["s"] ["y" "y"] ["x" "x"] ["d" "d"]])
     (assert/deepEqual (chord-menu nil ["n"] all [])
                       [{:keys ["n" "n"] :label "new node" :action "new-node"}
                        {:keys ["n" "b"] :label "new box" :action "new-free-box"}])
@@ -683,6 +691,25 @@
     (assert/deepEqual (link-target "notes.md" "../out.md")
                       {:error "link \"../out.md\" leaves the served folder"})))
 
+(test "downstream-graph?: an .edn in the md file's folder or below"
+  (fn []
+    (assert/equal (downstream-graph? "docs/notes.md" "docs/a.edn") true)
+    (assert/equal (downstream-graph? "docs/notes.md" "docs/sub/b.EDN") true)
+    (assert/equal (downstream-graph? "notes.md" "deep/er/c.edn") true)
+    (assert/equal (downstream-graph? "docs/notes.md" "pay.edn") false)
+    (assert/equal (downstream-graph? "docs/notes.md" "docsx/a.edn") false)
+    (assert/equal (downstream-graph? "docs/notes.md" "docs/x.png") false)
+    (assert/equal (downstream-graph? "docs/notes.md" nil) false)))
+
+(test "match-choices keeps the paths holding every word, any case"
+  (fn []
+    (let [fs ["a.edn" "docs/Pay.edn" "lib/tpl/pay-flow.edn"]]
+      (assert/deepEqual (match-choices fs "") fs)
+      (assert/deepEqual (match-choices fs "  ") fs)
+      (assert/deepEqual (match-choices fs "pay") ["docs/Pay.edn" "lib/tpl/pay-flow.edn"])
+      (assert/deepEqual (match-choices fs "tpl PAY") ["lib/tpl/pay-flow.edn"])
+      (assert/deepEqual (match-choices fs "zzz") []))))
+
 (test "line-markers: one marker per line with followable links"
   (fn []
     (let [a {:line 1 :label "a" :dest "a.md" :kind "inline"}
@@ -725,3 +752,91 @@
     (assert/equal (with-slide "?file=d.md" 2) "?file=d.md&slide=2")
     (assert/equal (with-slide "?file=d.md&slide=2&side=g.edn" nil) "?file=d.md&side=g.edn")
     (assert/equal (with-slide "?slide=2" nil) "")))
+
+(test "parse-nav and nav-query carry the compare of the graph shown and of each trail entry"
+  (fn []
+    (assert/deepEqual (parse-nav "?file=api.edn&compare=next") {:file "api.edn" :trail [] :compare "next"})
+    (assert/deepEqual (parse-nav "?file=api.edn&compare=") {:file "api.edn" :trail []})
+    (let [q (nav-query "db.edn" ["n,1.md" "a:b.edn" "api.edn"] nil "next" [nil "v2" "next"])]
+      (assert/deepEqual (parse-nav q) {:file "db.edn" :trail ["n,1.md" "a:b.edn" "api.edn"]
+                                       :trail-compare [nil "v2" "next"] :compare "next"}))
+    ;; no compare anywhere: the URL and the parsed nav are as before
+    (assert/equal (nav-query "db.edn" ["a.edn"] nil nil [nil]) "?file=db.edn&trail=a.edn")
+    (assert/deepEqual (parse-nav "?trail=a%253Ab.edn") {:file nil :trail ["a:b.edn"]})
+    ;; an empty compare, as in a hand-made URL, is none
+    (assert/deepEqual (parse-nav "?trail=a.edn%3A") {:file nil :trail ["a.edn"]})))
+
+(test "follow-url and crumb-url keep each entry's compare"
+  (fn []
+    ;; md page with a compared side graph → follow a ref from it
+    (let [q (follow-url "api.edn" ["notes.md"] "db.edn" nil {:from "next" :trail-compare [nil] :to "next"})]
+      (assert/deepEqual (parse-nav q) {:file "db.edn" :trail ["notes.md" "api.edn"]
+                                       :trail-compare [nil "next"] :compare "next"})
+      (let [nav (parse-nav q)]
+        ;; back to the graph: it is compared again
+        (assert/deepEqual (parse-nav (crumb-url (:trail nav) 1 "db.edn" {:trail-compare (:trail-compare nav) :compare "next"}))
+                          {:file "api.edn" :trail ["notes.md"] :compare "next"})
+        ;; back to the md page: the graph after it shows beside it, compared
+        (assert/deepEqual (parse-nav (crumb-url (:trail nav) 0 "db.edn" {:trail-compare (:trail-compare nav) :compare "next"}))
+                          {:file "notes.md" :trail [] :side "api.edn" :compare "next"})))
+    ;; the md page itself was last: its side takes the current compare
+    (assert/deepEqual (parse-nav (crumb-url ["notes.md"] 0 "api.edn" {:compare "v2"}))
+                      {:file "notes.md" :trail [] :side "api.edn" :compare "v2"})
+    (assert/deepEqual (parse-nav (follow-url "a.edn" [] "b.edn")) {:file "b.edn" :trail ["a.edn"]})))
+
+(test "with-compare sets or drops the compare parameter"
+  (fn []
+    (assert/equal (with-compare "?file=n.md&side=a.edn" "next") "?file=n.md&side=a.edn&compare=next")
+    (assert/equal (with-compare "?file=n.md&side=a.edn&compare=next" nil) "?file=n.md&side=a.edn")))
+
+(test "follow-compare: a link says its own, a ref or pair keeps the current, an md file has none"
+  (fn []
+    (assert/equal (follow-compare "api.edn" "next" nil) "next")
+    (assert/equal (follow-compare "api.edn" nil "next") "next")
+    (assert/equal (follow-compare "api.edn" "v2" "next") "v2")
+    (assert/equal (follow-compare "notes.md" "next" "next") nil)
+    (assert/equal (follow-compare "api.edn" nil nil) nil)))
+
+(test "edit-body and create-body carry a compare"
+  (fn []
+    (assert/deepEqual (edit-body "new" [] "next") {:file "new" :ops [] :compare "next"})
+    (assert/deepEqual (create-body "new" "a.edn" "next") {:file "new" :path "a.edn" :compare "next"})
+    (assert/deepEqual (create-body "new" "a.edn" nil) {:file "new" :path "a.edn"})))
+
+(test "mark-open? and link-title know a link's compare"
+  (fn []
+    (let [m {:links [{:label "a" :dest "pay.edn" :compare "next"}]}]
+      (assert/equal (mark-open? "n.md" m "pay.edn" "next") true)
+      (assert/equal (mark-open? "n.md" m "pay.edn" nil) false)
+      (assert/equal (mark-open? "n.md" {:links [{:label "a" :dest "pay.edn"}]} "pay.edn" nil) true)
+      (assert/equal (link-title "n.md" (first (:links m))) "a → pay.edn?compare=next"))))
+
+(test "select mode: s s / s a / s r enter it, y y x x d d act on it, p p pastes outside it"
+  (fn []
+    (assert/equal (chord-action nil ["s" "s"] []) "select-mode")
+    (assert/equal (chord-action "node" ["s" "s"] []) "select-mode")
+    (assert/equal (chord-action "edge" ["s" "a"] []) "select-all")
+    (assert/equal (chord-action "box" ["s" "r"] []) "select-rect")
+    (assert/equal (chord-action "select" ["s" "a"] []) "select-all")
+    (assert/equal (chord-action "select" ["s" "r"] []) "select-rect")
+    (assert/equal (chord-action "select" ["y" "y"] []) "copy")
+    (assert/equal (chord-action "select" ["x" "x"] []) "cut")
+    (assert/equal (chord-action "select" ["d" "d"] []) "delete-selected")
+    (assert/equal (chord-action nil ["p" "p"] []) "paste")
+    (assert/equal (chord-action "box" ["p" "p"] []) "paste")
+    (assert/ok (nil? (chord-action "select" ["p" "p"] [])))
+    (assert/ok (nil? (chord-action "node" ["y" "y"] [])))
+    (assert/ok (nil? (chord-action "select" ["n" "n" "n"] [])))
+    (assert/equal (chord-for "select" "copy") "y y")))
+
+(test "selection-targets turns scene ids into op targets"
+  (fn []
+    (assert/deepEqual (selection-targets ["n:a" "b:grp"])
+                      [{:section "nodes" :id "a"} {:section "boxes" :id "grp"}])))
+
+(test "paste-op goes into the selected box, else the top level"
+  (fn []
+    (assert/deepEqual (paste-op "{:nodes {:a nil}}" {:kind "box" :elk-id "b:grp"})
+                      {:op "paste" :edn "{:nodes {:a nil}}" :into "grp"})
+    (assert/deepEqual (paste-op "{}" {:kind "node" :elk-id "n:a"}) {:op "paste" :edn "{}"})
+    (assert/deepEqual (paste-op "{}" nil) {:op "paste" :edn "{}"})))

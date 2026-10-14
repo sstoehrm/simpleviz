@@ -196,9 +196,11 @@
 
 (defn edit-body
   "The /api/edit POST body: routes ops to whichever file (\"old\"/\"new\")
-  is the current edit target."
-  [file ops]
-  {:file file :ops ops})
+  is the current edit target, under the graph's `compare` suffix when
+  it has one."
+  [file ops & [compare]]
+  (cond-> {:file file :ops ops}
+    (some? compare) (assoc :compare compare)))
 
 (defn theme-menu
   "The theme menu's state. It is yours: `pref`, the built-in you picked
@@ -217,9 +219,10 @@
 (defn create-body
   "The /api/create POST body: the served-folder path a followed ref
   names and the file (\"old\"/\"new\") being edited, which is the side
-  a comparison creates."
-  [file path]
-  {:file file :path path})
+  a comparison creates — under `compare` when the followed graph has one."
+  [file path & [compare]]
+  (cond-> {:file file :path path}
+    (some? compare) (assoc :compare compare)))
 
 (defn pick-ops
   "Ops for a pick-mode hit, or nil when item isn't a valid target for
@@ -323,26 +326,49 @@
   (let [pa (parent-box parent-of a)]
     (when (= pa (parent-box parent-of b)) pa)))
 
+(defn- trail-entry
+  "[path compare-or-nil] of one trail entry as the URL has it: the path
+  URL-encoded, then `:` and the compare suffix when that graph was
+  compared (an encoded path holds no raw `:`); an empty one is none."
+  [e]
+  (let [k (.indexOf e ":")
+        c (when-not (neg? k) (js/decodeURIComponent (.slice e (inc k))))]
+    [(js/decodeURIComponent (if (neg? k) e (.slice e 0 k)))
+     (if (or (nil? c) (= c "")) nil c)]))
+
+(defn- compare-at
+  "The compare of trail entry i in `trail-compare` (which may be nil or
+  shorter), nil when it has none."
+  [trail-compare i]
+  (let [c (when (some? trail-compare) (get trail-compare i))]
+    (if (nil? c) nil c)))
+
 (defn parse-nav
   "The page's navigation state from its query string: {:file
   root-relative path or nil (the root file) :trail [paths visited
   before it]}, plus :focus (a scene id, \"n:api\") when the URL names
   an element to select, :side (root-relative) when an md page shows
-  a graph beside it, and :slide (1-based) while it is presented. Each trail entry is URL-encoded on its own
-  inside the parameter, so commas in file names survive."
+  a graph beside it, :slide (1-based) while it is presented, :compare
+  (a fork suffix) when the graph shown — the file, or the side graph —
+  is compared, and :trail-compare (each trail entry's compare, nil for
+  none) when a trail entry was. Each trail entry is URL-encoded on its
+  own inside the parameter, so commas in file names survive."
   [query-string]
   (let [p (js/URLSearchParams. (str (if (nil? query-string) "" query-string)))
         file (.get p "file")
         trail (.get p "trail")
         focus (.get p "focus")
         side (.get p "side")
-        slide (js/Number (.get p "slide"))]
+        compare (.get p "compare")
+        slide (js/Number (.get p "slide"))
+        entries (if (or (nil? trail) (= trail "")) [] (mapv trail-entry (.split trail ",")))
+        tc (mapv second entries)]
     (cond-> {:file (if (or (nil? file) (= file "")) nil file)
-             :trail (if (or (nil? trail) (= trail ""))
-                      []
-                      (mapv js/decodeURIComponent (.split trail ",")))}
+             :trail (mapv first entries)}
+      (some some? tc) (assoc :trail-compare tc)
       (and (some? focus) (not= focus "")) (assoc :focus focus)
       (and (some? side) (not= side "")) (assoc :side side)
+      (and (some? compare) (not= compare "")) (assoc :compare compare)
       (and (js/Number.isInteger slide) (pos? slide)) (assoc :slide slide))))
 
 (defn- with-param
@@ -360,6 +386,12 @@
   [query side]
   (with-param query "side" side))
 
+(defn with-compare
+  "Query string `query` with the graph shown compared under suffix `c`,
+  or not compared when nil; its other parameters stay."
+  [query c]
+  (with-param query "compare" c))
+
 (defn with-slide
   "Query string `query` with the presented slide (1-based) set to `n`,
   or dropped when nil; its other parameters stay."
@@ -367,36 +399,63 @@
   (with-param query "slide" n))
 
 (defn nav-query
-  "The query string (\"\" or \"?file=..&trail=..&focus=..\") for showing
-  `file` (nil = root) with `trail` behind it and, optionally, element
-  `focus` selected — the inverse of parse-nav."
-  [file trail & [focus]]
+  "The query string (\"\" or \"?file=..&trail=..&focus=..&compare=..\")
+  for showing `file` (nil = root) with `trail` behind it and,
+  optionally, element `focus` selected, the graph compared under
+  `compare` and the trail's entries under `trail-compare` — the inverse
+  of parse-nav."
+  [file trail & [focus compare trail-compare]]
   (let [p (js/URLSearchParams.)]
     (when (some? file) (.set p "file" file))
-    (when (seq trail) (.set p "trail" (.join (mapv js/encodeURIComponent trail) ",")))
+    (when (seq trail)
+      (.set p "trail" (.join (into-array
+                              (map-indexed (fn [i f]
+                                             (let [c (compare-at trail-compare i)]
+                                               (str (js/encodeURIComponent f)
+                                                    (when (some? c) (str ":" (js/encodeURIComponent c))))))
+                                           trail))
+                             ",")))
     (when (some? focus) (.set p "focus" focus))
+    (when (some? compare) (.set p "compare" compare))
     (let [s (.toString p)]
       (if (= s "") "" (str "?" s)))))
 
 (defn follow-url
   "Query string for following a ref or pair from `current-path` to
   `target`: the current file joins the end of the trail; `focus`, when
-  given, is the element to select there."
-  [current-path trail target & [focus]]
-  (nav-query target (conj (vec trail) current-path) focus))
+  given, is the element to select there. `from` is the current file's
+  compare, `trail-compare` the trail's, `to` the target's."
+  [current-path trail target & [focus {:keys [from trail-compare to]}]]
+  (let [n (count trail)]
+    (nav-query target (conj (vec trail) current-path) focus to
+               (conj (mapv (fn [i] (compare-at trail-compare i)) (range n)) (if (nil? from) nil from)))))
+
+(defn follow-compare
+  "The compare to show `target` under when it is followed: none for an
+  md file; else the link's own (`own`, an md link's ?compare=), else
+  the one the graph followed from has (`inherited`, for a ref or pair)."
+  [target own inherited]
+  (cond (md-path? target) nil
+        (some? own) own
+        (some? inherited) inherited
+        :else nil))
 
 (defn crumb-url
   "Query string for going back to trail entry i: it becomes the file
   shown, the entries before it stay the trail. Back to an md page, the
   graph followed from it (the next entry, or `current` after the last)
   shows beside it again: from an md page a graph opens beside it, so
-  one after it was put in full view from there."
-  [trail i & [current]]
+  one after it was put in full view from there. Each entry keeps its
+  compare (`trail-compare`, and `compare` for `current`)."
+  [trail i & [current {:keys [trail-compare compare]}]]
   (let [f (nth trail i)
-        nxt (if (< (inc i) (count trail)) (nth trail (inc i)) current)
-        q (nav-query f (vec (.slice trail 0 i)))]
+        last? (>= (inc i) (count trail))
+        nxt (if last? current (nth trail (inc i)))
+        nxt-c (if last? compare (compare-at trail-compare (inc i)))
+        q (nav-query f (vec (.slice trail 0 i)) nil (compare-at trail-compare i)
+                     (mapv (fn [k] (compare-at trail-compare k)) (range i)))]
     (if (and (md-path? f) (some? nxt) (not (md-path? nxt)))
-      (with-side q nxt)
+      (with-compare (with-side q nxt) (if (nil? nxt-c) nil nxt-c))
       q)))
 
 (defn banner-visible?
@@ -457,18 +516,39 @@
           []
           (filterv (fn [l] (mdlinks/followable? (:dest l))) links)))
 
+(defn- same-compare? [a b]
+  (if (nil? a) (nil? b) (= a b)))
+
 (defn mark-open?
   "Does one of gutter mark m's links, in the md file at `md-path`, lead
-  to `side`, the graph shown beside it?"
-  [md-path m side]
+  to `side`, the graph shown beside it, compared as `side-compare`?"
+  [md-path m side & [side-compare]]
   (boolean (and (some? side)
-                (some (fn [l] (= side (:path (link-target md-path (:dest l))))) (:links m)))))
+                (some (fn [l] (and (= side (:path (link-target md-path (:dest l))))
+                                   (same-compare? (:compare l) side-compare)))
+                      (:links m)))))
 
 (defn link-title
   "A marker's tooltip for link l of the md file at `md-path`."
   [md-path l]
   (str (:label l) " → " (:dest l)
+       (when (some? (:compare l)) (str "?compare=" (:compare l)))
        (when (some? (:error (link-target md-path (:dest l)))) " — leaves the served folder")))
+
+(defn downstream-graph?
+  "Is root-relative `path` an .edn graph in the folder of the md file at
+  `md-path` or below it — a link the page offers to start as a copy?"
+  [md-path path]
+  (let [p (str path)
+        slash (.lastIndexOf (str md-path) "/")
+        dir (if (neg? slash) "" (subs md-path 0 (inc slash)))]
+    (and (.endsWith (.toLowerCase p) ".edn") (.startsWith p dir))))
+
+(defn match-choices
+  "The paths of `files` holding every word of query q, case ignored."
+  [files q]
+  (let [words (filterv (fn [w] (not= w "")) (.split (.toLowerCase (str q)) (js/RegExp. "\\s+")))]
+    (filterv (fn [f] (let [low (.toLowerCase f)] (every? (fn [w] (.includes low w)) words))) files)))
 
 (defn from-disk
   "Doc text as a textarea holds it: \\r\\n line ends become \\n."
@@ -533,11 +613,27 @@
     (and (md-dirty? md) (not= (from-disk (:text fetched)) (:text md))) "conflict"
     :else "take"))
 
+;; ---- select mode: copy, cut, paste ----
+
+(defn selection-targets
+  "The op targets ({:section :id}) of the scene ids of nodes and boxes."
+  [ids]
+  (mapv (fn [id] {:section (if (.startsWith id "n:") "nodes" "boxes") :id (.slice id 2)}) ids))
+
+(defn paste-op
+  "The op pasting clipboard text `edn`: into the box `sel` is, else at
+  the top level."
+  [edn sel]
+  (if (= "box" (:kind sel))
+    {:op "paste" :edn edn :into (.slice (:elk-id sel) 2)}
+    {:op "paste" :edn edn}))
+
 ;; ---- keyboard chords ----
 
 ;; Chords of any length, in the order the toolbar and the pop-out list
 ;; them (d d last, so Delete ends the row). Each entry maps a selection
-;; kind ("node" "edge" "box", or "none" with nothing selected) to
+;; kind ("node" "edge" "box", "none" with nothing selected, "select" in
+;; select mode) to
 ;; [action label]; the action is what app.cljs dispatches on, the label
 ;; what the buttons and the pop-out show.
 (def ^:private chord-table
@@ -565,13 +661,26 @@
    [["f" "r"] {"node" ["follow-ref" "follow ref"] "edge" ["follow-ref" "follow ref"] "box" ["follow-ref" "follow ref"]}]
    [["f" "p"] {"node" ["follow-pair" "follow pair"] "box" ["follow-pair" "follow pair"]}]
    [["f" "m"] {"node" ["open-md" "open md"] "box" ["open-md" "open md"]}]
-   [["d" "d"] {"node" ["delete" "delete"] "edge" ["delete" "delete"] "box" ["delete" "delete"]}]])
+   [["s" "s"] {"none" ["select-mode" "select"] "node" ["select-mode" "select"]
+               "edge" ["select-mode" "select"] "box" ["select-mode" "select"]}]
+   [["s" "a"] {"none" ["select-all" "select all"] "node" ["select-all" "select all"]
+               "edge" ["select-all" "select all"] "box" ["select-all" "select all"]
+               "select" ["select-all" "select all"]}]
+   [["s" "r"] {"none" ["select-rect" "select area"] "node" ["select-rect" "select area"]
+               "edge" ["select-rect" "select area"] "box" ["select-rect" "select area"]
+               "select" ["select-rect" "select area"]}]
+   [["y" "y"] {"select" ["copy" "copy"]}]
+   [["x" "x"] {"select" ["cut" "cut"]}]
+   [["p" "p"] {"none" ["paste" "paste"] "node" ["paste" "paste"] "edge" ["paste" "paste"] "box" ["paste" "paste"]}]
+   [["d" "d"] {"node" ["delete" "delete"] "edge" ["delete" "delete"] "box" ["delete" "delete"]
+               "select" ["delete-selected" "delete"]}]])
 
 ;; what a group button and a group item in the pop-out are called, by
 ;; their keys joined with spaces
 (def ^:private chord-groups
   {"n" "new" "n n" "new element" "a" "add" "r" "rename / remove"
-   "c" "change" "e" "direction" "f" "follow" "f p" "follow pair" "d" "delete"})
+   "c" "change" "e" "direction" "f" "follow" "f p" "follow pair" "d" "delete"
+   "s" "select" "y" "copy" "x" "cut" "p" "paste"})
 
 (defn- kind-key [kind] (if (nil? kind) "none" kind))
 

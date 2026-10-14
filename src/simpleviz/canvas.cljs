@@ -422,11 +422,12 @@
 (defn- paint-items!
   "Draw every scene item visible in the graph-space rect vr; a removed
   one (compare mode) is ghosted. text? controls both text rendering and
-  edge arrowheads (draw-edge's detail? param)."
-  [ctx sc vr selected-id text?]
+  edge arrowheads (draw-edge's detail? param); the items whose ids are
+  in the set `selected` are drawn selected."
+  [ctx sc vr selected text?]
   (doseq [item (:items sc)]
     (when (scene/visible? item vr)
-      (let [sel? (= selected-id (:id item))
+      (let [sel? (contains? selected (:id item))
             ghost? (= "removed" (:diff item))]
         (when ghost? (set! (.-globalAlpha ctx) 0.45))
         (case (:kind item)
@@ -443,6 +444,19 @@
 ;; since the press; :cancel when the browser takes the pointer away
 (def ^:private drag-hook (atom nil))
 (defn set-drag-hook! [f] (reset! drag-hook f))
+
+;; select mode's rectangle being dragged, {:x0 :y0 :x1 :y1} in graph
+;; units; nil: none
+(def ^:private marquee (atom nil))
+(defn set-marquee! [r] (reset! marquee r) (request-paint!))
+
+(defn- paint-marquee! [ctx k]
+  (when-let [{:keys [x0 y0 x1 y1]} @marquee]
+    (set! (.-strokeStyle ctx) (:accent @palette))
+    (set! (.-lineWidth ctx) (/ 1.5 k))
+    (.setLineDash ctx #js [(/ 6 k) (/ 4 k)])
+    (.strokeRect ctx (min x0 x1) (min y0 y1) (js/Math.abs (- x1 x0)) (js/Math.abs (- y1 y0)))
+    (.setLineDash ctx #js [])))
 
 ;; the manual layout's grid step, drawn as dots while arranging; nil: none
 (def ^:private grid-step (atom nil))
@@ -466,7 +480,10 @@
             (recur (+ x step))))
         (set! (.-globalAlpha ctx) 1)))))
 
-(defn paint! [canvas-el sc2 selected-id]
+(defn paint!
+  "Paint scene sc2, the items whose ids are in the set `selected` drawn
+  selected."
+  [canvas-el sc2 selected]
   (let [ctx (.getContext canvas-el "2d")
         dpr (or (.-devicePixelRatio js/window) 1)
         pw (js/Math.round (* (.-clientWidth canvas-el) dpr))
@@ -488,7 +505,8 @@
               :y1 (/ (- (.-clientHeight canvas-el) (:y view)) k)}
           text? (>= (* k 11) scene/TEXT-MIN-PX)]
       (paint-grid! ctx vr k)
-      (paint-items! ctx sc2 vr selected-id text?))))
+      (paint-items! ctx sc2 vr selected text?)
+      (paint-marquee! ctx k))))
 
 (defn clear!
   "Paint the canvas blank, the theme's background: nothing is shown."
@@ -513,7 +531,7 @@
     (set! (.-fillStyle ctx) (:bg @palette))
     (.fillRect ctx 0 0 (.-width cnv) (.-height cnv))
     (.setTransform ctx k 0 0 k 0 0)
-    (paint-items! ctx sc {:x0 0 :y0 0 :x1 w :y1 h} nil true)
+    (paint-items! ctx sc {:x0 0 :y0 0 :x1 w :y1 h} #{} true)
     cnv))
 
 (defn export-svg
@@ -525,7 +543,7 @@
   (let [w (js/Math.max 1 (:width sc))
         h (js/Math.max 1 (:height sc))
         rec (svg/recorder measure)]
-    (paint-items! rec sc {:x0 0 :y0 0 :x1 w :y1 h} nil true)
+    (paint-items! rec sc {:x0 0 :y0 0 :x1 w :y1 h} #{} true)
     (svg/svg-document rec {:width w :height h :background (:bg @palette)
                            :sources sources})))
 

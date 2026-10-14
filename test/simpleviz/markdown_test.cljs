@@ -1,7 +1,7 @@
 (ns simpleviz.markdown-test
   (:require ["node:test" :refer [test]]
             ["node:assert/strict$default" :as assert]
-            [simpleviz.markdown :refer [render]]))
+            [simpleviz.markdown :refer [render tidy tidy-caret]]))
 
 (defn- link [l kids] (into [:a {:href (:dest l) :kind (:kind l)}] kids))
 
@@ -212,3 +212,95 @@
       (assert/deepEqual (md "| h |\n|---|\n| x[^a] |\n[^a]: n")
                         [[:table [:thead [:tr [:th "h"]]] [:tbody [:tr [:td "x" ref]]]] (notes "n")])
       (assert/deepEqual (md "y[^a]\n\n```\n[^a]: in code\n```") [[:p "y[^a]"] [:pre [:code "[^a]: in code"]]]))))
+
+;; ---- tidy ----
+
+(test "tidy: headings get one space and no closing hashes, top-level ones a blank line around"
+  (fn []
+    (assert/equal (tidy "#   Title  ##\ntext\n##No\n  ###  deep #") "# Title\n\ntext\n##No\n  ### deep\n")
+    (assert/equal (tidy "- a\n  #  in item") "- a\n  # in item\n")
+    (assert/equal (tidy "#\n# #x") "#\n\n# #x\n")))
+
+(test "tidy: trailing blanks go, but a hard line break keeps two spaces"
+  (fn []
+    (assert/equal (tidy "one   \ntwo \t\nthree  \n\nfour  ") "one  \ntwo\nthree\n\nfour\n")
+    (assert/equal (tidy "a\\ \nb") "a\\ \nb\n")))
+
+(test "tidy: runs of blank lines collapse, the text ends in one newline"
+  (fn []
+    (assert/equal (tidy "\n\na\n\n\n\nb\n\n\n") "a\n\nb\n")
+    (assert/equal (tidy "a\r\nb\r\n") "a\nb\n")
+    (assert/equal (tidy "") "")
+    (assert/equal (tidy "\n \n") "")
+    (assert/equal (tidy "```\nopen  ") "```\nopen  ")))
+
+(test "tidy: code stays as it is, fenced, quoted or indented"
+  (fn []
+    (assert/equal (tidy "```\n#  no  \n\n\n|a|b|\n|-|-|\n```") "```\n#  no  \n\n\n|a|b|\n|-|-|\n```\n")
+    (assert/equal (tidy "> ```\n> x  \n> ```") "> ```\n> x  \n> ```\n")
+    (assert/equal (tidy "text\n\n    a  \n\n\n    b") "text\n\n    a  \n\n\n    b\n")))
+
+(test "tidy: tables get aligned columns, alignment kept, pipes escaped"
+  (fn []
+    (assert/equal (tidy "a | bb\n-|-\nccc | d")
+                  "| a   | bb  |\n| --- | --- |\n| ccc | d   |\n")
+    (assert/equal (tidy "| l | c | r |\n|:-|:-:|-:|\n| 1 | `x\\|y` |\n| 1234 | 2 | 3 | extra |")
+                  "| l    |   c    |   r |\n| :--- | :----: | --: |\n| 1    | `x\\|y` |     |\n| 1234 |   2    |   3 | extra |\n")
+    (assert/equal (tidy "- item\n\n  |a|b|\n  |-|-|") "- item\n\n  | a   | b   |\n  | --- | --- |\n")))
+
+(test "tidy: * and + bullets become -, unless that would join two lists"
+  (fn []
+    (assert/equal (tidy "* a\n* b\n  + c") "- a\n- b\n  - c\n")
+    (assert/equal (tidy "- a\n\n* b") "- a\n\n* b\n")
+    (assert/equal (tidy "* * *\n* x") "* * *\n- x\n")))
+
+(def ^:private corpus
+  ["# One\n\n### Three ##\n###### Six" "#no space" "one\ntwo\n\nthree"
+   "a `b` c ``d`e`` `open" "\\# not \\`code\\`"
+   "see [the graph](sub/a.edn) and ![pic](x.png)" "[full][Tok] [coll][] [tok]\n\n[tok]: d/tokens.edn \"T\"\n[coll]: c.md"
+   "```clojure\n(+ 1 2)\n\n# no heading\n```\nafter" "~~~\n```\n~~~" "```\nopen to the end"
+   "text\n\n    a\n\n      b\n\nmore" "para\n    still para"
+   "- a\n- b `c`\n  - d\n- e\n  continued" "1. one\n2. two" "3) three" "- a\nlazy\n\nafter"
+   "- a\n\n- b\n\n      code" "text\n- a\n## H"
+   "| a | b | c |\n|:--|:-:|--:|\n| 1 | `x\\|y` |\n| [l](g.edn) | 2 | 3 | 4 |\n\nafter"
+   "a | b\n--|--\n1 | 2" "a | b\n--|--|--" "- ⇩ exports; try\n  [an export](overview.png): it\n  opens."
+   "" "\n\n" "one  \ntwo\\\nthree\nfour  " "> quote\n> more\n\n> - item" "> a\nlazy"
+   ">> deep\n>\n> # H" "a\n\n***\n- - -\n___\nb\n---\nc" "- a\n* * *" "Title\n=====\ntext"
+   "- [x] done\n- [ ] todo *now*\n- [y] no" "- [X] loose\n\n- b"
+   "A[^b] and[^a], again[^b].\n\n[^a]: First.\n[^b]: Second\n    more.\n[^unused]: never"
+   "> ```\n> code\n> ```\nafter" "> # H\nnext" "- a\n===" "| h |\n|---|\n| x[^a] |\n[^a]: n"
+   "* a\n\n+ b\n\n- c" "1. a\n\n   * b\n   * c\n\n2. d" "\ta\n\t\tb  \n" "text  \n# H  \n|a|\n|-|\n"
+   ;; fences the renderer closes otherwise, in list items, open at the end
+   "```\n    ```\n#  foo\n```\n" "```\n> ```\n#  foo\n```\n" "> ```\n> x\n```\n#  y\n"
+   "- ```\n  #  x\n  ```\n" "- ```\n  a\n\n\n  b\n  ```\n" "- ```\n  a | b\n  --|--\n  ```\n"
+   "```\nx\n    ```\n\n\n" "    ```\n  ```\n> q"
+   ;; table-shaped lines that are no table, or are one inside something
+   "# a | b\n|---|---|\n" "> a | b\n--- | ---\n" "[x]: a|b\n---|---\n\nsee [x]\n"
+   "x[^1]\n\n[^1]: a | b\n---|---\n" "1. e\ntext\n1. a|b\n:-:|--:\n" "a|b\n--|--\n[x]: /u\n\n[x]\n"
+   ;; trailing spaces that are code
+   ">     a \n>\n> b\n" ">     a   \n>     b\n" "`a \nb`\n" "`a   \nb`\n"
+   ;; a step left out once is left out again
+   "#\n     ```\n   |--|\n```\n[x]: /u"])
+
+(test "tidy renders the same and leaves tidy text alone"
+  (fn []
+    (doseq [s corpus]
+      (assert/deepEqual (md (tidy s)) (md s) s)
+      (assert/equal (tidy (tidy s)) (tidy s) s))))
+
+(test "tidy-caret keeps the caret after the same text"
+  (fn []
+    (let [t "#  Title\ntext  z"
+          t2 (tidy t)]
+      (assert/equal (tidy-caret t t2 (.indexOf t "z")) (.indexOf t2 "z"))
+      (assert/equal (tidy-caret t t2 0) 0)
+      (assert/equal (tidy-caret t t2 (count t)) (inc (.indexOf t2 "z"))))))
+
+(test "a link's ?compare= reaches link-fn as :compare"
+  (fn []
+    (let [seen (atom [])
+          lf (fn [l kids] (swap! seen conj l) (into [:a] kids))]
+      (render "[a](api.edn?compare=next) [b](b.edn) [r][d]\n\n[d]: c.edn?compare=v2" lf)
+      (assert/deepEqual @seen [{:dest "api.edn" :label "a" :kind "inline" :compare "next"}
+                               {:dest "b.edn" :label "b" :kind "inline"}
+                               {:dest "c.edn" :label "r" :kind "ref" :compare "v2"}]))))

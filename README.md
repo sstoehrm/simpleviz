@@ -60,7 +60,7 @@ Without an installer, unpack a tarball from the
 can also edit in the page: click an element to inspect and change its
 attributes, and use the toolbar at the bottom to add, connect, group and
 delete. ⇩ exports a PNG or an SVG, both with the source embedded; simpleviz
-serves either like an EDN file. An `.md` file opens rendered, with Edit for the plain text (vi keys if you want them); its ordinary markdown links to `.edn`, `.png`, `.svg` and `.md` files follow (in the plain text, by a » beside the line), and a graph opens to the right of the text. Present shows it as slides split at `---` lines, a `>> [text](graph.edn)` first line putting that graph (or an md file or picture) beside a slide, and a `?? name` (or `???`, with Submit) first line turning its task list into a question whose answers land in `talk.answers.edn`. A link is
+serves either like an EDN file. An `.md` file opens rendered, with Edit for the plain text (vi keys if you want them); its ordinary markdown links to `.edn`, `.png`, `.svg` and `.md` files follow (in the plain text, by a » beside the line), and a graph opens to the right of the text. Present shows it as slides split at `---` lines, a `>> [text](graph.edn)` first line putting that graph (or an md file or picture) beside a slide, and a `?? name` (or `???`, with Submit) first line turning its task list into a question whose answers land in `talk.answers.edn`. `[text](graph.edn?compare=next)` shows that graph compared with its fork. A link is
 relative to the md file and never reaches above the served folder. Press `?` in
 the page for controls and shortcuts.
 

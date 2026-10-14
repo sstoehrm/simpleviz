@@ -129,11 +129,14 @@
 
 (defn- side-dest
   "What the rest of a >> line names: its first link's destination, else
-  the rest as a plain path (as the page reads it, simpleviz.slides)."
+  the rest as a plain path, a ?compare= cut off (as the page reads it,
+  simpleviz.slides)."
   [rest]
   (let [t (str/trim rest)]
     (or (:dest (first (filter #(#{"inline" "image"} (:kind %)) (mdlinks/links t))))
-        (when-not (= t "") t))))
+        (cond (= t "") nil
+              (some? (mdlinks/dest-compare t)) (subs t 0 (str/index-of t "?"))
+              :else t))))
 
 (defn- shown-graphs
   "The .edn files the >> lines of md `text` name, relative to its folder

@@ -141,7 +141,7 @@ edit is rejected. A name with no usable characters leaves the id alone.
 Edges have no id; change their endpoints from the toolbar.
 
 **Toolbar.** The toolbar at the bottom shows the tools for the current
-selection, or "new node" and "new box" when nothing is selected. Creation prompts derive
+selection, or with nothing selected `new` (node, box), `select` and `paste`. Creation prompts derive
 the id from the name as above and accept `name::type`, so
 `Web Server::frontend` creates `web-server` with type "frontend". Pick modes
 wait for a click on the canvas. Every tool has a chord, shown on its button.
@@ -172,7 +172,22 @@ options pop out the same way.
 | `f r` | node, edge, box | follow the `:ref` |
 | `f p` | node, box | follow the pair; with several, `f p 1`…`f p 9` (numbered in the inspector) |
 | `f m` | node, box | open the `:md-ref` doc in the text panel |
+| `s s` | any | select mode: click nodes and boxes to add them to the selection or drop them |
+| `s a` | any | select mode with every node and box selected |
+| `s r` | any | select mode: drag a rectangle; the nodes and boxes wholly inside join the selection |
+| `y y` / `x x` / `d d` | select mode | copy / cut / delete the selection — a box with what it holds, and the edges among them all |
+| `p p` | none / node / box | paste what was copied or cut, here or in another graph — into the selected box, else at the top level |
 | `?` | any | toggle the help panel |
+
+**Copy and paste.** `y y` and `x x` put the selection on the clipboard as
+the EDN of a graph of its own — nodes, edges and boxes as the file writes
+them — so `p p` pastes it into any graph, in any simpleviz tab, and a text
+editor takes it too. Pasting a node or box whose id the graph already uses
+(or an edge or box names) gives it the first free `-1`, `-2`, …, on its id
+and its `:name`; the edges and box members among the pasted elements follow
+the new ids. A pasted element loses its `:pos`, so manual layout puts it
+under the rest. The browser may ask once before `p p` reads the clipboard.
+Esc ends select mode.
 
 **Layout and undo.** A relayout after an edit starts from the previous
 positions, so existing elements stay put and a new node appears next to the
@@ -227,6 +242,14 @@ other elements or follow refs.
   what someone else wrote; with unsaved changes it says "changed on disk"
   — Reload takes the file, Overwrite keeps your text. A save is refused
   while an agent holds the file's lock.
+- Format tidies the markdown — in the panel, and on an md page while
+  you edit: one space after a heading's `#`s and no closing ones, a
+  blank line around unindented headings, table columns aligned, `-`
+  for bullets (when that would join two lists, every bullet stays), no
+  trailing spaces but a line break's two, one blank line between
+  blocks. Code stays as it is, and so does how simpleviz renders the
+  text: a change that would alter it is left out. Ctrl+Z (Cmd+Z)
+  undoes it, `u` in vi mode.
 - Same path rules as refs: relative to the graph file, never above the
   served folder. Only `.md` files in UTF-8, up to 1 MiB.
 
@@ -292,12 +315,32 @@ understand too:
   The URL keeps it, so a reload shows it again. A ref followed from it,
   or its `:md-ref`, opens in place of the md page. A graph with its own
   `:theme` colors the whole page while it's open.
+- A link to an `.edn` file in the md file's folder or below that isn't
+  there yet opens a choice on the right instead: "Create an empty
+  graph", or start it as a copy of any graph of the served folder (a
+  filter narrows the list). The copy is byte for byte, so its `:ref`
+  paths stay as written. A missing graph above the md file's folder is
+  created empty, as a followed ref is.
 - Following an md file opens it in place of this one, and the trail at
   the top leads back.
+- `?compare=<suffix>` on a link to a graph shows it compared with its
+  fork, as `simpleviz graph.edn <suffix>` does — added, modified and
+  removed marked, both sides live and editable — while the file's other
+  links keep opening plain graphs:
+
+      The API before and after: [api change](api.edn?compare=next)
+
+  Refs and pairs followed from it, and ⤢ full view, stay in that
+  comparison; an md file reached from it is not compared. The URL
+  (`compare=next`) and the trail keep it, so crumbs, back and a reload
+  restore it. A missing fork shows the graph unchanged — `simpleviz
+  check` warns about it. On GitHub the link still opens `api.edn`. In a
+  session started with a suffix every graph is compared already; a
+  link's `?compare=` picks another fork.
 - Followable: inline links, images, reference links and their
   definitions, to `.edn`, `.png`, `.svg` and `.md` files. Relative to
   the md file, never above the served folder; `#section` and `?query`
-  are ignored. Links in code blocks and code spans, web links and other
+  are ignored, except `?compare=`. Links in code blocks and code spans, web links and other
   file types get no », and links to other file types don't follow.
 - Unsaved text is saved before the page changes — with a link, a crumb,
   or the browser's back and forward; if the save fails, the page stays.
@@ -335,7 +378,8 @@ line is `>>` and a link shows the linked file to the right of its text:
   `.gif`, `.webp` without simpleviz EDN in it) — `>> [text](path)`, or
   `>> ![alt](pic.png)` for a picture. Being a link, it gets its » in Edit
   and `simpleviz check` reports it when broken. A plain `>> path` works
-  too. The path is relative to the md file, never above the served
+  too. `>> [the change](pay/flow.edn?compare=next)` shows the graph
+  compared with its fork. The path is relative to the md file, never above the served
   folder.
 - → ↓ space and Page Down step forward, ← ↑ and Page Up back, Home and
   End jump to the first and last slide. Esc closes the inspector, else
@@ -489,7 +533,9 @@ without a browser, for example from a script or an agent:
 clean file. In compare mode `file` names the original, not the fork; the
 report covers both sides, and each warning starts with its file's name.
 
-For an md file, each warning names the line and the link: `line 3: pay.edn not found`, `line 7: ../x.edn leaves the served folder`.
+For an md file, each warning names the line and the link: `line 3: pay.edn not found`, `line 7: ../x.edn leaves the served folder`. A link with `?compare=` is also checked for its fork: `line 4: api.edn: no api-next.edn — create it with: simpleviz fork api.edn next`, an invalid suffix, an md file, or a fork named instead of its original.
+
+`/api/errors` takes `compare=<suffix>` as well, for the comparison a link opens: `/api/errors?file=api.edn&compare=next`.
 
 ## Write locks
 

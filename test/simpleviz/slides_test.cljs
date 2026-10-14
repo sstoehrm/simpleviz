@@ -126,3 +126,17 @@
     (let [ds (slides "??? constructor\n- [x] a\n- [ ] b\n---\n# End")]
       (assert/equal (stop-at ds {} 0 1) 0)
       (assert/ok (nil? (answer {} "toString"))))))
+
+(test "a >> link's ?compare= rides along as :side-compare"
+  (fn []
+    (assert/deepEqual (slides ">> [the change](api.edn?compare=next)\n---\n>> api.edn?compare=v2\n---\n>> [plain](api.edn)")
+                      [{:text "" :side "api.edn" :side-compare "next"}
+                       {:text "" :side "api.edn" :side-compare "v2"}
+                       {:text "" :side "api.edn"}])))
+
+(test "a question slide keeps its >> link's ?compare="
+  (fn []
+    (let [[s] (slides "?? q\n>> [g](g.edn?compare=next)\n# Q\n- [ ] a\n- [x] b")]
+      (assert/equal (:side s) "g.edn")
+      (assert/equal (:side-compare s) "next")
+      (assert/equal (:id (:ask s)) "q"))))

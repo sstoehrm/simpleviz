@@ -17,3 +17,7 @@
         t0 (System/nanoTime)]
     (is (= [] (mdlinks/links text)))
     (is (< (/ (- (System/nanoTime) t0) 1e6) 1000))))
+
+(deftest dest-compare-cases
+  (doseq [[raw want] cases/DEST_COMPARE]
+    (testing raw (is (= want (mdlinks/dest-compare raw))))))

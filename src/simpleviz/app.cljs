@@ -42,7 +42,16 @@
    :placed nil :arrange false
    :selected nil :editing nil :edit-error nil :pick nil :pick-hint nil
    :chord nil :id-entry nil :focus-center true
-   :collapsed-boxes #{} :export-menu false})
+   ;; select mode (s s, s a, s r): {:ids the scene ids of the nodes and
+   ;; boxes selected, :rect true while the next drag spans a rectangle}
+   :multi nil
+   :collapsed-boxes #{} :export-menu false
+   ;; a link of the md page to a graph not there yet (offer-side!):
+   ;; {:path :compare :files :truncated :query :busy :error}, shown beside the page
+   :side-choose nil
+   ;; the fork suffix the graph shown is compared under by its own (an md
+   ;; link's ?compare=, the URL's compare), nil for the server's default
+   :compare nil})
 
 (def state (atom (merge per-file
                  {:colors nil :collapsed false :layouting false
@@ -57,7 +66,8 @@
                   ;; the graph an md page shows beside it (open-side!), root-relative
                   :side nil
                   ;; the md page presented (show-slide!): {:slide i :dest its >> target
-                  ;; :side what shows beside it when that is no graph}, nil when not
+                  ;; :compare its compare :side what shows beside it when that is
+                  ;; no graph}, nil when not
                   :present nil
                   ;; the answers to the questions of the deck presented
                   ;; (load-answers!), name -> {:answer :num}, and why the
@@ -88,9 +98,10 @@
   (= true (:page (:md st))))
 
 (defn- split?
-  "Does the md page show a graph beside it?"
+  "Does the md page show a graph beside it, or the choice of how a
+  missing one starts?"
   [st]
-  (and (page? st) (some? (:side st))))
+  (and (page? st) (or (some? (:side st)) (some? (:side-choose st)))))
 
 (defn- presenting?
   "Is the md page being presented?"
@@ -135,13 +146,19 @@
   (or (:file nav) @root-path))
 
 (defn- file-query
-  "\"?file=<rel>\" for the graph the page is showing, \"\" for the root."
+  "\"?file=<rel>\" for the graph the page is showing, \"\" for the root —
+  with \"compare=<suffix>\" when it is compared by its own."
   []
-  (let [f (graph-file @state)]
-    (if (some? f) (str "?file=" (js/encodeURIComponent f)) "")))
+  (let [st @state
+        f (graph-file st)
+        c (:compare st)]
+    (editor/with-compare (if (some? f) (str "?file=" (js/encodeURIComponent f)) "") c)))
 
-(defn- on-select [payload]
-  (swap! state assoc :selected payload :editing nil :id-entry nil :chord nil :nav-error nil))
+(defn- on-select
+  "Select one element (nil: none); selecting one ends select mode."
+  [payload]
+  (swap! state (fn [st] (assoc st :selected payload :editing nil :id-entry nil :chord nil :nav-error nil
+                               :multi (when (nil? payload) (:multi st))))))
 
 (defn- start-pick! [pick hint]
   (swap! state assoc :pick pick :pick-hint hint :chord nil))
@@ -161,7 +178,8 @@
 (declare relayout! post-edit! delete! current-edit-target-editable? follow-ref! navigate! run-chord-action!
          open-md! save-md! close-md! open-page! root-path! load-nav!
          save-if-dirty! save-before-leaving! follow-link! sync-gutter-scroll!
-         follow-to! close-side! focus-md-start! show-slide! leave-present! pick! submit!)
+         follow-to! close-side! start-side! focus-md-start! show-slide! leave-present! pick! submit!
+         enter-select! select-all! copy-selected! delete-selected! paste!)
 
 ;; layouts per collapsed-set, so expanding (or re-collapsing a seen
 ;; combination) is instant instead of a multi-second ELK run; demoted
@@ -174,6 +192,9 @@
 ;; pre-edit ELK run resolving after an instant fingerprint-reuse
 ;; relayout would overwrite the fresh scene and poison the cache
 (def ^:private graph-gen (atom 0))
+;; bumped by every change of what is beside the md page (and every
+;; navigation), so a graph choice answered late drops what it brings
+(def ^:private side-gen (atom 0))
 
 ;; bumped by every slide change and navigation: what a slide's >> loads
 ;; after the next slide (or another page) came is dropped
@@ -425,6 +446,12 @@
             :on-click (fn [e] (.stopPropagation e) (post-edit! [(editor/direction-op tgt dir)]))}
    label (key-hint (editor/chord-for "edge" ["direction" dir]))])
 
+(defn- absent-status
+  "The compare status of the elements the file edited does not have:
+  the old file lacks what was added, the new one what was removed."
+  [st]
+  (if (= "old" (:edit-target st)) "added" "removed"))
+
 (defn- action-spec
   "What toolbar action `action` does for selection sel (tgt its op
   target): a pick mode to start, a name prompt to open, ops to post, a
@@ -446,6 +473,19 @@
         nil)
       (case action
         "delete" {:run #(delete! tgt)}
+        ;; the selection comes along — unless the file edited lacks it
+        "select-mode" {:run #(enter-select! (if (and (contains? #{"node" "box"} (:kind sel))
+                                                     (not= (absent-status @state) (:diff sel)))
+                                              #{(:elk-id sel)}
+                                              #{})
+                                            false)}
+        "select-all" {:run select-all!}
+        "select-rect" {:run #(enter-select! (or (:ids (:multi @state)) #{}) true)}
+        ;; what acts on the selection waits for something selected
+        ("copy" "cut" "delete-selected")
+        (when (seq (:ids (:multi @state)))
+          {:run (case action "copy" #(copy-selected! false) "cut" #(copy-selected! true) delete-selected!)})
+        "paste" {:run #(paste! sel)}
         "rename" {:run #(start-editing! ID-FIELD id)}
         "add-edge" {:label "add edge" :pick {:mode "connect" :from id}
                     :hint "click the target node or box"}
@@ -507,6 +547,12 @@
       (some? go) (follow-ref! go)
       (some? go-pair) (follow-pair! go-pair))))
 
+(defn- chord-kind
+  "The kind the chords and the toolbar go by: \"select\" in select
+  mode, else the selection's (nil for none)."
+  [st]
+  (if (some? (:multi st)) "select" (:kind (:selected st))))
+
 (defn- avail-fn
   "available? for selection sel, as the one-argument predicate the
   chord menus take."
@@ -520,7 +566,7 @@
   group is left out."
   [st]
   (let [sel (:selected st)
-        kind (:kind sel)]
+        kind (chord-kind st)]
     (filterv (fn [it] (not (and (= kind "edge") (= "e" (first (:keys it))))))
              (editor/chord-menu kind [] (avail-fn sel) (working-pairs sel)))))
 
@@ -539,7 +585,7 @@
 (defn- item-btn
   "A toolbar or pop-out button for chord item `it` below `path`."
   [path it]
-  [:button {:class (if (= "delete" (:action it)) "action-delete" "action-pick") :type "button"
+  [:button {:class (if (contains? #{"delete" "delete-selected"} (:action it)) "action-delete" "action-pick") :type "button"
             :on-click (fn [e] (.stopPropagation e) (choose-item! path it))}
    (:label it) (key-hint (str (.join (:keys it) " ") (if (= true (:group it)) " ▸" "")))])
 
@@ -553,7 +599,7 @@
      [:div {:class "chord-path"} (.join path " ") " … — Esc cancels"]
      (into [:div {:class "chord-items"}]
            (mapv (fn [it] (item-btn path it))
-                 (editor/chord-menu (:kind sel) path (avail-fn sel) (working-pairs sel))))]))
+                 (editor/chord-menu (chord-kind st) path (avail-fn sel) (working-pairs sel))))]))
 
 (defn- submit-id-entry!
   "Create what the open prompt is for (editor/creation-ops); a name that
@@ -736,12 +782,17 @@
 (defn- refresh-selection
   "st with :selected re-derived from scene sc: the payload is a snapshot,
   so after a reload its attrs would otherwise show the pre-edit values
-  until the element is clicked again. Cleared when the element is gone."
+  until the element is clicked again. Cleared when the element is gone —
+  and so is what select mode holds."
   [st sc]
-  (if-let [sel (:selected st)]
-    (let [item (some (fn [it] (when (= (:id it) (:elk-id sel)) it)) (:items sc))]
-      (assoc st :selected (if (some? item) (item->payload item) nil)))
-    st))
+  (let [st (if-let [sel (:selected st)]
+             (let [item (some (fn [it] (when (= (:id it) (:elk-id sel)) it)) (:items sc))]
+               (assoc st :selected (if (some? item) (item->payload item) nil)))
+             st)]
+    (if-let [m (:multi st)]
+      (let [here (set (map :id (:items sc)))]
+        (assoc st :multi (assoc m :ids (set (filter (fn [id] (contains? here id)) (:ids m))))))
+      st)))
 
 (defn- cycle-diff! [status]
   (let [stops (get (scene/diff-stops (:scene @state)) status)]
@@ -752,7 +803,8 @@
         (swap! state (fn [st]
                        (-> st
                            (assoc-in [:diff-cursors status] idx)
-                           (assoc :selected (item->payload item)))))
+                           ;; one element selected: select mode ends
+                           (assoc :selected (item->payload item) :multi nil))))
         (canvas/center-on! item)))))
 
 (defn- legend-row [st status stops]
@@ -814,7 +866,9 @@
                                   :title (str "back to " f)
                                   :on-click (fn [e]
                                               (.stopPropagation e)
-                                              (navigate! (editor/crumb-url trail i (or (current-path st) (:file (:nav st))))))}
+                                              (navigate! (editor/crumb-url trail i (or (current-path st) (:file (:nav st)))
+                                                                         {:trail-compare (:trail-compare (:nav st))
+                                                                          :compare (when-not (page? st) (:compare st))})))}
                          f]
                         [:span {:class "trail-sep" :key (str "s" i)} "›"]])
                      trail))
@@ -895,7 +949,15 @@
       ;; only mid-drag) retargets them to the wrap
       (let [item (item-at e)
             pick (:pick @state)]
-        (if (some? pick)
+        (cond
+          ;; select mode: a node or box joins the selection, or leaves it
+          (and (nil? pick) (some? (:multi @state)))
+          (cond (= (:kind item) "collapse-button") (toggle-collapse! (.slice (:box-id item) 2))
+                (and (contains? #{"node" "box"} (:kind item)) (not= (absent-status @state) (:diff item)))
+                (swap! state update-in [:multi :ids]
+                       (fn [ids] (if (contains? ids (:id item)) (disj ids (:id item)) (conj ids (:id item))))))
+
+          (some? pick)
           ;; picking: a collapse-button hit is not a valid target (ignore,
           ;; keep picking, no mode toggle); a miss cancels; a valid-kind
           ;; hit sends the op and clears :pick; an invalid-kind hit keeps
@@ -911,9 +973,10 @@
                       (if (= (:mode pick) "connect")
                         (swap! state assoc :id-entry {:for "edge" :ops ops :text ""})
                         (post-edit! ops)))))
-          (if (= (:kind item) "collapse-button")
-            (toggle-collapse! (.slice (:box-id item) 2))
-            (on-select (when (some? item) (item->payload item)))))))}])
+          (= (:kind item) "collapse-button")
+          (toggle-collapse! (.slice (:box-id item) 2))
+          :else
+          (on-select (when (some? item) (item->payload item))))))}])
 
 (defn- current-edit-target-editable?
   "Can the graph shown be edited? Never while presenting."
@@ -945,15 +1008,15 @@
       "Edit"
       "When the served file is editable EDN, the floating toolbar at the bottom holds the tools for the current selection, grouped by first key with options that pop out: delete, edge direction, and pick modes such as \"add edge\" (click the other element on the canvas, then name the edge; Esc cancels). New nodes and boxes are created by name: the prompt types a name, and the id is derived from it — lowercased, illegal characters turned into dashes; name::type also sets the type. With nothing selected it creates a standalone node or box. A :ref attribute naming another graph file (relative path) makes \"follow ref\" open it — in a suffix comparison (simpleviz graph.edn next) it opens that file's own comparison; the trail at the top leads back. Following a ref to an .edn file that does not exist yet creates it as an empty graph — in a comparison the side picked by the old|new toggle."
       "In the inspector, click a value or its ✎ to edit it inline — Enter commits, Shift+Enter inserts a line break, Escape cancels. × deletes an attribute; the key/value row at the bottom adds one. Ctrl+Z or ↶ undoes the last edit."
-      "\"open md\" (f m) opens the markdown file a node's or box's :md-ref names in a text panel on the right; ⤢ makes it fill the window, Esc docks it again. Ctrl+S or Save writes it, and so does closing it (×) or opening another; a missing file is created on the first save. If the file changes on disk while you have unsaved edits, the panel says so — Reload takes the file, Overwrite keeps yours."
+      "\"open md\" (f m) opens the markdown file a node's or box's :md-ref names in a text panel on the right; ⤢ makes it fill the window, Esc docks it again. Ctrl+S or Save writes it, and so does closing it (×) or opening another; a missing file is created on the first save. Format (while editing the text, an md page's too) tidies the markdown — headings, tables, bullets, blank lines and trailing spaces, code left as it is — Ctrl+Z (u in vi mode) undoes it. If the file changes on disk while you have unsaved edits, the panel says so — Reload takes the file, Overwrite keeps yours."
       "vi (top of a doc's text) turns on vi keys for the text of every doc, until you turn them off: Esc for normal mode, i a I A o O for insert; h j k l w b e W B E 0 ^ $ gg G f t F T ; , { } / ? n N move, with a count too; d c y take a motion or a text object (iw aw i\" a\" i( a( i[ i{ …), dd cc yy D C Y; x X s S r J ~ p P edit, v and V select, u and Ctrl+R undo and redo, . repeats. :w saves, :q closes the doc panel — on an md page it shows the text read — :wq does both, :12 goes to line 12. A bare Esc in normal mode still docks the panel; :q! drops unsaved edits first.")
      (help-section
       "md pages"
-      "simpleviz notes.md opens a markdown file rendered, in a centered column — headings, emphasis, quotes, lists and task lists, links, pictures, tables, footnotes, code; Edit switches to the plain text, Read back. Its links to graphs and md files follow on click — [text](sub/graph.edn), ![img](x.png), [text](other.md), reference links too; relative to the md file, never above the served folder. In the plain text a » in the gutter marks each line with such a link (»2 lists the links of that line). A graph or exported image opens to the right of the text, its link and » highlighted, and works like any graph; ⤢ full view opens it on its own, × closes it. An md file opens in place of this one; the trail at the top leads back. Unsaved text is saved before you leave the page — when that fails you stay. A :ref to an .md file opens it the same way; the doc panel of :md-ref has the » gutter too."
-      "Present shows the page as slides: a line of just --- starts the next one, and a slide whose first line is >> [text](path) — >> and a link — shows that graph, md file or picture beside its text. → or space steps forward, ← back, Home and End jump; Esc leaves. The graph can be hovered, inspected, panned and collapsed, not edited. A slide whose first line is ?? name asks a question: its - [ ] lines are the choices, [x] the right one; ??? asks for Submit before → goes on, then shows the right choice and the explanation indented under the one picked. The answers are kept in talk.answers.edn beside talk.md.")
+      "simpleviz notes.md opens a markdown file rendered, in a centered column — headings, emphasis, quotes, lists and task lists, links, pictures, tables, footnotes, code; Edit switches to the plain text, Read back. Its links to graphs and md files follow on click — [text](sub/graph.edn), ![img](x.png), [text](other.md), reference links too; relative to the md file, never above the served folder. In the plain text a » in the gutter marks each line with such a link (»2 lists the links of that line). A graph or exported image opens to the right of the text, its link and » highlighted, and works like any graph; ⤢ full view opens it on its own, × closes it. A link to a graph in the md file's folder or below that isn't there yet offers, on the right, to create it empty or as a copy of another graph of the served folder — the copy keeps its :ref paths as written. A link with ?compare=next — [text](graph.edn?compare=next) — shows the graph compared with its fork graph-next.edn, refs followed inside it too. An md file opens in place of this one; the trail at the top leads back. Unsaved text is saved before you leave the page — when that fails you stay. A :ref to an .md file opens it the same way; the doc panel of :md-ref has the » gutter too."
+      "Present shows the page as slides: a line of just --- starts the next one, and a slide whose first line is >> [text](path) — >> and a link — shows that graph, md file or picture beside its text (a graph link with ?compare=next shows it compared with its fork). → or space steps forward, ← back, Home and End jump; Esc leaves. The graph can be hovered, inspected, panned and collapsed, not edited. A slide whose first line is ?? name asks a question: its - [ ] lines are the choices, [x] the right one; ??? asks for Submit before → goes on, then shows the right choice and the explanation indented under the one picked. The answers are kept in talk.answers.edn beside talk.md.")
      (help-section
       "Keys"
-      "Chords act on the selection, when no text field has focus (the toolbar buttons show them); the first key opens a pop-out of what comes next, which can be clicked too: d d delete · e 1/2/3/4 edge direction → ← ↔ — · c s / c t change an edge's source / target · a e add edge · a b add to box (node) or add a box as member (box) · a n add a node as member (box) — either moves it out of the box it was in · n n n new node (connected to the selected node, or inside the selected box) · n n b new box (inside the selected box) · n n s new node in the selection's box · n n c / n n i new node in the selection's box, connected from / to it · n n e split the selected edge with a new node · n b wrap the selection in a new box · r r rename the id · r n take a node out of the selected box · r b take the selected node out of its box · f r follow the selection's :ref · f p follow the selection's pair (f p 1–9 with several) · f m open the selection's :md-ref doc (Ctrl+S saves it). Esc cancels a pending chord; ? toggles this help; Ctrl+Z undoes.")
+      "Chords act on the selection, when no text field has focus (the toolbar buttons show them); the first key opens a pop-out of what comes next, which can be clicked too: d d delete · e 1/2/3/4 edge direction → ← ↔ — · c s / c t change an edge's source / target · a e add edge · a b add to box (node) or add a box as member (box) · a n add a node as member (box) — either moves it out of the box it was in · n n n new node (connected to the selected node, or inside the selected box) · n n b new box (inside the selected box) · n n s new node in the selection's box · n n c / n n i new node in the selection's box, connected from / to it · n n e split the selected edge with a new node · n b wrap the selection in a new box · r r rename the id · r n take a node out of the selected box · r b take the selected node out of its box · f r follow the selection's :ref · f p follow the selection's pair (f p 1–9 with several) · f m open the selection's :md-ref doc (Ctrl+S saves it) · s s select mode: click nodes and boxes to add or drop them · s a select all · s r select by dragging a rectangle · then y y copy / x x cut / d d delete them — a box with what it holds, and the edges among them all · p p paste what was copied or cut, here or in another graph (into the selected box; a taken id gets -1). Esc cancels a pending chord and ends select mode; ? toggles this help; Ctrl+Z undoes.")
      (help-section
       "Compare"
       "Serving a file with a suffix (simpleviz graph.edn next) renders it against its fork graph-next.edn as one merged diagram: added elements get a green +, modified an amber ~ (select for an old → new list), removed ones stay as red dashed ghosts. Click a legend row to jump through the changes; the old|new toggle picks which file edits apply to.")
@@ -1064,6 +1127,13 @@
     (some? (:flash st))
     [:div {:id "pick-hint"} (:flash st)]
 
+    (some? (:multi st))
+    [:div {:id "pick-hint"}
+     (if (:rect (:multi st))
+       "drag a rectangle around nodes and boxes — Esc cancels"
+       (str (count (:ids (:multi st))) " selected — click nodes and boxes to add or drop them · "
+            "y y copy · x x cut · d d delete — Esc ends"))]
+
     (some? (:pick st))
     [:div {:id "pick-hint"} (:pick-hint st) " — Esc cancels"]
     (= "edge" (:for (:id-entry st)))
@@ -1126,7 +1196,7 @@
                   (let [ls (:links m)
                         one (= 1 (count ls))]
                     [:button {:class (str "md-mark" (when (:bad m) " bad")
-                                          (when (editor/mark-open? (:path (:md st)) m side) " open"))
+                                          (when (editor/mark-open? (:path (:md st)) m side (:compare st)) " open"))
                               :type "button"
                               :key (str "m" (:line m))
                               :style {:top (str (:top m) "px")}
@@ -1191,7 +1261,7 @@
   opens in a new tab, anything else is text that says why it isn't a
   link. An image shows as the picture — one that also follows (an
   exported graph) inside its link."
-  [md-path side]
+  [md-path side side-compare]
   (fn [l kids]
     (let [dest (:dest l)
           pic (when (= "image" (:kind l)) (picture md-path l))
@@ -1204,7 +1274,7 @@
         (into [:a {:href "#"
                    :class (str "md-link"
                                (when (some? (:error (editor/link-target md-path dest))) " bad")
-                               (when (editor/mark-open? md-path {:links [l]} side) " open"))
+                               (when (editor/mark-open? md-path {:links [l]} side side-compare) " open"))
                    :title (editor/link-title md-path l)
                    :on-click (fn [e] (.preventDefault e) (.stopPropagation e) (follow-link! l))}]
               kids)
@@ -1214,17 +1284,17 @@
                                   " — not a file simpleviz opens")}]
               kids)))))
 
-;; the read view's hiccup for the last [path text side], so rerenders
+;; the read view's hiccup for the last [path text side compare], so rerenders
 ;; for anything else neither re-parse nor rebuild its handlers
 (def ^:private md-view-cache (atom nil))
 
 (defn- md-view [st]
   (let [md (:md st)
-        k [(:path md) (:text md) (:side st)]
+        k [(:path md) (:text md) (:side st) (:compare st)]
         hit @md-view-cache]
     (if (and (some? hit) (= k (:key hit)))
       (:view hit)
-      (let [bs (markdown/render (:text md) (md-link-fn (:path md) (:side st)))
+      (let [bs (markdown/render (:text md) (md-link-fn (:path md) (:side st) (:compare st)))
             view (into [:div {:id "md-view" :on-click in-page-click}]
                        (if (seq bs) bs [[:p {:class "md-empty"} "Nothing here yet — Edit to write."]]))]
         (reset! md-view-cache {:key k :view view})
@@ -1254,6 +1324,11 @@
                   :title (if (:vi-pref st) "Vi mode is on — click to type plainly" "Edit with vi keys")
                   :on-click (fn [e] (.stopPropagation e) (toggle-vi!))}
          "vi"])
+      (when-not reading
+        [:button {:class "md-btn md-format" :type "button"
+                  :title "Format the markdown: headings, tables, bullets, blank lines — Ctrl+Z (u in vi mode) undoes"
+                  :on-click (fn [e] (.stopPropagation e) (format-md!))}
+         "Format"])
       (when (:page md)
         [:button {:class "md-btn md-mode" :type "button"
                   :title (if reading "Edit the text" "Show it rendered")
@@ -1396,10 +1471,42 @@
                     [[:p {:class "md-empty"} "loading…"]]))
        [:div {:class "present-side-error"} text])]))
 
+(defn- side-choose-view
+  "Beside the md page, for a link to a graph not there yet: start it
+  empty, or as a copy of one of the served folder's graphs."
+  [{:keys [path files truncated query busy error]}]
+  (let [shown (editor/match-choices files query)]
+    [:div {:id "side-choose"}
+     [:div {:class "choose-head"}
+      [:span {:class "side-path" :title path} path]
+      [:span {:class "choose-missing"} "isn't there yet"]
+      [:button {:class "side-btn" :type "button" :title "Close" :aria-label "Close"
+                :on-click (fn [e] (.stopPropagation e) (swap! side-gen inc) (swap! state assoc :side-choose nil))}
+       "×"]]
+     [:button {:class "choose-empty" :type "button" :disabled busy
+               :on-click (fn [e] (.stopPropagation e) (start-side! nil))}
+      "Create an empty graph"]
+     (when (some? error) [:div {:class "choose-error"} error])
+     (if (empty? files)
+       [:p {:class "choose-note"} "No other graphs in the served folder to copy."]
+       [:div {:class "choose-copy"}
+        [:p {:class "choose-note"} "or start it as a copy — its :ref paths stay as written:"]
+        [:input {:class "choose-filter" :type "search" :placeholder "filter" :value query
+                 :aria-label "Filter the graphs"
+                 :on-input (fn [e] (swap! state assoc-in [:side-choose :query] (.. e -target -value)))}]
+        (into [:ul {:class "choose-list"}]
+              (map (fn [f]
+                     [:li [:button {:class "choose-file" :type "button" :disabled busy :title (str "Copy " f)
+                                    :on-click (fn [e] (.stopPropagation e) (start-side! f))}
+                           f]])
+                   shown))
+        (when (empty? shown) [:p {:class "choose-note"} "No graph matches."])
+        (when truncated [:p {:class "choose-note"} (str "Only the first " (count files) " graphs are listed.")])])]))
+
 (defn- side-view
   "Over the graph beside an md page: its path, a button that opens it
   in full view and one that closes it. Before one is open, a hint where
-  it will show."
+  it will show — or, for a link to a graph not there yet, how it starts."
   [st]
   (if-let [side (:side st)]
     [:div {:id "side-bar"}
@@ -1412,7 +1519,9 @@
      [:button {:class "side-btn" :type "button" :title "Close" :aria-label "Close"
                :on-click (fn [e] (.stopPropagation e) (close-side!))}
       "×"]]
-    [:div {:id "side-empty"} "a linked graph opens here"]))
+    (if-let [c (:side-choose st)]
+      (side-choose-view c)
+      [:div {:id "side-empty"} "a linked graph opens here"])))
 
 (defn- app-view [st]
   (let [page (page? st)
@@ -1501,7 +1610,10 @@
 (defn- paint-now! []
   (when-let [canvas-el (js/document.getElementById "canvas")]
     (if-let [s (:scene @state)]
-      (canvas/paint! canvas-el s (:elk-id (:selected @state)))
+      (canvas/paint! canvas-el s (let [st @state]
+                                   (cond (some? (:multi st)) (:ids (:multi st))
+                                         (some? (:selected st)) #{(:elk-id (:selected st))}
+                                         :else #{})))
       ;; no graph (an md page, a graph that failed): no stale picture either
       (canvas/clear! canvas-el))))
 
@@ -1762,11 +1874,13 @@
         md-target? (= "md" (editor/doc-kind (shown-path nav)))]
     (reset! shown-query js/location.search)
     (swap! graph-gen inc)
+    (swap! side-gen inc)
     ;; a slide's >> still loading belongs to the page left
     (swap! present-gen inc)
     (swap! state (fn [st]
                    (merge st per-file
                           {:nav nav :pending-focus (:focus nav) :side nil :present nil
+                           :compare (or (:compare nav) nil)
                            :md (when-not (or (page? st) md-target?) (:md st))})))
     (.clear layout-cache)
     (reset! last-mtime nil)
@@ -1819,16 +1933,22 @@
   there yet; a failed create, like a path the server refuses, shows as
   the graph error after navigating, with the trail intact to go back.
   A second follow while the first still waits on the server is dropped,
-  or it would push the same URL onto the history twice."
-  [path {:keys [create? focus]}]
-  (let [st @state]
+  or it would push the same URL onto the history twice. A link (`link?`)
+  shows the target under its own `compare`; a ref, pair or full view
+  under the compare of the graph shown (editor/follow-compare)."
+  [path {:keys [create? focus link? compare]}]
+  (let [st @state
+        to (editor/follow-compare path compare (when-not link? (:compare st)))]
     (when-not (:following st)
       (swap! state assoc :following true)
       (try
         (when create?
-          (try (js-await (post-json "/api/create" (editor/create-body (:edit-target st) path)))
+          (try (js-await (post-json "/api/create" (editor/create-body (:edit-target st) path to)))
                (catch :default _ nil)))
-        (js-await (navigate! (editor/follow-url (current-path st) (:trail (:nav st)) path focus)))
+        (js-await (navigate! (editor/follow-url (current-path st) (:trail (:nav st)) path focus
+                                                {:from (when-not (page? st) (:compare st))
+                                                 :trail-compare (:trail-compare (:nav st))
+                                                 :to to})))
         (finally (swap! state assoc :following false))))))
 
 (defn- replace-query!
@@ -1838,33 +1958,79 @@
   (reset! shown-query q))
 
 (defn- show-side!
-  "Put `side` (root-relative, nil for none) beside the md page: drop the
-  graph shown before, with everything that belongs to it, and keep the
-  side in the URL without a history entry, so a reload shows it again."
-  [side]
-  (swap! graph-gen inc)
-  (swap! state (fn [st] (merge st per-file {:side side})))
-  (.clear layout-cache)
-  (reset! last-mtime nil)
-  (canvas/refit-next!)
-  (replace-query! (editor/with-side js/location.search side)))
+  "Put `side` (root-relative, nil for none) beside the md page, compared
+  under `compare` when given: drop the graph shown before, with
+  everything that belongs to it, and keep both in the URL without a
+  history entry, so a reload shows it again."
+  [side & [compare]]
+  (let [compare (when (some? side) compare)]
+    (swap! graph-gen inc)
+    (swap! state (fn [st] (merge st per-file {:side side :compare compare})))
+    (.clear layout-cache)
+    (reset! last-mtime nil)
+    (canvas/refit-next!)
+    (replace-query! (editor/with-compare (editor/with-side js/location.search side) compare))))
 
 (defn- ^:async open-side!
-  "Show the graph at root-relative `path` beside the md page, creating
-  it first when `create?` (as following a link to it would)."
-  [path create?]
-  (when-not (= path (:side @state))
-    (when create?
-      (try (js-await (post-json "/api/create" (editor/create-body "new" path)))
-           (catch :default _ nil)))
-    (show-side! path)
-    (js-await (tick))))
+  "Show the graph at root-relative `path` beside the md page, compared
+  under `compare` when given, creating it first when `create?` (as
+  following a link to it would)."
+  [path create? & [compare]]
+  (let [st @state
+        compare (if (nil? compare) nil compare)]
+    (when-not (and (= path (:side st)) (= compare (:compare st)))
+      (when create?
+        (try (js-await (post-json "/api/create" (editor/create-body "new" path compare)))
+             (catch :default _ nil)))
+      (show-side! path compare)
+      (js-await (tick)))))
 
 (defn- close-side!
   "Close the graph beside the md page; the page takes back its theme."
   []
   (show-side! nil)
   (apply-theme! (effective-theme nil (:theme-pref @state) (:theme @state))))
+
+(defn- ^:async offer-side!
+  "A link to the graph at root-relative `path`, in the md page's folder
+  or below: show it beside the page when it is there, else offer beside
+  the page to start it empty or as a copy of a graph of the served
+  folder. Under `compare` (the link's ?compare=) it is checked, and
+  created, as that comparison's side — no copies there."
+  [path compare]
+  (let [gen (swap! side-gen inc)
+        out (try (js-await (.json (js-await (js/fetch (str "/api/graphs?path=" (js/encodeURIComponent path)
+                                                            (when (some? compare)
+                                                              (str "&compare=" (js/encodeURIComponent compare))))))))
+                 (catch :default _ {:error "the server did not answer"}))]
+    (cond
+      ;; another link was followed, or the page left, meanwhile
+      (not= gen @side-gen) nil
+      (some? (:error out)) (swap! state assoc :nav-error (:error out))
+      (:exists out) (js-await (open-side! path false compare))
+      :else (do (when (some? (:side @state)) (close-side!))
+                (swap! state assoc :side-choose {:path path :compare compare
+                                                 :files (:files out) :truncated (:truncated out)
+                                                 :query "" :busy false :error nil})))))
+
+(defn- ^:async start-side!
+  "Create the graph the open choice is for — empty, or a copy of
+  root-relative `from` — and show it beside the md page."
+  [from]
+  (let [{:keys [path compare busy]} (:side-choose @state)
+        gen @side-gen]
+    (when-not busy
+      (swap! state assoc-in [:side-choose :busy] true)
+      (let [out (try (js-await (.json (js-await (post-json "/api/create"
+                                                           (cond-> (editor/create-body "new" path compare)
+                                                             (some? from) (assoc :from from))))))
+                     (catch :default _ {:error "the server did not answer"}))]
+        (cond
+          (not= gen @side-gen) nil
+          (some? (:error out))
+          (swap! state update :side-choose
+                 (fn [c] (when (some? c) (assoc c :busy false :error (:error out)))))
+          :else (js-await (open-side! path false compare)))))))
 
 (defn- ^:async follow-ref!
   "Follow the selection's ref: resolve it against the graph shown and
@@ -2037,6 +2203,28 @@
       (.focus el {:preventScroll true})
       (vim-select! el (.-selectionStart el)))))
 
+(defn- format-md!
+  "Tidy the doc's text (markdown/tidy), undoable: in vi mode by u, else
+  by the browser's own undo, as the text goes in like typed."
+  []
+  (when-let [el (js/document.getElementById "md-text")]
+    (let [t (.-value el)
+          t2 (markdown/tidy t)
+          p (markdown/tidy-caret t t2 (.-selectionStart el))
+          top (.-scrollTop el)]
+      (when (not= t t2)
+        (.focus el {:preventScroll true})
+        (if (:vi-pref @state)
+          (swap! state (fn [st] (-> st
+                                    (update :vim vim/replaced t (.-selectionStart el))
+                                    (assoc-in [:md :text] t2))))
+          (do (.setSelectionRange el 0 (count t))
+              ;; fires input, which takes the text into the state
+              (when-not (js/document.execCommand "insertText" false t2)
+                (swap! state assoc-in [:md :text] t2))))
+        (vim-select! el p)
+        (set! (.-scrollTop el) top)))))
+
 (defn- ^:async save-md!
   "Write the open doc; `overwrite?` saves over the version the conflict
   banner found on disk instead of the one the edit started from.
@@ -2143,28 +2331,30 @@
   "No graph beside the page: close the one shown, else drop a side the
   URL may still name (a slide that changed since, a hand-made URL)."
   []
+  ;; a graph choice beside the page goes too: a slide takes the room
+  (swap! state assoc :side-choose nil)
   (if (some? (:side @state))
     (close-side!)
-    (replace-query! (editor/with-side js/location.search nil))))
+    (replace-query! (editor/with-compare (editor/with-side js/location.search nil) nil))))
 
 (defn- ^:async export-kind
   "\"image\" when the .png or .svg at root-relative `path` is a plain
   picture, else \"graph\" — a failure then shows as the graph's error."
-  [path]
-  (try (let [out (js-await (.json (js-await (js/fetch (str "/api/graph?file=" (js/encodeURIComponent path))))))]
+  [path compare]
+  (try (let [out (js-await (.json (js-await (js/fetch (str "/api/graph" (editor/with-compare (str "?file=" (js/encodeURIComponent path)) compare))))))]
          (if (= true (:image out)) "image" "graph"))
        (catch :default _ "graph")))
 
 (defn- ^:async side-of
   "What `>> dest` on a slide of the md page at `md-path` shows: {:kind
   \"graph\"|\"md\"|\"image\" :path root-relative}, or {:kind \"error\"
-  :text why} when it can't."
-  [md-path dest]
+  :text why} when it can't. A graph is compared under `compare`."
+  [md-path dest compare]
   (let [{:keys [path error]} (editor/link-target md-path dest)
         kind (when (some? path) (slides/side-kind path))]
     (cond (some? error) {:kind "error" :text error}
           (nil? kind) {:kind "error" :text (str dest " — not a graph, an md file or an image")}
-          (= kind "export") {:kind (js-await (export-kind path)) :path path}
+          (= kind "export") {:kind (js-await (export-kind path compare)) :path path}
           :else {:kind kind :path path})))
 
 (defn- ^:async show-md-side!
@@ -2233,24 +2423,27 @@
   "Present slide i of the md page, clamped to the deck: keep its number
   in the URL (no history entry) and show what its >> names beside it — a
   graph as the side graph, an md file or a picture in the canvas's
-  place. A slide with the same >> as the one before keeps it as it is.
-  Starting to present reads the deck's answers first."
+  place. A slide with the same >> as the one before (path and compare)
+  keeps it as it is. Starting to present reads the deck's answers first."
   [i]
   (when (nil? (:present @state)) (js-await (load-answers!)))
   (let [st @state
         ds (deck st)
         i (max 0 (min i (dec (count ds))))
         dest (:side (nth ds i nil))
-        same? (and (some? (:present st)) (= dest (:dest (:present st))))]
+        compare (editor/follow-compare (str dest) (:side-compare (nth ds i nil)) nil)
+        same? (and (some? (:present st)) (= dest (:dest (:present st)))
+                   (= compare (:compare (:present st))))]
     (replace-query! (editor/with-slide js/location.search (inc i)))
-    (swap! state assoc :present {:slide i :dest dest :side (when same? (:side (:present st)))})
+    (swap! state assoc :present {:slide i :dest dest :compare compare
+                                 :side (when same? (:side (:present st)))})
     ;; the same >> stays — and so does a load of it still under way
     (when-not same?
       (let [gen (swap! present-gen inc)
-            side (when (some? dest) (js-await (side-of (:path (:md st)) dest)))]
+            side (when (some? dest) (js-await (side-of (:path (:md st)) dest compare)))]
         (when (= gen @present-gen)
           (if (= "graph" (:kind side))
-            (js-await (open-side! (:path side) false))
+            (js-await (open-side! (:path side) false compare))
             (do (drop-side!)
                 (swap! state assoc-in [:present :side] side)
                 (when (= "md" (:kind side))
@@ -2269,9 +2462,11 @@
 (add-watch state :present
   (fn [_ _ old new]
     (when (and (presenting? new) (not= (:text (:md old)) (:text (:md new))))
-      (let [{:keys [slide dest]} (:present new)
-            ds (deck new)]
-        (when (or (>= slide (count ds)) (not= dest (:side (nth ds slide nil))))
+      (let [{:keys [slide dest compare]} (:present new)
+            ds (deck new)
+            s (nth ds slide nil)]
+        (when (or (>= slide (count ds)) (not= dest (:side s))
+                  (not= compare (editor/follow-compare (str dest) (:side-compare s) nil)))
           (show-slide! slide))))))
 
 (defn- present-key!
@@ -2439,7 +2634,8 @@
   destination resolves against the doc's own path; the page shown joins
   the trail. An .edn target is first created as an empty graph when
   missing (from the md page always, from the docked panel when the
-  graph shown is editable) — as follow ref does."
+  graph shown is editable) — as follow ref does. A graph shows under
+  the link's ?compare=, when it has one."
   [l]
   (let [st @state
         md (:md st)
@@ -2447,18 +2643,26 @@
     (swap! state assoc :link-menu nil)
     (cond
       (some? error) (swap! state assoc :nav-error error)
-      ;; the md page shows a graph beside it rather than leaving
+      ;; the md page shows a graph beside it rather than leaving; one
+      ;; of its own folder that isn't there yet may start as a copy
       (and (:page md) (= kind "graph"))
-      (js-await (open-side! path (.endsWith (.toLowerCase path) ".edn")))
+      (let [c (editor/follow-compare path (:compare l) nil)]
+        (if (and (editor/downstream-graph? (:path md) path)
+                 ;; nil or undefined alike: no compare
+                 (not (and (= path (:side st))
+                           (or (= c (:compare st)) (and (nil? c) (nil? (:compare st)))))))
+          (js-await (offer-side! path c))
+          (js-await (open-side! path (.endsWith (.toLowerCase path) ".edn") c))))
       :else
       (js-await (follow-to! path {:create? (and (= kind "graph") (.endsWith (.toLowerCase path) ".edn")
-                                                (or (:page md) (current-edit-target-editable? st)))})))))
+                                                (or (:page md) (current-edit-target-editable? st)))
+                                  :link? true :compare (:compare l)})))))
 
 (defn- ^:async post-edit!
   "POST ops to the edit target — or to `file` (\"old\"/\"new\") when given."
   [ops & [file]]
   (let [resp (js-await (post-json "/api/edit"
-                                  (let [body (editor/edit-body (or file (:edit-target @state)) ops)
+                                  (let [body (editor/edit-body (or file (:edit-target @state)) ops (:compare @state))
                                         f (graph-file @state)]
                                     (if (some? f) (assoc body :path f) body))))
         out (js-await (.json resp))]
@@ -2538,6 +2742,102 @@
               (cond
                 (nil? with) (start-editing! ID-FIELD to)
                 (some? (:field with)) (start-editing! (:field with) (:text with))))))))))
+
+(defn- enter-select!
+  "Select mode, with scene ids `ids` selected; with `rect?` the next drag
+  spans a rectangle whose nodes and boxes join them."
+  [ids rect?]
+  (cancel-pick!)
+  (swap! state assoc :multi {:ids ids :rect rect?} :selected nil :editing nil :id-entry nil :chord nil))
+
+(defn- select-all!
+  "s a: select mode with every node and box selected."
+  []
+  (let [sc (:scene @state)]
+    (enter-select! (set (hit/ids-in-rect sc {:x0 -1e9 :y0 -1e9 :x1 1e9 :y1 1e9} (absent-status @state))) false)))
+
+(defn- rect-drag
+  "The canvas's drag hook after s r: the drag spans a rectangle, and
+  letting go adds the nodes and boxes wholly inside it to the selection."
+  [gx gy]
+  (when (:rect (:multi @state))
+    (let [r (atom {:x0 gx :y0 gy :x1 gx :y1 gy})]
+      {:move (fn [dx dy]
+               (swap! r assoc :x1 (+ gx dx) :y1 (+ gy dy))
+               ;; Esc mid-drag cancelled it: no rectangle comes back
+               (when (:rect (:multi @state)) (canvas/set-marquee! @r)))
+       :end (fn []
+              (canvas/set-marquee! nil)
+              ;; Esc mid-drag cancelled it
+              (when-let [m (:multi @state)]
+                (when (:rect m)
+                  (swap! state assoc :multi {:ids (into (:ids m) (hit/ids-in-rect (:scene @state) @r (absent-status @state))) :rect false}))))
+       :cancel (fn [] (canvas/set-marquee! nil))})))
+
+(defn- ^:async fetch-copy
+  "What /api/copy answers for scene ids `ids`: {:edn the clipboard text
+  :ids the targets it took}; throws its error."
+  [ids]
+  (let [f (graph-file @state)
+        body (cond-> {:file (:edit-target @state) :ids (editor/selection-targets ids)}
+               (some? (:compare @state)) (assoc :compare (:compare @state)))
+        out (js-await (.json (js-await (post-json "/api/copy" (if (some? f) (assoc body :path f) body)))))]
+    (if (some? (:error out)) (throw (js/Error. (:error out))) out)))
+
+(defn- write-clipboard!
+  "Put the text that promise `text-p` resolves to on the clipboard. A
+  ClipboardItem takes the promise itself, so the write still counts as
+  the key press's when the text comes later (Safari insists)."
+  [text-p]
+  (if (some? (.-ClipboardItem js/window))
+    (.write js/navigator.clipboard
+            [(js/ClipboardItem. {"text/plain" (.then text-p (fn [t] (js/Blob. [t] {:type "text/plain"})))})])
+    (.then text-p (fn [t] (.writeText js/navigator.clipboard t)))))
+
+(defn- ^:async copy-selected!
+  "y y (cut false) / x x (cut true): the selected nodes and boxes, what
+  the boxes hold and the edges among them all onto the clipboard as EDN,
+  for p p here or in another graph. A cut then deletes all of it in one
+  edit. Select mode ends."
+  [cut]
+  (let [out-p (fetch-copy (vec (:ids (:multi @state))))
+        ok? (try (js-await (write-clipboard! (.then out-p (fn [o] (:edn o)))))
+                 true
+                 (catch :default e
+                   ;; the server's own error, when it had one, says more
+                   ;; than the clipboard's
+                   (let [msg (try (js-await out-p) (.-message e) (catch :default e2 (.-message e2)))]
+                     (swap! state assoc :notice (str (if cut "Cut" "Copy") " failed: " msg)))
+                   false))]
+    (when ok?
+      (let [n (count (:ids (js-await out-p)))]
+        (swap! state assoc :multi nil)
+        (if cut
+          (do (js-await (post-edit! (mapv editor/delete-op (:ids (js-await out-p)))))
+              (when (nil? (:edit-error @state)) (flash! (str "cut " n " — p p pastes them"))))
+          (flash! (str "copied " n " — p p pastes them, here or in another graph")))))))
+
+(defn- ^:async delete-selected!
+  "d d in select mode: delete the selected nodes and boxes with what the
+  boxes hold — what x x would cut — in one edit. Select mode ends."
+  []
+  (try
+    (let [out (js-await (fetch-copy (vec (:ids (:multi @state)))))]
+      (swap! state assoc :multi nil)
+      (js-await (post-edit! (mapv editor/delete-op (:ids out)))))
+    (catch :default e (swap! state assoc :edit-error (.-message e)))))
+
+(defn- ^:async paste!
+  "p p: the nodes and boxes on the clipboard into the graph — into the
+  selected box, else at the top level. Ids already taken get -1, -2, …"
+  [sel]
+  (let [text (try (js-await (.readText js/navigator.clipboard))
+                  (catch :default e
+                    (swap! state assoc :notice (str "Paste failed: the clipboard can't be read (" (.-message e) ")"))
+                    nil))]
+    (when (some? text)
+      (js-await (post-edit! [(editor/paste-op text sel)]))
+      (when (nil? (:edit-error @state)) (flash! "pasted — Ctrl+Z takes it back")))))
 
 (defn- ^:async delete! [tgt]
   (js-await (post-edit! [(editor/delete-op tgt)]))
@@ -2721,13 +3021,13 @@
         path (conj (or (:chord st) []) k)]
     (when (and (= 1 (.-length k)) (nil? (:pick st)) (some? (:scene st)))
       (cond
-        (editor/chord-prefix? (:kind sel) path (avail-fn sel) pairs)
+        (editor/chord-prefix? (chord-kind st) path (avail-fn sel) pairs)
         (do (.preventDefault e) (swap! state assoc :chord path))
 
         (some? (:chord st))
         (do (.preventDefault e)
             (swap! state assoc :chord nil)
-            (when-let [action (editor/chord-action (:kind sel) path pairs)]
+            (when-let [action (editor/chord-action (chord-kind st) path pairs)]
               (run-chord-action! sel action)))))))
 
 (js/window.addEventListener "keydown"
@@ -2743,6 +3043,13 @@
       (present-key! e)
 
       (= (.-key e) "Escape") (do (cancel-pick!)
+                                 ;; select mode ends, unless a chord or a rectangle was what Esc cancelled
+                                 (swap! state (fn [st]
+                                                (let [m (:multi st)]
+                                                  (assoc st :multi (cond (some? (:chord st)) m
+                                                                         (:rect m) (assoc m :rect false)
+                                                                         :else nil)))))
+                                 (canvas/set-marquee! nil)
                                  (swap! state assoc :help false :chord nil :export-menu false :link-menu nil
                                         :arrange false)
                                  (when (:full (:md @state))
@@ -2785,7 +3092,7 @@
 (apply-theme! (effective-theme (:graph @state) (:theme-pref @state) (:theme @state)))
 (add-watch state :render (fn [_ _ _ _] (rerender!)))
 (canvas/setup-pan-zoom! (js/document.getElementById "canvas-wrap"))
-(canvas/set-drag-hook! arrange-drag)
+(canvas/set-drag-hook! (fn [gx gy] (or (rect-drag gx gy) (arrange-drag gx gy))))
 ;; the grid's dots show while arranging
 (add-watch state :arrange-grid
   (fn [_ _ old new]

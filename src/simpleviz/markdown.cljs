@@ -466,91 +466,91 @@
                   (cond (and l r) "center" r "right" l "left" :else nil)))
         (cells sep)))
 
+(defn- fence-body
+  "The lines of the fenced block opening at line i, unindented as far as
+  its fence, and the line closing it — nil when none does."
+  [lines i fence]
+  (let [n (count lines)
+        close (loop [k (inc i)]
+                (cond (>= k n) nil
+                      (fence-close? (nth lines k) (:mark fence)) k
+                      :else (recur (inc k))))]
+    [(mapv (fn [ln] (subs ln (min (indent ln) (:indent fence)))) (.slice lines (inc i) (or close n)))
+     close]))
+
 (defn- def-block
   "For the ```simpleviz-table fence opening at line i: its text and the
   line of the table right below it, blank lines between allowed; nil
   when it never closes or no table follows."
   [lines i fence]
   (let [n (count lines)
-        close (loop [k (inc i)]
-                (cond (>= k n) nil
-                      (fence-close? (nth lines k) (:mark fence)) k
-                      :else (recur (inc k))))
+        [body close] (fence-body lines i fence)
         t (when (some? close)
             (loop [j (inc close)] (if (and (< j n) (blank? (nth lines j))) (recur (inc j)) j)))]
     (when (and (some? t) (< t n)
                (let [l (nth lines t)]
                  (and (< (indent l) 4) (not (.test heading-re l)) (not (quote? l)) (not (hr? l))
                       (table-start? lines t))))
-      [(.join (mapv (fn [ln] (subs ln (min (indent ln) (:indent fence)))) (.slice lines (inc i) close)) "\n")
-       t])))
+      [(.join body "\n") t])))
 
 (defn- formula? [c] (.startsWith c "=("))
 
 (defn- style-of
-  "A result's :style as the cell's inline style: colours only, the
-  server checked them."
+  "A result's :style as the cell's inline style, in longhands, so a value
+  can only ever be a colour; the server checked them too."
   [style]
   (cond-> {}
     (some? (:color style)) (assoc :color (:color style))
-    (some? (:background style)) (assoc :background (:background style))
+    (some? (:background style)) (assoc :background-color (:background style))
     (some? (:border style)) (assoc :border-color (:border style))))
 
-(defn- with-class [al cls] (if (some? al) (str al " " cls) cls))
-
-(defn- calc-cell
-  "A formula cell: its result from the server, its error, or … while it
-  runs; the formula as its title."
-  [c res al]
-  (let [[cls text] (cond (some? (:value res)) ["calc" (:value res)]
-                         (some? (:error res)) ["calc error" (:error res)]
-                         :else ["calc pending" "…"])]
-    [:td (cond-> {:class (with-class al cls) :title c}
-           (some? (:style res)) (assoc :style (style-of (:style res))))
-     text]))
-
-(defn- formatted-cell
-  "A cell the def block formats: the server's value — the cell as
-  written its title — or the cell as written, styled either way; or
-  its error."
-  [c res al ctx]
-  (cond
-    (some? (:error res)) [:td {:class (with-class al "calc error") :title c} (:error res)]
-    (some? (:value res)) [:td (cond-> {:title c}
-                                (some? al) (assoc :class al)
-                                (some? (:style res)) (assoc :style (style-of (:style res))))
-                          (:value res)]
-    :else (into [:td (cond-> {:style (style-of (:style res))} (some? al) (assoc :class al))]
-                (inline c ctx))))
+(defn- result-cell
+  "A body cell with something from the server — or, a formula, waiting
+  for it: its error, else its value or the cell as written (a style
+  alone keeps it), styled; … while a formula runs. A formula is marked
+  calc and has itself as its title, a formatted value the cell as
+  written."
+  [c res al f? ctx]
+  (let [[cls kids] (cond (some? (:error res)) ["calc error" [(:error res)]]
+                         (some? (:value res)) [(when f? "calc") [(:value res)]]
+                         f? ["calc pending" ["…"]]
+                         :else [nil (inline c ctx)])
+        cls (if (and (some? al) (some? cls)) (str al " " cls) (or al cls))]
+    (into [:td (cond-> {}
+                 (some? cls) (assoc :class cls)
+                 (or f? (some? (:error res)) (some? (:value res))) (assoc :title c)
+                 (some? (:style res)) (assoc :style (style-of (:style res))))]
+          kids)))
 
 (defn- table-block
-  "The table from line i to `end`, its body rows also collected in
-  (:tables ctx) with the def block `defs` for the server to calculate;
-  its cells show the results (:calc ctx) holds for it. {:failed msg}
-  fails every formula and leaves the other cells as written."
-  [lines i end defs ctx]
-  (let [aligns (aligns-of (nth lines (inc i)))
+  "The table starting at line i and the line after it, its body rows
+  also collected in (:tables ctx) with the def block `defs` for the
+  server to calculate; its cells show the results (:calc ctx) holds for
+  it — {:failed msg} fails every formula, the other cells as written —
+  and its own :error is its caption."
+  [lines i defs ctx]
+  (let [end (table-end lines i)
+        aligns (aligns-of (nth lines (inc i)))
         grid (fn [l] (let [cs (cells l)] (mapv (fn [k] (or (get cs k) "")) (range (count aligns)))))
         body (mapv (fn [j] (grid (nth lines j))) (range (+ i 2) end))
         failed (:failed (:calc ctx))
         mine (when (nil? failed) (get (:calc ctx) (count (:tables ctx))))
-        results (:results mine)
         row (fn [tag cs r]
               (into [:tr] (map-indexed (fn [k a]
                                          (let [c (nth cs k)
-                                               al (if (some? a) (str "al-" a) nil)]
-                                           (cond
-                                             (and (= tag :td) (formula? c))
-                                             (calc-cell c (if (some? failed) {:error failed} (get (get results r) k)) al)
-                                             (and (= tag :td) (some? (get (get results r) k)))
-                                             (formatted-cell c (get (get results r) k) al ctx)
-                                             :else (into (if (some? al) [tag {:class al}] [tag]) (inline c ctx)))))
+                                               al (when (some? a) (str "al-" a))
+                                               f? (and (= tag :td) (formula? c))
+                                               res (when (= tag :td)
+                                                     (if (and f? (some? failed)) {:error failed} (get-in mine [:results r k])))]
+                                           (if (or f? (some? res))
+                                             (result-cell c res al f? ctx)
+                                             (into (if (some? al) [tag {:class al}] [tag]) (inline c ctx)))))
                                        aligns)))]
     (conj! (:tables ctx) {:cells body :defs defs})
-    (cond-> [:table]
-      (some? (:error mine)) (conj [:caption {:class "calc-error"} (:error mine)])
-      true (conj [:thead (row :th (grid (nth lines i)) nil)]
-                 (into [:tbody] (map-indexed (fn [r cs] (row :td cs r)) body))))))
+    [(-> (cond-> [:table] (some? (:error mine)) (conj [:caption {:class "calc-error"} (:error mine)]))
+         (conj [:thead (row :th (grid (nth lines i)) nil)]
+               (into [:tbody] (map-indexed (fn [r cs] (row :td cs r)) body))))
+     end]))
 
 (defn- blocks
   "Hiccup for the block-level lines."
@@ -568,15 +568,12 @@
 
             (some? table-def)
             (let [[defs t] table-def
-                  end (table-end lines t)]
-              (recur end (conj out (table-block lines t end defs ctx))))
+                  [tbl end] (table-block lines t defs ctx)]
+              (recur end (conj out tbl)))
 
             (some? fence)
-            (let [end (loop [j (inc i)]
-                        (if (or (>= j n) (fence-close? (nth lines j) (:mark fence))) j (recur (inc j))))
-                  body (mapv (fn [ln] (subs ln (min (indent ln) (:indent fence))))
-                             (.slice lines (inc i) end))]
-              (recur (inc end) (conj out [:pre [:code (.join body "\n")]])))
+            (let [[body close] (fence-body lines i fence)]
+              (recur (inc (or close n)) (conj out [:pre [:code (.join body "\n")]])))
 
             (some? heading)
             (recur (inc i) (conj out (into [(str "h" (count (aget heading 1)))]
@@ -617,8 +614,7 @@
               (recur end (conj out (into [:blockquote] (blocks inner ctx)))))
 
             (table-start? lines i)
-            (let [end (table-end lines i)]
-              (recur end (conj out (table-block lines i end nil ctx))))
+            (let [[tbl end] (table-block lines i nil ctx)] (recur end (conj out tbl)))
 
             (some? (item-of l))
             (let [[t end] (list-block lines i ctx)] (recur end (conj out t)))

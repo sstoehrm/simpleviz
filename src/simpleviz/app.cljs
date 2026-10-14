@@ -176,7 +176,7 @@
 (defn- cancel-id-entry! []
   (swap! state assoc :id-entry nil))
 
-(declare relayout! post-edit! delete! current-edit-target-editable? follow-ref! navigate! run-chord-action!
+(declare relayout! post-json post-edit! delete! current-edit-target-editable? follow-ref! navigate! run-chord-action!
          open-md! save-md! close-md! open-page! root-path! load-nav!
          save-if-dirty! save-before-leaving! follow-link! sync-gutter-scroll!
          follow-to! close-side! start-side! focus-md-start! show-slide! leave-present! pick! submit!
@@ -1286,49 +1286,49 @@
                                   " — not a file simpleviz opens")}]
               kids)))))
 
-;; md text → what /api/calc made of its tables, for the md file :path:
-;; {} for text without a formula or def block, {:pending true} while the
-;; server works, {:tables …} after, {:failed msg} when it couldn't be
-;; asked — after a network or server error asked again in 5 s. Keyed
-;; by the text itself, whose hash the string keeps; the oldest go past 50.
+;; md file → its texts → what /api/calc made of their tables: {} for a
+;; text without a formula or def block, {} too while the server works,
+;; {:tables …} after, {:failed msg} when it couldn't be asked — after a
+;; network or server error asked again in 5 s. A text keeps its hash, so
+;; looking it up costs nothing; the oldest of a file's texts go past 50.
 (def ^:private calc-results (js/Map.))
 
-(defn- remember-calc! [text v]
-  (.delete calc-results text)
-  (.set calc-results text v)
-  (when (> (.-size calc-results) 50)
-    (.delete calc-results (.-value (.next (.keys calc-results))))))
+(defn- calc-tick! [] (swap! state update :calc-tick (fnil inc 0)))
+
+(defn- remember-calc! [path text v]
+  (let [m (or (.get calc-results path) (let [m (js/Map.)] (.set calc-results path m) m))]
+    (.delete m text)
+    (.set m text v)
+    (when (> (.-size m) 50) (.delete m (.-value (.next (.keys m)))))))
 
 (defn- ^:async fetch-calc! [path text tables]
-  (remember-calc! text {:path path :pending true})
+  (remember-calc! path text {})
   (let [[out retry]
-        (try (let [resp (js-await (js/fetch "/api/calc"
-                                            {:method "POST"
-                                             :headers {"Content-Type" "application/json"}
-                                             :body (js/JSON.stringify {:path path :tables tables})}))]
+        (try (let [resp (js-await (post-json "/api/calc" {:path path :tables tables}))]
                (if (.-ok resp)
                  [{:tables (:tables (js-await (.json resp)))} false]
                  [{:failed (str "couldn't calculate: " (or (try (:error (js-await (.json resp))) (catch :default _ nil))
                                                            (.-status resp)))}
                   (>= (.-status resp) 500)]))
              (catch :default _ [{:failed "couldn't calculate: no server"} true]))]
-    (remember-calc! text (assoc out :path path))
+    (remember-calc! path text out)
     (when retry
-      (js/setTimeout (fn [] (.delete calc-results text) (swap! state update :calc-tick (fnil inc 0))) 5000))
-    (swap! state update :calc-tick (fnil inc 0))))
+      (js/setTimeout (fn [] (some-> (.get calc-results path) (.delete text)) (calc-tick!)) 5000))
+    (calc-tick!)))
 
 (defn- calc-for!
   "The formula results for the tables of text from md file `path`
   (markdown/render's calc) — the path, for the data their blocks link —
   nil until the server has them, asking it the first time."
   [path text]
-  (let [hit (.get calc-results text)]
-    (cond (or (nil? hit) (not= path (:path hit)))
-          (let [tables (markdown/calc-tables text)]
-            (if (markdown/calc? tables) (fetch-calc! path text tables) (remember-calc! text {:path path}))
-            nil)
-          (some? (:failed hit)) hit
-          :else (:tables hit))))
+  (let [hit (some-> (.get calc-results path) (.get text))]
+    (cond (some? (:failed hit)) hit
+          (some? hit) (:tables hit)
+          ;; most texts have no table to calculate: skip parsing them
+          (not (or (.includes text "=(") (.includes text "simpleviz-table"))) (do (remember-calc! path text {}) nil)
+          :else (let [tables (markdown/calc-tables text)]
+                  (if (markdown/calc? tables) (fetch-calc! path text tables) (remember-calc! path text {}))
+                  nil))))
 
 ;; the read view's hiccup for the last [path text side compare calc], so
 ;; rerenders for anything else neither re-parse nor rebuild its handlers

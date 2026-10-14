@@ -205,3 +205,20 @@
     :state-new "#aaa89c" :state-in-progress "#8dacb5" :state-blocked "#cc8383" :state-done "#7f9f7f"
     :node-saturation 35 :node-lightness 72 :box-saturation 30 :box-lightness 62
     :box-fill-alpha 0.1 :neutral-node-lightness 75 :neutral-box-lightness 60}})
+
+#?(:clj
+   (do
+     (def ^:private css-number "[+-]?(?:\\d+\\.?\\d*|\\.\\d+)")
+
+     (def color-re
+       "A CSS colour value: #hex, rgb()/rgba() or hsl()/hsla(), modern or
+       legacy syntax."
+       (let [n css-number]
+         (re-pattern
+          (str "#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})"
+               ;; modern space-separated rgb()/hsl(), optional "/ alpha"
+               "|(?:rgba?|hsla?)\\(\\s*" n "(?:%|deg|rad|grad|turn)?(?:\\s+" n "%?){2}(?:\\s*/\\s*" n "%?)?\\s*\\)"
+               ;; legacy comma rgb()/rgba()
+               "|rgba?\\(\\s*" n "%?(?:\\s*,\\s*" n "%?){2}(?:\\s*,\\s*" n "%?)?\\s*\\)"
+               ;; legacy comma hsl()/hsla(): saturation and lightness need %
+               "|hsla?\\(\\s*" n "(?:deg|rad|grad|turn)?\\s*,\\s*" n "%\\s*,\\s*" n "%(?:\\s*,\\s*" n "%?)?\\s*\\)"))))))

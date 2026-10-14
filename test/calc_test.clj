@@ -277,3 +277,15 @@
     (is (= "[:a] str" (:defs t)))
     (is (some? (:data-error t)))
     (is (re-find #"no such file" (:error (calc/evaluate t))))))
+
+(deftest core-fns-format-with-the-value-alone
+  (is (= {:value "2"} (get-in (results [["1"]] "[:a] inc") [:results 0 0])))
+  (is (= {:value "1"} (get-in (results [["1"]] "[:a] str") [:results 0 0])) "no place map appended")
+  (is (= {:value "1!"} (get-in (results [["1"]] "[:a] (fn ([v] (str v \"?\")) ([v ctx] (str v \"!\")))") [:results 0 0]))))
+
+(deftest a-data-link-reads-as-any-md-link
+  (is (= "a b.csv" (:source (calc/split-block ">> [s](<a b.csv> \"the sales\")")))))
+
+(deftest a-data-error-shows-without-formulas
+  (let [[t] (calc/with-data [{:cells [["1"]] :defs ">> [s](gone.csv)"}] (fn [d] (throw (ex-info (str "no such file: " d) {}))))]
+    (is (re-find #"no such file" (:error (first (calc/evaluate-tables [t])))))))

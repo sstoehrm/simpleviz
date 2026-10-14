@@ -4,9 +4,10 @@
   the table at hand: (table :a 4 8 :b 1 4) is the values of column a,
   rows 4 to 8, then column b, rows 1 to 4; sum, avg, count, min and max
   take the same ranges. Columns are letters, rows count the body rows
-  from 1. A cell is a plain number or nil, unless the table's def block
-  — pairs of a range and a parser, a string to strip or a (fn [s] ...)
-  — says otherwise. Formula cells are in no range.
+  from 1 — or the records of the data the table's def block links
+  (with-data). A cell's value is its number, else its text; formula
+  cells are in no range. The def block's other pairs, a range and a fn,
+  format the cells they cover: formulas always see the plain values.
 
   SCI under bb shares bb's own clojure.* vars, so a formula could alter
   the functions of the process it runs in: the server runs formulas
@@ -18,14 +19,15 @@
             [clojure.edn :as edn]
             [clojure.string :as str]
             [mdlinks]
-            [sci.core :as sci]))
+            [sci.core :as sci]
+            [themes]))
 
 (def ^:dynamic *timeout-ms*
-  "How long a formula, or a def block with the values it parses, may run."
+  "How long a formula, a cell's formatting or the def block may run."
   1000)
 
 (def ^:dynamic *child-ms*
-  "How long the child may run, nil for a second per formula plus two."
+  "How long the child may run; nil for evaluate-tables' estimate."
   nil)
 
 (defn col-index
@@ -115,9 +117,14 @@
 (defn- context
   "A SCI context whose range functions read the values in `vals`: table
   has every value, the others the numbers only; (rows) is every row as
-  a map of column keyword to value."
-  [vals rows cols]
-  (let [table (fn [& args]
+  a map of column keyword to value. Columns are unchecked while there
+  are no rows to count them by."
+  [vals]
+  (let [rows (count vals)
+        cols (when (seq vals) (apply max 0 (map count vals)))
+        records (delay (let [ks (mapv col-name (range (or cols 0)))]
+                         (mapv #(zipmap ks %) vals)))
+        table (fn [& args]
                 (vec (for [{:keys [col from to]} (ranges args rows cols)
                            r (range (dec from) to)
                            :let [v (get-in vals [r col])]
@@ -126,13 +133,11 @@
         ranged? (fn [args] (keyword? (first args)))
         nums (fn [args] (cond (ranged? args) (filterv number? (apply table args))
                               (and (= 1 (count args)) (coll? (first args))) (filterv number? (first args))
-                              :else args))
-        sum (fn [& args] (reduce + 0 (nums args)))
-        rows (fn [] (mapv (fn [row] (into {} (map-indexed (fn [i v] [(col-name i) v]) row))) vals))]
+                              :else args))]
     (sci/init {:namespaces
                {'user {'table table
-                       'rows rows
-                       'sum sum
+                       'rows (fn [] @records)
+                       'sum (fn [& args] (reduce + 0 (nums args)))
                        'avg (fn [& args] (let [xs (nums args)]
                                            (when (seq xs) (/ (double (reduce + 0 xs)) (count xs)))))
                        'count (fn [& args] (if (ranged? args) (count (nums args)) (apply count args)))
@@ -161,13 +166,14 @@
 (def ^:private style-keys #{:color :background :border})
 
 (defn- call
-  "(f v ctx), or (f v) when f — a fn of the block — takes one argument."
+  "(f v ctx) when f is a block's fn of two arguments — SCI names the
+  class of a fixed-arity fn by its arity, and one of several arities may
+  take two — else (f v): str, inc, #(...) of %1."
   [f v ctx]
-  (try (f v ctx)
-       (catch clojure.lang.ArityException e
-         (if (and (= 2 (.-actual e)) (str/includes? (str (ex-message e)) "sci.impl.fns/fun/arity-1"))
-           (f v)
-           (throw e)))))
+  (let [cls (.getName (class f))]
+    (if (or (str/includes? cls "$arity_2__") (str/includes? cls "analyze_fn_STAR_"))
+      (f v ctx)
+      (f v))))
 
 (defn- chain
   "{:v :style} after each of fs, top to bottom: a map's colours add to
@@ -193,37 +199,32 @@
   A cell's value — a formula's result, else the cell's — goes through
   the fns of every pair covering it, top to bottom. With `data` (rows of
   values, with-data) formula ranges address the data, not the table;
-  `data-error` fails every formula."
+  `data-error` fails every formula, as a failing def block does."
   [{:keys [cells defs data data-error]}]
   (let [cells (vec (map vec cells))
         rows (count cells)
         cols (apply max 0 (map count cells))
         blank (mapv (fn [row] (mapv (constantly nil) row)) cells)]
-    (if (and (not (some formula? (flatten cells))) (str/blank? defs))
+    (if (and (not (some formula? (flatten cells))) (str/blank? defs) (nil? data-error))
       {:results blank}
-      (let [vals (if (some? data) (mapv vec data) (values cells))
-            ctx (context vals (count vals) (when (seq vals) (apply max 0 (map count vals))))
-            [rules err] (cond
-                          (some? data-error) [[] data-error]
-                          (str/blank? defs) [[] nil]
-                          :else (try [(run #(rules-of ctx defs rows cols)) nil]
+      (let [ctx (context (if (some? data) (mapv vec data) (values cells)))
+            [rules block-err] (if (str/blank? defs)
+                                [[] nil]
+                                (try [(run #(rules-of ctx defs rows cols)) nil]
                                      (catch Throwable e [[] (str "def block: " (message e))])))
+            err (some->> (remove nil? [data-error block-err]) seq (str/join "; "))
             cell (fn [r c s]
-                   (let [fs (keep (fn [{:keys [ranges f]}] (when (some #(in? % r c) ranges) f)) rules)
-                         ctx-map {:row (inc r) :col (col-name c) :raw s}]
+                   (let [f? (formula? s)
+                         fs (keep (fn [{:keys [ranges f]}] (when (some #(in? % r c) ranges) f)) rules)]
                      (cond
-                       (and (formula? s) (some? err)) {:error err}
-                       (formula? s)
-                       (try (run #(let [{:keys [v style]} (chain fs (eval-in (sci/fork ctx) (subs (str/trim s) 1)) ctx-map)]
-                                    (cond-> {:value (show v)} (seq style) (assoc :style style))))
-                            (catch Throwable e {:error (message e)}))
-                       (or (empty? fs) (nil? (value-of s))) nil
+                       (and f? (some? err)) {:error err}
+                       (and (not f?) (or (empty? fs) (nil? (value-of s)))) nil
                        :else
-                       ;; a value the fns leave as it was keeps the cell as written
-                       (try (run #(let [v0 (value-of s)
-                                        {:keys [v style]} (chain fs v0 ctx-map)]
+                       ;; a plain value the fns leave as it was keeps the cell as written
+                       (try (run #(let [v0 (if f? (eval-in (sci/fork ctx) (subs (str/trim s) 1)) (value-of s))
+                                        {:keys [v style]} (chain fs v0 {:row (inc r) :col (col-name c) :raw s})]
                                     (not-empty (cond-> {}
-                                                 (not= v v0) (assoc :value (show v))
+                                                 (or f? (not= v v0)) (assoc :value (show v))
                                                  (seq style) (assoc :style style)))))
                             (catch Throwable e {:error (message e)})))))]
         (cond-> {:results (vec (map-indexed (fn [r row] (vec (map-indexed (fn [c s] (cell r c s)) row))) cells))}
@@ -241,13 +242,13 @@
     (when (> (count head) 2) (fail "a block takes two >> lines at most: the data, then its fields"))
     (if (empty? head)
       {:source nil :fields nil :defs defs}
-      (let [link (re-matches #">>\s*\[[^\]]*\]\(\s*(.+?)\s*\)\s*" (str/trim (first head)))
+      (let [link (first (filter #(= "inline" (:kind %)) (mdlinks/links (subs (str/trim (first head)) 2))))
             fields (when-let [l (second head)]
                      (let [f (try (edn/read-string (subs (str/trim l) 2)) (catch Exception _ nil))]
                        (when-not (vector? f) (fail "the second >> line is a vector of fields, like >> [:item :qty]"))
                        f))]
         (when (nil? link) (fail "the first >> line links the data: >> [sales](data/sales.csv)"))
-        {:source (mdlinks/clean-dest (second link)) :fields fields :defs rest-text}))))
+        {:source (:dest link) :fields fields :defs rest-text}))))
 
 (defn- lookup [m k]
   (cond (map? m) (let [v (get m k)]
@@ -276,10 +277,11 @@
                               fields))]
               (mapv (fn [row] (mapv (fn [i] (value-of (get row i))) idx))
                     (remove #(every? str/blank? %) body)))
-      "json" (let [_ (need-fields)
-                   v (json/parse-string text)]
-               (when-not (and (sequential? v) (every? map? v)) (fail "a json file holds an array of objects"))
-               (pick v))
+ ("json" "edn") (do (need-fields)
+                         (let [v (if (= "json" ext) (json/parse-string text) (edn/read-string text))]
+                           (when-not (and (sequential? v) (every? map? v))
+                             (fail (if (= "json" ext) "a json file holds an array of objects" "an edn file holds a vector of maps")))
+                           (pick v)))
       "jsonl" (do (need-fields)
                   (pick (keep-indexed (fn [i l]
                                         (when-not (str/blank? l)
@@ -287,30 +289,24 @@
                                             (when-not (map? m) (fail "line " (inc i) " is no json object"))
                                             m)))
                                       (str/split-lines text))))
-      "edn" (let [_ (need-fields)
-                  v (edn/read-string text)]
-              (when-not (and (sequential? v) (every? map? v)) (fail "an edn file holds a vector of maps"))
-              (pick v))
       (fail "." ext " files can't be read — csv, jsonl, json or edn"))))
 
 (defn with-data
   "The tables with their def block's data read: (read dest) is [ext
   text] for the block's >> link or throws; a table gets :data, its rows,
-  and :defs without the >> lines — or :data-error."
+  and :defs without the >> lines — or :data-error. Tables linking the
+  same data with the same fields share one read."
   [tables read]
-  (mapv (fn [t]
-          (if (str/blank? (:defs t))
-            t
-            (try (let [{:keys [source fields defs]} (split-block (:defs t))]
-                   (if (nil? source)
-                     t
-                     (let [[ext text] (read source)]
-                       (assoc t :defs defs :data (records ext text fields)))))
-                 (catch Exception e
-                   (assoc t
-                          :defs (try (:defs (split-block (:defs t))) (catch Exception _ ""))
-                          :data-error (message e))))))
-        tables))
+  (let [data (memoize (fn [source fields] (let [[ext text] (read source)] (records ext text fields))))]
+   (mapv (fn [t]
+          (let [{:keys [source fields defs error]} (try (split-block (:defs t))
+                                                        (catch Exception e {:error (message e) :defs ""}))]
+            (cond
+              (some? error) (assoc t :defs defs :data-error error)
+              (nil? source) t
+              :else (try (assoc t :defs defs :data (data source fields))
+                         (catch Exception e (assoc t :defs defs :data-error (message e)))))))
+        tables)))
 
 (defn child
   "The child's main: tables as JSON on stdin, their results as JSON on
@@ -345,8 +341,8 @@
           {:results (mapv (fn [row] (mapv (fn [s] (when (formula? s) {:error msg})) row)) cells)})
         tables))
 
-(def ^:private colour-re
-  #"[a-zA-Z]{3,30}|#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})|(?:rgba?|hsla?)\(\s*[0-9.]+(?:%|deg)?(?:\s*[,/\s]\s*[0-9.]+%?){2,3}\s*\)")
+(defn- colour? [v]
+  (and (string? v) (or (re-matches #"[a-zA-Z]{3,30}" v) (re-matches themes/color-re v))))
 
 (defn- checked-cell
   "A child's result cell as the page may get it — the child ran the
@@ -356,11 +352,11 @@
   (when (map? cell)
     (let [style (:style cell)
           bad (when (map? style)
-                (first (remove (fn [[k v]] (and (style-keys k) (string? v) (re-matches colour-re v))) style)))]
+                (first (remove (fn [[k v]] (and (style-keys k) (colour? v))) style)))]
       (cond
         (string? (:error cell)) {:error (:error cell)}
         (some? bad) {:error (str "not a colour: " (pr-str (val bad)))}
-        (or (string? (:value cell)) (map? style))
+        :else
         (not-empty (cond-> {}
                      (string? (:value cell)) (assoc :value (:value cell))
                      (seq style) (assoc :style (select-keys style style-keys))))))))

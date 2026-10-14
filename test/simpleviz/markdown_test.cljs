@@ -144,7 +144,7 @@
     (let [doc "```simpleviz-table\n[:a] f\n```\n| a |\n|--|\n| *x* |"]
       (assert/deepEqual (render doc link [{:results [[{:style {:background "#fee"}}]]}])
                         [[:table [:thead [:tr [:th "a"]]]
-                          [:tbody [:tr [:td {:style {:background "#fee"}} [:em "x"]]]]]])
+                          [:tbody [:tr [:td {:style {:background-color "#fee"}} [:em "x"]]]]]])
       (assert/deepEqual (render doc link [{:results [[nil]] :error "def block: boom"}])
                         [[:table [:caption {:class "calc-error"} "def block: boom"]
                           [:thead [:tr [:th "a"]]] [:tbody [:tr [:td [:em "x"]]]]]]))))

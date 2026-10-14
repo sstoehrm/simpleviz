@@ -1,6 +1,6 @@
 {
   "name": "simpleviz",
-  "description": "EDN-driven graph visualization — skill for authoring graph files and driving the tool",
+  "description": "Diagrams, docs and slides from plain markdown and EDN files — skill for writing them and driving the tool",
   "owner": {
     "name": "Sören Stöhrmann",
     "url": "https://github.com/sstoehrm"
@@ -9,7 +9,7 @@
     {
       "name": "simpleviz",
       "source": "./plugins/simpleviz",
-      "description": "Teaches Claude the simpleviz EDN graph format (nodes, edges, boxes) and how to serve and compare graphs"
+      "description": "Teaches Claude simpleviz: EDN graphs (nodes, edges, boxes) and the markdown docs and slides around them, and how to serve, compare and present them"
     }
   ]
 }

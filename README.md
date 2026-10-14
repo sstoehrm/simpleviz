@@ -1,8 +1,6 @@
 # <img src="docs/assets/simpleviz-icon.svg" alt="" width="28" height="28"> simpleviz
 
-Minimal EDN-driven graph visualization. Describe nodes, directed edges, and
-nested grouping boxes in an EDN file; view it as an auto-layouted canvas diagram
-that live-reloads while you edit the file.
+Diagrams, docs and slides from plain markdown and EDN files.
 
 [![60-second tour: live reload, inspecting, editing in place, editing a linked markdown doc, state marks, text in nodes, database cylinders, themes, pairs, following a ref, comparing a fork, exporting](docs/assets/demo.gif)](docs/assets/demo.mp4)
 

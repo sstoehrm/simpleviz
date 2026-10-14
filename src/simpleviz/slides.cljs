@@ -106,6 +106,8 @@
   (let [[text choices] (split-choices lines)
         n (count choices)
         error (cond (= id "") (str marker " needs a name, as in " marker " storage")
+                    ;; the page keeps the answers in an object, where it is no key
+                    (= id "__proto__") (str marker " __proto__ can't be a question's name")
                     (not (<= 2 n 4)) (str marker " " id " takes 2 to 4 choices, - [ ] lines; it has " n)
                     :else nil)]
     (if (some? error)
@@ -121,11 +123,12 @@
     (let [head (first ls)]
       (cond
         (and (nil? side) (some? head) (.startsWith head ">>"))
-        (recur (subvec ls 1) {:target (side-target (.slice head 2))} q)
+        (recur (vec (drop-while blank? (subvec ls 1))) {:target (side-target (.slice head 2))} q)
 
         (and (nil? q) (some? head) (.startsWith head "??"))
         (let [marker (if (.startsWith head "???") "???" "??")]
-          (recur (subvec ls 1) side {:marker marker :id (.trim (.slice head (count marker)))}))
+          (recur (vec (drop-while blank? (subvec ls 1))) side
+                 {:marker marker :id (.trim (.slice head (count marker)))}))
 
         :else
         (let [target (:target side)

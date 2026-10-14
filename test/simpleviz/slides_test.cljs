@@ -72,7 +72,10 @@
 (test ">> and ?? share a slide, in either order"
   (fn []
     (doseq [deck [">> [g](g.edn)\n?? q\n# Q\n- [ ] a\n- [x] b"
-                  "?? q\n>> [g](g.edn)\n# Q\n- [ ] a\n- [x] b"]]
+                  "?? q\n>> [g](g.edn)\n# Q\n- [ ] a\n- [x] b"
+                  ;; blank lines between them, as decks write a >> line
+                  ">> [g](g.edn)\n\n?? q\n\n# Q\n- [ ] a\n- [x] b"
+                  "?? q\n\n\n>> [g](g.edn)\n\n# Q\n- [ ] a\n- [x] b"]]
       (let [[s] (slides deck)]
         (assert/equal (:side s) "g.edn")
         (assert/equal (:id (:ask s)) "q")
@@ -95,7 +98,10 @@
     (assert/equal (:error (:ask (first (slides "?? q\n- [ ] a\n- [ ] b\n- [ ] c\n- [ ] d\n- [ ] e"))))
                   "?? q takes 2 to 4 choices, - [ ] lines; it has 5")
     (assert/equal (:error (:ask (first (slides "???\n- [ ] a\n- [ ] b"))))
-                  "??? needs a name, as in ??? storage")))
+                  "??? needs a name, as in ??? storage")
+    ;; the page keeps answers in an object, where this name is no key
+    (assert/equal (:error (:ask (first (slides "??? __proto__\n- [ ] a\n- [ ] b"))))
+                  "??? __proto__ can't be a question's name")))
 
 (def ^:private quiz
   (slides (str "# Title\n---\n"

@@ -70,9 +70,10 @@
                   ;; no graph}, nil when not
                   :present nil
                   ;; the answers to the questions of the deck presented
-                  ;; (load-answers!), name -> {:answer :num}, and why the
-                  ;; answers file could not be read or written
-                  :answers {} :answer-error nil
+                  ;; (load-answers!), name -> {:answer :num}; why the
+                  ;; answers file could not be read; and the answers not
+                  ;; written to it yet, name -> why (post-answer!)
+                  :answers {} :answer-error nil :unsaved {}
                   :nav (editor/parse-nav js/location.search) :nav-error nil
                   ;; your theme (#115), for files without :theme (load-prefs!)
                   :theme-pref nil
@@ -1449,8 +1450,13 @@
               (markdown/render (:text s) (present-link-fn (:path (:md st))))
               [[:p {:class "md-empty"} "No slides left — the text is empty."]]))
       (when (some? (:ask s)) (ask-view st (:ask s)))
-      (when (and (some? (:answer-error st)) (some? (:ask s)))
-        [:p {:class "ask-error"} (:answer-error st)])]
+      ;; on every slide: a presenter who went on must see it too
+      (when (some? (:answer-error st))
+        [:p {:class "ask-error"} (:answer-error st)])
+      (when (seq (:unsaved st))
+        [:p {:class "ask-error"}
+         (str "Answers not saved (" (.join (into-array (keys (:unsaved st))) ", ") "): "
+              (last (vals (:unsaved st))))])]
      [:div {:id "present-counter"} (str (min (inc i) n) " / " n)]]))
 
 (defn- present-side-view
@@ -2378,6 +2384,7 @@
                  (catch :default _ {:error "not connected"}))]
     (swap! state assoc
            :answers (if (some? (:answers out)) (:answers out) {})
+           :unsaved {}
            :answer-error (if (some? (:error out)) (str "Answers not read: " (:error out)) nil))))
 
 ;; answers go to the server one at a time, in the order given: two quick
@@ -2385,14 +2392,14 @@
 (def ^:private answer-queue (atom (js/Promise.resolve nil)))
 
 (defn- ^:async post-answer!
-  "Write answer `body` to question `a` into the deck's answers file. A
-  failure says so under the slide, and a ??? is open again for Submit."
-  [a body]
+  "Write answer `body` into the deck's answers file. The page keeps the
+  answer either way — a ??? stays locked, the deck goes on — and every
+  slide says which answers are not in the file yet."
+  [body]
   (let [out (try (js-await (.json (js-await (post-json "/api/answers" body))))
                  (catch :default _ {:error "not connected"}))]
-    (when (and (some? (:error out)) (:submit a))
-      (swap! state update :answers dissoc (:id a)))
-    (swap! state assoc :answer-error (if (some? (:error out)) (str "Answer not saved: " (:error out)) nil))))
+    (swap! state update :unsaved
+           (fn [m] (if (some? (:error out)) (assoc m (:id body) (:error out)) (dissoc m (:id body)))))))
 
 (defn- save-answer!
   "Answer question `a` with its choice `num`: in the page at once, then,
@@ -2401,7 +2408,8 @@
   (let [entry {:answer (:text (nth (:choices a) num)) :num num}
         body (assoc entry :path (:path (:md @state)) :id (:id a))]
     (swap! state assoc-in [:answers (:id a)] entry)
-    (swap! answer-queue (fn [p] (.then p (fn [] (post-answer! a body)))))))
+    ;; one save that throws must not stop the ones after it
+    (swap! answer-queue (fn [p] (let [f (fn [_] (post-answer! body))] (.then p f f))))))
 
 (defn- pick!
   "Choice `num` of question `a` clicked: a ?? takes it as the answer, a

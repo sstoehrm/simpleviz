@@ -419,15 +419,22 @@ right one. Lines indented under a choice explain it.
 - `???` asks for Submit, and → stops there until then. Submitted, the
   answer is locked: the right choice is marked, and the explanation of
   the one picked shows.
-- A question without an `[x]` is a poll: answered, not scored.
+- A question without an `[x]` is a poll: answered, with no right
+  choice to mark.
 - A question takes 2 to 4 choices; with fewer or more the slide says so
   and shows its list as text. `>>` and `??` go together in the first
-  lines, in either order.
+  lines, in either order, blank lines between them allowed. The choices
+  show under all of the slide's text, so text written after the list
+  shows above them.
 - The answers go to `talk.answers.edn` beside `talk.md`, as you give
   them — `{"storage" {:answer "In Redis, shared by all nodes" :num 1}}`,
   `:num` counting the choices from 0 — so an agent presenting the deck
   can read them and write the next slide. Presenting again starts from
-  that file: delete it to ask again.
+  that file: delete it to ask again. An answer the server can't write
+  stays in the page — the deck goes on — and every slide says which
+  answers are not in the file. The server writes the file whole, so
+  comments in it don't survive an answer, and a file it can't read is
+  never overwritten.
 
 ## Following refs
 

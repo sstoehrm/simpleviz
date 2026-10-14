@@ -380,6 +380,31 @@
                      "  return; }"
                      " }, 50); })"))))))
 
+(deftest a-quiz-goes-on-when-an-answer-is-not-saved
+  ;; the answers file can't be read, so no answer is written: the ???
+  ;; still locks and the deck goes on, saying so on every slide after
+  (with-real-browser
+    (let [r (eval-on-served-page
+             path "deck.md"
+             "# T\n---\n??? q\n# Q\n- [ ] a\n- [x] b\n---\n# After\n"
+             (str "new Promise(ok => { let step = 0; const r = {};"
+                  " const q = k => new URLSearchParams(location.search).get(k);"
+                  " const key = k => document.dispatchEvent(new KeyboardEvent('keydown', {key: k, bubbles: true}));"
+                  " const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];"
+                  " const t = setInterval(() => {"
+                  " if (step === 0) { const b = $('.md-present'); if (!b) return; b.click(); step = 1; return; }"
+                  " if (step === 1) { if (!$('#present-slide')) return; key('ArrowRight'); step = 2; return; }"
+                  " if (step === 2) { if (!$('.ask-choice')) return; $$('.ask-choice')[0].click(); step = 3; return; }"
+                  " if (step === 3) { if ($('.ask-submit').disabled) return; $('.ask-submit').click(); step = 4; return; }"
+                  " if (step === 4) { if (!$('.ask.locked') || !$$('.ask-error').some(e => e.textContent.includes('not saved'))) return;"
+                  "  key('ArrowRight'); step = 5; return; }"
+                  " if (q('slide') !== '3') return; clearInterval(t);"
+                  " r.slide = q('slide'); r.h1 = $('#present-slide h1').textContent;"
+                  " r.error = $$('.ask-error').map(e => e.textContent); ok(r); }, 50); })")
+             :extra {"deck.answers.edn" "{:oops"})]
+      (is (= {:slide "3" :h1 "After"} (select-keys r [:slide :h1])))
+      (is (some #(re-find #"not saved \(q\): deck.answers.edn does not parse" %) (:error r)) (pr-str r)))))
+
 (deftest a-slide-says-why-its-picture-does-not-show
   (with-real-browser
     (is (= {:h1 "A" :side "missing.jpg — no such picture, or not one the browser shows"}

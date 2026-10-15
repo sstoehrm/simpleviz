@@ -311,6 +311,8 @@
 
 (defn- times [a b] (when (or (some? a) (some? b)) (* (or a 1) (or b 1))))
 
+(def ^:private operators #{"d" "c" "y"})
+
 (def ^:private simple-keys
   #{"x" "X" "D" "C" "Y" "s" "S" "J" "p" "P" "o" "O" "i" "a" "I" "A" "~"
     "u" "C-r" "." "v" "V" ":" "/" "?"})
@@ -322,7 +324,7 @@
         k (first r)]
     (cond
       (empty? r) "more"
-      (and (contains? #{"d" "c" "y"} k) (not visual))
+      (and (contains? operators k) (not visual))
       (let [[c2 r2] (parse-count (vec (rest r)))
             k2 (first r2)
             n (times c1 c2)]
@@ -465,7 +467,7 @@
   replaced by n."
   [keys n]
   (let [[_ r] (parse-count keys)
-        r (if (contains? #{"d" "c" "y"} (first r))
+        r (if (contains? operators (first r))
             (into [(first r)] (second (parse-count (vec (rest r)))))
             r)]
     (into (vec (.split (str n) "")) r)))

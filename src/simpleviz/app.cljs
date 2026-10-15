@@ -39,6 +39,8 @@
   restores it on every navigation."
   {:nav-error nil :error nil :notice nil :dismissed-error nil :dismissed-warnings nil
    :graph nil :scene nil :layout nil
+   ;; a layout still running for the file left is not this file's
+   :layouting false
    ;; the layout drawn: :layout placed by hand (manual/place) in a manual
    ;; file; :arrange — dragging moves nodes and boxes (the ✥ button)
    :placed nil :arrange false
@@ -56,7 +58,7 @@
    :compare nil})
 
 (def state (atom (merge per-file
-                 {:colors nil :collapsed false :layouting false
+                 {:colors nil :collapsed false
                   :diff-cursors {}
                   :edit-target "new"
                   ;; a URL naming an element (focus=n:api) selects and centers it
@@ -287,7 +289,8 @@
 
 (defn- yield-paint!
   "Resolves after the browser painted the current DOM/canvas state —
-  lets the pruned scene and indicator show before ELK blocks the thread."
+  lets the pruned scene and indicator show before ELK starts (and, when
+  it runs in the page's thread, blocks it)."
   []
   (js/Promise. (fn [res]
                  (js/requestAnimationFrame
@@ -1769,11 +1772,11 @@
   a fresh layout instead, dropping the whole cache so every collapsed
   set is laid out fresh when next shown."
   [& [clean?]]
-  (let [run (swap! layout-seq inc)]
+  (let [run (swap! layout-seq inc)
+        gen @graph-gen]
     (try
       (when clean? (.clear layout-cache))
-      (let [gen @graph-gen
-            g0 (:graph @state)
+      (let [g0 (:graph @state)
             collapsed (:collapsed-boxes @state)
             ck (cache-key collapsed)
             hit (.get layout-cache ck)]
@@ -1825,9 +1828,13 @@
         ;; with a diagram on screen the failure isn't blocking: a notice;
         ;; an overtaken run's failure is the newer run's to report
         (when (= run @layout-seq)
-          (swap! state assoc :layouting false
-                 (if (some? (:scene @state)) :notice :error)
-                 (str "Render error: " (or (.-message e) (str e)))))))))
+          (swap! state assoc :layouting false)
+          ;; ... and a run for a graph no longer shown (the page moved
+          ;; on while it ran) has none to report
+          (when (= gen @graph-gen)
+            (swap! state assoc
+                   (if (some? (:scene @state)) :notice :error)
+                   (str "Render error: " (or (.-message e) (str e))))))))))
 
 (defn- resolve-edit-target
   "The :edit-target to use for a freshly loaded graph g, given the

@@ -85,6 +85,17 @@
              (check/check (str (fs/file dir "notes.md")))))
       (finally (fs/delete-tree outer)))))
 
+(deftest check-md-reports-malformed-questions
+  (let [[outer dir] (temp-md-folder
+                     {"talk.md" "# Talk\n---\n?? storage\n# Where?\n- [x] Redis\n---\n??\n- [ ] a\n- [x] b\n[gone](nope.md)\n"})]
+    (try
+      ;; in line order, links and questions mixed
+      (is (= {:error nil :warnings ["line 3: ?? storage takes 2 to 4 choices, - [ ] lines; it has 1"
+                                    "line 7: ?? needs a name, as in ?? storage"
+                                    "line 10: nope.md not found"]}
+             (check/check (str (fs/file dir "talk.md")))))
+      (finally (fs/delete-tree outer)))))
+
 (deftest check-md-clean-and-unreadable
   (let [[outer dir] (temp-md-folder {"ok.md" "[g](g.edn)" "g.edn" "{}"})]
     (try

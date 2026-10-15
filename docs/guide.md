@@ -518,7 +518,7 @@ right one. Lines indented under a choice explain it.
 - A question without an `[x]` is a poll: answered, with no right
   choice to mark.
 - A question takes 2 to 4 choices; with fewer or more the slide says so
-  and shows its list as text. `>>` and `??` go together in the first
+  and shows its list as text, and `simpleviz check` reports it. `>>` and `??` go together in the first
   lines, in either order, blank lines between them allowed. The choices
   show under all of the slide's text, so text written after the list
   shows above them.
@@ -627,7 +627,7 @@ The page shows a file's problems in banners. To get the same report
 without a browser, for example from a script or an agent:
 
     simpleviz check graph.edn                           # works without a server
-    simpleviz check notes.md                            # an md file's broken links
+    simpleviz check notes.md                            # an md file's broken links and questions
     curl -s http://localhost:7373/api/errors            # the served file
     curl -s 'http://localhost:7373/api/errors?file=sub/api.edn'
 
@@ -636,7 +636,7 @@ without a browser, for example from a script or an agent:
 clean file. In compare mode `file` names the original, not the fork; the
 report covers both sides, and each warning starts with its file's name.
 
-For an md file, each warning names the line and the link: `line 3: pay.edn not found`, `line 7: ../x.edn leaves the served folder`. A link with `?compare=` is also checked for its fork: `line 4: api.edn: no api-next.edn — create it with: simpleviz fork api.edn next`, an invalid suffix, an md file, or a fork named instead of its original.
+For an md file, each warning names the line and the link: `line 3: pay.edn not found`, `line 7: ../x.edn leaves the served folder`. A link with `?compare=` is also checked for its fork: `line 4: api.edn: no api-next.edn — create it with: simpleviz fork api.edn next`, an invalid suffix, an md file, or a fork named instead of its original. A question slide without a name, or without 2 to 4 choices, is reported at its `??` line: `line 12: ?? storage takes 2 to 4 choices, - [ ] lines; it has 1`.
 
 `/api/errors` takes `compare=<suffix>` as well, for the comparison a link opens: `/api/errors?file=api.edn&compare=next`.
 

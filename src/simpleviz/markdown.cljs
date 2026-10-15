@@ -31,7 +31,7 @@
 
 (defn- blank? [l] (= "" (.trim l)))
 
-(defn indent [l] (- (count l) (count (.trimStart l))))
+(defn- indent [l] (- (count l) (count (.trimStart l))))
 
 (defn- label-key
   "A reference label as definitions match it: whitespace runs collapsed,
@@ -348,15 +348,6 @@
        :start (js/parseInt mark 10)
        :content (+ ind (count mark) (if empty? 1 (count ws)))
        :first (if empty? "" body)})))
-
-(defn task-item
-  "The task item line l starts — a bullet item whose text opens with
-  [ ] or [x] — as {:checked :text}, or nil."
-  [l]
-  (when-let [it (item-of l)]
-    (when-not (:ordered it)
-      (when-let [m (.exec task-re (:first it))]
-        {:checked (not= " " (aget m 1)) :text (.trim (subs (:first it) (count (aget m 0))))}))))
 
 (defn- hr? [l] (.test hr-re l))
 
@@ -702,7 +693,7 @@
                    (conj lis (into [:li {:id (str "fn-" label)}]
                                    (with-backref (blocks (.get (:notes ctx) label) ctx) label))))))))))
 
-(defn untab
+(defn- untab
   "Line l with tabs in its indentation as four spaces."
   [l]
   (.replace l #"^[ \t]+" (fn [ws] (.replaceAll ws "\t" "    "))))

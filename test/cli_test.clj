@@ -435,16 +435,19 @@
           (is (str/includes? (slurp (str (first logs))) "boom")))))))
 
 (deftest a-port-taken-after-the-probe-is-retried-on-another
-  ;; another process can take the probed port before serve/start! binds it
+  ;; another process can take the probed port before serve/start! binds it:
+  ;; the first call takes the port itself, then lets the real serve/start!
+  ;; (and http-kit's own bind) fail on it
   (with-tmp
     (fn [tmp]
       (let [form (str "(require 'cli 'serve) "
-                      "(let [start serve/start! calls (atom 0)] "
+                      "(let [start serve/start! held (atom nil)] "
                       "  (with-redefs [serve/start! (fn [opts] "
-                      "                 (if (= 1 (swap! calls inc)) "
-                      "                   (do (println \"taken\" (:port opts)) (flush) "
-                      "                       (throw (java.net.BindException. \"Address already in use\"))) "
-                      "                   (start opts)))] "
+                      "                 (when-not @held "
+                      "                   (reset! held (java.net.ServerSocket. (:port opts) 0 "
+                      "                                  (java.net.InetAddress/getByName \"127.0.0.1\"))) "
+                      "                   (println \"taken\" (:port opts)) (flush)) "
+                      "                 (start opts))] "
                       "    (cli/-main \"" proc-util/repo-root "/examples/demo.edn\" \"--no-open\")))")
             proc (proc-util/start ["bb" "--config" (str proc-util/repo-root "/bb.edn") "-e" form]
                                   :dir tmp :env {"SIMPLEVIZ_HOME" (str tmp)})]

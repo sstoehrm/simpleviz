@@ -63,10 +63,15 @@ Linux, with [babashka](https://babashka.org/) 1.12 or newer, curl and tar:
     curl -fsSL https://raw.githubusercontent.com/sstoehrm/simpleviz/main/install.sh | bash
 
 This installs into `~/.simpleviz` and puts a launcher in `~/.local/bin`.
-`simpleviz update` fetches the latest release; `simpleviz update +ai` also
-installs or updates the Claude Code, Codex and Grok plugins, for whichever
-of `claude`, `codex` and `grok` is on your PATH. Their skill teaches the
-agent the file formats and the CLI.
+`simpleviz update` fetches the latest release.
+
+To install the skills for your agent, run:
+
+    simpleviz update +ai
+
+It installs or updates the Claude Code, Codex and Grok plugins, for
+whichever of `claude`, `codex` and `grok` is on your PATH. Their skill
+teaches the agent the file formats and the CLI.
 
 With [bbin](https://github.com/babashka/bbin) (tested on Linux), the same
 command installs and updates the release jar:

@@ -6,7 +6,7 @@
   conditional that turns a code point into a string."
   (:require [clojure.string :as str]))
 
-(defn- normalize-breaks
+(defn normalize-breaks
   "\\r\\n and lone \\r as \\n, so every line break is one character."
   [s]
   (str/replace (str/replace s "\r\n" "\n") "\r" "\n"))

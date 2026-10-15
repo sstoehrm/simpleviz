@@ -28,7 +28,7 @@
   "The text's lines, split at the separators outside code fences:
   [{:start <1-based line of its first line> :lines [...]}]."
   [text]
-  (loop [lines (str/split (str/replace (str/replace text "\r\n" "\n") "\r" "\n") #"\n" -1)
+  (loop [lines (str/split (mdlinks/normalize-breaks text) #"\n" -1)
          n 1
          fence nil
          cur {:start 1 :lines []}

@@ -29,7 +29,13 @@ built on top of plain formats: markdown (with extensions), EDN, and
 other simple, widely used formats like CSV. The files stay readable
 without simpleviz — on GitHub, in any editor, to any agent.
 
-[![60-second tour: live reload, inspecting, editing in place, editing a linked markdown doc, state marks, text in nodes, database cylinders, themes, pairs, following a ref, comparing a fork, exporting](docs/assets/demo.gif)](docs/assets/demo.mp4)
+---
+
+[![Overview: an md doc opens a graph beside it, the graph follows its file, a table calculates, the doc is presented as slides with a graph and a question](docs/assets/overview.gif)](docs/assets/overview.mp4)
+
+The diagrams in depth: a [60-second tour](docs/assets/demo.mp4)
+([gif](docs/assets/demo.gif)) — live reload, editing in place, state marks,
+themes, pairs, refs, comparing a fork, exporting.
 
 **New in 0.42:** [manual layout](docs/guide.md#manual-layout) — ✥ places nodes
 and boxes by hand, snapped to a 20 px grid; layered is now the only automatic

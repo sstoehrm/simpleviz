@@ -63,9 +63,9 @@
 
 (test "KEYS and KEY-KINDS agree; CSS-KEYS are theme keys"
   (fn []
-    (assert/equal (count themes/KEYS) 34)
+    (assert/equal (count themes/KEYS) 39)
     (assert/deepEqual (sorted (js/Object.keys themes/KEY-KINDS)) (sorted themes/KEYS))
-    (assert/equal (count themes/CSS-KEYS) 16)
+    (assert/equal (count themes/CSS-KEYS) 21)
     (doseq [k themes/CSS-KEYS]
       (assert/ok (contains? themes/KEY-KINDS k) k))))
 
@@ -90,6 +90,21 @@
         (assert/ok (>= (contrast (rgb :text) (rgb :panel)) 4.5) (str n ": :text on :panel"))
         (assert/ok (>= (contrast (rgb :label) (rgb :bg)) 4.5) (str n ": :label on :bg"))
         (assert/ok (>= (contrast (rgb :on-accent) (rgb :accent)) 2.5) (str n ": :on-accent on :accent"))))))
+
+;; squint keywords are strings
+(def SYNTAX-KEYS (vec (filter #(.startsWith % "syntax-") themes/KEYS)))
+
+(test "syntax colors reach 3:1 on the code background :hover-plain"
+  (fn []
+    (assert/equal (count SYNTAX-KEYS) 5)
+    (assert/deepEqual
+     (vec (for [n themes/NAMES
+                k SYNTAX-KEYS
+                :let [t (get themes/THEMES n)
+                      c (contrast (hex->rgb (get t k)) (hex->rgb (:hover-plain t)))]
+                :when (not (>= c 3))]
+            (str n " " k " = " (get t k) " (" (.toFixed c 2) ")")))
+     [])))
 
 (test "high-contrast type colors reach 4.5:1"
   (fn []

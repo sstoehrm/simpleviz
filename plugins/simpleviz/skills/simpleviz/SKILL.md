@@ -145,7 +145,9 @@ they are in and never reach above the served folder.
 An md file is served like a graph (`simpleviz notes.md --no-open`) and
 opens rendered as GitHub markdown (headings, lists, task lists, tables,
 footnotes, code, images; no raw HTML). Use it as the entry point that
-explains a set of graphs.
+explains a set of graphs. A fenced block whose opening fence names its
+language (`clojure`, `bash`, `sql`, `json`, `html` …) is highlighted; the
+guide lists them.
 
 - Ordinary links follow in the page: `[text](sub/api.edn)`,
   `[text](other.md)`, `![x](diagram.png)`, reference links. A graph opens

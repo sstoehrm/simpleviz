@@ -3,10 +3,12 @@
   headings (# and a line of = under a paragraph), paragraphs, hard line
   breaks, emphasis, strikethrough, blockquotes, horizontal rules, lists
   and task lists, links (inline, reference, autolinks), images, tables,
-  footnotes, fenced and indented code blocks and code spans. Anything else
-  shows as the text it is. Links and images render through the caller's
+  footnotes, fenced and indented code blocks and code spans, fenced code
+  highlighted by its language (simpleviz.highlight). Anything else shows
+  as the text it is. Links and images render through the caller's
   link-fn, so what a click does stays the page's business."
-  (:require [mdlinks :as mdlinks]))
+  (:require [mdlinks :as mdlinks]
+            [simpleviz.highlight :as highlight]))
 
 (def ^:private punct "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~")
 
@@ -299,7 +301,9 @@
   (when-let [m (.exec fence-re l)]
     (let [mark (aget m 2)]
       (when-not (and (= "`" (.charAt mark 0)) (.includes (aget m 3) "`"))
-        {:indent (count (aget m 1)) :mark mark :info (.trim (aget m 3))}))))
+        (let [info (.trim (aget m 3))]
+          {:indent (count (aget m 1)) :mark mark :info info
+           :lang (.toLowerCase (aget (.split info #"\s") 0))})))))
 
 (defn- fence-close? [l mark]
   (let [t (.trim l)]
@@ -581,8 +585,14 @@
               (recur end (conj out tbl)))
 
             (some? fence)
-            (let [[body close] (fence-body lines i fence)]
-              (recur (inc (or close n)) (conj out [:pre [:code (.join body "\n")]])))
+            (let [[body close] (fence-body lines i fence)
+                  code (.join body "\n")
+                  lang (:lang fence)
+                  hl (when (:highlight ctx) (highlight/highlight lang code))]
+              (recur (inc (or close n))
+                     (conj out [:pre (if (some? hl)
+                                       (into [:code {:class (str "language-" lang)}] hl)
+                                       [:code code])])))
 
             (some? heading)
             (recur (inc i) (conj out (into [(str "h" (count (aget heading 1)))]
@@ -698,12 +708,15 @@
   (.replace l #"^[ \t]+" (fn [ws] (.replaceAll ws "\t" "    "))))
 
 (defn- rendered
-  "[blocks ctx] for markdown text, as render describes them."
-  [text link-fn calc]
+  "[blocks ctx] for markdown text, as render describes them, by opts
+  {:link-fn :calc :highlight}; code is highlighted only with :highlight,
+  which no structural comparison needs."
+  [text opts]
   (let [lines (mapv untab (.split (.replaceAll (str text) "\r\n" "\n") "\n"))
         code (code-lines lines)
-        ctx {:defs (defs-of lines code) :notes (notes-of lines code) :order (js/Map.) :link-fn link-fn
-             :tables [] :calc calc}
+        ctx (merge {:defs (defs-of lines code) :notes (notes-of lines code) :order (js/Map.)
+                    :tables []}
+                   opts)
         bs (blocks lines ctx)
         notes (footnotes ctx)]
     [(if (some? notes) (conj bs notes) bs) ctx]))
@@ -717,14 +730,14 @@
   calc-tables, per table {:results grid}, or {:failed msg} — holds for
   them."
   ([text link-fn] (render text link-fn nil))
-  ([text link-fn calc] (first (rendered text link-fn calc))))
+  ([text link-fn calc] (first (rendered text {:link-fn link-fn :calc calc :highlight true}))))
 
 (defn calc-tables
   "The text's tables, in the order render meets them, as the server
   calculates them: {:cells (body rows, as wide as the header) :defs
   (the def block's text, or nil)}."
   [text]
-  (:tables (second (rendered text (fn [_ kids] kids) nil))))
+  (:tables (second (rendered text {:link-fn (fn [_ kids] kids)}))))
 
 (defn calc?
   "Has one of `tables` (calc-tables) a formula or a def block?"
@@ -744,7 +757,8 @@
 (defn- shape
   "What text renders to, as a string to compare."
   [text]
-  (js/JSON.stringify (render text (fn [l kids] (into [:a {:href (:dest l) :compare (:compare l)}] kids)))))
+  (js/JSON.stringify
+   (first (rendered text {:link-fn (fn [l kids] (into [:a {:href (:dest l) :compare (:compare l)}] kids))}))))
 
 (defn- fenced-lines
   "Per line: may it be a fenced code block's, fences included — the

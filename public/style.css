@@ -135,6 +135,13 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
 :is(#md-view, .md-doc) pre { padding: 10px 14px; overflow: auto; background: var(--hover-plain);
                border: 1px solid var(--panel-divider); border-radius: 6px; line-height: 1.45; }
 :is(#md-view, .md-doc) pre code { background: none; padding: 0; font-size: 13px; }
+/* highlighted fenced code (simpleviz.highlight), in the theme's own colors */
+:is(#md-view, .md-doc) :is(.hl-comment, .hl-meta) { color: var(--text-muted); }
+:is(#md-view, .md-doc) .hl-comment { font-style: italic; }
+:is(#md-view, .md-doc) :is(.hl-keyword, .hl-tag, .hl-removed) { color: var(--diff-removed); }
+:is(#md-view, .md-doc) :is(.hl-string, .hl-added) { color: var(--diff-added); }
+:is(#md-view, .md-doc) :is(.hl-number, .hl-literal) { color: var(--diff-modified); }
+:is(#md-view, .md-doc) .hl-attr { color: var(--accent); }
 :is(#md-view, .md-doc) table { border-collapse: collapse; display: block; max-width: 100%; overflow: auto; }
 :is(#md-view, .md-doc) th, :is(#md-view, .md-doc) td { border: 1px solid var(--panel-border); padding: 4px 10px; }
 :is(#md-view, .md-doc) th { background: var(--hover-plain); color: var(--text-strong); font-weight: 600; text-align: left; }

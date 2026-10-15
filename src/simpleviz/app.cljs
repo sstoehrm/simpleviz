@@ -2585,8 +2585,9 @@
 (def ^:private measure-queued (atom false))
 (def ^:private observed-ta (atom nil))
 ;; the text the gutter last measured, and each of its lines' top by the
-;; line's start offset
-(def ^:private line-tops (atom {:text nil :tops (js/Map.)}))
+;; line's start offset — no text while a measure is queued, as the layout
+;; it was measured in may be gone
+(def ^:private line-tops (atom {:text nil :tops nil}))
 
 (defn- mirror-el
   "The hidden div that lays doc text out the way the textarea wraps it —
@@ -2618,8 +2619,9 @@
   out, below its measured top, not all the text before it."
   [ta p]
   (let [text (.-value ta)
-        start (if (pos? p) (inc (.lastIndexOf text "\n" (dec p))) 0)
-        line-top (when (= text (:text @line-tops)) (.get (:tops @line-tops) start))
+        start (vim/line-start text p)
+        lt @line-tops
+        line-top (when (= text (:text lt)) (.get (:tops lt) start))
         from (if (some? line-top) start 0)
         mirror (style-mirror! ta)
         mark (js/document.createElement "span")
@@ -2672,11 +2674,12 @@
             (.appendChild mirror d)))
         (let [kids (.-children mirror)
               n (.-length kids)
-              tops (js/Map.)
-              _ (loop [i 0 start 0]
-                  (when (< i n)
-                    (.set tops start (.-offsetTop (aget kids i)))
-                    (recur (inc i) (+ start (.-length (aget lines i)) 1))))
+              tops (let [m (js/Map.)]
+                     (loop [i 0 start 0]
+                       (if (< i n)
+                         (do (.set m start (.-offsetTop (aget kids i)))
+                             (recur (inc i) (+ start (.-length (aget lines i)) 1)))
+                         m)))
               marks (vec (keep (fn [m]
                                  (when (<= (:line m) n)
                                    (let [ls (:links m)
@@ -2695,8 +2698,11 @@
           (sync-gutter-scroll!))))))
 
 (defn- queue-measure!
-  "Measure the gutter on the next frame, once however often asked."
+  "Measure the gutter on the next frame, once however often asked; till
+  then scroll-to-caret! lays out the text before the caret, not the
+  line tops measured in a layout that may have changed."
   []
+  (reset! line-tops {:text nil :tops nil})
   (when-not @measure-queued
     (reset! measure-queued true)
     (js/requestAnimationFrame (fn [_] (measure-gutter!)))))

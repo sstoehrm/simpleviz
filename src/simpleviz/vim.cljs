@@ -9,7 +9,7 @@
 
 ;; ---- lines and characters ----
 
-(defn- line-start [t p]
+(defn line-start [t p]
   (if (pos? p) (inc (.lastIndexOf t "\n" (dec p))) 0))
 
 (defn- line-end

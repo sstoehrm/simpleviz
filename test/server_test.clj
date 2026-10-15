@@ -694,7 +694,9 @@
           (do
             (serve! (.getPath link))
             (is (= "g.edn" (.getName (:new (serve/sides nil)))))
-            (is (= "g.edn" (get (json/parse-string (:body (serve/handler {:uri "/api/graph"}))) "path"))))
+            (is (= "g.edn" (get (json/parse-string (:body (serve/handler {:uri "/api/graph"}))) "path")))
+            (is (= {"path" "g.edn" "dir" (.getCanonicalPath real)}
+                   (json/parse-string (:body (serve/handler {:uri "/api/root"}))))))
           ;; symlink creation unsupported on this filesystem — skip, don't fail
           (is true)))
       (finally (babashka.fs/delete-tree tmp)))))
@@ -1659,33 +1661,23 @@
 (deftest api-root-names-the-root-file
   (with-temp-dir*
     (fn [dir]
-      (serve! (write! dir "notes.md" "# N"))
-      (is (= {"path" "notes.md" "dir" (.getCanonicalPath dir)}
-             (json/parse-string (:body (serve/handler {:uri "/api/root"})))))
-      (serve! (write! dir "g.edn" "{:nodes {}}"))
-      (is (= {"path" "g.edn" "dir" (.getCanonicalPath dir)}
-             (json/parse-string (:body (serve/handler {:uri "/api/root"}))))))))
+      (let [d (.getCanonicalPath dir)
+            root #(json/parse-string (:body (serve/handler {:uri "/api/root"})))]
+        (serve! (write! dir "notes.md" "# N"))
+        (is (= {"path" "notes.md" "dir" d} (root)))
+        (serve! (write! dir "g.edn" "{:nodes {}}"))
+        (is (= {"path" "g.edn" "dir" d} (root)))))))
 
-(deftest api-root-names-the-folder-a-symlinked-root-is-served-from
-  (with-temp-dir*
-    (fn [outer]
-      (let [served (java.io.File. outer "served")
-            g (write! served "g.edn" "{:nodes {}}")
-            link (java.io.File. outer "link")]
-        (.mkdirs link)
-        (symlink! link "arch.edn" (.getCanonicalPath (java.io.File. g)))
-        (serve! (.getPath (java.io.File. link "arch.edn")))
-        (is (= {"path" "g.edn" "dir" (.getCanonicalPath served)}
-               (json/parse-string (:body (serve/handler {:uri "/api/root"})))))))))
-
-(deftest a-cross-origin-read-of-api-root-gets-no-cors-header
-  ;; /api/root names an absolute folder: a page on another origin must
-  ;; not be able to read it, so no response may allow that origin
+(deftest a-cross-origin-read-gets-no-cors-header
+  ;; no response allows another origin, so a page there can't read the
+  ;; served files or /api/root's absolute folder
   (serve! (temp-edn "{:nodes {:a {}}}"))
-  (let [resp (serve/handler {:uri "/api/root" :headers {"origin" "http://evil.example"}})]
-    (is (= 200 (:status resp)))
-    (is (not-any? #(str/starts-with? (str/lower-case (name %)) "access-control-")
-                  (keys (:headers resp))))))
+  (doseq [uri ["/api/root" "/api/graph" "/"]]
+    (let [resp (serve/handler {:uri uri :headers {"origin" "http://evil.example"}})]
+      (is (= 200 (:status resp)) uri)
+      (is (not-any? #(str/starts-with? (str/lower-case (name %)) "access-control-")
+                    (keys (:headers resp)))
+          uri))))
 
 (deftest api-errors-reports-an-md-files-broken-links
   (with-temp-dir*

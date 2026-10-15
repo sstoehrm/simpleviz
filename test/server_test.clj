@@ -991,6 +991,19 @@
              (get (create! {:path "a/n.edn" :file "new" :from "lone.edn"}) "error")))
       (is (not (.exists (java.io.File. dir "a/n-next.edn")))))))
 
+(deftest api-create-refuses-the-path-before-the-copy
+  ;; a request wrong in both ways gets the path's error, as /api/graphs
+  ;; would for that path, not "copying is not available in a comparison"
+  (with-temp-dir*
+    (fn [dir]
+      (suffix-tree! dir)
+      (is (= "sub/api-next.edn is the fork of sub/api.edn — ref the original"
+             (get (create! {:path "sub/api-next.edn" :file "new" :from "lone.edn"}) "error")))
+      (is (= "n.txt is not an .edn, .png or .svg file"
+             (get (create! {:path "n.txt" :file "new" :from "lone.edn"}) "error")))
+      (is (not (.exists (java.io.File. dir "n.txt"))))
+      (is (not (.exists (java.io.File. dir "n-next.txt")))))))
+
 (defn- graphs [path]
   (json/parse-string (:body (serve/handler {:uri "/api/graphs" :request-method :get
                                             :query-string (str "path=" (java.net.URLEncoder/encode path "UTF-8"))}))))

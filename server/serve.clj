@@ -386,7 +386,8 @@
   and only while neither side exists — an empty fork next to an
   original would show everything as removed. With `from` (a
   root-relative .edn, outside a comparison) it starts as a byte copy of
-  that file rather than empty. Never overwrites."
+  that file rather than empty. Never overwrites. The path's refusals
+  (new-graph-target) come before the copy's, as on /api/graphs."
   [{:keys [file path compare from]}]
   (try
     (let [{:keys [suffix base fk fork exists]} (new-graph-target path compare ref-extensions)

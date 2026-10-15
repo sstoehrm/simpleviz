@@ -1172,7 +1172,9 @@
                                                                         (query-param query-string "compare"))))
     "/api/lock"    (post-only req #(lock-response acquire-lock! body))
     "/api/unlock"  (post-only req #(lock-response release-lock! body))
-    "/api/root"      (json-response (json/generate-string {:path (root-rel)}))
+    ;; dir is absolute: no CORS header lets another origin read it, and
+    ;; host-guard refuses a rebound name
+    "/api/root"      (json-response (json/generate-string {:path (root-rel) :dir (.getPath @root-dir)}))
     "/api/text"      (json-response (text-response-body query-string))
     "/api/file"      (file-response query-string)
     "/api/text/save" (post-only req #(text-save-response body))

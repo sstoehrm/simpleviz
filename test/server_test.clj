@@ -1660,9 +1660,32 @@
   (with-temp-dir*
     (fn [dir]
       (serve! (write! dir "notes.md" "# N"))
-      (is (= {"path" "notes.md"} (json/parse-string (:body (serve/handler {:uri "/api/root"})))))
+      (is (= {"path" "notes.md" "dir" (.getCanonicalPath dir)}
+             (json/parse-string (:body (serve/handler {:uri "/api/root"})))))
       (serve! (write! dir "g.edn" "{:nodes {}}"))
-      (is (= {"path" "g.edn"} (json/parse-string (:body (serve/handler {:uri "/api/root"}))))))))
+      (is (= {"path" "g.edn" "dir" (.getCanonicalPath dir)}
+             (json/parse-string (:body (serve/handler {:uri "/api/root"}))))))))
+
+(deftest api-root-names-the-folder-a-symlinked-root-is-served-from
+  (with-temp-dir*
+    (fn [outer]
+      (let [served (java.io.File. outer "served")
+            g (write! served "g.edn" "{:nodes {}}")
+            link (java.io.File. outer "link")]
+        (.mkdirs link)
+        (symlink! link "arch.edn" (.getCanonicalPath (java.io.File. g)))
+        (serve! (.getPath (java.io.File. link "arch.edn")))
+        (is (= {"path" "g.edn" "dir" (.getCanonicalPath served)}
+               (json/parse-string (:body (serve/handler {:uri "/api/root"})))))))))
+
+(deftest a-cross-origin-read-of-api-root-gets-no-cors-header
+  ;; /api/root names an absolute folder: a page on another origin must
+  ;; not be able to read it, so no response may allow that origin
+  (serve! (temp-edn "{:nodes {:a {}}}"))
+  (let [resp (serve/handler {:uri "/api/root" :headers {"origin" "http://evil.example"}})]
+    (is (= 200 (:status resp)))
+    (is (not-any? #(str/starts-with? (str/lower-case (name %)) "access-control-")
+                  (keys (:headers resp))))))
 
 (deftest api-errors-reports-an-md-files-broken-links
   (with-temp-dir*

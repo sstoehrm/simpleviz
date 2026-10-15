@@ -91,6 +91,8 @@ the left lists them, click one to expand it.
   top right, shows it as slides, a graph beside each.
 - A slide can ask a question: [the quiz](quiz.md) asks about the demo graph, beside it,
   and keeps your answers in `quiz.answers.edn`.
+- A table can calculate: [the tables](tables.md) sum, format and colour their cells,
+  one of them over a csv file.
 
 The [README](https://github.com/sstoehrm/simpleviz#readme) has the full data format, and
 the [guide](https://github.com/sstoehrm/simpleviz/blob/main/docs/guide.md) every detail.

@@ -1,125 +1,14 @@
 (ns simpleviz.slides
-  "A presentation from an md page's text: lines of just --- split it into
-  slides (not inside a fenced code block), and a slide whose first line
-  is `>> [text](path)` — or `>> ![alt](path)`, or `>> path` — shows that
-  file beside its text. Empty slides are dropped, so a deck may open and
-  close with ---.
-
-  A slide whose first lines hold `?? name` asks a question: its task
-  list (- [ ] lines, [x] the right ones) gives the 2 to 4 choices, the
-  lines indented under a choice its explanation. `??? name` asks for a
-  submit before the deck goes on."
-  (:require [mdlinks :as mdlinks]
-            [simpleviz.markdown :as markdown :refer [indent untab]]))
-
-(defn- fence-mark
-  "The fence a line opens or closes (\"```\" or \"~~~\"), or nil."
-  [line]
-  (let [t (.trimStart line)]
-    (cond (.startsWith t "```") "```"
-          (.startsWith t "~~~") "~~~"
-          :else nil)))
-
-(defn- chunks
-  "The text's lines, split at the separators outside code fences."
-  [text]
-  (loop [lines (.split (.replace text (js/RegExp. "\\r\\n?" "g") "\n") "\n")
-         fence nil
-         cur []
-         out []]
-    (if (empty? lines)
-      (conj out cur)
-      (let [line (first lines)
-            mark (fence-mark line)]
-        (cond
-          (some? fence) (recur (rest lines) (if (= mark fence) nil fence) (conj cur line) out)
-          (= (.trim line) "---") (recur (rest lines) nil [] (conj out cur))
-          :else (recur (rest lines) mark (conj cur line) out))))))
-
-(defn- blank? [line] (= (.trim line) ""))
-
-(defn- trim-blank-lines
-  "The lines without the blank ones at either end, joined."
-  [lines]
-  (let [ls (drop-while blank? lines)
-        ls (reverse (drop-while blank? (reverse ls)))]
-    (.join (into-array ls) "\n")))
-
-(defn- dedent
-  "The lines without the indent they share, blank ends dropped; nil when
-  nothing is left."
-  [lines]
-  (let [n (apply min 1000 (map indent (remove blank? lines)))
-        t (trim-blank-lines (map (fn [l] (if (blank? l) "" (.slice l n))) lines))]
-    (if (= t "") nil t)))
-
-(defn- split-choices
-  "The body lines of a question as [text-lines choices]: each task item
-  outside a code fence is a choice {:text :correct :note}, the blank and
-  indented lines under it its note — a nested list too."
-  [lines]
-  (loop [ls (map untab lines) fence nil text [] choices [] cur nil]
-    (let [close (fn [] (if (some? cur)
-                         (conj choices (assoc (:choice cur) :note (dedent (:note cur))))
-                         choices))]
-      (if (empty? ls)
-        [text (close)]
-        (let [line (first ls)
-              mark (fence-mark line)
-              m (when (nil? fence) (markdown/task-item line))]
-          (cond
-            (some? fence) (recur (rest ls) (if (= mark fence) nil fence) (conj text line) choices cur)
-            (and (some? cur) (or (blank? line) (>= (indent line) 2)))
-            (recur (rest ls) nil text choices (update cur :note conj line))
-            (some? m) (recur (rest ls) nil text (close)
-                             {:choice {:text (:text m) :correct (:checked m)} :note []})
-            :else (recur (rest ls) mark (conj text line) (close) nil)))))))
-
-(defn- ask
-  "The question `?? name` (`???` when `submit`) asks over body `lines`:
-  [text {:id :submit :choices :error}]. Without a name, or without 2 to 4
-  choices, :error says so and the lines stay text."
-  [marker id lines]
-  (let [[text choices] (split-choices lines)
-        n (count choices)
-        error (cond (= id "") (str marker " needs a name, as in " marker " storage")
-                    ;; the page keeps the answers in an object, where it is no key
-                    (= id "__proto__") (str marker " __proto__ can't be a question's name")
-                    (not (<= 2 n 4)) (str marker " " id " takes 2 to 4 choices, - [ ] lines; it has " n)
-                    :else nil)]
-    [(trim-blank-lines (if (some? error) lines text))
-     {:id id :submit (= marker "???") :error error :choices (if (some? error) [] choices)}]))
-
-(defn- slide
-  "One slide from its lines: {:text :side}, :side the `>>` target of its
-  first lines (nil when there is none), plus :side-compare when that
-  asks to compare; with `?? name` there too, :ask the question."
-  [lines]
-  (loop [ls (vec (drop-while blank? lines)) side nil q nil]
-    (let [head (first ls)]
-      (cond
-        (and (nil? side) (some? head) (.startsWith head ">>"))
-        (recur (vec (drop-while blank? (subvec ls 1))) {:target (mdlinks/side-target (.slice head 2))} q)
-
-        (and (nil? q) (some? head) (.startsWith head "??"))
-        (let [marker (if (.startsWith head "???") "???" "??")]
-          (recur (vec (drop-while blank? (subvec ls 1))) side
-                 {:marker marker :id (.trim (.slice head (count marker)))}))
-
-        :else
-        (let [target (:target side)
-              base (cond-> {:text (trim-blank-lines ls) :side (if (some? target) (:dest target) nil)}
-                     (some? (:compare target)) (assoc :side-compare (:compare target)))]
-          (if (nil? q)
-            base
-            (let [[text a] (ask (:marker q) (:id q) ls)]
-              (assoc base :text text :ask a))))))))
+  "A presentation of an md page: its slides, parsed by server/deck.cljc
+  (which `simpleviz check` shares, so it reports the malformed questions
+  the slides show), what a `>>` target shows as, and where a step stops
+  for a `???` submit."
+  (:require [deck :as deck]))
 
 (defn slides
   "The slides of md `text`, in order: [{:text md :side path-or-nil}]."
   [text]
-  (filterv (fn [s] (or (some? (:side s)) (some? (:ask s)) (not= (:text s) "")))
-           (mapv slide (chunks (str (if (nil? text) "" text))))))
+  (deck/slides text))
 
 (defn side-kind
   "What a `>>` target shows as: \"graph\" (.edn), \"md\", \"export\" (.png

@@ -8,6 +8,7 @@
             [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str]
+            [deck]
             [diff]
             [edit]
             [graph]
@@ -747,7 +748,8 @@
 (defn- errors-response-body
   "What the page's banners would show for the same query: the graph
   route's parse error (or nil) and validation warnings, nothing else —
-  or, for an md file, its read error and broken links."
+  or, for an md file, its read error, broken links and malformed
+  questions."
   [query-string]
   (let [rel (try (or (nav-rel query-string) (root-rel)) (catch Exception _ nil))]
     (if (and (some? rel) (paths/md-path? rel))
@@ -899,7 +901,7 @@
               (catch Exception _ false)))
     (str dest ": " (missing-fork dest suffix))))
 
-(defn md-warnings
+(defn- link-warnings
   "The broken links of md file `rel` (root-relative, under folder `root`)
   holding `text`: one \"line N: <dest> not found\", \"line N: <dest>
   leaves the served folder\" (or another problem the path check names
@@ -926,9 +928,18 @@
                             (str "line " line ": " dest ": " msg))))))))
            (mdlinks/links text)))))
 
+(defn md-warnings
+  "What is wrong with md file `rel` (root-relative, under folder `root`)
+  holding `text`, in line order: its broken links (link-warnings) and
+  the malformed questions of its slides (deck/warnings)."
+  [root rel text]
+  ;; every warning opens "line N: "; sort-by is stable, so one line's keep their order
+  (vec (sort-by (fn [w] (parse-long (re-find #"\d+" w)))
+                (concat (link-warnings root rel text) (deck/warnings text)))))
+
 (defn- md-errors
   "The /api/errors report for md file `rel`: its read error, or its
-  broken links."
+  md-warnings."
   [rel]
   (try (let [{:keys [text exists]} (doc-state (doc-file rel))]
          (if exists

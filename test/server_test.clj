@@ -1654,7 +1654,10 @@
                (errors-of)))
         (is (= {"error" nil "warnings" ["line 1: nope.edn not found" "line 4: gone.png not found"]}
                (errors-of "file=sub%2Fx.md")))
-        (is (= "no such file: sub/none.md" (get (errors-of "file=sub%2Fnone.md") "error")))))))
+        (is (= "no such file: sub/none.md" (get (errors-of "file=sub%2Fnone.md") "error")))
+        (write! dir "talk.md" "??? q\n- [x] a\n")
+        (is (= {"error" nil "warnings" ["line 1: ??? q takes 2 to 4 choices, - [ ] lines; it has 1"]}
+               (errors-of "file=talk.md")))))))
 
 (deftest graph-routes-stay-graph-only-for-md
   (with-temp-dir*

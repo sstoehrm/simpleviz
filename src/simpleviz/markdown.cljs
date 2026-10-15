@@ -349,15 +349,6 @@
        :content (+ ind (count mark) (if empty? 1 (count ws)))
        :first (if empty? "" body)})))
 
-(defn task-item
-  "The task item line l starts — a bullet item whose text opens with
-  [ ] or [x] — as {:checked :text}, or nil."
-  [l]
-  (when-let [it (item-of l)]
-    (when-not (:ordered it)
-      (when-let [m (.exec task-re (:first it))]
-        {:checked (not= " " (aget m 1)) :text (.trim (subs (:first it) (count (aget m 0))))}))))
-
 (defn- hr? [l] (.test hr-re l))
 
 (defn- quote? [l] (.test quote-re l))

@@ -1,7 +1,8 @@
 (ns check
   "simpleviz check: what the page's banners would show for one graph
   file — its parse error or its validation warnings, pairs included —
-  without a server, or one md file's broken links. The file's folder counts as the served folder, as
+  without a server, or one md file's broken links and malformed
+  questions. The file's folder counts as the served folder, as
   `simpleviz <file>` would serve it; incoming pairs aren't looked for."
   (:require [clojure.java.io :as io]
             [pairs]
@@ -11,7 +12,8 @@
 (defn check
   "{:error <message or nil> :warnings [...]} for the graph file at
   `path` (EDN, or the EDN embedded in an exported PNG or SVG), or for
-  the md file at `path`: its read error or broken links."
+  the md file at `path`: its read error, or its broken links and
+  malformed questions (serve/md-warnings)."
   [path]
   (try
     (let [f (.getCanonicalFile (io/file path))]

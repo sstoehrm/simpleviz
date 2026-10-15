@@ -1,10 +1,10 @@
 # Guide
 
-The details the README leaves out. In the page, `?` opens a short version.
+The details the [README](https://github.com/sstoehrm/simpleviz#readme) and the feature docs leave out. In the page, `?` opens a short version.
 
 ## Data format
 
-The README example shows every attribute simpleviz reads.
+The [Diagrams](diagrams.md#data-format) example shows every attribute simpleviz reads.
 
 - Identifiers may be keywords or strings.
 - `:name` defaults to the key. `:type` colors a node's name or a box (boxes

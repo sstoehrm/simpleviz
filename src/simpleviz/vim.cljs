@@ -373,10 +373,14 @@
         b (loop [j 0] (if (and (< j (- (.-length text) a)) (< j (- (.-length t) a))
                                (= (.charAt text (- (.-length text) j 1)) (.charAt t (- (.-length t) j 1))))
                         (recur (inc j)) j))
-        typed (subs t a (- (.-length t) b))
+        z (- (.-length t) b)
+        typed (subs t a z)
         ;; a count on i a I A o O types it again, o O on new lines —
-        ;; not after a click broke the insert
-        more (if (and rep (some? dot)) (.repeat (str (:sep rep) typed) (dec (:n rep))) "")
+        ;; not after a click broke the insert, nor with the caret moved
+        ;; off the typing's end (an arrow key)
+        more (if (and rep (= p z))
+               (.repeat (str (:sep rep) typed) (dec (:n rep)))
+               "")
         t (splice t p p more)
         p (+ p (.-length more))
         vs (cond-> (dissoc vs :ins)
@@ -562,8 +566,8 @@
         "a" (ins t (if (< p e) (inc p) p) "")
         "I" (ins t (first-nonblank t p) "")
         "A" (ins t e "")
-        "o" (let [ind (indent-of t p)]
-              (ins (splice t e e (str "\n" ind)) (+ e 1 (.-length ind)) (str "\n" ind)))
+        "o" (let [nl (str "\n" (indent-of t p))]
+              (ins (splice t e e nl) (+ e (.-length nl)) nl))
         "O" (let [ind (indent-of t p)]
               (ins (splice t s s (str ind "\n")) (+ s (.-length ind)) (str "\n" ind)))
         "u" (undo-step vs t p :undo :redo n)
@@ -738,7 +742,7 @@
   an insert goes on, but . won't repeat it, nor its count."
   [vs]
   (if (= "insert" (:mode vs))
-    (assoc-in vs [:ins :dot] nil)
+    (update vs :ins assoc :dot nil :rep nil)
     (-> vs (assoc :mode "normal" :keys []) (dissoc :anchor :head :cmd :msg))))
 
 (defn reloaded

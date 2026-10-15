@@ -213,6 +213,15 @@
     (assert/equal (feed "|abc" "2ix<Esc>u") "|abc")
     (assert/equal (feed "|foo bar baz" "2cwx<Esc>") "|x baz")))
 
+(test "a count on i types nothing more after a click or with the caret moved off the typing"
+  (fn []
+    (let [[vs buf] (feed* (init) "|z" "3iab")
+          r (press vs (update buf :pos dec) "Escape")]
+      (assert/equal (mark r) "|abz"))
+    (let [[vs buf] (feed* (init) "|z" "3iab")
+          r (press (interrupt vs) buf "Escape")]
+      (assert/equal (mark r) "a|bz"))))
+
 (test "Esc in insert mode steps the cursor back, not past the line start"
   (fn []
     (assert/equal (feed "ab|c" "i<Esc>") "a|bc")

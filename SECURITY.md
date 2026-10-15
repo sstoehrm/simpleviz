@@ -23,6 +23,10 @@ gets security fixes; `simpleviz update` installs it.
   reads and writes files below the served folder, and refuses writes
   from other origins. Anything that reaches outside that folder, or
   lets another site or user drive it, is a vulnerability.
+- Table formulas in md files (`=(sum :a)`), which run in a SCI sandbox
+  in a child process of the server: a formula that reads or writes
+  files, reaches the network, calls Java, changes the server or
+  outlives its child process is a vulnerability.
 - `install.sh` and `simpleviz update`, which download and install
   releases.
 - `simpleviz export`, which drives a headless Chrome or Chromium.

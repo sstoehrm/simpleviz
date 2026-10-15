@@ -3,6 +3,7 @@
   (shape checks, semantics) server-side via graph/normalize; the browser
   just renders the resulting JSON."
   (:require [babashka.cli :as cli]
+            [calc]
             [cheshire.core :as json]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
@@ -93,6 +94,12 @@
     (when (and (str/ends-with? stem tail) (> (count stem) (count tail)))
       (str (subs stem 0 (- (count stem) (count tail))) ext))))
 
+(defn- ext-of
+  "File name nm's extension, lower case; nil without a dot."
+  [nm]
+  (when-let [dot (str/last-index-of nm ".")]
+    (str/lower-case (subs nm (inc dot)))))
+
 (defn missing-fork
   "Why `rel` can't be compared under `suffix`: its fork is not there,
   and how to make it."
@@ -114,9 +121,7 @@
        (throw (ex-info (str "absolute path refused: " rel) {})))
      (let [root-c (.getCanonicalFile (io/file root))
            f (.getCanonicalFile (io/file root-c rel))
-           nm (.getName f)
-           dot (str/last-index-of nm ".")
-           ext (when (some? dot) (str/lower-case (subs nm (inc dot))))]
+           ext (ext-of (.getName f))]
        (when-not (str/starts-with? (.getPath f) (str (.getPath root-c) java.io.File/separator))
          (throw (ex-info (str rel " leaves the served folder") {})))
        (when-not (contains? exts ext)
@@ -687,7 +692,7 @@
     (let [rel (query-param query-string "path")
           _ (when-not (seq rel) (throw (ex-info "path required" {})))
           f (resolve-path @root-dir rel true (set (keys image-types)))
-          ext (str/lower-case (last (str/split (.getName f) #"\.")))]
+          ext (ext-of (.getName f))]
       {:status 200
        :headers {"Content-Type" (get image-types ext)
                  "Content-Security-Policy" "default-src 'none'; style-src 'unsafe-inline'; sandbox"
@@ -1096,6 +1101,43 @@
 (defn- prefs-save-response [body-stream]
   (save-response body-stream prefs-save 500 nil))
 
+(defn- calc-table? [t]
+  (and (map? t)
+       (sequential? (:cells t))
+       (every? (fn [row] (and (sequential? row) (every? string? row))) (:cells t))
+       (or (nil? (:defs t)) (string? (:defs t)))))
+
+(def ^:private data-extensions #{"csv" "jsonl" "json" "edn"})
+
+(def ^:private max-data-bytes (* 50 1024 1024))
+
+(defn- data-reader
+  "calc/with-data's reader for the tables of md file `md` (root-relative):
+  a >> link resolves as the md file's links do, and must name a csv,
+  jsonl, json or edn file of the served folder."
+  [md]
+  (fn [dest]
+    (when-not (string? md) (throw (ex-info "data needs the md file's path" {})))
+    (let [rel (or (paths/resolve-ref md dest) (throw (ex-info (str dest " leaves the served folder") {})))
+          f (resolve-path @root-dir rel true data-extensions)]
+      (when (> (.length f) max-data-bytes)
+        (throw (ex-info (str rel " is over 50 MiB") {})))
+      [(ext-of (.getName f)) (slurp f)])))
+
+(defn- calc-response
+  "The formula results of the request's md tables (calc/evaluate-tables),
+  in the order they came, the data their blocks link read for them."
+  [body-stream]
+  (let [parsed (read-json-body body-stream)
+        [status out] (cond
+                       (:parse-error parsed) [400 {:error (:parse-error parsed)}]
+                       (not (and (sequential? (:tables parsed)) (every? calc-table? (:tables parsed))
+                                 (or (nil? (:path parsed)) (string? (:path parsed)))))
+                       [400 {:error "expected {path: string, tables: [{cells: [[string]], defs: string}]}"}]
+                       :else [200 {:tables (calc/evaluate-tables
+                                            (calc/with-data (:tables parsed) (data-reader (:path parsed))))}])]
+    (assoc (json-response (json/generate-string out)) :status status)))
+
 (defn- post-only
   "The response of (f) for a guarded POST; 405 for any other method."
   [{:keys [request-method] :as req} f]
@@ -1118,6 +1160,7 @@
     "/api/text"      (json-response (text-response-body query-string))
     "/api/file"      (file-response query-string)
     "/api/text/save" (post-only req #(text-save-response body))
+    "/api/calc"      (post-only req #(calc-response body))
     "/api/answers"   (if (= :post (:request-method req))
                        (post-only req #(answers-save-response body))
                        (json-response (answers-response-body query-string)))

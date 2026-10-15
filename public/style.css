@@ -141,6 +141,10 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
 :is(#md-view, .md-doc) .al-left { text-align: left; }
 :is(#md-view, .md-doc) .al-center { text-align: center; }
 :is(#md-view, .md-doc) .al-right { text-align: right; }
+:is(#md-view, .md-doc) td.calc { font-variant-numeric: tabular-nums; }
+:is(#md-view, .md-doc) td.calc.pending { color: var(--text-dim); }
+:is(#md-view, .md-doc) td.calc.error { color: var(--diff-removed); font-size: .85em; }
+:is(#md-view, .md-doc) caption.calc-error { caption-side: top; text-align: left; color: var(--diff-removed); font-size: .85em; padding-bottom: 4px; }
 :is(#md-view, .md-doc) a { color: var(--accent); text-underline-offset: 2px; }
 :is(#md-view, .md-doc) a:hover { color: var(--text-strong); }
 /* the link whose graph shows beside the page: pressed, like its » */

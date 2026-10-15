@@ -299,7 +299,7 @@
   (when-let [m (.exec fence-re l)]
     (let [mark (aget m 2)]
       (when-not (and (= "`" (.charAt mark 0)) (.includes (aget m 3) "`"))
-        {:indent (count (aget m 1)) :mark mark}))))
+        {:indent (count (aget m 1)) :mark mark :info (.trim (aget m 3))}))))
 
 (defn- fence-close? [l mark]
   (let [t (.trim l)]
@@ -475,17 +475,90 @@
                   (cond (and l r) "center" r "right" l "left" :else nil)))
         (cells sep)))
 
-(defn- table-block [lines i ctx]
-  (let [aligns (aligns-of (nth lines (inc i)))
-        row (fn [tag l]
-              (let [cs (cells l)]
-                (into [:tr] (map-indexed (fn [k a]
-                                           (into (if (some? a) [tag {:class (str "al-" a)}] [tag])
-                                                 (inline (or (get cs k) "") ctx)))
-                                         aligns))))
-        end (table-end lines i)]
-    [[:table [:thead (row :th (nth lines i))]
-      (into [:tbody] (map (fn [j] (row :td (nth lines j))) (range (+ i 2) end)))]
+(defn- fence-body
+  "The lines of the fenced block opening at line i, unindented as far as
+  its fence, and the line closing it — nil when none does."
+  [lines i fence]
+  (let [n (count lines)
+        close (loop [k (inc i)]
+                (cond (>= k n) nil
+                      (fence-close? (nth lines k) (:mark fence)) k
+                      :else (recur (inc k))))]
+    [(mapv (fn [ln] (subs ln (min (indent ln) (:indent fence)))) (.slice lines (inc i) (or close n)))
+     close]))
+
+(defn- def-block
+  "For the ```simpleviz-table fence opening at line i: its text and the
+  line of the table right below it, blank lines between allowed; nil
+  when it never closes or no table follows."
+  [lines i fence]
+  (let [n (count lines)
+        [body close] (fence-body lines i fence)
+        t (when (some? close)
+            (loop [j (inc close)] (if (and (< j n) (blank? (nth lines j))) (recur (inc j)) j)))]
+    (when (and (some? t) (< t n)
+               (let [l (nth lines t)]
+                 (and (< (indent l) 4) (not (.test heading-re l)) (not (quote? l)) (not (hr? l))
+                      (table-start? lines t))))
+      [(.join body "\n") t])))
+
+(defn- formula? [c] (.startsWith c "=("))
+
+(defn- style-of
+  "A result's :style as the cell's inline style, in longhands, so a value
+  can only ever be a colour; the server checked them too."
+  [style]
+  (cond-> {}
+    (some? (:color style)) (assoc :color (:color style))
+    (some? (:background style)) (assoc :background-color (:background style))
+    (some? (:border style)) (assoc :border-color (:border style))))
+
+(defn- result-cell
+  "A body cell with something from the server — or, a formula, waiting
+  for it: its error, else its value or the cell as written (a style
+  alone keeps it), styled; … while a formula runs. A formula is marked
+  calc and has itself as its title, a formatted value the cell as
+  written."
+  [c res al f? ctx]
+  (let [[cls kids] (cond (some? (:error res)) ["calc error" [(:error res)]]
+                         (some? (:value res)) [(when f? "calc") [(:value res)]]
+                         f? ["calc pending" ["…"]]
+                         :else [nil (inline c ctx)])
+        cls (if (and (some? al) (some? cls)) (str al " " cls) (or al cls))]
+    (into [:td (cond-> {}
+                 (some? cls) (assoc :class cls)
+                 (or f? (some? (:error res)) (some? (:value res))) (assoc :title c)
+                 (some? (:style res)) (assoc :style (style-of (:style res))))]
+          kids)))
+
+(defn- table-block
+  "The table starting at line i and the line after it, its body rows
+  also collected in (:tables ctx) with the def block `defs` for the
+  server to calculate; its cells show the results (:calc ctx) holds for
+  it — {:failed msg} fails every formula, the other cells as written —
+  and its own :error is its caption."
+  [lines i defs ctx]
+  (let [end (table-end lines i)
+        aligns (aligns-of (nth lines (inc i)))
+        grid (fn [l] (let [cs (cells l)] (mapv (fn [k] (or (get cs k) "")) (range (count aligns)))))
+        body (mapv (fn [j] (grid (nth lines j))) (range (+ i 2) end))
+        failed (:failed (:calc ctx))
+        mine (when (nil? failed) (get (:calc ctx) (count (:tables ctx))))
+        row (fn [tag cs r]
+              (into [:tr] (map-indexed (fn [k a]
+                                         (let [c (nth cs k)
+                                               al (when (some? a) (str "al-" a))
+                                               f? (and (= tag :td) (formula? c))
+                                               res (when (= tag :td)
+                                                     (if (and f? (some? failed)) {:error failed} (get-in mine [:results r k])))]
+                                           (if (or f? (some? res))
+                                             (result-cell c res al f? ctx)
+                                             (into (if (some? al) [tag {:class al}] [tag]) (inline c ctx)))))
+                                       aligns)))]
+    (conj! (:tables ctx) {:cells body :defs defs})
+    [(-> (cond-> [:table] (some? (:error mine)) (conj [:caption {:class "calc-error"} (:error mine)]))
+         (conj [:thead (row :th (grid (nth lines i)) nil)]
+               (into [:tbody] (map-indexed (fn [r cs] (row :td cs r)) body))))
      end]))
 
 (defn- blocks
@@ -497,16 +570,19 @@
         out
         (let [l (nth lines i)
               fence (fence-open l)
+              table-def (when (= "simpleviz-table" (:info fence)) (def-block lines i fence))
               heading (.exec heading-re l)]
           (cond
             (blank? l) (recur (inc i) out)
 
+            (some? table-def)
+            (let [[defs t] table-def
+                  [tbl end] (table-block lines t defs ctx)]
+              (recur end (conj out tbl)))
+
             (some? fence)
-            (let [end (loop [j (inc i)]
-                        (if (or (>= j n) (fence-close? (nth lines j) (:mark fence))) j (recur (inc j))))
-                  body (mapv (fn [ln] (subs ln (min (indent ln) (:indent fence))))
-                             (.slice lines (inc i) end))]
-              (recur (inc end) (conj out [:pre [:code (.join body "\n")]])))
+            (let [[body close] (fence-body lines i fence)]
+              (recur (inc (or close n)) (conj out [:pre [:code (.join body "\n")]])))
 
             (some? heading)
             (recur (inc i) (conj out (into [(str "h" (count (aget heading 1)))]
@@ -547,7 +623,7 @@
               (recur end (conj out (into [:blockquote] (blocks inner ctx)))))
 
             (table-start? lines i)
-            (let [[t end] (table-block lines i ctx)] (recur end (conj out t)))
+            (let [[tbl end] (table-block lines i nil ctx)] (recur end (conj out tbl)))
 
             (some? (item-of l))
             (let [[t end] (list-block lines i ctx)] (recur end (conj out t)))
@@ -621,18 +697,40 @@
   [l]
   (.replace l #"^[ \t]+" (fn [ws] (.replaceAll ws "\t" "    "))))
 
+(defn- rendered
+  "[blocks ctx] for markdown text, as render describes them."
+  [text link-fn calc]
+  (let [lines (mapv untab (.split (.replaceAll (str text) "\r\n" "\n") "\n"))
+        code (code-lines lines)
+        ctx {:defs (defs-of lines code) :notes (notes-of lines code) :order (js/Map.) :link-fn link-fn
+             :tables [] :calc calc}
+        bs (blocks lines ctx)
+        notes (footnotes ctx)]
+    [(if (some? notes) (conj bs notes) bs) ctx]))
+
 (defn render
   "Hiccup blocks for markdown text. (link-fn link children) renders each
   link, link {:dest :label :kind}: :dest as mdlinks cleans a path (or a
   URL kept whole), :kind \"inline\", \"image\" or \"ref\", plus :compare
-  when a path asks for one (?compare=<suffix>, mdlinks/dest-compare)."
-  [text link-fn]
-  (let [lines (mapv untab (.split (.replaceAll (str text) "\r\n" "\n") "\n"))
-        code (code-lines lines)
-        ctx {:defs (defs-of lines code) :notes (notes-of lines code) :order (js/Map.) :link-fn link-fn}
-        bs (blocks lines ctx)
-        notes (footnotes ctx)]
-    (if (some? notes) (conj bs notes) bs)))
+  when a path asks for one (?compare=<suffix>, mdlinks/dest-compare).
+  A table's =( cells show what `calc` — the server's reply to
+  calc-tables, per table {:results grid}, or {:failed msg} — holds for
+  them."
+  ([text link-fn] (render text link-fn nil))
+  ([text link-fn calc] (first (rendered text link-fn calc))))
+
+(defn calc-tables
+  "The text's tables, in the order render meets them, as the server
+  calculates them: {:cells (body rows, as wide as the header) :defs
+  (the def block's text, or nil)}."
+  [text]
+  (:tables (second (rendered text (fn [_ kids] kids) nil))))
+
+(defn calc?
+  "Has one of `tables` (calc-tables) a formula or a def block?"
+  [tables]
+  (boolean (some (fn [t] (or (some? (:defs t)) (some (fn [row] (some formula? row)) (:cells t))))
+                 tables)))
 
 ;; ---------------------------------------------------------------- tidy
 ;; Each step rewrites the text line by line, and counts only when the

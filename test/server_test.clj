@@ -1969,3 +1969,43 @@
                (:ids (copy! {:file "new" :path "sub/api.edn" :compare "next" :ids [{:section "nodes" :id "only-in-fork"}]}))))
         (is (= "unknown node \"only-in-fork\""
                (:error (copy! {:file "new" :path "sub/api.edn" :ids [{:section "nodes" :id "only-in-fork"}]}))))))))
+
+(defn- calc-req
+  ([body] (calc-req body nil))
+  ([body opts] (assoc (edit-req body opts) :uri "/api/calc")))
+
+(deftest calc-runs-each-tables-formulas
+  (let [resp (serve/handler (calc-req {:tables [{:cells [["1"] ["2"] ["=(sum :a)"]]}
+                                                {:cells [["12"] ["=(sum :a)"]] :defs "[:a] #(str %1 \"%\")"}]}))
+        out (json/parse-string (:body resp) true)]
+    (is (= 200 (:status resp)))
+    (is (= {:value "3"} (get-in out [:tables 0 :results 2 0])))
+    (is (nil? (get-in out [:tables 0 :results 0 0])))
+    (is (= {:value "12%"} (get-in out [:tables 1 :results 1 0])))))
+
+(deftest calc-is-a-guarded-post
+  (is (= 405 (:status (serve/handler {:uri "/api/calc" :request-method :get}))))
+  (is (= 403 (:status (serve/handler (calc-req {:tables []} {:headers {"origin" "http://evil.example"}})))))
+  (let [resp (serve/handler (assoc (calc-req {:tables []}) :body (java.io.ByteArrayInputStream. (.getBytes "{" "UTF-8"))))]
+    (is (= 400 (:status resp)))
+    (is (some? (:error (json/parse-string (:body resp) true)))))
+  (let [resp (serve/handler (calc-req {:tables "x"}))]
+    (is (= 400 (:status resp)))))
+
+(deftest calc-reads-a-tables-data-beside-its-md-file
+  (let [dir (babashka.fs/create-temp-dir)
+        md (str (babashka.fs/path dir "notes" "doc.md"))]
+    (babashka.fs/create-dirs (babashka.fs/path dir "notes" "data"))
+    (spit md "x")
+    (spit (str (babashka.fs/path dir "notes" "data" "s.csv")) "item,qty\ntea,2\nmilk,3\n")
+    (spit (str (babashka.fs/path dir "secret.csv")) "a\n1\n")
+    (serve! (str (babashka.fs/path dir "root.edn")))
+    (let [ask (fn [defs] (-> (serve/handler (calc-req {:path "notes/doc.md"
+                                                        :tables [{:cells [["=(sum :b)"]] :defs defs}]}))
+                             :body (json/parse-string true) (get-in [:tables 0 :results 0 0])))]
+      (is (= {:value "5"} (ask ">> [s](data/s.csv)")))
+      (is (re-find #"leaves the served folder" (:error (ask ">> [s](../../secret.csv)"))))
+      (is (re-find #"no such file" (:error (ask ">> [s](data/gone.csv)"))))
+      (is (re-find #"is not" (:error (ask ">> [s](doc.md)")))))
+    (is (re-find #"md file" (-> (serve/handler (calc-req {:tables [{:cells [["=(sum :b)"]] :defs ">> [s](data/s.csv)"}]}))
+                                :body (json/parse-string true) (get-in [:tables 0 :results 0 0 :error]))))))

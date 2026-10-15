@@ -94,5 +94,5 @@ the left lists them, click one to expand it.
 - A table can calculate: [the tables](tables.md) sum, format and colour their cells,
   one of them over a csv file.
 
-The [README](https://github.com/sstoehrm/simpleviz#readme) has the full data format, and
+[Diagrams](https://github.com/sstoehrm/simpleviz/blob/main/docs/diagrams.md) has the full data format, and
 the [guide](https://github.com/sstoehrm/simpleviz/blob/main/docs/guide.md) every detail.

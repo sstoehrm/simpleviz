@@ -1,20 +1,68 @@
-# <img src="docs/assets/simpleviz-icon.svg" alt="" width="28" height="28"> simpleviz
+<p align="center">
+  <img src="docs/assets/simpleviz-icon.svg" alt="simpleviz" width="160" height="160">
+</p>
 
-Diagrams, docs and slides from plain markdown and EDN files.
+<h1 align="center">simpleviz</h1>
+
+<p align="center">
+  Diagrams, docs and slides from plain markdown and EDN files.
+</p>
+
+<p align="center">
+  <a href="docs/documents.md">Documents</a>
+  &nbsp;·&nbsp;
+  <a href="docs/diagrams.md">Diagrams</a>
+  &nbsp;·&nbsp;
+  <a href="docs/tables.md">Tables</a>
+  &nbsp;·&nbsp;
+  <a href="docs/presentations.md">Presentations</a>
+  &nbsp;·&nbsp;
+  <a href="docs/quizzes.md">Quizzes</a>
+  &nbsp;·&nbsp;
+  <a href="#install">Install</a>
+</p>
+
+---
+
+simpleviz serves the docs of your project as pages you read, edit and
+present in the browser: markdown files rendered as GitHub shows them,
+architecture graphs drawn from EDN, slides and questions for a talk —
+all linked to each other, all plain text files you keep in git. Edit a
+file and the page follows; edit in the page and the file follows.
 
 [![60-second tour: live reload, inspecting, editing in place, editing a linked markdown doc, state marks, text in nodes, database cylinders, themes, pairs, following a ref, comparing a fork, exporting](docs/assets/demo.gif)](docs/assets/demo.mp4)
 
 **New in 0.42:** [manual layout](docs/guide.md#manual-layout) — ✥ places nodes
 and boxes by hand, snapped to a 20 px grid; layered is now the only automatic
 layout — [45-second video](docs/assets/whats-new-0.42.mp4)
-([gif](docs/assets/whats-new-0.42.gif)), which also shows 0.41's vi mode.
+([gif](docs/assets/whats-new-0.42.gif)).
 
-**New in 0.41:** an optional [vi mode](docs/guide.md#vi-mode) for editing md
-docs and pages — modes, motions, operators, text objects, `.`, `:w`.
+## Mission
 
-**New in 0.40:** md pages render GitHub markdown and present as slides, a
-graph, md file or picture beside each — [50-second video](docs/assets/whats-new.mp4)
-([gif](docs/assets/whats-new.gif)).
+One doc explorer for your project that goes well beyond plain markdown,
+built on top of plain formats: markdown (with extensions), EDN, and
+other simple, widely used formats like CSV. The files stay readable
+without simpleviz — on GitHub, in any editor, to any agent.
+
+## Features
+
+- [Documents](docs/documents.md) — md files rendered, edited in place
+  (vi keys if you want them), linked to graphs and to each other.
+- [Diagrams](docs/diagrams.md) — nodes, edges and nested boxes from an
+  EDN file, laid out for you; inspect, edit, compare forks, follow refs,
+  export PNG or SVG.
+- [Tables](docs/tables.md) — GitHub tables in md files that calculate:
+  formulas in cells, formats and colours, over the table or a CSV, JSON
+  or EDN file.
+- [Presentations](docs/presentations.md) — an md file as slides, a graph,
+  doc or picture beside each.
+- [Quizzes](docs/quizzes.md) — questions and polls on a slide, the
+  answers written to a file an agent can read.
+
+After [installing](#install), open the guided tour, itself an md page
+with live graphs and a deck beside it:
+
+    simpleviz ~/.simpleviz/examples/intro.md
 
 ## Install
 
@@ -40,71 +88,7 @@ Without an installer, unpack a tarball from the
 [releases page](https://github.com/sstoehrm/simpleviz/releases) and run
 `bb serve examples/demo.edn` inside it (port 7373; `--port N` changes it).
 
-## Usage
-
-    simpleviz demo                             # copy the examples to a temp folder, serve them
-    simpleviz my-arch.edn                      # serve a graph on a free port 7370-7469
-    simpleviz notes.md                         # an md file, its links to graphs and md files followable
-    simpleviz check notes.md                   # an md file's broken links (works without a server)
-    simpleviz init my-arch.edn                 # write a starter file
-    simpleviz init my-arch.edn -t pipeline     # ...from ~/.simpleviz/templates/pipeline.edn
-    simpleviz init talk.md -t presentation     # a slide deck, plus talk.edn for its graph slide
-    simpleviz fork my-arch.edn next            # copy to my-arch-next.edn, plus every file it refs
-    simpleviz my-arch.edn next                 # compare my-arch.edn → my-arch-next.edn
-    simpleviz promote my-arch.edn next         # make the forks the new originals
-    simpleviz export my-arch.edn my-arch.png   # the ⇩ export from the terminal (needs Chrome or Chromium)
-
-`--no-open` prints the URL without opening a browser; `simpleviz --help` lists the rest. Edit the file and the page follows. You
-can also edit in the page: click an element to inspect and change its
-attributes, and use the toolbar at the bottom to add, connect, group and
-delete. ⇩ exports a PNG or an SVG, both with the source embedded; simpleviz
-serves either like an EDN file. An `.md` file opens rendered, with Edit for the plain text (vi keys if you want them); its ordinary markdown links to `.edn`, `.png`, `.svg` and `.md` files follow (in the plain text, by a » beside the line), and a graph opens to the right of the text. Present shows it as slides split at `---` lines, a `>> [text](graph.edn)` first line putting that graph (or an md file or picture) beside a slide, and a `?? name` (or `???`, with Submit) first line turning its task list into a question whose answers land in `talk.answers.edn`. A table cell like `=(sum :b 1 4)` shows its [formula's result](docs/guide.md#table-formulas). `[text](graph.edn?compare=next)` shows that graph compared with its fork. A link is
-relative to the md file and never reaches above the served folder. Press `?` in
-the page for controls and shortcuts.
-
-`init` copies a template from `~/.simpleviz/templates` (or
-`$SIMPLEVIZ_HOME/templates`): `default.edn` without `-t`, `<name>.edn`
-with `-t <name>` — `<name>.md` for an `.md` file, where `{{name}}` becomes
-the file's name and each `>> [x](x.edn)` slide gets a starter graph unless
-`x.edn` is there. Add your own there, or edit `default.edn`; updates keep
-the folder as it is and only add templates it lacks, so delete a shipped
-one to get its newest version on the next `simpleviz update`.
-
-The [guide](https://github.com/sstoehrm/simpleviz/blob/main/docs/guide.md)
-covers comparing, editing, refs between graphs, exporting, checking files
-and write locks.
-
-## Data format
-
-    ;; optional, top level: :theme — a built-in (:nord, :dracula, …) or {:base :nord :accent "#b58900"}
-    ;; optional, on a top-level node or box: :pos [col row] — placed by hand on a 20 px grid (✥ in the page writes it)
-    {:nodes {:api {:name "API"           ; display name (defaults to the key)
-                   :type "service"       ; free-form; colors the name, shown as (type)
-                   :text "Order intake"  ; shown inside the node (boxes too); "\n" or a vector for more lines
-                   :lang "clojure"       ; any other attr: inspector panel only
-                   :ref "sub/api.edn"    ; another graph file, relative to this one — "follow ref" opens it;
-                                         ; the node gets a double border
-                   :pair "views/deploy.edn#api-svc" ; the same thing in another graph — "follow pair" jumps to it
-                   :md-ref "docs/api.md" ; the markdown doc describing it (node or box) — dotted border; "open md" edits it
-                   :state :in-progress}  ; :new | :in-progress | :blocked | :done — a mark on the node's corner
-             :web {:type "frontend"}
-             :db  {:type "database"}}     ; drawn as the database cylinder
-     :edges {[:web :api]                 ; key: endpoints (nodes or boxes), order defines left/right;
-                                         ; the same edge cannot appear twice
-             {:direction :->             ; :-> | :<- | :<-> | :- (default :-)
-              :name "REST"
-              :type "http"}}
-     :boxes {:backend                    ; key is the box id
-             {:name "Backend"            ; display name (defaults to the key)
-              :type "zone"               ; colors the box (separate palette)
-              :components #{:api :db}}}} ; node and/or box ids; boxes nest
-
-Identifiers may be keywords or strings. An invalid element is skipped with a
-warning banner instead of breaking the render. The
-[guide](https://github.com/sstoehrm/simpleviz/blob/main/docs/guide.md#data-format)
-has the full rules.
-
-## Claude Code, Codex, and Grok plugins
+### Claude Code, Codex, and Grok plugins
 
 This repo is a plugin marketplace. Its skill teaches the agent the graph
 format and the CLI, so it can write and serve diagrams for you.
@@ -127,11 +111,41 @@ Grok:
 Or let `simpleviz update +ai` do it, for whichever of `claude`, `codex`
 and `grok` is on your PATH.
 
+## Usage
+
+    simpleviz demo                             # copy the examples to a temp folder, serve them
+    simpleviz my-arch.edn                      # serve a graph on a free port 7370-7469
+    simpleviz notes.md                         # an md file, its links to graphs and md files followable
+    simpleviz check notes.md                   # an md file's broken links (works without a server)
+    simpleviz init my-arch.edn                 # write a starter file
+    simpleviz init my-arch.edn -t pipeline     # ...from ~/.simpleviz/templates/pipeline.edn
+    simpleviz init talk.md -t presentation     # a slide deck, plus talk.edn for its graph slide
+    simpleviz fork my-arch.edn next            # copy to my-arch-next.edn, plus every file it refs
+    simpleviz my-arch.edn next                 # compare my-arch.edn → my-arch-next.edn
+    simpleviz promote my-arch.edn next         # make the forks the new originals
+    simpleviz export my-arch.edn my-arch.png   # the ⇩ export from the terminal (needs Chrome or Chromium)
+
+`--no-open` prints the URL without opening a browser; `simpleviz --help`
+lists the rest. Press `?` in the page for controls and shortcuts.
+
+`init` copies a template from `~/.simpleviz/templates` (or
+`$SIMPLEVIZ_HOME/templates`): `default.edn` without `-t`, `<name>.edn`
+with `-t <name>` — `<name>.md` for an `.md` file, where `{{name}}` becomes
+the file's name and each `>> [x](x.edn)` slide gets a starter graph unless
+`x.edn` is there. Add your own there, or edit `default.edn`; updates keep
+the folder as it is and only add templates it lacks, so delete a shipped
+one to get its newest version on the next `simpleviz update`.
+
 ## Bug reports
 
 Run with `--debug` to log every edit and error to `~/.simpleviz/logs/`.
-Crashes are logged there even without it. Attach the logs to the report.
+Crashes are logged there even without it. Attach the logs to the report
+on the [issue tracker](https://github.com/sstoehrm/simpleviz/issues).
 
-## Development
+## Further documentation
 
-See [docs/development.md](https://github.com/sstoehrm/simpleviz/blob/main/docs/development.md).
+- [Guide](docs/guide.md) — every detail: data format, themes, comparing,
+  editing, manual layout, md pages, presenting, questions, refs, pairs,
+  exporting, checking files and write locks.
+- [Development](docs/development.md) — building, testing and releasing
+  simpleviz itself.

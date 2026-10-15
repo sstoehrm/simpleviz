@@ -1,5 +1,5 @@
 (ns docs-test
-  "The data-format examples in the README and the plugin skill must be
+  "The data-format examples in docs/diagrams.md and the plugin skill must be
   self-contained: normalize accepts them with zero warnings. Guards
   against docs drifting from behavior (issue #29)."
   (:require [cheshire.core :as json]
@@ -92,10 +92,10 @@
     (is (str/includes? bb "(fs/copy-tree \"templates\" (fs/path res \"templates\"))")
         "jar task must copy templates/")))
 
-(deftest readme-data-format-example-is-functional
+(deftest diagrams-data-format-example-is-functional
   (assert-example-clean
-   "README"
-   (indented-block-after (slurp "README.md") "## Data format")))
+   "docs/diagrams.md"
+   (indented-block-after (slurp "docs/diagrams.md") "## Data format")))
 
 (deftest skill-data-format-example-is-functional
   (assert-example-clean

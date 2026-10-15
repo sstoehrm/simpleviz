@@ -86,35 +86,53 @@
                            "dark"
                            "light")})))
 
-;; set once the layout worker failed (its script missing, say): it answers
-;; no layout then, so relayout! reports it rather than lay out forever
-(def ^:private elk-failed (atom false))
-
 (defn- render-error [st msg]
   (assoc st (if (some? (:scene st)) :notice :error) (str "Render error: " msg)))
+
+;; set once the layout worker failed (its script missing, say): it
+;; answers no layout then, so every later one fails at once
+(def ^:private elk-failed (atom false))
+
+;; the worker lays out one graph at a time, in order; a run waiting for
+;; it that a newer run overtook meanwhile never reaches it, so edits
+;; arriving faster than a big graph lays out queue no backlog of layouts
+;; no one will see
+(def ^:private elk-tail (atom (js/Promise.resolve nil)))
+(def ^:private superseded (js/Error. "superseded by a newer layout"))
 
 ;; ELK lays out in a Web Worker, so the page stays live while a big graph
 ;; does: the page holds elkjs' API only, the engine ships in the worker
 (def ^:private elk
   (js/ELK. {:workerUrl "/vendor/elk-worker.min.js"
+            ;; to-elk only ever asks for layered
+            :algorithms ["layered"]
             :workerFactory
             (fn [url]
               (doto (js/Worker. url)
                 (.addEventListener "error"
                                    (fn [_]
                                      (reset! elk-failed true)
-                                     ;; a layout in flight never lands
+                                     ;; a layout in flight never lands: the
+                                     ;; queue goes on without it
+                                     (reset! elk-tail (js/Promise.resolve nil))
                                      (when (:layouting @state)
                                        (swap! state (fn [st]
                                                       (render-error (assoc st :layouting false)
                                                                     "the layout worker failed"))))))))}))
 
 (defn- elk-layout
-  "ELK's layout of `g`, a promise; rejected once the worker failed."
-  [g]
-  (if @elk-failed
-    (js/Promise.reject (js/Error. "the layout worker failed"))
-    (.layout elk g)))
+  "ELK's layout of `g`, a promise: rejected with `superseded` when
+  `live?` no longer holds once the worker is free, and once the worker
+  failed."
+  [g live?]
+  (let [p (.then @elk-tail
+                 (fn [_]
+                   (cond @elk-failed (js/Promise.reject (js/Error. "the layout worker failed"))
+                         (live?) (.layout elk g)
+                         :else (js/Promise.reject superseded))))]
+    ;; settled either way, the queue's tail is nil: it holds no layout
+    (reset! elk-tail (.then p (fn [_] nil) (fn [_] nil)))
+    p))
 (def last-mtime (atom nil))
 
 ;; the root file's root-relative name (/api/root), asked once
@@ -218,10 +236,11 @@
 ;; (not cleared) on file reload — see demote-layout-cache!
 (def ^:private layout-cache (js/Map.))
 
-;; bumped on every fresh graph from the server; an async relayout
-;; captures it at start and discards its result (no state apply, no
-;; cache write) if a reload superseded it mid-flight — otherwise a slow
-;; pre-edit ELK run resolving after an instant fingerprint-reuse
+;; bumped on every fresh graph from the server (and every clean
+;; relayout!); an async relayout captures it at start and discards its
+;; result (no state apply, no cache write) if a reload superseded it
+;; mid-flight — otherwise a slow pre-edit ELK run resolving after an
+;; instant fingerprint-reuse
 ;; relayout would overwrite the fresh scene and poison the cache
 (def ^:private graph-gen (atom 0))
 ;; bumped by every relayout!: with ELK in a worker the page stays live
@@ -1798,10 +1817,15 @@
   a fresh layout instead, dropping the whole cache so every collapsed
   set is laid out fresh when next shown."
   [& [clean?]]
+  ;; a run still in flight from before the clean must not put its
+  ;; (seeded) layout back into the cache just dropped
+  (when clean?
+    (swap! graph-gen inc)
+    (.clear layout-cache))
   (let [run (swap! layout-seq inc)
-        gen @graph-gen]
+        gen @graph-gen
+        live? (fn [] (and (= run @layout-seq) (= gen @graph-gen)))]
     (try
-      (when clean? (.clear layout-cache))
       (let [g0 (:graph @state)
             collapsed (:collapsed-boxes @state)
             ck (cache-key collapsed)
@@ -1831,10 +1855,10 @@
                                prev
 
                                (and (some? prev) (seedable? elk-graph positions))
-                               (assoc (js-await (elk-layout (seed-layout elk-graph positions)))
+                               (assoc (js-await (elk-layout (seed-layout elk-graph positions) live?))
                                       :seeded true)
 
-                               :else (js-await (elk-layout elk-graph)))
+                               :else (js-await (elk-layout elk-graph live?)))
                   landing (editor/layout-landing {:gen gen :seq run :key ck}
                                                  {:gen @graph-gen :seq @layout-seq
                                                   :key (cache-key (:collapsed-boxes @state))})]
@@ -1850,15 +1874,16 @@
               (when (:idle landing)
                 (swap! state assoc :layouting false))))))
       (catch :default e
-        (js/console.error "Relayout failed:" e)
+        (when-not (identical? e superseded)
+          (js/console.error "Relayout failed:" e))
         ;; with a diagram on screen the failure isn't blocking: a notice;
         ;; an overtaken run's failure is the newer run's to report, and a
         ;; run for a graph no longer shown has none to report
         (let [landing (editor/layout-landing {:gen gen :seq run} {:gen @graph-gen :seq @layout-seq})]
           (when (:idle landing)
-            (swap! state assoc :layouting false))
-          (when (and (:idle landing) (:cache landing))
-            (swap! state render-error (or (.-message e) (str e)))))))))
+            (swap! state (fn [st]
+                           (cond-> (assoc st :layouting false)
+                             (:cache landing) (render-error (or (.-message e) (str e))))))))))))
 
 (defn- resolve-edit-target
   "The :edit-target to use for a freshly loaded graph g, given the

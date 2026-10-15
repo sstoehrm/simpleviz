@@ -1821,17 +1821,17 @@
                   (when (:show landing)
                     (canvas/fit-view-once! sc)
                     (show-layout! entry))))
-              (when (and (:idle landing) (not (:show landing)))
+              (when (:idle landing)
                 (swap! state assoc :layouting false))))))
       (catch :default e
         (js/console.error "Relayout failed:" e)
         ;; with a diagram on screen the failure isn't blocking: a notice;
-        ;; an overtaken run's failure is the newer run's to report
-        (when (= run @layout-seq)
-          (swap! state assoc :layouting false)
-          ;; ... and a run for a graph no longer shown (the page moved
-          ;; on while it ran) has none to report
-          (when (= gen @graph-gen)
+        ;; an overtaken run's failure is the newer run's to report, and a
+        ;; run for a graph no longer shown has none to report
+        (let [landing (editor/layout-landing {:gen gen :seq run} {:gen @graph-gen :seq @layout-seq})]
+          (when (:idle landing)
+            (swap! state assoc :layouting false))
+          (when (and (:idle landing) (:cache landing))
             (swap! state assoc
                    (if (some? (:scene @state)) :notice :error)
                    (str "Render error: " (or (.-message e) (str e))))))))))

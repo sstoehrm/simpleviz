@@ -399,10 +399,8 @@
                     (java.nio.file.Files/readAllBytes (.toPath (resolve-path @root-dir from true #{"edn"})))
                     (.getBytes empty-graph "UTF-8"))
           [rel target] (if (and (some? fork) (not= file "old")) [fk fork] [path base])]
-      (cond
-        exists
+      (if exists
         {:ok true :created nil}
-        :else
         (do (.mkdirs (.getParentFile target))
             (try
               ;; CREATE_NEW: a file that appeared since the check is kept

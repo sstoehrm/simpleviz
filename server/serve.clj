@@ -1219,9 +1219,7 @@
         resp)
       (catch Throwable e
         (log/crash! {:request (request-line req)} e)
-        {:status 500
-         :headers {"Content-Type" "application/json" "Cache-Control" "no-store"}
-         :body (json/generate-string {:error (or (ex-message e) (.getName (class e)))})}))))
+        (json-status-response 500 {:error (or (ex-message e) (.getName (class e)))})))))
 
 (defn- local-host?
   "Does the Host header name this machine's loopback — localhost,

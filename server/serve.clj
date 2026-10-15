@@ -650,6 +650,11 @@
              "Cache-Control" "no-store"}
    :body body})
 
+(defn- json-status-response
+  "A JSON response of `out` with HTTP `status`."
+  [status out]
+  (assoc (json-response (json/generate-string out)) :status status))
+
 (defn- static-resource
   "The classpath resource behind a request path under public/, or nil for
   a path containing `..`, a directory, or nothing there."
@@ -788,7 +793,7 @@
                   out (lock-fn (.getPath f) owner (System/currentTimeMillis))]
               [(if (:error out) 409 200) out]))
           (catch Exception e [400 {:error (ex-message e)}]))]
-    (assoc (json-response (json/generate-string out)) :status status)))
+    (json-status-response status out)))
 
 (defn- copy-response-body [body-stream]
   (let [parsed (read-json-body body-stream)]
@@ -969,7 +974,7 @@
                          (save parsed))
                        (catch Exception e [(:status (ex-data e) fail-status) {:error (ex-message e)}]))]
     (when (some? logged) (logged parsed status out))
-    (assoc (json-response (json/generate-string out)) :status status)))
+    (json-status-response status out)))
 
 (defn- text-save-response [body-stream]
   (save-response body-stream text-save 400
@@ -1136,7 +1141,7 @@
                        [400 {:error "expected {path: string, tables: [{cells: [[string]], defs: string}]}"}]
                        :else [200 {:tables (calc/evaluate-tables
                                             (calc/with-data (:tables parsed) (data-reader (:path parsed))))}])]
-    (assoc (json-response (json/generate-string out)) :status status)))
+    (json-status-response status out)))
 
 (defn- post-only
   "The response of (f) for a guarded POST; 405 for any other method."
@@ -1214,9 +1219,7 @@
         resp)
       (catch Throwable e
         (log/crash! {:request (request-line req)} e)
-        {:status 500
-         :headers {"Content-Type" "application/json" "Cache-Control" "no-store"}
-         :body (json/generate-string {:error (or (ex-message e) (.getName (class e)))})}))))
+        (json-status-response 500 {:error (or (ex-message e) (.getName (class e)))})))))
 
 (defn- local-host?
   "Does the Host header name this machine's loopback — localhost,

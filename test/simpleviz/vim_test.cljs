@@ -248,6 +248,16 @@
     (assert/equal (feed "|abcd" "x2.") "|d")
     (assert/equal (feed "|a b c" "dw.u") "|b c")))
 
+(test "a count on . replaces the change's count, kept for the next ."
+  (fn []
+    (assert/equal (feed "|abcdef" "2x3.") "|f")
+    (assert/equal (feed "|abcdefghi" "2x3..") "|i")
+    (assert/equal (feed "|a b c d e" "d2w.") "|e")
+    (assert/equal (feed "|a b c d e f g h" "2d2w2.") "|g h")
+    (assert/equal (feed "|a\nb\nc\nd" "dd2.") "|d")
+    (assert/equal (feed "|abcd" "r5l2.") "55|5d")
+    (assert/equal (feed "|a-b-c-d-e" "d2f-.") "|e")))
+
 ;; ---- visual ----
 
 (test "v selects characters, V lines; d y c ~ act on it"

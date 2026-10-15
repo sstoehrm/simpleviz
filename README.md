@@ -24,11 +24,10 @@
 
 ---
 
-simpleviz serves the docs of your project as pages you read, edit and
-present in the browser: markdown files rendered as GitHub shows them,
-architecture graphs drawn from EDN, slides and questions for a talk —
-all linked to each other, all plain text files you keep in git. Edit a
-file and the page follows; edit in the page and the file follows.
+One doc explorer for your project that goes well beyond plain markdown,
+built on top of plain formats: markdown (with extensions), EDN, and
+other simple, widely used formats like CSV. The files stay readable
+without simpleviz — on GitHub, in any editor, to any agent.
 
 [![60-second tour: live reload, inspecting, editing in place, editing a linked markdown doc, state marks, text in nodes, database cylinders, themes, pairs, following a ref, comparing a fork, exporting](docs/assets/demo.gif)](docs/assets/demo.mp4)
 
@@ -36,13 +35,6 @@ file and the page follows; edit in the page and the file follows.
 and boxes by hand, snapped to a 20 px grid; layered is now the only automatic
 layout — [45-second video](docs/assets/whats-new-0.42.mp4)
 ([gif](docs/assets/whats-new-0.42.gif)).
-
-## Mission
-
-One doc explorer for your project that goes well beyond plain markdown,
-built on top of plain formats: markdown (with extensions), EDN, and
-other simple, widely used formats like CSV. The files stay readable
-without simpleviz — on GitHub, in any editor, to any agent.
 
 ## Features
 
@@ -72,7 +64,9 @@ Linux, with [babashka](https://babashka.org/) 1.12 or newer, curl and tar:
 
 This installs into `~/.simpleviz` and puts a launcher in `~/.local/bin`.
 `simpleviz update` fetches the latest release; `simpleviz update +ai` also
-installs or updates the Claude Code, Codex and Grok plugins (below).
+installs or updates the Claude Code, Codex and Grok plugins, for whichever
+of `claude`, `codex` and `grok` is on your PATH. Their skill teaches the
+agent the file formats and the CLI.
 
 With [bbin](https://github.com/babashka/bbin) (tested on Linux), the same
 command installs and updates the release jar:
@@ -87,29 +81,6 @@ releases (currently 1.12 and 1.13).
 Without an installer, unpack a tarball from the
 [releases page](https://github.com/sstoehrm/simpleviz/releases) and run
 `bb serve examples/demo.edn` inside it (port 7373; `--port N` changes it).
-
-### Claude Code, Codex, and Grok plugins
-
-This repo is a plugin marketplace. Its skill teaches the agent the graph
-format and the CLI, so it can write and serve diagrams for you.
-
-Claude Code:
-
-    /plugin marketplace add sstoehrm/simpleviz
-    /plugin install simpleviz@simpleviz
-
-Codex:
-
-    codex plugin marketplace add sstoehrm/simpleviz
-    codex plugin add simpleviz@simpleviz
-
-Grok:
-
-    grok plugin marketplace add sstoehrm/simpleviz
-    grok plugin install simpleviz@simpleviz --trust
-
-Or let `simpleviz update +ai` do it, for whichever of `claude`, `codex`
-and `grok` is on your PATH.
 
 ## Usage
 

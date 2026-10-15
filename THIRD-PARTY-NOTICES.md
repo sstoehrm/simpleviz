@@ -3,9 +3,10 @@
 The simpleviz release bundle redistributes the following third-party
 components. simpleviz itself is MIT-licensed (see LICENSE).
 
-## elkjs (`public/vendor/elk.bundled.js`)
+## elkjs (`public/vendor/elk.bundled.js`, `public/vendor/elk-worker.min.js`)
 
-Eclipse Layout Kernel (ELK), JavaScript build.
+Eclipse Layout Kernel (ELK), JavaScript build: the bundle, and the same
+layout engine as a Web Worker script.
 Copyright (c) the Eclipse Layout Kernel and elkjs contributors.
 
 Licensed under the Eclipse Public License 2.0 (full text below); elkjs is

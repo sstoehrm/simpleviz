@@ -176,7 +176,7 @@
                                          "(apply simpleviz.main/-main *command-line-args*)\n"))
                          (with-open [z (java.util.zip.ZipFile. jar)]
                            (doseq [e ["LICENSE" "THIRD-PARTY-NOTICES.md" "VERSION"
-                                      "public/index.html" "examples/demo.edn" "templates/default.edn"
+                                      "public/index.html" "public/vendor/elk-worker.min.js" "examples/demo.edn" "templates/default.edn"
                                       "cli.clj" "simpleviz/main.clj"]]
                              (when-not (.getEntry z e) (fail "the jar lacks " e))))
                          (let [{:keys [out err]} (run "--version")]

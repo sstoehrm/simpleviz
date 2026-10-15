@@ -34,7 +34,10 @@ changes section (`app.cljs`). Single-file responses carry no diff keys.
 
 Rendering: HTML5 canvas (HiDPI) fed by a pure scene list; layout by vendored
 [ELK.js](https://github.com/kieler/elkjs) (layered, left-to-right, compound
-boxes, ELK-placed edge labels). Type colors come from an FNV-1a hash into a
+boxes, ELK-placed edge labels). ELK runs in a Web Worker
+(`public/vendor/elk-worker.min.js`, `elk.cljs`), so the page stays live while
+a big graph lays out; when no worker starts it runs in the page's thread
+(`elk.bundled.js`). Type colors come from an FNV-1a hash into a
 fixed 255-color table (golden-angle hues, linear probing on collision), so a
 type keeps its color across restarts and unrelated edits (`colors.cljs`).
 

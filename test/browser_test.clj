@@ -563,6 +563,43 @@
                  " key(ta, 'G'); const end = ta.scrollTop >= ta.scrollHeight - ta.clientHeight - 2;"
                  " key(ta, 'g'); key(ta, 'g'); ok({end, top: ta.scrollTop}); }, 50); })"))))))
 
+(deftest elk-lays-out-in-a-worker-or-here-when-none-starts
+  ;; the worker answers the layout; a worker whose script is not there
+  ;; fails, and the layout runs in the page's thread instead
+  (with-real-browser
+    (is (= {:answered true :width true :fallback true}
+           (eval-on-served-page
+            path "g.edn" "{:nodes {:a {}}}"
+            (str "(async () => {"
+                 " const {layouter} = await import('/js/simpleviz/elk.mjs');"
+                 " const g = () => ({id: 'root', children: [{id: 'a', width: 10, height: 10}], edges: []});"
+                 " let answers = 0;"
+                 " const spawn = u => { const w = new Worker(u); w.addEventListener('message', () => answers++); return w; };"
+                 " const r = await layouter(window.ELK, '/vendor/elk-worker.min.js', spawn)(g());"
+                 " const f = await layouter(window.ELK, '/vendor/no-such-worker.js', spawn)(g());"
+                 " return {answered: answers > 0, width: r.width > 0, fallback: f.width > 0};"
+                 "})()"))))))
+
+(deftest the-layouting-indicator-shows-while-elk-runs
+  ;; the page starts its ELK worker; a re-layout shows the indicator
+  ;; until the new layout is there
+  (with-real-browser
+    (is (= {:worker true :indicator ["+" "-"] :layouting false}
+           (eval-on-served-page
+            path "g.edn" "{:nodes {:a {} :b {}} :edges {[:a :b] {:direction :->}}}"
+            (str "(async () => {"
+                 " const sleep = ms => new Promise(res => setTimeout(res, ms));"
+                 " const app = await import('/js/simpleviz/app.mjs');"
+                 " for (let i = 0; i < 100 && !app.state.val.scene; i++) await sleep(100);"
+                 " const seen = [];"
+                 " new MutationObserver(() => { const has = !!document.getElementById('layouting');"
+                 "   if (seen[seen.length - 1] !== (has ? '+' : '-')) seen.push(has ? '+' : '-'); })"
+                 "   .observe(document.body, {childList: true, subtree: true});"
+                 " await app.relayout_BANG_(true); await sleep(100);"
+                 " const worker = performance.getEntriesByType('resource').some(e => e.name.endsWith('/vendor/elk-worker.min.js'));"
+                 " return {worker, indicator: seen, layouting: app.state.val.layouting};"
+                 "})()"))))))
+
 (deftest manual-layout-places-and-drags
   ;; ✥ gives every top-level element a :pos; dragging one moves it by
   ;; whole grid cells and writes its new cell

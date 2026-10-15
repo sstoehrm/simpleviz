@@ -1,6 +1,6 @@
 # Guide
 
-The details the [README](../README.md) and the feature docs leave out. In the page, `?` opens a short version.
+The details the [README](https://github.com/sstoehrm/simpleviz#readme) and the feature docs leave out. In the page, `?` opens a short version.
 
 ## Data format
 

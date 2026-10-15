@@ -5,7 +5,12 @@
             [simpleviz.transform :refer [to-elk layout-positions seed-layout]]))
 
 (def require' (createRequire (js* "import.meta.url")))
-(def ELK (require' "../../vendor/elk.bundled.js"))
+(def ELK (require' "../../vendor/elk-api.js"))
+;; the page's worker script; under node it exports a stand-in Worker
+;; that runs the engine in this thread
+(def FakeWorker (.-Worker (require' "../../vendor/elk-worker.min.js")))
+
+(defn new-elk [] (ELK. {:workerFactory (fn [url] (FakeWorker. url))}))
 
 (defn node [id type] {:id id :name id :type type :attrs {}})
 
@@ -32,7 +37,7 @@
                     :boxes [{:id "b:grp" :name "grp" :type ""
                              :components ["n:a" "n:b"] :attrs {}}]
                     :parent-of {"n:a" "grp" "n:b" "grp"}})]
-      (-> (.layout (ELK.) (to-elk g measure))
+      (-> (.layout (new-elk) (to-elk g measure))
           (.then (fn [layout]
                    (assert/ok (and (pos? (:width layout)) (pos? (:height layout))))
                    (let [grp (first (filterv (fn [c] (= (:id c) "b:grp")) (:children layout)))]
@@ -52,7 +57,7 @@
                     :boxes [{:id "b:grp" :name "grp" :type ""
                              :components ["n:a" "n:b"] :attrs {}}]
                     :parent-of {"n:a" "grp" "n:b" "grp"}})]
-      (-> (.layout (ELK.) (to-elk g measure))
+      (-> (.layout (new-elk) (to-elk g measure))
           (.then (fn [layout]
                    ;; the renderer must offset by the container's absolute origin — this
                    ;; documents the contract it relies on
@@ -63,7 +68,7 @@
     (let [g (graph {:nodes {"a" (node "a" "") "b" (node "b" "")}
                     :edges [(assoc (edge 0 "a" "b" {:source false :target true})
                                    :name "calls" :type "http")]})]
-      (-> (.layout (ELK.) (to-elk g measure))
+      (-> (.layout (new-elk) (to-elk g measure))
           (.then (fn [layout]
                    (let [lbl (first (:labels (first (:edges layout))))]
                      (assert/ok lbl "label present in layout output")
@@ -83,7 +88,7 @@
                             {:id "b:storage" :name "storage" :type ""
                              :components ["n:db"] :attrs {}}]
                     :parent-of {"n:api" "backend" "n:db" "storage"}})]
-      (-> (.layout (ELK.) (to-elk g measure))
+      (-> (.layout (new-elk) (to-elk g measure))
           (.then (fn [layout]
                    (assert/equal (.-length (:edges layout)) 2)
                    (doseq [e (:edges layout)]
@@ -98,7 +103,7 @@
                     :boxes [{:id "b:backend" :name "backend" :type ""
                              :components ["n:web" "n:api"] :attrs {}}]
                     :parent-of {"n:web" "backend" "n:api" "backend"}})]
-      (-> (.layout (ELK.) (to-elk g measure))
+      (-> (.layout (new-elk) (to-elk g measure))
           (.then (fn [layout]
                    (let [e (nth (:edges layout) 0)]
                      (assert/ok (and (:sections e) (pos? (.-length (:sections e))))
@@ -112,7 +117,7 @@
                             {:id "b:storage" :name "storage" :type "zone"
                              :components [] :attrs {} :diff "removed"}]
                     :parent-of {"n:api" "backend" "b:storage" "backend"}})]
-      (-> (.layout (ELK.) (to-elk g measure))
+      (-> (.layout (new-elk) (to-elk g measure))
           (.then (fn [layout]
                    (let [backend (first (filterv (fn [c] (= (:id c) "b:backend"))
                                                  (:children layout)))
@@ -136,7 +141,7 @@
                              (edge 2 "b" "d" {:source false :target true})]
                      :boxes [box']
                      :parent-of {"n:a" "grp" "n:b" "grp" "n:c" "grp" "n:d" "grp"}})
-          elk (ELK.)]
+          elk (new-elk)]
       (-> (.layout elk (to-elk g0 measure))
           (.then (fn [l0]
                    (.layout elk (seed-layout (to-elk g1 measure) (layout-positions l0)))))
@@ -170,7 +175,7 @@
   "Fresh layout of g0, then the seeded relayout of g1 the page runs after
   an edit; [positions before, positions after]."
   [g0 g1]
-  (let [elk (ELK.)]
+  (let [elk (new-elk)]
     (-> (.layout elk (to-elk g0 measure))
         (.then (fn [l0]
                  (let [p0 (layout-positions l0)]

@@ -563,26 +563,9 @@
                  " key(ta, 'G'); const end = ta.scrollTop >= ta.scrollHeight - ta.clientHeight - 2;"
                  " key(ta, 'g'); key(ta, 'g'); ok({end, top: ta.scrollTop}); }, 50); })"))))))
 
-(deftest elk-lays-out-in-a-worker-or-here-when-none-starts
-  ;; the worker answers the layout; a worker whose script is not there
-  ;; fails, and the layout runs in the page's thread instead
-  (with-real-browser
-    (is (= {:answered true :width true :fallback true}
-           (eval-on-served-page
-            path "g.edn" "{:nodes {:a {}}}"
-            (str "(async () => {"
-                 " const {layouter} = await import('/js/simpleviz/elk.mjs');"
-                 " const g = () => ({id: 'root', children: [{id: 'a', width: 10, height: 10}], edges: []});"
-                 " let answers = 0;"
-                 " const spawn = u => { const w = new Worker(u); w.addEventListener('message', () => answers++); return w; };"
-                 " const r = await layouter(window.ELK, '/vendor/elk-worker.min.js', spawn)(g());"
-                 " const f = await layouter(window.ELK, '/vendor/no-such-worker.js', spawn)(g());"
-                 " return {answered: answers > 0, width: r.width > 0, fallback: f.width > 0};"
-                 "})()"))))))
-
 (deftest the-layouting-indicator-shows-while-elk-runs
-  ;; the page starts its ELK worker; a re-layout shows the indicator
-  ;; until the new layout is there
+  ;; the page lays out in its ELK worker — it holds no engine of its
+  ;; own; a re-layout shows the indicator until the new layout is there
   (with-real-browser
     (is (= {:worker true :indicator ["+" "-"] :layouting false}
            (eval-on-served-page

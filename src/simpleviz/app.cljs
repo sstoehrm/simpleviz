@@ -5,7 +5,6 @@
             [simpleviz.transform :refer [to-elk elk-fingerprint layout-positions seed-layout seedable?
                                          rename-layout-ids diff-glyphs]]
             [simpleviz.prune :refer [collapse-boxes collapse-scene]]
-            [simpleviz.elk :as elk]
             [simpleviz.scene :as scene]
             [simpleviz.hit :as hit]
             [simpleviz.canvas :as canvas]
@@ -19,8 +18,6 @@
             [paths :as paths]
             [themes :as themes]))
 
-(def ^:private elk-layout
-  (elk/layouter js/ELK "/vendor/elk-worker.min.js" (fn [url] (js/Worker. url))))
 (def app-el (js/document.getElementById "app"))
 
 ;; your choices (theme, vi mode) live on the server (/api/prefs), the same
@@ -88,6 +85,36 @@
                   :theme (if (.-matches (js/window.matchMedia "(prefers-color-scheme: dark)"))
                            "dark"
                            "light")})))
+
+;; set once the layout worker failed (its script missing, say): it answers
+;; no layout then, so relayout! reports it rather than lay out forever
+(def ^:private elk-failed (atom false))
+
+(defn- render-error [st msg]
+  (assoc st (if (some? (:scene st)) :notice :error) (str "Render error: " msg)))
+
+;; ELK lays out in a Web Worker, so the page stays live while a big graph
+;; does: the page holds elkjs' API only, the engine ships in the worker
+(def ^:private elk
+  (js/ELK. {:workerUrl "/vendor/elk-worker.min.js"
+            :workerFactory
+            (fn [url]
+              (doto (js/Worker. url)
+                (.addEventListener "error"
+                                   (fn [_]
+                                     (reset! elk-failed true)
+                                     ;; a layout in flight never lands
+                                     (when (:layouting @state)
+                                       (swap! state (fn [st]
+                                                      (render-error (assoc st :layouting false)
+                                                                    "the layout worker failed"))))))))}))
+
+(defn- elk-layout
+  "ELK's layout of `g`, a promise; rejected once the worker failed."
+  [g]
+  (if @elk-failed
+    (js/Promise.reject (js/Error. "the layout worker failed"))
+    (.layout elk g)))
 (def last-mtime (atom nil))
 
 ;; the root file's root-relative name (/api/root), asked once
@@ -289,8 +316,7 @@
 
 (defn- yield-paint!
   "Resolves after the browser painted the current DOM/canvas state —
-  lets the pruned scene and indicator show before ELK starts (and, when
-  it runs in the page's thread, blocks it)."
+  lets the pruned scene and indicator show before the ELK input is built."
   []
   (js/Promise. (fn [res]
                  (js/requestAnimationFrame
@@ -1832,9 +1858,7 @@
           (when (:idle landing)
             (swap! state assoc :layouting false))
           (when (and (:idle landing) (:cache landing))
-            (swap! state assoc
-                   (if (some? (:scene @state)) :notice :error)
-                   (str "Render error: " (or (.-message e) (str e))))))))))
+            (swap! state render-error (or (.-message e) (str e)))))))))
 
 (defn- resolve-edit-target
   "The :edit-target to use for a freshly loaded graph g, given the

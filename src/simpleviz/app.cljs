@@ -89,16 +89,19 @@
 (defn- render-error [st msg]
   (assoc st (if (some? (:scene st)) :notice :error) (str "Render error: " msg)))
 
-;; set once the layout worker failed (its script missing, say): it
-;; answers no layout then, so every later one fails at once
-(def ^:private elk-failed (atom false))
-
 ;; the worker lays out one graph at a time, in order; a run waiting for
 ;; it that a newer run overtook meanwhile never reaches it, so edits
 ;; arriving faster than a big graph lays out queue no backlog of layouts
 ;; no one will see
 (def ^:private elk-tail (atom (js/Promise.resolve nil)))
 (def ^:private superseded (js/Error. "superseded by a newer layout"))
+
+;; the layout worker failed (its script missing, say): it answers no
+;; layout then — not the one in flight (elkjs' promise would never
+;; settle, so elk-running rejects it), nor any later one
+(def ^:private elk-failed (atom nil))
+;; rejects the one layout in the worker (the queue runs one at a time)
+(def ^:private elk-running (atom nil))
 
 ;; ELK lays out in a Web Worker, so the page stays live while a big graph
 ;; does: the page holds elkjs' API only, the engine ships in the worker
@@ -111,14 +114,8 @@
               (doto (js/Worker. url)
                 (.addEventListener "error"
                                    (fn [_]
-                                     (reset! elk-failed true)
-                                     ;; a layout in flight never lands: the
-                                     ;; queue goes on without it
-                                     (reset! elk-tail (js/Promise.resolve nil))
-                                     (when (:layouting @state)
-                                       (swap! state (fn [st]
-                                                      (render-error (assoc st :layouting false)
-                                                                    "the layout worker failed"))))))))}))
+                                     (reset! elk-failed (js/Error. "the layout worker failed"))
+                                     (when-let [reject @elk-running] (reject @elk-failed))))))}))
 
 (defn- elk-layout
   "ELK's layout of `g`, a promise: rejected with `superseded` when
@@ -127,11 +124,14 @@
   [g live?]
   (let [p (.then @elk-tail
                  (fn [_]
-                   (cond @elk-failed (js/Promise.reject (js/Error. "the layout worker failed"))
-                         (live?) (.layout elk g)
+                   (cond (some? @elk-failed) (js/Promise.reject @elk-failed)
+                         (live?) (js/Promise.
+                                  (fn [res rej]
+                                    (reset! elk-running rej)
+                                    (.then (.layout elk g) res rej)))
                          :else (js/Promise.reject superseded))))]
     ;; settled either way, the queue's tail is nil: it holds no layout
-    (reset! elk-tail (.then p (fn [_] nil) (fn [_] nil)))
+    (reset! elk-tail (.then p (fn [_] (reset! elk-running nil)) (fn [_] (reset! elk-running nil))))
     p))
 (def last-mtime (atom nil))
 
@@ -1822,9 +1822,10 @@
   (when clean?
     (swap! graph-gen inc)
     (.clear layout-cache))
-  (let [run (swap! layout-seq inc)
-        gen @graph-gen
-        live? (fn [] (and (= run @layout-seq) (= gen @graph-gen)))]
+  (let [started {:gen @graph-gen :seq (swap! layout-seq inc)}
+        now (fn [] {:gen @graph-gen :seq @layout-seq :key (cache-key (:collapsed-boxes @state))})
+        ;; still the newest run, for the graph shown: worth laying out
+        live? (fn [] (let [l (editor/layout-landing started (now))] (and (:cache l) (:idle l))))]
     (try
       (let [g0 (:graph @state)
             collapsed (:collapsed-boxes @state)
@@ -1859,9 +1860,7 @@
                                       :seeded true)
 
                                :else (js-await (elk-layout elk-graph live?)))
-                  landing (editor/layout-landing {:gen gen :seq run :key ck}
-                                                 {:gen @graph-gen :seq @layout-seq
-                                                  :key (cache-key (:collapsed-boxes @state))})]
+                  landing (editor/layout-landing (assoc started :key ck) (now))]
               (when (:cache landing)
                 (let [placed (if (manual/manual? g) (manual/place layout g) layout)
                       sc (scene/build-scene {:layout placed :graph g :colors cmap :measure canvas/measure})
@@ -1879,7 +1878,7 @@
         ;; with a diagram on screen the failure isn't blocking: a notice;
         ;; an overtaken run's failure is the newer run's to report, and a
         ;; run for a graph no longer shown has none to report
-        (let [landing (editor/layout-landing {:gen gen :seq run} {:gen @graph-gen :seq @layout-seq})]
+        (let [landing (editor/layout-landing started (now))]
           (when (:idle landing)
             (swap! state (fn [st]
                            (cond-> (assoc st :layouting false)

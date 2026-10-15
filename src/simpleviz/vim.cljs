@@ -460,21 +460,27 @@
            (some? (:find r)) (assoc :find (:find r)))
      :text t :pos q}))
 
-(defn- dot-repeat [vs t p n]
+(defn- with-count
+  "A change's keys with its counts, before it and after its operator,
+  replaced by n."
+  [keys n]
+  (let [[_ r] (parse-count keys)
+        r (if (contains? #{"d" "c" "y"} (first r))
+            (into [(first r)] (second (parse-count (vec (rest r)))))
+            r)]
+    (into (vec (.split (str n) "")) r)))
+
+(defn- dot-repeat
+  "Repeat the last change; a count n replaces its own, for later dots too."
+  [vs t p n]
   (if-let [{:keys [keys ins]} (:dot vs)]
-    (let [undo (:undo vs)
-          r (reduce (fn [r _]
-                      (let [r (reduce (fn [r k] (press (:vs r) r k)) r keys)]
-                        (if (= "insert" (:mode (:vs r)))
-                          (let [t2 (splice (:text r) (:pos r) (:pos r) ins)]
-                            (press (:vs r) {:text t2 :pos (+ (:pos r) (.-length ins))} "Escape"))
-                          r)))
-                    {:vs (assoc vs :keys []) :text t :pos p}
-                    (range (or n 1)))
-          new-undo (:undo (:vs r))]
-      (assoc r :vs (assoc (:vs r)
-                          :dot (:dot vs)
-                          :undo (if (> (count new-undo) (count undo)) (conj undo (nth new-undo (count undo))) new-undo))))
+    (let [keys (if (some? n) (with-count keys n) keys)
+          r (reduce (fn [r k] (press (:vs r) r k)) {:vs (assoc vs :keys []) :text t :pos p} keys)
+          r (if (= "insert" (:mode (:vs r)))
+              (let [t2 (splice (:text r) (:pos r) (:pos r) ins)]
+                (press (:vs r) {:text t2 :pos (+ (:pos r) (.-length ins))} "Escape"))
+              r)]
+      (assoc-in r [:vs :dot] (assoc (:dot vs) :keys keys)))
     {:vs vs :text t :pos p}))
 
 (defn- undo-step [vs t p from to n]

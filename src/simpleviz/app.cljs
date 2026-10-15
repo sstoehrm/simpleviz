@@ -2585,9 +2585,9 @@
 (def ^:private measure-queued (atom false))
 (def ^:private observed-ta (atom nil))
 ;; the text the gutter last measured, and each of its lines' top by the
-;; line's start offset — no text while a measure is queued, as the layout
+;; line's start offset — nil while a measure is queued, as the layout
 ;; it was measured in may be gone
-(def ^:private line-tops (atom {:text nil :tops nil}))
+(def ^:private line-tops (atom nil))
 
 (defn- mirror-el
   "The hidden div that lays doc text out the way the textarea wraps it —
@@ -2698,11 +2698,9 @@
           (sync-gutter-scroll!))))))
 
 (defn- queue-measure!
-  "Measure the gutter on the next frame, once however often asked; till
-  then scroll-to-caret! lays out the text before the caret, not the
-  line tops measured in a layout that may have changed."
+  "Measure the gutter on the next frame, once however often asked."
   []
-  (reset! line-tops {:text nil :tops nil})
+  (reset! line-tops nil)
   (when-not @measure-queued
     (reset! measure-queued true)
     (js/requestAnimationFrame (fn [_] (measure-gutter!)))))

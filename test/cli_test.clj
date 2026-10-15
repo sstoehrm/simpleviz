@@ -434,6 +434,33 @@
         (when (= 1 (count logs))
           (is (str/includes? (slurp (str (first logs))) "boom")))))))
 
+(deftest a-port-taken-after-the-probe-is-retried-on-another
+  ;; another process can take the probed port before serve/start! binds it:
+  ;; the first call takes the port itself, then lets the real serve/start!
+  ;; (and http-kit's own bind) fail on it
+  (with-tmp
+    (fn [tmp]
+      (let [form (str "(require 'cli 'serve) "
+                      "(let [start serve/start! held (atom nil)] "
+                      "  (with-redefs [serve/start! (fn [opts] "
+                      "                 (when-not @held "
+                      "                   (reset! held (java.net.ServerSocket. (:port opts) 0 "
+                      "                                  (java.net.InetAddress/getByName \"127.0.0.1\"))) "
+                      "                   (println \"taken\" (:port opts)) (flush)) "
+                      "                 (start opts))] "
+                      "    (cli/-main \"" proc-util/repo-root "/examples/demo.edn\" \"--no-open\")))")
+            proc (proc-util/start ["bb" "--config" (str proc-util/repo-root "/bb.edn") "-e" form]
+                                  :dir tmp :env {"SIMPLEVIZ_HOME" (str tmp)})]
+        (try
+          (let [[_ taken] (proc-util/await-line proc #"^taken (\d+)$" 30000)
+                [_ url port] (proc-util/await-line proc url-line 30000)]
+            (is (some? taken) "the first serve/start! was refused")
+            (is (some? url) "still printed simpleviz: http://localhost:<port>")
+            (when url
+              (is (not= taken port))
+              (is (str/includes? (slurp url) "<html"))))
+          (finally (p/destroy-tree proc)))))))
+
 (deftest a-suffix-that-looks-like-a-flag-is-an-unknown-option
   ;; `--noopen` used to become a suffix: "g---noopen.edn not found" (#98)
   (with-tmp

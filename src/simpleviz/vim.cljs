@@ -9,7 +9,7 @@
 
 ;; ---- lines and characters ----
 
-(defn- line-start [t p]
+(defn line-start [t p]
   (if (pos? p) (inc (.lastIndexOf t "\n" (dec p))) 0))
 
 (defn- line-end
@@ -366,14 +366,23 @@
   "Esc in insert mode: one undo step for the command and its typing, and
   the typed text kept for the dot."
   [vs t p]
-  (let [{:keys [undo text dot at]} (or (:ins vs) {:undo {:text t :pos p} :text t :at p})
+  (let [{:keys [undo text dot at rep]} (or (:ins vs) {:undo {:text t :pos p} :text t :at p})
         ;; the typing starts where insert mode did, unless it deleted
         ;; back past that: " big" typed after "the" is not "big " after "the "
         a (loop [i 0] (if (and (< i at) (< i (.-length text)) (< i (.-length t)) (= (.charAt text i) (.charAt t i))) (recur (inc i)) i))
         b (loop [j 0] (if (and (< j (- (.-length text) a)) (< j (- (.-length t) a))
                                (= (.charAt text (- (.-length text) j 1)) (.charAt t (- (.-length t) j 1))))
                         (recur (inc j)) j))
-        typed (subs t a (- (.-length t) b))
+        z (- (.-length t) b)
+        typed (subs t a z)
+        ;; a count on i a I A o O types it again, o O on new lines —
+        ;; not after a click broke the insert, nor with the caret moved
+        ;; off the typing's end (an arrow key)
+        more (if (and rep (= p z))
+               (.repeat (str (:sep rep) typed) (dec (:n rep)))
+               "")
+        t (splice t p p more)
+        p (+ p (.-length more))
         vs (cond-> (dissoc vs :ins)
              (not= t (:text undo)) (push-undo (:text undo) (:pos undo))
              (some? dot) (assoc :dot {:keys dot :ins typed}))]
@@ -460,21 +469,27 @@
            (some? (:find r)) (assoc :find (:find r)))
      :text t :pos q}))
 
-(defn- dot-repeat [vs t p n]
+(defn- with-count
+  "A change's keys with its counts, before it and after its operator,
+  replaced by n."
+  [keys n]
+  (let [[_ r] (parse-count keys)
+        r (if (contains? #{"d" "c" "y"} (first r))
+            (into [(first r)] (second (parse-count (vec (rest r)))))
+            r)]
+    (into (vec (.split (str n) "")) r)))
+
+(defn- dot-repeat
+  "Repeat the last change; a count n replaces its own, for later dots too."
+  [vs t p n]
   (if-let [{:keys [keys ins]} (:dot vs)]
-    (let [undo (:undo vs)
-          r (reduce (fn [r _]
-                      (let [r (reduce (fn [r k] (press (:vs r) r k)) r keys)]
-                        (if (= "insert" (:mode (:vs r)))
-                          (let [t2 (splice (:text r) (:pos r) (:pos r) ins)]
-                            (press (:vs r) {:text t2 :pos (+ (:pos r) (.-length ins))} "Escape"))
-                          r)))
-                    {:vs (assoc vs :keys []) :text t :pos p}
-                    (range (or n 1)))
-          new-undo (:undo (:vs r))]
-      (assoc r :vs (assoc (:vs r)
-                          :dot (:dot vs)
-                          :undo (if (> (count new-undo) (count undo)) (conj undo (nth new-undo (count undo))) new-undo))))
+    (let [keys (if (some? n) (with-count keys n) keys)
+          r (reduce (fn [r k] (press (:vs r) r k)) {:vs (assoc vs :keys []) :text t :pos p} keys)
+          r (if (= "insert" (:mode (:vs r)))
+              (let [t2 (splice (:text r) (:pos r) (:pos r) ins)]
+                (press (:vs r) {:text t2 :pos (+ (:pos r) (.-length ins))} "Escape"))
+              r)]
+      (assoc-in r [:vs :dot] (assoc (:dot vs) :keys keys)))
     {:vs vs :text t :pos p}))
 
 (defn- undo-step [vs t p from to n]
@@ -493,6 +508,8 @@
         s (line-start t p)
         e (line-end t p)
         op (fn [o a b lines] (operate vs t p o a b lines (when-not (= o "y") keys)))
+        ;; i a I A o O: typed cnt times on Esc, each after sep
+        ins (fn [t2 at sep] (assoc-in (enter-insert vs t p t2 at keys) [:vs :ins :rep] {:n cnt :sep sep}))
         changed (fn [r] (if (and (some? r) (not= (:text r) t))
                           (update r :vs assoc :dot {:keys keys})
                           r))]
@@ -551,14 +568,14 @@
                 (changed {:vs (push-undo vs t p) :text (splice t p b (toggle-case (subs t p b))) :pos (clamp t b)})
                 {:vs vs :text t :pos p}))
         ("p" "P") (or (changed (paste vs t p (= "P" (:cmd c)) n)) {:vs vs :text t :pos p})
-        "i" (enter-insert vs t p t p keys)
-        "a" (enter-insert vs t p t (if (< p e) (inc p) p) keys)
-        "I" (enter-insert vs t p t (first-nonblank t p) keys)
-        "A" (enter-insert vs t p t e keys)
-        "o" (let [ind (indent-of t p)]
-              (enter-insert vs t p (splice t e e (str "\n" ind)) (+ e 1 (.-length ind)) keys))
+        "i" (ins t p "")
+        "a" (ins t (if (< p e) (inc p) p) "")
+        "I" (ins t (first-nonblank t p) "")
+        "A" (ins t e "")
+        "o" (let [nl (str "\n" (indent-of t p))]
+              (ins (splice t e e nl) (+ e (.-length nl)) nl))
         "O" (let [ind (indent-of t p)]
-              (enter-insert vs t p (splice t s s (str ind "\n")) (+ s (.-length ind)) keys))
+              (ins (splice t s s (str ind "\n")) (+ s (.-length ind)) (str "\n" ind)))
         "u" (undo-step vs t p :undo :redo n)
         "C-r" (undo-step vs t p :redo :undo n)
         "." (dot-repeat vs t p n)
@@ -728,10 +745,10 @@
 (defn interrupt
   "vs after the caret or the text moved under it — a click, the file
   reloaded from disk: visual mode, a command line and pending keys end;
-  an insert goes on, but . won't repeat it."
+  an insert goes on, but . won't repeat it, nor its count."
   [vs]
   (if (= "insert" (:mode vs))
-    (assoc-in vs [:ins :dot] nil)
+    (update vs :ins assoc :dot nil :rep nil)
     (-> vs (assoc :mode "normal" :keys []) (dissoc :anchor :head :cmd :msg))))
 
 (defn reloaded

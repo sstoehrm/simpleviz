@@ -203,6 +203,25 @@
     (assert/equal (mode-after "|a" "i") "insert")
     (assert/equal (mode-after "|a" "i<Esc>") "normal")))
 
+(test "a count on i a I A o O types the text that many times, o O each on a new line"
+  (fn []
+    (assert/equal (feed "|a" "3ix<Esc>") "xx|xa")
+    (assert/equal (feed "|ab" "3ax<Esc>") "axx|xb")
+    (assert/equal (feed "|a" "2ox<Esc>") "a\nx\n|x")
+    (assert/equal (feed "|a" "2Ox<Esc>") "x\n|x\na")
+    (assert/equal (feed "  |a\nb" "2ox<Esc>") "  a\n  x\n  |x\nb")
+    (assert/equal (feed "|abc" "2ix<Esc>u") "|abc")
+    (assert/equal (feed "|foo bar baz" "2cwx<Esc>") "|x baz")))
+
+(test "a count on i types nothing more after a click or with the caret moved off the typing"
+  (fn []
+    (let [[vs buf] (feed* (init) "|z" "3iab")
+          r (press vs (update buf :pos dec) "Escape")]
+      (assert/equal (mark r) "|abz"))
+    (let [[vs buf] (feed* (init) "|z" "3iab")
+          r (press (interrupt vs) buf "Escape")]
+      (assert/equal (mark r) "a|bz"))))
+
 (test "Esc in insert mode steps the cursor back, not past the line start"
   (fn []
     (assert/equal (feed "ab|c" "i<Esc>") "a|bc")
@@ -228,6 +247,16 @@
     (assert/equal (feed "|a\nb" "A;<Esc>j.") "a;\nb|;")
     (assert/equal (feed "|abcd" "x2.") "|d")
     (assert/equal (feed "|a b c" "dw.u") "|b c")))
+
+(test "a count on . replaces the change's count, kept for the next ."
+  (fn []
+    (assert/equal (feed "|abcdef" "2x3.") "|f")
+    (assert/equal (feed "|abcdefghi" "2x3..") "|i")
+    (assert/equal (feed "|a b c d e" "d2w.") "|e")
+    (assert/equal (feed "|a b c d e f g h" "2d2w2.") "|g h")
+    (assert/equal (feed "|a\nb\nc\nd" "dd2.") "|d")
+    (assert/equal (feed "|abcd" "r5l2.") "55|5d")
+    (assert/equal (feed "|a-b-c-d-e" "d2f-.") "|e")))
 
 ;; ---- visual ----
 

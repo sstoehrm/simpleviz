@@ -583,6 +583,33 @@
                  " return {worker, indicator: seen, layouting: app.state.val.layouting};"
                  "})()"))))))
 
+(deftest vi-line-moves-keep-the-caret-line-at-the-edge-of-the-view
+  ;; once the gutter has measured the text, k and j lay out only the
+  ;; caret's line: scrolling up puts that line at the view's top edge,
+  ;; scrolling down at its bottom edge; each move goes a view and more
+  (with-real-browser
+    (is (= {:fast true :up true :down true}
+           (eval-on-served-page
+            path "notes.md" (str/join "\n" (map #(str "line " %) (range 300)))
+            (str "new Promise(ok => { let step = 0; const t = setInterval(async () => {"
+                 " const key = (el, k) => el.dispatchEvent(new KeyboardEvent('keydown', {key: k, bubbles: true, cancelable: true}));"
+                 " const frame = () => new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));"
+                 " if (step === 0) { const b = document.querySelector('.md-mode'); if (!b) return; b.click(); step = 1; return; }"
+                 " if (step === 1) { const v = document.querySelector('.md-vi'); if (!v) return; v.click(); step = 2; return; }"
+                 " if (step !== 2) return; step = 3; clearInterval(t);"
+                 " const ta = document.getElementById('md-text'); const cs = getComputedStyle(ta);"
+                 " const lh = parseFloat(cs.lineHeight), pad = parseFloat(cs.paddingTop);"
+                 " const n = Math.ceil(ta.clientHeight / lh) + 5;"
+                 " await frame(); await frame(); key(ta, 'G');"
+                 " const line = () => ta.value.slice(0, ta.selectionStart).split('\\n').length - 1;"
+                 " for (let i = 0; i < 2 * n; i++) key(ta, 'k');"
+                 " const fast = document.getElementById('md-mirror').textContent.length < 20;"
+                 " const top = pad + line() * lh - ta.scrollTop;"
+                 " const up = line() === 299 - 2 * n && top >= 0 && top < lh;"
+                 " for (let i = 0; i < n; i++) key(ta, 'j');"
+                 " const below = ta.scrollTop + ta.clientHeight - (pad + (line() + 1) * lh);"
+                 " ok({fast, up, down: line() === 299 - n && below >= 0 && below < lh}); }, 50); })"))))))
+
 (deftest manual-layout-places-and-drags
   ;; ✥ gives every top-level element a :pos; dragging one moves it by
   ;; whole grid cells and writes its new cell

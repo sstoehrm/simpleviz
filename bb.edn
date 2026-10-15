@@ -29,7 +29,7 @@
   export   {:doc "Export a graph as PNG/SVG via headless Chrome: bb export graph.edn [suffix] out.png|out.svg [--theme t] [--force]"
             :requires ([cli])
             :task (apply cli/-main "export" *command-line-args*)}
-  check    {:doc "Report a graph's parse error or validation warnings, or an md file's broken links (exit 1 on any): bb check graph.edn|.png|.svg|doc.md"
+  check    {:doc "Report a graph's parse error or validation warnings, or an md file's broken links and malformed questions (exit 1 on any): bb check graph.edn|.png|.svg|doc.md"
             :requires ([check])
             :task (apply check/-main *command-line-args*)}
   fork     {:doc "Fork a graph and every file it refs: bb fork graph.edn <suffix> (writes graph-<suffix>.edn ...)"
@@ -45,8 +45,8 @@
                  :requires ([release])
                  :task (release/check (first *command-line-args*))}
   test:clj {:doc "Run Clojure server tests"
-            :requires ([clojure.test :as t] [server-test] [graph-test] [diff-test] [docs-test] [png-test] [svg-test] [browser-test] [export-test] [edit-test] [log-test] [fork-test] [launcher-test] [install-test] [check-test] [cli-test] [release-test] [notices-test] [paths-test] [pairs-test] [mdlinks-test] [calc-test])
-            :task (let [{:keys [fail error]} (t/run-tests 'graph-test 'server-test 'diff-test 'docs-test 'png-test 'svg-test 'browser-test 'export-test 'edit-test 'log-test 'fork-test 'launcher-test 'install-test 'check-test 'cli-test 'release-test 'notices-test 'paths-test 'pairs-test 'mdlinks-test 'calc-test)]
+            :requires ([clojure.test :as t] [server-test] [graph-test] [diff-test] [docs-test] [png-test] [svg-test] [browser-test] [export-test] [edit-test] [log-test] [fork-test] [launcher-test] [install-test] [check-test] [cli-test] [release-test] [notices-test] [paths-test] [pairs-test] [mdlinks-test] [deck-test] [calc-test])
+            :task (let [{:keys [fail error]} (t/run-tests 'graph-test 'server-test 'diff-test 'docs-test 'png-test 'svg-test 'browser-test 'export-test 'edit-test 'log-test 'fork-test 'launcher-test 'install-test 'check-test 'cli-test 'release-test 'notices-test 'paths-test 'pairs-test 'mdlinks-test 'deck-test 'calc-test)]
                     (when (pos? (+ fail error)) (System/exit 1)))}
   test:js  {:doc "Run JS unit tests (compiled squint output)"
             :requires ([babashka.fs :as fs])
@@ -75,7 +75,7 @@
                                                    export {:doc "Export a graph as PNG/SVG via headless Chrome: bb export graph.edn [suffix] out.png|out.svg [--theme t] [--force]"
                                                            :requires ([cli])
                                                            :task (apply cli/-main "export" *command-line-args*)}
-                                                   check {:doc "Report a graph's parse error or validation warnings, or an md file's broken links (exit 1 on any): bb check graph.edn|.png|.svg|doc.md"
+                                                   check {:doc "Report a graph's parse error or validation warnings, or an md file's broken links and malformed questions (exit 1 on any): bb check graph.edn|.png|.svg|doc.md"
                                                           :requires ([check])
                                                           :task (apply check/-main *command-line-args*)}
                                                    fork {:doc "Fork a graph and every file it refs: bb fork graph.edn <suffix> (writes graph-<suffix>.edn ...)"

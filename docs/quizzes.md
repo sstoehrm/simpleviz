@@ -25,7 +25,8 @@ explain it.
   answer is locked, the right choice is marked and the explanation of
   the one picked shows.
 - A question without an `[x]` is a poll.
-- A question takes 2 to 4 choices.
+- A question takes 2 to 4 choices. `simpleviz check talk.md` reports
+  one with fewer or more, or without a name.
 
 The answers go to `talk.answers.edn` beside `talk.md` as you give them,
 so an agent presenting the deck can read them and write the next slide:

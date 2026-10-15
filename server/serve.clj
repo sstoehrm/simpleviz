@@ -8,6 +8,7 @@
             [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str]
+            [deck]
             [diff]
             [edit]
             [graph]
@@ -386,22 +387,21 @@
   and only while neither side exists — an empty fork next to an
   original would show everything as removed. With `from` (a
   root-relative .edn, outside a comparison) it starts as a byte copy of
-  that file rather than empty. Never overwrites."
+  that file rather than empty. Never overwrites. The path's refusals
+  (new-graph-target, then a PNG or SVG name) come before the copy's."
   [{:keys [file path compare from]}]
   (try
     (let [{:keys [suffix base fk fork exists]} (new-graph-target path compare ref-extensions)
+          _ (when (export-name? base)
+              (throw (ex-info "PNG and SVG files cannot be created" {})))
           _ (when (and (some? from) (some? suffix))
               (throw (ex-info "copying is not available in a comparison" {})))
           content (if (some? from)
                     (java.nio.file.Files/readAllBytes (.toPath (resolve-path @root-dir from true #{"edn"})))
                     (.getBytes empty-graph "UTF-8"))
           [rel target] (if (and (some? fork) (not= file "old")) [fk fork] [path base])]
-      (cond
-        (export-name? base)
-        {:error "PNG and SVG files cannot be created"}
-        exists
+      (if exists
         {:ok true :created nil}
-        :else
         (do (.mkdirs (.getParentFile target))
             (try
               ;; CREATE_NEW: a file that appeared since the check is kept
@@ -650,6 +650,11 @@
              "Cache-Control" "no-store"}
    :body body})
 
+(defn- json-status-response
+  "A JSON response of `out` with HTTP `status`."
+  [status out]
+  (assoc (json-response (json/generate-string out)) :status status))
+
 (defn- static-resource
   "The classpath resource behind a request path under public/, or nil for
   a path containing `..`, a directory, or nothing there."
@@ -747,7 +752,8 @@
 (defn- errors-response-body
   "What the page's banners would show for the same query: the graph
   route's parse error (or nil) and validation warnings, nothing else —
-  or, for an md file, its read error and broken links."
+  or, for an md file, its read error, broken links and malformed
+  questions."
   [query-string]
   (let [rel (try (or (nav-rel query-string) (root-rel)) (catch Exception _ nil))]
     (if (and (some? rel) (paths/md-path? rel))
@@ -788,7 +794,7 @@
                   out (lock-fn (.getPath f) owner (System/currentTimeMillis))]
               [(if (:error out) 409 200) out]))
           (catch Exception e [400 {:error (ex-message e)}]))]
-    (assoc (json-response (json/generate-string out)) :status status)))
+    (json-status-response status out)))
 
 (defn- copy-response-body [body-stream]
   (let [parsed (read-json-body body-stream)]
@@ -899,36 +905,46 @@
               (catch Exception _ false)))
     (str dest ": " (missing-fork dest suffix))))
 
-(defn md-warnings
+(defn- link-warnings
   "The broken links of md file `rel` (root-relative, under folder `root`)
-  holding `text`: one \"line N: <dest> not found\", \"line N: <dest>
-  leaves the served folder\" (or another problem the path check names
-  it by) or \"line N: <dest>: <message>\" per followable link whose
+  holding `text`: one [N \"<dest> not found\"], [N \"<dest> leaves the
+  served folder\"] (or another problem the path check names it by) or
+  [N \"<dest>: <message>\"], N its line, per followable link whose
   target is no file below `root`, or whose ?compare= cannot compare it
   (compare-problem); one link's failure never fails the rest. A
   reference use is checked once, at its definition."
   [root rel text]
   (let [dir (some-> (.getParent (io/file rel)) (str/replace "\\" "/"))]
-    (vec
-     (keep (fn [{:keys [line dest kind] :as l}]
-             (when (and (not= kind "ref") (mdlinks/followable? dest))
-               (let [target (if (some? dir) (str dir "/" dest) dest)]
-                 (try (cond
-                        (not (.isFile (resolve-path root target false link-extensions)))
-                        (str "line " line ": " dest " not found")
-                        (contains? l :compare)
-                        (some->> (compare-problem root dest target (:compare l)) (str "line " line ": ")))
-                      (catch Exception e
-                        ;; resolve-path names the path it checked: say dest instead
-                        (let [msg (str (ex-message e))]
-                          (if (str/starts-with? msg (str target " "))
-                            (str "line " line ": " dest (subs msg (count target)))
-                            (str "line " line ": " dest ": " msg))))))))
-           (mdlinks/links text)))))
+    (keep (fn [{:keys [line dest kind] :as l}]
+            (when (and (not= kind "ref") (mdlinks/followable? dest))
+              (let [target (if (some? dir) (str dir "/" dest) dest)]
+                (some->> (try (cond
+                                (not (.isFile (resolve-path root target false link-extensions)))
+                                (str dest " not found")
+                                (contains? l :compare)
+                                (compare-problem root dest target (:compare l)))
+                              (catch Exception e
+                                ;; resolve-path names the path it checked: say dest instead
+                                (let [msg (str (ex-message e))]
+                                  (if (str/starts-with? msg (str target " "))
+                                    (str dest (subs msg (count target)))
+                                    (str dest ": " msg)))))
+                         (vector line)))))
+          (mdlinks/links text))))
+
+(defn md-warnings
+  "What is wrong with md file `rel` (root-relative, under folder `root`)
+  holding `text`, one \"line N: <warning>\" each, in line order: its
+  broken links (link-warnings) and the malformed questions of its
+  slides (deck/warnings)."
+  [root rel text]
+  ;; sort-by is stable: one line's warnings keep their order
+  (mapv (fn [[line w]] (str "line " line ": " w))
+        (sort-by first (concat (link-warnings root rel text) (deck/warnings text)))))
 
 (defn- md-errors
   "The /api/errors report for md file `rel`: its read error, or its
-  broken links."
+  md-warnings."
   [rel]
   (try (let [{:keys [text exists]} (doc-state (doc-file rel))]
          (if exists
@@ -969,7 +985,7 @@
                          (save parsed))
                        (catch Exception e [(:status (ex-data e) fail-status) {:error (ex-message e)}]))]
     (when (some? logged) (logged parsed status out))
-    (assoc (json-response (json/generate-string out)) :status status)))
+    (json-status-response status out)))
 
 (defn- text-save-response [body-stream]
   (save-response body-stream text-save 400
@@ -1136,7 +1152,7 @@
                        [400 {:error "expected {path: string, tables: [{cells: [[string]], defs: string}]}"}]
                        :else [200 {:tables (calc/evaluate-tables
                                             (calc/with-data (:tables parsed) (data-reader (:path parsed))))}])]
-    (assoc (json-response (json/generate-string out)) :status status)))
+    (json-status-response status out)))
 
 (defn- post-only
   "The response of (f) for a guarded POST; 405 for any other method."
@@ -1214,9 +1230,7 @@
         resp)
       (catch Throwable e
         (log/crash! {:request (request-line req)} e)
-        {:status 500
-         :headers {"Content-Type" "application/json" "Cache-Control" "no-store"}
-         :body (json/generate-string {:error (or (ex-message e) (.getName (class e)))})}))))
+        (json-status-response 500 {:error (or (ex-message e) (.getName (class e)))})))))
 
 (defn- local-host?
   "Does the Host header name this machine's loopback — localhost,

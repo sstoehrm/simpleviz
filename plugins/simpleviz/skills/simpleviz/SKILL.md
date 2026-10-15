@@ -167,8 +167,8 @@ guide lists them.
   choice and shows the explanation of the picked one only — put what
   everyone should read in the slide text. `>>` and `??` may share a
   slide's first lines. Without a name or with the wrong number of choices,
-  the slide says so and shows the list as text; `simpleviz check` doesn't
-  catch that, so count the choices yourself.
+  the slide says so and shows the list as text, and `simpleviz check`
+  reports it.
 - Answers land in `talk.answers.edn` beside `talk.md` as
   `{"name" {:answer "choice text" :num 0-based-index}}`. Read it to react,
   e.g. append the next slide (the presented text follows the file).
@@ -180,7 +180,8 @@ guide lists them.
   doc or talk.
 - `simpleviz check notes.md` lists broken links: `line N: <dest> not found`
   or `leaves the served folder`, and for `?compare=` a missing fork or
-  invalid suffix.
+  invalid suffix. It lists malformed questions too: `line N: ?? storage
+  takes 2 to 4 choices, - [ ] lines; it has 1`, or a `??` without a name.
 
 ## Checking
 

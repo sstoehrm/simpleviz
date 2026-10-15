@@ -203,6 +203,16 @@
     (assert/equal (mode-after "|a" "i") "insert")
     (assert/equal (mode-after "|a" "i<Esc>") "normal")))
 
+(test "a count on i a I A o O types the text that many times, o O each on a new line"
+  (fn []
+    (assert/equal (feed "|a" "3ix<Esc>") "xx|xa")
+    (assert/equal (feed "|ab" "3ax<Esc>") "axx|xb")
+    (assert/equal (feed "|a" "2ox<Esc>") "a\nx\n|x")
+    (assert/equal (feed "|a" "2Ox<Esc>") "x\n|x\na")
+    (assert/equal (feed "  |a\nb" "2ox<Esc>") "  a\n  x\n  |x\nb")
+    (assert/equal (feed "|abc" "2ix<Esc>u") "|abc")
+    (assert/equal (feed "|foo bar baz" "2cwx<Esc>") "|x baz")))
+
 (test "Esc in insert mode steps the cursor back, not past the line start"
   (fn []
     (assert/equal (feed "ab|c" "i<Esc>") "a|bc")

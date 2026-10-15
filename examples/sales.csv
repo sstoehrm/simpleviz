@@ -1,0 +1,8 @@
+region,product,units,price
+North,tea,120,3.5
+North,coffee,80,4.2
+South,tea,95,3.5
+South,coffee,
+West,tea,60,3.6
+West,coffee,140,4.0
+East,tea,30,3.4

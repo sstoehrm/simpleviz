@@ -91,16 +91,18 @@
         (assert/ok (>= (contrast (rgb :label) (rgb :bg)) 4.5) (str n ": :label on :bg"))
         (assert/ok (>= (contrast (rgb :on-accent) (rgb :accent)) 2.5) (str n ": :on-accent on :accent"))))))
 
-(def SYNTAX-KEYS [:syntax-keyword :syntax-string :syntax-number :syntax-attr :syntax-comment])
+;; squint keywords are strings
+(def SYNTAX-KEYS (vec (filter #(.startsWith % "syntax-") themes/KEYS)))
 
 (test "syntax colors reach 3:1 on the code background :hover-plain"
   (fn []
+    (assert/equal (count SYNTAX-KEYS) 5)
     (assert/deepEqual
      (vec (for [n themes/NAMES
                 k SYNTAX-KEYS
                 :let [t (get themes/THEMES n)
                       c (contrast (hex->rgb (get t k)) (hex->rgb (:hover-plain t)))]
-                :when (< c 3)]
+                :when (not (>= c 3))]
             (str n " " k " = " (get t k) " (" (.toFixed c 2) ")")))
      [])))
 

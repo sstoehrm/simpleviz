@@ -356,12 +356,9 @@
     (is (= [] (:warnings g)))))
 
 (deftest theme-map-inherits-syntax-colors-from-its-base
-  (let [g (graph/normalize {:theme {:base :nord :syntax-string "#123456"}})
-        t (:theme g)]
-    (is (= [] (:warnings g)))
-    (is (= "#123456" (:syntax-string t)))
-    (is (= (select-keys (:nord themes/THEMES) [:syntax-keyword :syntax-number :syntax-attr :syntax-comment])
-           (select-keys t [:syntax-keyword :syntax-number :syntax-attr :syntax-comment])))))
+  (let [g (graph/normalize {:theme {:base :nord :syntax-string "#123456"}})]
+    (is (= (assoc (:nord themes/THEMES) :syntax-string "#123456") (:theme g)))
+    (is (= [] (:warnings g)))))
 
 (deftest theme-map-base-defaults-to-light
   (is (= (assoc (:light themes/THEMES) :accent "rgb(1, 2, 3)")

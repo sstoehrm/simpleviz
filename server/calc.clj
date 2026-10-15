@@ -150,37 +150,39 @@
   [ctx s]
   (:val (sci/eval-string+ ctx s {:ns (sci/find-ns ctx 'user)})))
 
+(defn- two-args?
+  "Whether form, as written, is a fn one of whose arities takes two:
+  (fn [v ctx] ...), #(... %2). Read off the source, as SCI's fn objects
+  don't tell their arities."
+  [form]
+  (and (seq? form) (contains? '#{fn fn*} (first form))
+       (let [body (cond-> (rest form) (symbol? (second form)) rest)]
+         (some #(= 2 (count %)) (if (vector? (first body)) [(first body)] (map first body))))))
+
 (defn- rules-of
   "The def block's rules, [{:ranges :f}] top to bottom, its forms
-  evaluated in ctx."
+  evaluated in ctx; each :f takes (v ctx) and hands ctx on only to a
+  fn of two arguments, so str, inc and #(...) of %1 get v alone."
   [ctx defs rows cols]
-  (let [forms (eval-in ctx (str "[" defs "\n]"))]
+  (let [src (str "[" defs "\n]")
+        forms (eval-in ctx src)]
     (when (odd? (count forms))
       (fail "the def block takes pairs of a range and a fn"))
-    (mapv (fn [[rng f]]
+    (mapv (fn [[rng f] [_ form]]
             (when-not (vector? rng) (fail "expected a range like [:a 1 3], got " (pr-str rng)))
             (when-not (fn? f) (fail "expected a fn after " (pr-str rng) ", got " (pr-str f)))
-            {:ranges (ranges rng rows cols) :f f})
-          (partition 2 forms))))
+            {:ranges (ranges rng rows cols) :f (if (two-args? form) f (fn [v _] (f v)))})
+          (partition 2 forms)
+          (partition 2 (sci/parse-string ctx src)))))
 
 (def ^:private style-keys #{:color :background :border})
-
-(defn- call
-  "(f v ctx) when f is a block's fn of two arguments — SCI names the
-  class of a fixed-arity fn by its arity, and one of several arities may
-  take two — else (f v): str, inc, #(...) of %1."
-  [f v ctx]
-  (let [cls (.getName (class f))]
-    (if (or (str/includes? cls "$arity_2__") (str/includes? cls "analyze_fn_STAR_"))
-      (f v ctx)
-      (f v))))
 
 (defn- chain
   "{:v :style} after each of fs, top to bottom: a map's colours add to
   the style and its :text replaces v, anything else replaces v."
   [fs v ctx]
   (reduce (fn [acc f]
-            (let [out (call f (:v acc) ctx)]
+            (let [out (f (:v acc) ctx)]
               (if (map? out)
                 (let [bad (first (remove (conj style-keys :text) (keys out)))]
                   (when (some? bad) (fail "a map takes :text :color :background :border, not " (pr-str bad)))

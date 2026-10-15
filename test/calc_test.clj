@@ -281,7 +281,9 @@
 (deftest core-fns-format-with-the-value-alone
   (is (= {:value "2"} (get-in (results [["1"]] "[:a] inc") [:results 0 0])))
   (is (= {:value "1"} (get-in (results [["1"]] "[:a] str") [:results 0 0])) "no place map appended")
-  (is (= {:value "1!"} (get-in (results [["1"]] "[:a] (fn ([v] (str v \"?\")) ([v ctx] (str v \"!\")))") [:results 0 0]))))
+  (is (= {:value "1!"} (get-in (results [["1"]] "[:a] (fn ([v] (str v \"?\")) ([v ctx] (str v \"!\")))") [:results 0 0])))
+  (is (= {:value "1 1"} (get-in (results [["1"]] "[:a] #(str %1 \" \" (:row %2))") [:results 0 0])))
+  (is (= {:value "1 :a"} (get-in (results [["1"]] "[:a] (fn f [v ctx] (str v \" \" (:col ctx)))") [:results 0 0]))))
 
 (deftest a-data-link-reads-as-any-md-link
   (is (= "a b.csv" (:source (calc/split-block ">> [s](<a b.csv> \"the sales\")")))))

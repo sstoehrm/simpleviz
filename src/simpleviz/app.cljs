@@ -2584,6 +2584,9 @@
 (def ^:private parse-timer (atom nil))
 (def ^:private measure-queued (atom false))
 (def ^:private observed-ta (atom nil))
+;; the text the gutter last measured, and each of its lines' top by the
+;; line's start offset
+(def ^:private line-tops (atom {:text nil :tops (js/Map.)}))
 
 (defn- mirror-el
   "The hidden div that lays doc text out the way the textarea wraps it —
@@ -2610,19 +2613,25 @@
 
 (defn- scroll-to-caret!
   "Scroll textarea ta so caret p shows — setting the selection doesn't:
-  p's top, laid out in the mirror, and a line below it inside the view."
+  p's top, laid out in the mirror, and a line below it inside the view.
+  When the gutter measured this very text, only p's own line is laid
+  out, below its measured top, not all the text before it."
   [ta p]
-  (let [mirror (style-mirror! ta)
+  (let [text (.-value ta)
+        start (if (pos? p) (inc (.lastIndexOf text "\n" (dec p))) 0)
+        line-top (when (= text (:text @line-tops)) (.get (:tops @line-tops) start))
+        from (if (some? line-top) start 0)
+        mirror (style-mirror! ta)
         mark (js/document.createElement "span")
         cs (js/getComputedStyle ta)]
-    (.appendChild mirror (js/document.createTextNode (subs (.-value ta) 0 p)))
+    (.appendChild mirror (js/document.createTextNode (subs text from p)))
     (set! (.-textContent mark) "\u200b")
     (.appendChild mirror mark)
-    (let [top (.-offsetTop mark)
+    (let [pad-top (js/parseFloat (.-paddingTop cs))
+          pad-bottom (js/parseFloat (.-paddingBottom cs))
+          top (if (some? line-top) (+ line-top (- (.-offsetTop mark) pad-top)) (.-offsetTop mark))
           h (.-offsetHeight mark)
-          view (.-scrollTop ta)
-          pad-top (js/parseFloat (.-paddingTop cs))
-          pad-bottom (js/parseFloat (.-paddingBottom cs))]
+          view (.-scrollTop ta)]
       ;; near the top the span's half-leading would leave a sliver
       (cond (< (- top pad-top) view) (set! (.-scrollTop ta) (if (< top (* 2 pad-top)) 0 (- top pad-top)))
             (> (+ top h pad-bottom) (+ view (.-clientHeight ta)))
@@ -2663,6 +2672,11 @@
             (.appendChild mirror d)))
         (let [kids (.-children mirror)
               n (.-length kids)
+              tops (js/Map.)
+              _ (loop [i 0 start 0]
+                  (when (< i n)
+                    (.set tops start (.-offsetTop (aget kids i)))
+                    (recur (inc i) (+ start (.-length (aget lines i)) 1))))
               marks (vec (keep (fn [m]
                                  (when (<= (:line m) n)
                                    (let [ls (:links m)
@@ -2674,6 +2688,7 @@
                                                        (str (count ls) " links"))))))
                                (editor/line-markers (:links @md-links))))
               height (max (.-scrollHeight mirror) (.-scrollHeight ta))]
+          (reset! line-tops {:text (:text md) :tops tops})
           ;; the gutter sits in the text's right padding, left of its scrollbar
           (swap! state assoc :md-marks {:marks marks :height height
                                         :scrollbar (- (.-offsetWidth ta) (.-clientWidth ta))})

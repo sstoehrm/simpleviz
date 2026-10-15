@@ -5,10 +5,9 @@
   for a `???` submit."
   (:require [deck :as deck]))
 
-(defn slides
-  "The slides of md `text`, in order: [{:text md :side path-or-nil}]."
-  [text]
-  (deck/slides text))
+(def slides
+  "The slides of md text (deck/slides)."
+  deck/slides)
 
 (defn side-kind
   "What a `>>` target shows as: \"graph\" (.edn), \"md\", \"export\" (.png

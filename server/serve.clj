@@ -903,39 +903,40 @@
 
 (defn- link-warnings
   "The broken links of md file `rel` (root-relative, under folder `root`)
-  holding `text`: one \"line N: <dest> not found\", \"line N: <dest>
-  leaves the served folder\" (or another problem the path check names
-  it by) or \"line N: <dest>: <message>\" per followable link whose
+  holding `text`: one [N \"<dest> not found\"], [N \"<dest> leaves the
+  served folder\"] (or another problem the path check names it by) or
+  [N \"<dest>: <message>\"], N its line, per followable link whose
   target is no file below `root`, or whose ?compare= cannot compare it
   (compare-problem); one link's failure never fails the rest. A
   reference use is checked once, at its definition."
   [root rel text]
   (let [dir (some-> (.getParent (io/file rel)) (str/replace "\\" "/"))]
-    (vec
-     (keep (fn [{:keys [line dest kind] :as l}]
-             (when (and (not= kind "ref") (mdlinks/followable? dest))
-               (let [target (if (some? dir) (str dir "/" dest) dest)]
-                 (try (cond
-                        (not (.isFile (resolve-path root target false link-extensions)))
-                        (str "line " line ": " dest " not found")
-                        (contains? l :compare)
-                        (some->> (compare-problem root dest target (:compare l)) (str "line " line ": ")))
-                      (catch Exception e
-                        ;; resolve-path names the path it checked: say dest instead
-                        (let [msg (str (ex-message e))]
-                          (if (str/starts-with? msg (str target " "))
-                            (str "line " line ": " dest (subs msg (count target)))
-                            (str "line " line ": " dest ": " msg))))))))
-           (mdlinks/links text)))))
+    (keep (fn [{:keys [line dest kind] :as l}]
+            (when (and (not= kind "ref") (mdlinks/followable? dest))
+              (let [target (if (some? dir) (str dir "/" dest) dest)]
+                (some->> (try (cond
+                                (not (.isFile (resolve-path root target false link-extensions)))
+                                (str dest " not found")
+                                (contains? l :compare)
+                                (compare-problem root dest target (:compare l)))
+                              (catch Exception e
+                                ;; resolve-path names the path it checked: say dest instead
+                                (let [msg (str (ex-message e))]
+                                  (if (str/starts-with? msg (str target " "))
+                                    (str dest (subs msg (count target)))
+                                    (str dest ": " msg)))))
+                         (vector line)))))
+          (mdlinks/links text))))
 
 (defn md-warnings
   "What is wrong with md file `rel` (root-relative, under folder `root`)
-  holding `text`, in line order: its broken links (link-warnings) and
-  the malformed questions of its slides (deck/warnings)."
+  holding `text`, one \"line N: <warning>\" each, in line order: its
+  broken links (link-warnings) and the malformed questions of its
+  slides (deck/warnings)."
   [root rel text]
-  ;; every warning opens "line N: "; sort-by is stable, so one line's keep their order
-  (vec (sort-by (fn [w] (parse-long (re-find #"\d+" w)))
-                (concat (link-warnings root rel text) (deck/warnings text)))))
+  ;; sort-by is stable: one line's warnings keep their order
+  (mapv (fn [[line w]] (str "line " line ": " w))
+        (sort-by first (concat (link-warnings root rel text) (deck/warnings text)))))
 
 (defn- md-errors
   "The /api/errors report for md file `rel`: its read error, or its

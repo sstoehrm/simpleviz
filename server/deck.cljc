@@ -25,10 +25,10 @@
           :else nil)))
 
 (defn- chunks
-  "The text's lines, split at the separators outside code fences:
-  [{:start <1-based line of its first line> :lines [...]}]."
+  "The text's lines (nil reads as \"\"), split at the separators outside
+  code fences: [{:start <1-based line of its first line> :lines [...]}]."
   [text]
-  (loop [lines (str/split (mdlinks/normalize-breaks text) #"\n" -1)
+  (loop [lines (str/split (mdlinks/normalize-breaks (str text)) #"\n" -1)
          n 1
          fence nil
          cur {:start 1 :lines []}
@@ -147,13 +147,13 @@
   "The slides of md `text`, in order: [{:text md :side path-or-nil}]."
   [text]
   (filterv (fn [s] (or (some? (:side s)) (some? (:ask s)) (not= (:text s) "")))
-           (mapv (fn [c] (first (slide (:lines c)))) (chunks (str (if (nil? text) "" text))))))
+           (mapv (fn [c] (first (slide (:lines c)))) (chunks text))))
 
 (defn warnings
   "The malformed questions of md `text`, as the page shows them on their
-  slide: one \"line N: <error>\" each, N the line of its ?? or ???."
+  slide: one [N error] each, N the line of its ?? or ???."
   [text]
   (vec (keep (fn [{:keys [start lines]}]
                (let [[s at] (slide lines)]
-                 (when-let [e (:error (:ask s))] (str "line " (+ start at) ": " e))))
-             (chunks (str (if (nil? text) "" text))))))
+                 (when-let [e (:error (:ask s))] [(+ start at) e])))
+             (chunks text))))

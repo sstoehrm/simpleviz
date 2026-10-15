@@ -31,7 +31,7 @@
 
 (defn- blank? [l] (= "" (.trim l)))
 
-(defn indent [l] (- (count l) (count (.trimStart l))))
+(defn- indent [l] (- (count l) (count (.trimStart l))))
 
 (defn- label-key
   "A reference label as definitions match it: whitespace runs collapsed,
@@ -693,7 +693,7 @@
                    (conj lis (into [:li {:id (str "fn-" label)}]
                                    (with-backref (blocks (.get (:notes ctx) label) ctx) label))))))))))
 
-(defn untab
+(defn- untab
   "Line l with tabs in its indentation as four spaces."
   [l]
   (.replace l #"^[ \t]+" (fn [ws] (.replaceAll ws "\t" "    "))))

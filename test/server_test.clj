@@ -992,8 +992,8 @@
       (is (not (.exists (java.io.File. dir "a/n-next.edn")))))))
 
 (deftest api-create-refuses-the-path-before-the-copy
-  ;; a request wrong in both ways gets the path's error, as /api/graphs
-  ;; would for that path, not "copying is not available in a comparison"
+  ;; a request wrong in both ways gets the path's error, not "copying is
+  ;; not available in a comparison" or the source's
   (with-temp-dir*
     (fn [dir]
       (suffix-tree! dir)
@@ -1001,8 +1001,17 @@
              (get (create! {:path "sub/api-next.edn" :file "new" :from "lone.edn"}) "error")))
       (is (= "n.txt is not an .edn, .png or .svg file"
              (get (create! {:path "n.txt" :file "new" :from "lone.edn"}) "error")))
+      (is (= "PNG and SVG files cannot be created"
+             (get (create! {:path "x.png" :file "new" :from "lone.edn"}) "error")))
       (is (not (.exists (java.io.File. dir "n.txt"))))
-      (is (not (.exists (java.io.File. dir "n-next.txt")))))))
+      (is (not (.exists (java.io.File. dir "n-next.txt"))))
+      (is (not (.exists (java.io.File. dir "x-next.png"))))))
+  (with-temp-dir*
+    (fn [dir]
+      (serve! (write! dir "root.edn" "{:nodes {:a nil}}"))
+      (is (= "PNG and SVG files cannot be created"
+             (get (create! {:path "x.svg" :file "new" :from "gone.edn"}) "error")))
+      (is (not (.exists (java.io.File. dir "x.svg")))))))
 
 (defn- graphs [path]
   (json/parse-string (:body (serve/handler {:uri "/api/graphs" :request-method :get

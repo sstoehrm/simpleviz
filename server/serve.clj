@@ -387,10 +387,12 @@
   original would show everything as removed. With `from` (a
   root-relative .edn, outside a comparison) it starts as a byte copy of
   that file rather than empty. Never overwrites. The path's refusals
-  (new-graph-target) come before the copy's, as on /api/graphs."
+  (new-graph-target, then a PNG or SVG name) come before the copy's."
   [{:keys [file path compare from]}]
   (try
     (let [{:keys [suffix base fk fork exists]} (new-graph-target path compare ref-extensions)
+          _ (when (export-name? base)
+              (throw (ex-info "PNG and SVG files cannot be created" {})))
           _ (when (and (some? from) (some? suffix))
               (throw (ex-info "copying is not available in a comparison" {})))
           content (if (some? from)
@@ -398,8 +400,6 @@
                     (.getBytes empty-graph "UTF-8"))
           [rel target] (if (and (some? fork) (not= file "old")) [fk fork] [path base])]
       (cond
-        (export-name? base)
-        {:error "PNG and SVG files cannot be created"}
         exists
         {:ok true :created nil}
         :else

@@ -48,8 +48,9 @@ Copy this checklist and work through it:
 ```
 
 `curl -s $URL/api/root` names the file a running server was started with
-(`{"path":"arch.edn"}`), so you can tell whether it serves the file you
-are about to write.
+and the folder it serves (`{"path":"arch.edn","dir":"/abs/served/folder"}`,
+symlinks resolved). It serves your file when `realpath <your-file>` lies
+under `dir`; that file's lock `path` is its realpath relative to `dir`.
 
 ## Data format (canonical map forms)
 

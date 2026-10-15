@@ -525,7 +525,8 @@
         (try
           (let [[_ url] (proc-util/await-line proc url-line 60000)]
             (is (some? url))
-            (is (= {"path" "notes.md"} (json/parse-string (slurp (str url "/api/root")))))
+            (is (= {"path" "notes.md" "dir" (str (fs/canonicalize tmp))}
+                   (json/parse-string (slurp (str url "/api/root")))))
             (is (= {"error" nil "warnings" ["line 1: g.edn not found"]}
                    (json/parse-string (slurp (str url "/api/errors"))))))
           (finally (p/destroy-tree proc)))))))

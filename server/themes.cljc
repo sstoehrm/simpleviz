@@ -13,11 +13,12 @@
 
 (def KEYS
   "Every theme key, in documentation order: page chrome, canvas painter,
-  compare-mode diff marks, :state marks, type colors."
+  compare-mode diff marks, highlighted code, :state marks, type colors."
   [:bg :panel :panel-border :panel-divider :text :text-strong :text-muted
    :text-dim :hover :hover-plain :accent :on-accent :shadow
    :node-fill :node-stroke :edge :arrow :sub :label :btn-fill
    :diff-added :diff-modified :diff-removed
+   :syntax-keyword :syntax-string :syntax-number :syntax-attr :syntax-comment
    :state-new :state-in-progress :state-blocked :state-done
    :node-saturation :node-lightness :box-saturation :box-lightness
    :box-fill-alpha :neutral-node-lightness :neutral-box-lightness])
@@ -31,6 +32,8 @@
    :node-fill :color :node-stroke :color :edge :color :arrow :color
    :sub :color :label :color :btn-fill :color
    :diff-added :color :diff-modified :color :diff-removed :color
+   :syntax-keyword :color :syntax-string :color :syntax-number :color
+   :syntax-attr :color :syntax-comment :color
    :state-new :color :state-in-progress :color :state-blocked :color :state-done :color
    :node-saturation :percent :node-lightness :percent
    :box-saturation :percent :box-lightness :percent
@@ -41,7 +44,8 @@
   "The keys the page mirrors into CSS custom properties, as --<key>."
   [:bg :panel :panel-border :panel-divider :text :text-strong :text-muted
    :text-dim :hover :hover-plain :accent :on-accent :shadow
-   :diff-added :diff-modified :diff-removed])
+   :diff-added :diff-modified :diff-removed
+   :syntax-keyword :syntax-string :syntax-number :syntax-attr :syntax-comment])
 
 (def THEMES
   "Name -> complete theme (every key in KEYS)."
@@ -52,6 +56,7 @@
     :node-fill "#fff" :node-stroke "#ddd" :edge "#555" :arrow "#555"
     :sub "#888" :label "#444" :btn-fill "#ffffffcc"
     :diff-added "#0ca30c" :diff-modified "#b45309" :diff-removed "#d03b3b"
+    :syntax-keyword "#d03b3b" :syntax-string "#0b9b0b" :syntax-number "#b45309" :syntax-attr "#2563eb" :syntax-comment "#6b7280"
     :state-new "#6b7280" :state-in-progress "#2563eb" :state-blocked "#d03b3b" :state-done "#0ca30c"
     :node-saturation 65 :node-lightness 38 :box-saturation 45 :box-lightness 55
     :box-fill-alpha 0.1 :neutral-node-lightness 40 :neutral-box-lightness 65}
@@ -63,6 +68,7 @@
     :node-fill "#1f2937" :node-stroke "#4b5563" :edge "#9ca3af" :arrow "#9ca3af"
     :sub "#9ca3af" :label "#d1d5db" :btn-fill "#1f2937cc"
     :diff-added "#22c55e" :diff-modified "#fab219" :diff-removed "#f87171"
+    :syntax-keyword "#f87171" :syntax-string "#22c55e" :syntax-number "#fab219" :syntax-attr "#60a5fa" :syntax-comment "#9ca3af"
     :state-new "#9ca3af" :state-in-progress "#60a5fa" :state-blocked "#f87171" :state-done "#22c55e"
     :node-saturation 65 :node-lightness 72 :box-saturation 45 :box-lightness 55
     :box-fill-alpha 0.1 :neutral-node-lightness 65 :neutral-box-lightness 65}
@@ -74,6 +80,7 @@
     :node-fill "#ffffff" :node-stroke "#666666" :edge "#333333" :arrow "#333333"
     :sub "#666666" :label "#222222" :btn-fill "#ffffffcc"
     :diff-added "#1a7f1a" :diff-modified "#a15c00" :diff-removed "#b42318"
+    :syntax-keyword "#b42318" :syntax-string "#1a7f1a" :syntax-number "#a15c00" :syntax-attr "#000000" :syntax-comment "#555555"
     :state-new "#666666" :state-in-progress "#1f4fbf" :state-blocked "#b42318" :state-done "#1a7f1a"
     :node-saturation 55 :node-lightness 30 :box-saturation 30 :box-lightness 40
     :box-fill-alpha 0 :neutral-node-lightness 25 :neutral-box-lightness 45}
@@ -85,6 +92,7 @@
     :node-fill "#ffffff" :node-stroke "#000000" :edge "#000000" :arrow "#000000"
     :sub "#333333" :label "#000000" :btn-fill "#ffffff"
     :diff-added "#007a00" :diff-modified "#b35900" :diff-removed "#cc0000"
+    :syntax-keyword "#cc0000" :syntax-string "#007a00" :syntax-number "#b35900" :syntax-attr "#0040ff" :syntax-comment "#333333"
     :state-new "#444444" :state-in-progress "#0040ff" :state-blocked "#cc0000" :state-done "#007a00"
     :node-saturation 100 :node-lightness 22 :box-saturation 100 :box-lightness 22
     :box-fill-alpha 0.08 :neutral-node-lightness 0 :neutral-box-lightness 20}
@@ -96,6 +104,7 @@
     :node-fill "#0f4474" :node-stroke "#9fd3ff" :edge "#bfe6ff" :arrow "#bfe6ff"
     :sub "#a9cbe8" :label "#e6f4ff" :btn-fill "#0f4474cc"
     :diff-added "#7ee787" :diff-modified "#ffd166" :diff-removed "#ff8a8a"
+    :syntax-keyword "#ff8a8a" :syntax-string "#7ee787" :syntax-number "#ffd166" :syntax-attr "#7fdbff" :syntax-comment "#a9cbe8"
     :state-new "#a9cbe8" :state-in-progress "#7fdbff" :state-blocked "#ff8a8a" :state-done "#7ee787"
     :node-saturation 80 :node-lightness 80 :box-saturation 60 :box-lightness 75
     :box-fill-alpha 0.12 :neutral-node-lightness 90 :neutral-box-lightness 80}
@@ -107,6 +116,7 @@
     :node-fill "#fdfaf3" :node-stroke "#cdbd9c" :edge "#6b5842" :arrow "#6b5842"
     :sub "#8a7558" :label "#4a3b2a" :btn-fill "#fdfaf3cc"
     :diff-added "#4f7a28" :diff-modified "#b0701c" :diff-removed "#a8322d"
+    :syntax-keyword "#a8322d" :syntax-string "#4f7a28" :syntax-number "#b0701c" :syntax-attr "#8b4513" :syntax-comment "#7a6650"
     :state-new "#8a7558" :state-in-progress "#3b6ea5" :state-blocked "#a8322d" :state-done "#4f7a28"
     :node-saturation 45 :node-lightness 35 :box-saturation 35 :box-lightness 42
     :box-fill-alpha 0.1 :neutral-node-lightness 35 :neutral-box-lightness 55}
@@ -119,6 +129,7 @@
     :node-fill "#fdf6e3" :node-stroke "#93a1a1" :edge "#586e75" :arrow "#586e75"
     :sub "#657b83" :label "#586e75" :btn-fill "#eee8d5cc"
     :diff-added "#859900" :diff-modified "#b58900" :diff-removed "#dc322f"
+    :syntax-keyword "#dc322f" :syntax-string "#778800" :syntax-number "#a17a00" :syntax-attr "#268bd2" :syntax-comment "#657b83"
     :state-new "#93a1a1" :state-in-progress "#268bd2" :state-blocked "#dc322f" :state-done "#859900"
     :node-saturation 70 :node-lightness 32 :box-saturation 50 :box-lightness 40
     :box-fill-alpha 0.1 :neutral-node-lightness 40 :neutral-box-lightness 60}
@@ -130,6 +141,7 @@
     :node-fill "#073642" :node-stroke "#586e75" :edge "#93a1a1" :arrow "#93a1a1"
     :sub "#839496" :label "#93a1a1" :btn-fill "#073642cc"
     :diff-added "#859900" :diff-modified "#b58900" :diff-removed "#dc322f"
+    :syntax-keyword "#e56562" :syntax-string "#859900" :syntax-number "#b58900" :syntax-attr "#2e93d9" :syntax-comment "#839496"
     :state-new "#839496" :state-in-progress "#268bd2" :state-blocked "#dc322f" :state-done "#859900"
     :node-saturation 65 :node-lightness 70 :box-saturation 45 :box-lightness 55
     :box-fill-alpha 0.12 :neutral-node-lightness 65 :neutral-box-lightness 55}
@@ -142,6 +154,7 @@
     :node-fill "#3b4252" :node-stroke "#4c566a" :edge "#81a1c1" :arrow "#81a1c1"
     :sub "#a6b0c3" :label "#e5e9f0" :btn-fill "#3b4252cc"
     :diff-added "#a3be8c" :diff-modified "#ebcb8b" :diff-removed "#bf616a"
+    :syntax-keyword "#d08c92" :syntax-string "#a3be8c" :syntax-number "#ebcb8b" :syntax-attr "#88c0d0" :syntax-comment "#a6b0c3"
     :state-new "#7b88a1" :state-in-progress "#88c0d0" :state-blocked "#bf616a" :state-done "#a3be8c"
     :node-saturation 45 :node-lightness 72 :box-saturation 35 :box-lightness 60
     :box-fill-alpha 0.12 :neutral-node-lightness 75 :neutral-box-lightness 55}
@@ -154,6 +167,7 @@
     :node-fill "#343746" :node-stroke "#6272a4" :edge "#bd93f9" :arrow "#bd93f9"
     :sub "#b6b9cc" :label "#f8f8f2" :btn-fill "#343746cc"
     :diff-added "#50fa7b" :diff-modified "#ffb86c" :diff-removed "#ff5555"
+    :syntax-keyword "#ff6666" :syntax-string "#50fa7b" :syntax-number "#ffb86c" :syntax-attr "#ff79c6" :syntax-comment "#b6b9cc"
     :state-new "#6272a4" :state-in-progress "#8be9fd" :state-blocked "#ff5555" :state-done "#50fa7b"
     :node-saturation 85 :node-lightness 75 :box-saturation 60 :box-lightness 65
     :box-fill-alpha 0.12 :neutral-node-lightness 85 :neutral-box-lightness 60}
@@ -166,6 +180,7 @@
     :node-fill "#202020" :node-stroke "#525253" :edge "#9da0a5" :arrow "#9da0a5"
     :sub "#b6b8bb" :label "#dfdfe0" :btn-fill "#202020cc"
     :diff-added "#25be6a" :diff-modified "#be95ff" :diff-removed "#ee5396"
+    :syntax-keyword "#ee5396" :syntax-string "#25be6a" :syntax-number "#be95ff" :syntax-attr "#78a9ff" :syntax-comment "#b6b8bb"
     :state-new "#7b7c7e" :state-in-progress "#78a9ff" :state-blocked "#ee5396" :state-done "#25be6a"
     :node-saturation 90 :node-lightness 74 :box-saturation 55 :box-lightness 62
     :box-fill-alpha 0.12 :neutral-node-lightness 80 :neutral-box-lightness 55}
@@ -178,6 +193,7 @@
     :node-fill "#21252b" :node-stroke "#3e4451" :edge "#828997" :arrow "#828997"
     :sub "#828997" :label "#abb2bf" :btn-fill "#21252bcc"
     :diff-added "#98c379" :diff-modified "#e5c07b" :diff-removed "#e06c75"
+    :syntax-keyword "#e06c75" :syntax-string "#98c379" :syntax-number "#e5c07b" :syntax-attr "#61afef" :syntax-comment "#828997"
     :state-new "#5c6370" :state-in-progress "#61afef" :state-blocked "#e06c75" :state-done "#98c379"
     :node-saturation 60 :node-lightness 68 :box-saturation 45 :box-lightness 58
     :box-fill-alpha 0.12 :neutral-node-lightness 70 :neutral-box-lightness 50}
@@ -191,6 +207,7 @@
     :node-fill "#edd9ca" :node-stroke "#d4bfaf" :edge "#7a6b62" :arrow "#7a6b62"
     :sub "#7a6b62" :label "#4f473f" :btn-fill "#edd9cacc"
     :diff-added "#217813" :diff-modified "#bd8400" :diff-removed "#d44a4a"
+    :syntax-keyword "#c12e2e" :syntax-string "#217813" :syntax-number "#895f00" :syntax-attr "#c12e2e" :syntax-comment "#72645c"
     :state-new "#7a6b62" :state-in-progress "#129cc4" :state-blocked "#d44a4a" :state-done "#217813"
     :node-saturation 60 :node-lightness 32 :box-saturation 45 :box-lightness 40
     :box-fill-alpha 0.1 :neutral-node-lightness 30 :neutral-box-lightness 45}
@@ -202,6 +219,7 @@
     :node-fill "#2e2926" :node-stroke "#524943" :edge "#aaa89c" :arrow "#aaa89c"
     :sub "#aaa89c" :label "#dcd8ca" :btn-fill "#2e2926cc"
     :diff-added "#7f9f7f" :diff-modified "#ebdda9" :diff-removed "#cc8383"
+    :syntax-keyword "#cf8b8b" :syntax-string "#86a486" :syntax-number "#ebdda9" :syntax-attr "#cf8b8b" :syntax-comment "#aaa89c"
     :state-new "#aaa89c" :state-in-progress "#8dacb5" :state-blocked "#cc8383" :state-done "#7f9f7f"
     :node-saturation 35 :node-lightness 72 :box-saturation 30 :box-lightness 62
     :box-fill-alpha 0.1 :neutral-node-lightness 75 :neutral-box-lightness 60}})

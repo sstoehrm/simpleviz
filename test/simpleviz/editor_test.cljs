@@ -10,7 +10,7 @@
                                       add-node-in-box-ops box-remove-op
                                       name->id derived-id named-edge-ops creation-ops parse-entry
                                       parse-nav nav-query follow-url crumb-url ref-of banner-visible?
-                                      theme-menu top-box-of load-readiness export-readiness
+                                      theme-menu top-box-of load-readiness export-readiness layout-landing
                                       md-target from-disk to-disk md-dirty? adopt-doc gone-doc poll-outcome save-result
                                       parent-box split-parent doc-kind link-target line-markers link-title
                                       with-side with-slide mark-open? with-compare follow-compare
@@ -415,6 +415,28 @@
       (assert/equal (:error (export-readiness (assoc base :notice "Render error: ELK blew up")))
                     "Render error: ELK blew up")
       (assert/equal (:ready (export-readiness (assoc base :notice "PNG side is read-only"))) true))))
+
+(test "layout-landing: the newest run shows, an overtaken one only caches"
+  ;; layouts run off the page's thread, so a reload or a box toggle can
+  ;; start a run while another is in flight; runs finish in order
+  (fn []
+    (let [now {:gen 2 :seq 5 :key "a"}]
+      (assert/deepEqual (layout-landing {:gen 2 :seq 5 :key "a"} now)
+                        {:cache true :show true :idle true})
+      ;; a box toggled meanwhile: keep it for that set, the newer run
+      ;; owns the indicator
+      (assert/deepEqual (layout-landing {:gen 2 :seq 4 :key "b"} now)
+                        {:cache true :show false :idle false})
+      ;; started again for the same set: the newer run shows it
+      (assert/deepEqual (layout-landing {:gen 2 :seq 4 :key "a"} now)
+                        {:cache true :show false :idle false})
+      ;; the file changed meanwhile: a stale layout, kept nowhere
+      (assert/deepEqual (layout-landing {:gen 1 :seq 4 :key "a"} now)
+                        {:cache false :show false :idle false})
+      ;; ... and no newer run followed (the page went to an md page):
+      ;; nothing shows, but the indicator must not stay
+      (assert/deepEqual (layout-landing {:gen 1 :seq 5 :key "a"} now)
+                        {:cache false :show false :idle true}))))
 
 (test "md-target resolves the selection's :md-ref against the graph file"
   (fn []

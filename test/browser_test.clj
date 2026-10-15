@@ -563,6 +563,26 @@
                  " key(ta, 'G'); const end = ta.scrollTop >= ta.scrollHeight - ta.clientHeight - 2;"
                  " key(ta, 'g'); key(ta, 'g'); ok({end, top: ta.scrollTop}); }, 50); })"))))))
 
+(deftest the-layouting-indicator-shows-while-elk-runs
+  ;; the page lays out in its ELK worker — it holds no engine of its
+  ;; own; a re-layout shows the indicator until the new layout is there
+  (with-real-browser
+    (is (= {:worker true :indicator ["+" "-"] :layouting false}
+           (eval-on-served-page
+            path "g.edn" "{:nodes {:a {} :b {}} :edges {[:a :b] {:direction :->}}}"
+            (str "(async () => {"
+                 " const sleep = ms => new Promise(res => setTimeout(res, ms));"
+                 " const app = await import('/js/simpleviz/app.mjs');"
+                 " for (let i = 0; i < 100 && !app.state.val.scene; i++) await sleep(100);"
+                 " const seen = [];"
+                 " new MutationObserver(() => { const has = !!document.getElementById('layouting');"
+                 "   if (seen[seen.length - 1] !== (has ? '+' : '-')) seen.push(has ? '+' : '-'); })"
+                 "   .observe(document.body, {childList: true, subtree: true});"
+                 " await app.relayout_BANG_(true); await sleep(100);"
+                 " const worker = performance.getEntriesByType('resource').some(e => e.name.endsWith('/vendor/elk-worker.min.js'));"
+                 " return {worker, indicator: seen, layouting: app.state.val.layouting};"
+                 "})()"))))))
+
 (deftest vi-line-moves-keep-the-caret-line-at-the-edge-of-the-view
   ;; once the gutter has measured the text, k and j lay out only the
   ;; caret's line: scrolling up puts that line at the view's top edge,

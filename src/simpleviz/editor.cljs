@@ -773,3 +773,17 @@
              (zero? (.-size (:collapsed-boxes st)))) {:ready true}
         (and (nil? (:scene st)) (some? (:error st))) {:error (:error st)}
         :else nil))
+
+(defn layout-landing
+  "What a finished layout run may do, given what it started under, `run`,
+  and what holds now, `now` — each {:gen the graph generation :seq the
+  run's number :key its collapsed set}: :cache its layout (the graph is
+  still the one it laid out), :show it (also the newest run, for the set
+  shown) and let the layouting indicator go, :idle (the newest run is
+  done; an older one finishing leaves the indicator to the newer)."
+  [run now]
+  (let [same-graph (= (:gen run) (:gen now))
+        newest (= (:seq run) (:seq now))]
+    {:cache same-graph
+     :show (and same-graph newest (= (:key run) (:key now)))
+     :idle newest}))

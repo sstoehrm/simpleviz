@@ -77,7 +77,7 @@ Built-in themes: `light` and `dark` (the two the OS setting picks from),
 | page | `:bg :panel :panel-border :panel-divider :text :text-strong :text-muted :text-dim :hover :hover-plain :accent :on-accent :shadow` |
 | canvas | `:node-fill :node-stroke :edge :arrow :sub` (the `(type)` line) `:label` (edge labels) `:btn-fill` (box header button) |
 | compare | `:diff-added :diff-modified :diff-removed` |
-| code | `:syntax-keyword :syntax-string :syntax-number :syntax-attr :syntax-comment` (highlighted code blocks in md docs) |
+| code | `:syntax-keyword :syntax-string :syntax-number :syntax-attr :syntax-comment` (highlighted code blocks in md docs: `:syntax-keyword` also colors tags and removed diff lines, `:syntax-string` added diff lines, `:syntax-number` literals, `:syntax-comment` diff headers and doctypes) |
 | `:state` marks | `:state-new :state-in-progress :state-blocked :state-done` |
 | type colors | `:node-saturation :node-lightness :box-saturation :box-lightness :neutral-node-lightness :neutral-box-lightness` (0–100), `:box-fill-alpha` (0–1) |
 

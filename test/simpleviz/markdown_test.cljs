@@ -57,10 +57,23 @@
 
 (test "fenced code keeps its text verbatim"
   (fn []
-    (assert/deepEqual (md "```clojure\n(+ 1 2)\n\n# no heading\n```\nafter")
+    (assert/deepEqual (md "```foo\n(+ 1 2)\n\n# no heading\n```\nafter")
                       [[:pre [:code "(+ 1 2)\n\n# no heading"]] [:p "after"]])
     (assert/deepEqual (md "~~~\n```\n~~~") [[:pre [:code "```"]]])
     (assert/deepEqual (md "```\nopen to the end") [[:pre [:code "open to the end"]]])))
+
+(test "fenced code in a known language is highlighted, by the info string's first word"
+  (fn []
+    (assert/deepEqual (md "```clojure\n(+ 1 nil)\n```")
+                      [[:pre [:code {:class "language-clojure"}
+                              "(+ " [:span {:class "hl-number"} "1"] " "
+                              [:span {:class "hl-literal"} "nil"] ")"]]])
+    (assert/deepEqual (md "~~~JS title=x\nnull\n~~~")
+                      [[:pre [:code {:class "language-js"} [:span {:class "hl-literal"} "null"]]]])
+    (assert/deepEqual (md "    nil") [[:pre [:code "nil"]]])
+    (let [hl [:pre [:code {:class "language-js"} [:span {:class "hl-literal"} "null"]]]]
+      (assert/deepEqual (md "> ```js\n> null\n> ```") [[:blockquote hl]])
+      (assert/deepEqual (md "- a\n\n  ```js\n  null\n  ```") [[:ul [:li [:p "a"] hl]]]))))
 
 (test "indented code, its blank lines inside kept"
   (fn []

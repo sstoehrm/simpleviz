@@ -300,6 +300,15 @@ understand too:
   code blocks and `code spans`; anything else — raw HTML, emoji
   shortcodes, `==highlight==` — shows as written. Web links open in a
   new tab.
+- A fenced code block is highlighted, in the theme's colors, when the
+  first word after its opening fence names one of these languages (any
+  case): `clojure` `clj` `cljs` `cljc` `edn`, `bash` `sh` `shell` `zsh`
+  `console`, `python` `py`, `yaml` `yml`, `toml`, `dockerfile` `docker`,
+  `javascript` `js` `jsx` `mjs`, `typescript` `ts` `tsx`, `java`, `go`
+  `golang`, `rust` `rs`, `c` `h` `cpp` `c++`, `csharp` `cs` `c#`, `kotlin`
+  `kt`, `json` `jsonc`, `sql`, `diff` `patch`, `html` `xml` `svg` and
+  `css`. Any other language, or none, shows plain. The plain text editor
+  stays plain.
 - An image shows as the picture: a `.png`, `.svg`, `.jpg`, `.jpeg`,
   `.gif` or `.webp` of the served folder, or a web URL. An exported
   graph is also its link: a click opens it beside the text.

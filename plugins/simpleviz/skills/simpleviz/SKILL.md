@@ -1,6 +1,6 @@
 ---
 name: simpleviz
-description: Writes and checks simpleviz files — EDN graphs of nodes, edges and nested boxes, and markdown docs and slide decks that link them — and serves, compares, exports and presents them with the simpleviz CLI. Use when creating or editing simpleviz graph EDN files or md docs and decks that link graphs, visualizing an architecture or system diagram with simpleviz, or serving, forking and comparing graphs (bb serve, the simpleviz launcher, nodes/edges/boxes .edn files, exported PNGs/SVGs with embedded EDN).
+description: Writes and checks simpleviz files — EDN graphs of nodes, edges and nested boxes, and markdown docs around them: slide decks, quiz and poll questions on slides, and tables that calculate (formulas, also over CSV, JSON or EDN data) — and serves, compares, exports and presents them with the simpleviz CLI. Use when creating or editing simpleviz graph EDN files or md docs, decks, quizzes or calculated tables; visualizing an architecture or system diagram with simpleviz; making a talk, quiz or poll for a team, or a doc table that sums or summarises data, where simpleviz is in use; showing a proposed change as a before/after; or serving, forking and comparing graphs (bb serve, the simpleviz launcher, nodes/edges/boxes .edn files, exported PNGs/SVGs with embedded EDN).
 ---
 
 # simpleviz
@@ -10,6 +10,19 @@ EDN file of nodes, edges and nested boxes; an md file explains graphs and
 presents as slides. `simpleviz` serves either as a page in the browser that
 reloads while the files change.
 
+What you can make — offer these when a user asks what simpleviz can do:
+- **Diagrams**: a graph, laid out automatically; linked graphs (`:ref`,
+  `:pair`), progress marks (`:state`), a proposed change compared with
+  its fork. See Data format, Proposing a change.
+- **Docs**: an md file whose links open graphs beside the text. See Md
+  files.
+- **Presentations**: the same md file as slides, a graph, doc or picture
+  beside a slide. See Slides.
+- **Quizzes and polls**: a slide that asks a question, the answers saved
+  for you to read. See Quizzes.
+- **Tables that calculate**: formulas in md tables, formatted and
+  coloured cells, totals over a CSV, JSON or EDN file. See Tables.
+
 Terms used below: a *graph* is an EDN file, an *md file* a markdown doc,
 *the page* what the browser shows (its *inspector* lists a clicked
 element's attributes), the *served folder* the folder of the
@@ -18,7 +31,10 @@ file simpleviz was started with.
 ## Contents
 - Writing a graph or md file: the checklist
 - Data format: example, shapes that are easy to get wrong, attributes
-- Md files and slides
+- Md files
+- Slides
+- Quizzes
+- Tables
 - Checking
 - Running
 - Proposing a change: fork and compare
@@ -141,48 +157,165 @@ Attributes simpleviz reads:
 Paths in `:ref`, `:md-ref`, `:pair` and md links are relative to the file
 they are in and never reach above the served folder.
 
-## Md files and slides
+## Md files
 
 An md file is served like a graph (`simpleviz notes.md --no-open`) and
 opens rendered as GitHub markdown (headings, lists, task lists, tables,
-footnotes, code, images; no raw HTML). Use it as the entry point that
-explains a set of graphs. A fenced block whose opening fence names its
-language (`clojure`, `bash`, `sql`, `json`, `html` …) is highlighted; the
-guide lists them.
+footnotes `[^1]`, code, images; no raw HTML). Use it as the entry point
+that explains a set of graphs. A fenced block whose opening fence names
+its language is highlighted: `clojure`/`edn`, `bash`/`sh`, `python`,
+`yaml`, `toml`, `dockerfile`, `javascript`, `typescript`, `java`, `go`,
+`rust`, `c`/`cpp`, `csharp`, `kotlin`, `json`, `sql`, `diff`,
+`html`/`xml`/`svg`, `css`; any other shows plain.
 
 - Ordinary links follow in the page: `[text](sub/api.edn)`,
   `[text](other.md)`, `![x](diagram.png)`, reference links. A graph opens
-  to the right of the text.
-- Slides: a line of just `---` starts the next slide; the text before the
-  first `---` is the first slide. A slide whose first
-  line is `>> [the API](sub/api.edn)` shows that graph — or an md file, or
-  a picture (`>> ![alt](pic.png)`) — beside its text. Write talks this way;
-  `simpleviz init talk.md -t presentation` writes a starter deck and its
-  graph.
-- Questions: a slide whose first line is `?? name` (a name such as
-  `cache-policy`) asks one. Its task list is the 2 to 4 choices: `- [x]`
-  a right one, `- [ ]` the others; no `[x]` at all makes it a poll. Lines
-  indented two or more spaces under a choice explain it. The slide's other
-  text shows above the choices. `?? name` takes an answer any time;
-  `??? name` waits for Submit before the deck goes on, then marks the right
-  choice and shows the explanation of the picked one only — put what
-  everyone should read in the slide text. `>>` and `??` may share a
-  slide's first lines. Without a name or with the wrong number of choices,
-  the slide says so and shows the list as text, and `simpleviz check`
-  reports it.
-- Answers land in `talk.answers.edn` beside `talk.md` as
-  `{"name" {:answer "choice text" :num 0-based-index}}`. Read it to react,
-  e.g. append the next slide (the presented text follows the file).
-  Presenting again starts from that file; delete it to ask again.
+  to the right of the text; an md file opens in its place. Images: `.png`
+  `.svg` `.jpg` `.jpeg` `.gif` `.webp` of the served folder, or a web URL;
+  an exported graph also opens beside the text on a click.
 - `?compare=<suffix>` on a link to a graph (`[the change](sub/api.edn?compare=next)`,
   also after `>>`) shows it compared with its fork `sub/api-next.edn`, as
   `simpleviz sub/api.edn next` would. Refs followed inside stay compared;
   the file's other links stay plain. Use it to show a proposed change in a
   doc or talk.
-- `simpleviz check notes.md` lists broken links: `line N: <dest> not found`
-  or `leaves the served folder`, and for `?compare=` a missing fork or
-  invalid suffix. It lists malformed questions too: `line N: ?? storage
-  takes 2 to 4 choices, - [ ] lines; it has 1`, or a `??` without a name.
+- `simpleviz check notes.md` lists broken links and images: `line N:
+  <dest> not found` or `leaves the served folder`, and for `?compare=` a
+  missing fork or invalid suffix. It lists malformed questions too (see
+  Quizzes).
+
+## Slides
+
+Any md file is also a deck: Present (top right of the page) shows it
+one slide at a time. Write talks this way; `simpleviz init talk.md -t
+presentation` writes a starter deck and its graph.
+
+```markdown
+# Checkout
+## how an order flows
+the platform team
+
+---
+>> [the flow](checkout.edn)
+# The flow
+
+- the API validates, the worker charges
+---
+>> [the change](checkout.edn?compare=queue)
+# With a queue
+```
+
+- A line of just `---` starts the next slide (not inside a code block);
+  the text before the first `---` is the first slide. The first slide
+  is a centered title slide unless it has a `>>`. Empty slides are
+  dropped.
+- A slide whose first line is `>> [text](path)` shows that graph (`.edn`,
+  or an exported `.png`/`.svg`), md file or picture (`>> ![alt](pic.png)`)
+  to the right of its text — the slide's other lines.
+- Keys: → ↓ space Page Down forward, ← ↑ Page Up back, Home and End the
+  first and last slide, Esc leaves. The URL keeps the slide (`?slide=3`),
+  and `$URL/?slide=1` opens the deck presenting: give the user that link
+  to start a talk. The text follows the file while presenting, so you can
+  append slides.
+- A graph beside a slide can be hovered, inspected, panned, zoomed and
+  collapsed, but not edited; refs and pairs don't follow.
+- There is no deck export (PDF, per-slide images); export the graphs.
+
+## Quizzes
+
+A slide whose first line is `?? name` (a name such as `cache-policy`)
+asks a question; `simpleviz demo` brings `quiz.md` with every kind.
+
+```markdown
+---
+>> [the architecture](arch.edn)
+??? storage
+# Where should session state live?
+
+- [ ] In each node's memory
+  Gone on restart, and the other nodes never see it.
+- [x] In Redis, shared by all nodes
+  Right: every node reads the same session.
+---
+?? mood
+# How clear was the walkthrough?
+
+- [ ] Clear
+- [ ] Some gaps
+- [ ] Lost me
+```
+
+- The task list is the 2 to 4 choices: `- [x]` a right one, `- [ ]` the
+  others; no `[x]` at all makes it a poll. Lines indented two or more
+  spaces under a choice explain it. The slide's other text shows above
+  the choices.
+- `?? name` takes a click any time, and a new click changes the answer.
+  `??? name` waits for Submit before the deck goes on, then locks the
+  answer, marks the right choice and shows the explanation of the
+  picked one only — put what everyone should read in the slide text.
+- `>>` and `??` may share a slide's first lines, in either order.
+- Answers land in `talk.answers.edn` beside `talk.md` as
+  `{"name" {:answer "choice text" :num 0-based-index}}`: one answer per
+  question, the last one given — the presenter's click (say, the room's
+  vote), not one per person. Read it to react, e.g. append the next
+  slide. Presenting again starts from that file; delete it to ask again.
+- Without a name or with the wrong number of choices the slide says so
+  and shows the list as text; `simpleviz check` reports it: `line N: ??
+  storage takes 2 to 4 choices, - [ ] lines; it has 1`.
+
+## Tables
+
+A GitHub table in an md file calculates: a body cell starting with `=(`
+is a formula, plain Clojure; the page shows its result, the formula on
+hover. A ```` ```simpleviz-table ```` block right above the table
+formats its cells, and the page hides it.
+
+````markdown
+```simpleviz-table
+[:b] (fn [v _] (if (> v 500) {:color "red" :text (str v " €")} (str v " €")))
+```
+
+| service | cost |
+|---------|-----:|
+| compute | 620  |
+| storage | 140  |
+| total   | =(sum :b) |
+````
+
+- Columns are letters (`:a` … `:z`, `:aa`), rows the body rows from 1.
+  A range is a column, then no row (all of it), one row, or a first and
+  a last row, flat: `(sum :a 4 8 :b 1 4)`. `sum`, `avg`, `count`, `min`,
+  `max` and `table` (the values, a vector) take ranges and count only the
+  numbers. Formula cells are in no range, so a totals row can sum its
+  column. Everything else is plain Clojure: `(format "%.2f" (avg :b))`.
+- A cell's value is its number, else its text. The block's pairs are a
+  range and a fn, run top to bottom on each covered cell's value (a
+  formula's result too) and its place `{:row :col :raw}`; a fn may take
+  only the value. A string or number returned is what the cell shows and
+  what the next fn gets; a map colours it (`:color`, `:background`,
+  `:border`; `:text` replaces the value). Formulas see the plain values.
+- Over a data file: the block starts with `>> [sales](data/sales.csv)`
+  (`.csv`, `.jsonl`, `.json` or `.edn`; relative to the md file), then
+  for json, jsonl and edn `>> [:item :qty [:price :net]]`, its fields (a
+  csv's header names them; fields pick by name, `>> ["item" "qty"]`).
+  Formulas then address the data: columns the fields in order, rows the
+  records; `(rows)` is every record as a map `{:a "tea" :b 2}`. No record
+  shows by itself — each cell you want is a formula:
+
+  ````markdown
+  ```simpleviz-table
+  >> [invoices](invoices.csv)
+  ```
+
+  | what     | value |
+  |----------|------:|
+  | invoices | =(count (rows)) |
+  | total    | =(sum :c) |
+  ````
+
+- Formulas run in a sandbox (SCI: no files, network or interop), a
+  second each. A failing formula shows its error in its cell.
+  `simpleviz check` does not run formulas: serve the file and look, or
+  read the cells in the page.
 
 ## Checking
 

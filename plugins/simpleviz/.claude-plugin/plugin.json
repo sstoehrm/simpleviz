@@ -1,6 +1,6 @@
 {
   "name": "simpleviz",
-  "version": "0.45.0",
+  "version": "0.45.1",
   "description": "Teaches Claude simpleviz: EDN graphs (nodes, edges, boxes) and the markdown docs and slides around them, and how to serve, compare and present them",
   "author": {
     "name": "Sören Stöhrmann",

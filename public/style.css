@@ -38,6 +38,10 @@ body { margin: 0; font-family: system-ui, sans-serif; overflow: hidden;
 /* #root sits inside #canvas-wrap (see index.html), so cursor inherits
    down from here to #canvas rather than needing a rule on the wrap. */
 #root.picking { cursor: crosshair; }
+/* over a node, edge or box: it can be clicked — the modes keep theirs */
+#canvas.over-item { cursor: pointer; }
+#root.picking #canvas.over-item { cursor: crosshair; }
+#root.arranging #canvas.over-item { cursor: move; }
 
 #pick-hint { position: fixed; bottom: 70px; left: 50%; transform: translateX(-50%);
              z-index: 8; background: var(--accent); color: var(--on-accent); border-radius: 12px;

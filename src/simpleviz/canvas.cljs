@@ -577,6 +577,7 @@
                 element (when-let [f @drag-hook]
                           (f (/ (- (.-clientX e) (.-left rect) (:x view)) k)
                              (/ (- (.-clientY e) (.-top rect) (:y view)) k)))]
+            (.add (.-classList wrap) "dragging")
             (reset! drag {:x (.-clientX e) :y (.-clientY e)
                           :vx (:x view) :vy (:y view) :moved false
                           :pointer-id (.-pointerId e)
@@ -602,10 +603,12 @@
       (fn [_]
         (let [d @drag]
           (reset! drag nil)
+          (.remove (.-classList wrap) "dragging")
           (when (and (some? (:element d)) (:moved d)) ((:end (:element d)))))))
     (.addEventListener wrap "pointercancel"
       (fn [_]
         (let [d @drag]
           (reset! drag nil)
+          (.remove (.-classList wrap) "dragging")
           (when (and (some? (:element d)) (:moved d)) ((:cancel (:element d))))))))
   (.addEventListener js/window "resize" (fn [_] (request-paint!))))

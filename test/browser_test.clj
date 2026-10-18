@@ -470,17 +470,32 @@
 (deftest the-cursor-points-at-what-can-be-clicked
   ;; the one node sits at the canvas's centre once laid out; a corner is empty
   (with-real-browser
-    (is (= {:node "pointer" :empty "grab"}
+    (is (= {:node "pointer" :empty "grab" :panning "grabbing" :released "grab"}
            (eval-on-served-page
             path "g.edn" "{:nodes {:a {}}}"
             (str "new Promise(ok => { const t = setInterval(() => {"
                  " const c = document.getElementById('canvas'); if (!c) return;"
                  " const r = c.getBoundingClientRect();"
-                 " const hover = (x, y) => { c.dispatchEvent(new PointerEvent('pointermove', {clientX: x, clientY: y, bubbles: true}));"
+                 " const send = (type, x, y) => { c.dispatchEvent(new PointerEvent(type, {clientX: x, clientY: y, bubbles: true}));"
                  "  return getComputedStyle(c).cursor; };"
-                 " const node = hover(r.left + r.width / 2, r.top + r.height / 2);"
+                 " const node = send('pointermove', r.left + r.width / 2, r.top + r.height / 2);"
                  " if (node !== 'pointer') return; clearInterval(t);"
-                 " ok({node, empty: hover(r.left + 2, r.top + 2)}); }, 50); })"))))))
+                 " const empty = send('pointermove', r.left + 2, r.top + 2);"
+                 " const panning = send('pointerdown', r.left + 2, r.top + 2);"
+                 " ok({node, empty, panning, released: send('pointerup', r.left + 2, r.top + 2)}); }, 50); })"))))))
+
+(deftest doc-text-has-the-text-cursor
+  ;; the doc sits inside #canvas-wrap; the canvas's grab hand stays the
+  ;; canvas's, even while the text is pressed to select it
+  (with-real-browser
+    (is (= {:text "auto" :pressed "auto"}
+           (eval-on-served-page
+            path "notes.md" "# Notes\n\nsome text\n"
+            (str "new Promise(ok => { const t = setInterval(() => {"
+                 " const p = document.querySelector('#md-view p'); if (!p) return; clearInterval(t);"
+                 " const text = getComputedStyle(p).cursor;"
+                 " p.dispatchEvent(new PointerEvent('pointerdown', {bubbles: true}));"
+                 " ok({text, pressed: getComputedStyle(p).cursor}); }, 50); })"))))))
 
 (deftest your-theme-outlives-the-port
   ;; localStorage is per origin and every run picks a random port: the

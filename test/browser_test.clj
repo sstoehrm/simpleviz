@@ -467,6 +467,21 @@
                  " document.dispatchEvent(new KeyboardEvent('keydown', {key: '?', bubbles: true}));"
                  " setTimeout(() => ok({help: !!document.getElementById('help-panel'), errors}), 200); }, 50); })"))))))
 
+(deftest the-cursor-points-at-what-can-be-clicked
+  ;; the one node sits at the canvas's centre once laid out; a corner is empty
+  (with-real-browser
+    (is (= {:node "pointer" :empty "grab"}
+           (eval-on-served-page
+            path "g.edn" "{:nodes {:a {}}}"
+            (str "new Promise(ok => { const t = setInterval(() => {"
+                 " const c = document.getElementById('canvas'); if (!c) return;"
+                 " const r = c.getBoundingClientRect();"
+                 " const hover = (x, y) => { c.dispatchEvent(new PointerEvent('pointermove', {clientX: x, clientY: y, bubbles: true}));"
+                 "  return getComputedStyle(c).cursor; };"
+                 " const node = hover(r.left + r.width / 2, r.top + r.height / 2);"
+                 " if (node !== 'pointer') return; clearInterval(t);"
+                 " ok({node, empty: hover(r.left + 2, r.top + 2)}); }, 50); })"))))))
+
 (deftest your-theme-outlives-the-port
   ;; localStorage is per origin and every run picks a random port: the
   ;; choice has to live on the server

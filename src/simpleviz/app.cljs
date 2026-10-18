@@ -968,6 +968,12 @@
                                          (- (.-clientY e) (.-top rect)))
                     (/ 8 k) k))))
 
+(defn- set-over-item!
+  "Mark the canvas as under the pointer's clickable item (the pointer
+  cursor) or not (the mode's cursor, see style.css)."
+  [canvas on?]
+  (.toggle (.-classList canvas) "over-item" on?))
+
 (defn- update-hover!
   "Show the hovered element's name and attrs in the tooltip. Direct DOM
   writes: no state, no re-render of the app; the tip is rebuilt only
@@ -977,6 +983,7 @@
         ;; tooltip-item is set only while the tip shows it
         same? (and (some? item) (identical? item @tooltip-item))
         tip (when-not same? (hit/hover-tip item))]
+    (set-over-item! (.-currentTarget e) (some? item))
     (cond
       same? (place-tooltip! (.-clientX e) (.-clientY e))
       (some? tip) (do (reset! tooltip-item item)
@@ -992,9 +999,12 @@
     (fn [e]
       ;; a held button is a pan or a click in progress — no tooltip then
       (if (pos? (.-buttons e))
-        (hide-tooltip!)
+        (do (set-over-item! (.-currentTarget e) false)
+            (hide-tooltip!))
         (update-hover! e)))
-    :on-pointerleave (fn [_] (hide-tooltip!))
+    :on-pointerleave (fn [e]
+                       (set-over-item! (.-currentTarget e) false)
+                       (hide-tooltip!))
     :on-click
     (fn [e]
       ;; drag-ending clicks never arrive here: pointer capture (acquired

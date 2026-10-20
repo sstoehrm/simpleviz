@@ -32,6 +32,18 @@ status rings/ghosting and the roll-up dot (`canvas.cljs`), roll-up of
 hidden changes into collapsed boxes (`prune.cljs`), legend and inspector
 changes section (`app.cljs`). Single-file responses carry no diff keys.
 
+A graph's `:steps` (`server/steps.clj`, on
+[editscript](https://github.com/juji-io/editscript)) are read in
+`serve/parse-graph`: every state is normalized on its own and the payload
+carries them as `:steps [{:name :edits :graph}]`, the top level staying
+the file as written. `/api/edit` and `/api/copy` take a `:step`: ops then
+run on that state's EDN text and the step's `:edits` become the diff from
+the state before. The page keeps one layout cache per step, seeds a
+step's first layout from the one shown, and animates between scenes
+(`tween.cljs`, painted through `canvas/start-tween!`). `?steps=a,b`
+on `/api/graph` diffs state a with state b through `diff/union`, the
+fork comparison's code, into a read-only union graph.
+
 Rendering: HTML5 canvas (HiDPI) fed by a pure scene list; layout by vendored
 [ELK.js](https://github.com/kieler/elkjs) (layered, left-to-right, compound
 boxes, ELK-placed edge labels). ELK runs in a Web Worker

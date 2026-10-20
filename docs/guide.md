@@ -16,6 +16,10 @@ The [Diagrams](diagrams.md#data-format) example shows every attribute simpleviz 
   under a box's header (not while the box is collapsed). A string breaks at
   `\n`; a vector of strings gives one line each. Lines wrap at about 220 px,
   and the element grows to fit.
+- `:highlight true` on a node, box or edge draws a thin ring round it in the
+  theme's accent color, to point at it — in a step, it fades in and out
+  with the step's animation. `false`, or none, draws it as usual; any
+  other value warns and is ignored.
 - `:state` — `:new`, `:in-progress`, `:blocked` or `:done` — puts a mark on
   the node's top-right corner: grey disc, blue half disc, red square, green
   disc with a check. Any other value is an ordinary attribute.
@@ -31,6 +35,8 @@ The [Diagrams](diagrams.md#data-format) example shows every attribute simpleviz 
   20 px cells (see [Manual layout](#manual-layout)). The page writes it
   when you drag.
 - `:theme` at the top level sets the graph's colors (see [Themes](#themes)).
+- `:steps` at the top level lists states of the graph, each a change of
+  the one before (see [Steps](#steps)).
 - An edge's key is its endpoints, nodes or boxes, in left/right order.
   Writing both `[:a :b]` and `[:b :a]` warns "same connection". An edge
   between a box and its own content, or a box and itself, is skipped with a
@@ -226,6 +232,58 @@ things yourself, press **✥** (top right):
   that isn't two whole numbers, warns and is ignored. Moving an element
   is an edit like any other, so a comparison marks it modified. Arranging
   needs an editable file and isn't offered while comparing.
+
+## Steps
+
+`:steps` turns one graph into a sequence of states — how a system grows,
+a migration, a request moving through it. Each step is an
+[editscript](https://github.com/juji-io/editscript) edit vector applied
+to the state before it; the file as written is the start:
+
+    {:nodes {:api {:name "API"} :db {:type "database"}}
+     :edges {[:api :db] {:direction :->}}
+     :steps [{:name "add a cache"
+              :edits [[[:nodes :cache] :+ {:type "cache"}]
+                      [[:edges [:api :cache]] :+ {:direction :<->}]]}
+             {:name "rename the API"
+              :edits [[[:nodes :api :name] :r "Gateway"]]}]}
+
+An edit is `[path op value]`: the path walks the graph like `get-in`
+(an edge by its key, a box member by its id), op is `:+` add, `:-`
+remove (no value) or `:r` replace. `simpleviz demo` brings `steps.edn`.
+
+- **Steps** (bottom left of the page) lists them: click one, or ◂ ▸, to
+  show that state. The page animates the change — what stays moves to
+  its new place, what goes fades out, what comes fades in — and a step
+  shown the first time is laid out from the one shown, so what stays
+  stays put.
+- **+** adds an empty step after the one shown, and shows it. While a
+  step shows, every edit in the page — the inspector, the toolbar, the
+  chords, paste, ✥ — changes that step: the page stores the diff from
+  the state before as its `:edits`. The steps after it keep their edits
+  and build on the changed state. The start is the file as written, as
+  before. The theme always belongs to the file.
+- Below the list, the step shown has its name (Enter saves it),
+  **edits** — its edit vector as text, saved with Save or Ctrl+Enter,
+  refused when it does not apply — and **delete**.
+- **compare with** (under the list) compares the step shown with
+  another: the graph shows what changes from that step (old, its entry
+  dashed) to the one shown (new), styled like
+  [a comparison with a fork](#comparing-two-versions) — rings, the
+  legend with its counts, the old → new list in the inspector. Clicking
+  a step compares it instead; × stops. Either can come first, so
+  comparing a later step with an earlier one shows what it takes back.
+  A comparison is read-only. `/api/graph?steps=0,3` answers the same
+  union graph.
+- Presenting a deck, a graph with steps shows **◂ · Next ▸** at the
+  bottom right: each step animates in and the view fits the graph. The
+  arrow keys still step through the slides.
+- A step that does not apply — its path names something that isn't
+  there, its `:edits` is no edit vector — warns and leaves the state as
+  it was, and `simpleviz check` reports it. Editing a step rewrites only
+  that step's `:edits`, so comments elsewhere in the file survive; a
+  comment inside its `:edits` doesn't.
+- Steps are ignored while comparing a file with its fork.
 
 ## Editing docs
 

@@ -463,3 +463,12 @@
              "node \"d\": :pos must be [col row], whole numbers from 0 to 10000, ignored"
              "box \"y\": :pos only places top-level boxes, ignored"}
            (set (:warnings g))))))
+
+(deftest highlight-takes-true-or-false
+  (let [g (graph/normalize {:nodes {:a {:highlight true} :b {:highlight false} :c {:highlight "yes"}}
+                            :edges {[:a :b] {:highlight 1}}
+                            :boxes {:x {:highlight :on :components #{:c}}}})]
+    (is (= #{"node \"c\": :highlight must be true or false, ignored"
+             "edge [a b]: :highlight must be true or false, ignored"
+             "box \"x\": :highlight must be true or false, ignored"}
+           (set (:warnings g))))))

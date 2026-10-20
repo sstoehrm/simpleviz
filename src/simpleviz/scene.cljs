@@ -87,6 +87,11 @@
   (let [s (:state (:attrs node))]
     (when (contains? STATES s) s)))
 
+(defn- highlight?
+  "Does the element's :highlight ask for the highlight: true only."
+  [el]
+  (true? (:highlight (:attrs el))))
+
 (defn- color-idx
   "The element's type-color slot from idx-by-type, nil when untyped. The
   painter looks the color up in the current theme, so a theme change
@@ -173,6 +178,7 @@
                                     :name (or (:label box) (:name box)) :type (:type box)
                                     :attrs (:attrs box)
                                     :md-ref? (some? (ref-of box :md-ref))
+                                    :highlight (highlight? box)
                                     :diff (:diff box) :changed (:changed box) :diff-inside (:diff-inside box)}
                              (pair-fields box)))
                (.set origins (:id child) {:x x :y y})
@@ -189,6 +195,7 @@
                                     :text-lines (text-lines (:text (:attrs node)) (or measure naive-measure))
                                     :database? (database? (:type node))
                                     :state (node-state node)
+                                    :highlight (highlight? node)
                                     :diff (:diff node) :changed (:changed node)}
                              (pair-fields node))))))))
      layout 0 0)
@@ -215,6 +222,7 @@
                                  :source-id (:source-id e)
                                  :target-id (:target-id e)
                                  :name (:name e) :type (:type e) :attrs (:attrs e)
+                                 :highlight (highlight? e)
                                  :diff (:diff e) :changed (:changed e)})))
           (when-let [lbl (first (or (:labels elk-edge) []))]
             (let [lx (+ (:x lbl) (:x origin))

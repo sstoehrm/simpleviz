@@ -30,7 +30,7 @@
       (and (symbol? v) fallback) s
       :else v)))
 
-(defn- zroot [text]
+(defn zroot [text]
   (let [zl (try (z/of-string text) (catch Exception _ (fail! "file does not parse as EDN")))]
     (when-not (map? (z/sexpr zl)) (fail! "root must be a map"))
     ;; the page shows such a file as an error (serve/parse-graph), so an
@@ -39,14 +39,14 @@
       (fail! "content after the end of the graph: check for an extra }"))
     zl))
 
-(defn- find-key
+(defn find-key
   "zloc of the KEY in the map at zmap whose sexpr satisfies pred, nil if none."
   [zmap pred]
   (loop [k (z/down zmap)]
     (when (some? k)
       (if (pred (z/sexpr k)) k (recur (z/right (z/right k)))))))
 
-(defn- find-val [zmap pred] (some-> (find-key zmap pred) z/right))
+(defn find-val [zmap pred] (some-> (find-key zmap pred) z/right))
 
 (defn- sect-val
   "zloc of the top-level section map (:nodes/:edges/:boxes). Fails on
@@ -75,7 +75,7 @@
   (let [sect (or (sect-val root section) (unknown! section id))]
     (or (find-val sect (entry-pred section id)) (unknown! section id))))
 
-(defn- remove-pair
+(defn remove-pair
   "Remove a key zloc and its value; returns the root zipper.
   Removing the value first can land the zipper's position deep inside the
   key's own subtree when the key is compound (e.g. an edge's [from to]
@@ -703,7 +703,7 @@
                               (keyword a)
                               (fail! (str "invalid attribute name " (pr-str a))))))))
 
-(defn- apply-op [text op]
+(defn apply-op [text op]
   (let [o (norm-op op)
         op-name (:op o)]
     (when (and (some? (:section o)) (not (contains? #{:nodes :edges :boxes} (:section o))))

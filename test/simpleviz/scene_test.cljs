@@ -335,3 +335,17 @@
     (let [b (box-with {:text "about this box"})]
       (assert/deepEqual (:text-lines b) ["about this box"])
       (assert/equal (:title-h b) (+ scene/TITLE-H (scene/text-height ["x"]))))))
+
+(test ":highlight true marks nodes, boxes and edges; anything else doesn't"
+  (fn []
+    (let [g (-> graph
+                (assoc-in [:nodes "a" :attrs] {:highlight true})
+                (assoc-in [:nodes "b" :attrs] {:highlight "yes"})
+                (assoc-in [:boxes-by-name "grp" :attrs] {:highlight true})
+                (assoc :edges [(assoc-in (first (:edges graph)) [:attrs :highlight] true)]))
+          sc (build-scene {:layout layout :graph g :colors colors})
+          by-id (fn [id] (some (fn [it] (when (= (:id it) id) it)) (:items sc)))]
+      (assert/equal (:highlight (by-id "n:a")) true)
+      (assert/equal (:highlight (by-id "n:b")) false)
+      (assert/equal (:highlight (by-id "b:grp")) true)
+      (assert/equal (:highlight (by-id "e0")) true))))

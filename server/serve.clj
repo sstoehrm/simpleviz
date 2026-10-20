@@ -18,6 +18,7 @@
             [mdlinks]
             [pairs]
             [paths]
+            [steps]
             [themes])
   (:import [clojure.lang LineNumberingPushbackReader]
            [java.io StringReader]))
@@ -320,7 +321,7 @@
     (refuse-embedded-compare!)
     rel))
 
-(defn- edit-response [{:keys [file ops path compare]}]
+(defn- edit-response [{:keys [file ops path compare step]}]
   (try
     (when (some? path) (refuse-embedded-compare!))
     (let [{:keys [old new] :as pair} (sides path compare)
@@ -344,7 +345,7 @@
         ;; snapshot the ORIGINAL text before applying — `before` feeds
         ;; both the patch and the undo stack
         (let [before (if (some? source) (slurp source) empty-graph)
-              {:keys [text error]} (edit/apply-ops before ops)]
+              {:keys [text error]} (steps/apply-ops before ops step)]
           (if (some? error)
             {:error error}
             (do (push-undo! path before)
@@ -356,11 +357,11 @@
   "The EDN text of nodes and boxes `ids` with what they hold, and the
   targets that took (edit/copy), from the side `file` names — what an
   edit there would change."
-  [{:keys [file ids path compare]}]
+  [{:keys [file ids path compare step]}]
   (try
     (when (some? path) (refuse-embedded-compare!))
     (let [text (side-source (sides path compare) file)]
-      (edit/copy text {:ids ids}))
+      (edit/copy (if (and (some? step) (pos? step)) (steps/state-text text step) text) {:ids ids}))
     (catch Exception e {:error (or (ex-message e) (str e))})))
 
 (defn- new-graph-target
@@ -473,7 +474,7 @@
           (throw (ex-info (str "content after the end of the graph: its map closes at line "
                                line " — check there for an extra }")
                           {})))))
-    (graph/normalize root)))
+    (steps/attach (graph/normalize root) root graph/normalize)))
 
 (def ^:private graph-cache
   "canonical path -> {:stamp [mtime length] :graph g} or {:stamp ..
@@ -576,7 +577,9 @@
   ([s fname extra-map prepare]
    (try
      (json/generate-string
-      (cond-> (prepare (parse-graph s))
+      (cond-> (let [g (parse-graph s)]
+                (cond-> (prepare g)
+                  (some? (:steps g)) (assoc :steps (mapv (fn [st] (update st :graph prepare)) (:steps g)))))
         (some? fname) (assoc :file fname)
         (some? extra-map) (merge extra-map)))
      (catch Exception e
@@ -601,14 +604,45 @@
                    (try (parse-graph s)
                         (catch Exception e
                           (throw (ex-info (str nm ": " (ex-message e)) {})))))
-           old-g (prepare (parse old-s old-name) "old")
-           new-g (prepare (parse new-s new-name) "new")]
+           ;; a comparison shows two files, not the states of one
+           old-g (prepare (dissoc (parse old-s old-name) :steps) "old")
+           new-g (prepare (dissoc (parse new-s new-name) :steps) "new")]
        (json/generate-string
         (cond-> (assoc (diff/union old-g new-g old-name new-name)
                        :file file-name)
           (some? extra-map) (merge extra-map))))
      (catch Exception e
        (json/generate-string {:error (ex-message e)})))))
+
+(defn- step-pair
+  "The `steps` query parameter \"a,b\" as [a b], two step numbers."
+  [v]
+  (let [[a b :as ks] (map #(parse-long (str/trim %)) (str/split v #","))]
+    (when-not (and (= 2 (count ks)) (some? a) (some? b))
+      (throw (ex-info (str "steps must be two step numbers, like 0,2 — got " (pr-str v)) {})))
+    [a b]))
+
+(defn steps-compare-json
+  "States a (old) and b (new) of the graph in EDN text s — 0 the file as
+  written — diffed into one union graph JSON string, as compare-json
+  does for a file and its fork; read-only. prepare transforms each
+  state first (pairs/attach); extra-map is merged into the payload."
+  [s [a b] extra-map prepare]
+  (try
+    (let [g (parse-graph s)
+          steps (or (:steps g) [])
+          state (fn [k]
+                  (when-not (<= 0 k (count steps)) (throw (ex-info (str "no step " k) {})))
+                  (if (zero? k) (dissoc g :steps) (:graph (nth steps (dec k)))))
+          label (fn [k] (if (zero? k) "start" (str k " " (:name (nth steps (dec k))))))
+          old-g (prepare (state a))
+          new-g (prepare (state b))]
+      (json/generate-string
+       (merge (diff/union old-g new-g (label a) (label b))
+              extra-map
+              {:editable false :editable-old false})))
+    (catch Exception e
+      (json/generate-string {:error (ex-message e)}))))
 
 (def mime-types
   {"html" "text/html; charset=utf-8"
@@ -726,13 +760,23 @@
                          ;; one scan per request, shared by both sides
                          index (pair-index @root-dir suffix)
                          prepare (fn [g which] (pairs/attach g (pair-context @root-dir path suffix index which)))]
-                     (if (some? old)
+                     (cond
+                       (some? old)
                        (compare-json (side-source pair "old") (side-source pair "new")
                                      path (fork-name path suffix) (.getName new)
                                      {:editable (not (read-only-side? pair "new"))
                                       :editable-old (not (read-only-side? pair "old"))
                                       :path path}
                                      prepare)
+
+                       ;; two states of the file's :steps, compared
+                       (some? (query-param query-string "steps"))
+                       (steps-compare-json (read-source new-p)
+                                           (step-pair (query-param query-string "steps"))
+                                           {:path path :file (.getName new)}
+                                           #(prepare % "new"))
+
+                       :else
                        (graph-json (read-source new-p) (.getName new)
                                    {:editable (not (embedded/export? new-p)) :path path}
                                    #(prepare % "new"))))))

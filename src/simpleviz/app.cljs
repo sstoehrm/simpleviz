@@ -52,7 +52,14 @@
    :side-choose nil
    ;; the fork suffix the graph shown is compared under by its own (an md
    ;; link's ?compare=, the URL's compare), nil for the server's default
-   :compare nil})
+   :compare nil
+   ;; the file's :steps: :states its graphs, the file as written first,
+   ;; :steps their {:name :edits (text)}, :step the one shown (0: the
+   ;; file as written); :step-edit {:text} while its edits are edited,
+   ;; :step-name the step's name while it is
+   :states nil :steps [] :step 0 :step-edit nil :step-name nil
+   ;; the step the one shown is compared with (old → shown), nil when not
+   :step-compare nil})
 
 (def state (atom (merge per-file
                  {:colors nil :collapsed false
@@ -225,7 +232,7 @@
 (defn- cancel-id-entry! []
   (swap! state assoc :id-entry nil))
 
-(declare relayout! post-json post-edit! delete! current-edit-target-editable? follow-ref! navigate! run-chord-action!
+(declare relayout! json-of post-json post-edit! delete! current-edit-target-editable? follow-ref! navigate! run-chord-action!
          open-md! save-md! close-md! open-page! root-path! load-nav!
          save-if-dirty! save-before-leaving! follow-link! sync-gutter-scroll!
          follow-to! close-side! start-side! focus-md-start! show-slide! leave-present! pick! submit!
@@ -281,6 +288,90 @@
                                     :layout (:layout e)})
               (not= k current)
               (.delete layout-cache k))))))
+
+;; ---- steps: the states of a graph (:steps in its file) ----
+
+;; the layout caches of the steps not shown, step -> its layout-cache
+;; (layout-cache holds the shown step's); stale with every reload
+(def ^:private step-caches (js/Map.))
+
+;; the scene shown when the step changed: the next scene shown animates
+;; from it
+(def ^:private tween-from (atom nil))
+
+(defn- with-boxes-by-name [g]
+  (assoc g :boxes-by-name (let [o {}] (doseq [b (:boxes g)] (assoc! o (:name b) b)) o)))
+
+(defn- graph-states
+  "The graphs of /api/graph payload `raw`, one per state: raw itself,
+  then each step's, with raw's file-level keys (path, editable,
+  warnings)."
+  [raw]
+  (let [base (with-boxes-by-name (dissoc raw :steps))]
+    (into [base] (map (fn [s] (with-boxes-by-name (assoc (merge base (:graph s)) :warnings (:warnings base))))
+                      (or (:steps raw) [])))))
+
+(defn- view-key
+  "What the layout caches of a step view are kept under: the step shown,
+  \"c>k\" while step k is compared with step c."
+  [k c]
+  (if (some? c) (str c ">" k) (str k)))
+
+(defn- ^:async step-graph
+  "The graph of step k of `states`, or, with step `c`, the comparison of
+  step c (old) with step k (new) — read-only, asked of the server:
+  {:error ..} when it can't."
+  [states k c]
+  (if (nil? c)
+    (nth states k)
+    (let [q (file-query)
+          url (str "/api/graph" q (if (= q "") "?" "&") "steps=" c "," k)
+          raw (js-await (json-of (js/fetch url) "not connected"))]
+      (if (some? (:error raw)) raw (with-boxes-by-name raw)))))
+
+(defn- ^:async show-view!
+  "Show state k of the graph (0: the file as written), compared with
+  state c when c is not nil, animated from what is shown. A view shown
+  the first time is laid out seeded from the shown one, so what stays
+  stays where it was; it keeps its layout until the file changes."
+  [k c]
+  (let [st @state
+        n (count (or (:states st) []))
+        k (max 0 (min k (dec n)))
+        c (when (some? c) (max 0 (min c (dec n))))
+        from (view-key (:step st) (:step-compare st))
+        to (view-key k c)]
+    (when (and (> n 1) (not= from to))
+      (let [g (js-await (step-graph (:states st) k c))]
+        (cond
+          ;; another step showed meanwhile
+          (not= from (view-key (:step @state) (:step-compare @state))) nil
+          (some? (:error g)) (swap! state assoc :edit-error (str "comparing steps: " (:error g)))
+          :else
+          (let [st @state
+                ck (cache-key (:collapsed-boxes st))
+                shown (.get layout-cache ck)]
+            ;; a layout still running for the view left lands nowhere
+            (swap! graph-gen inc)
+            (.set step-caches from (js/Map. layout-cache))
+            (.clear layout-cache)
+            (if-let [saved (.get step-caches to)]
+              (doseq [[key e] (js/Array.from (.entries saved))] (.set layout-cache key e))
+              (when (some? (:layout shown))
+                (.set layout-cache ck {:layout (:layout shown)})))
+            (reset! tween-from (:scene st))
+            (swap! state assoc :step k :step-compare c :graph g :step-edit nil :step-name nil :selected nil)
+            (relayout!)))))))
+
+(defn- show-step!
+  "Show state k — still compared with the same step, while comparing."
+  [k]
+  (show-view! k (:step-compare @state)))
+
+(defn- compare-steps!
+  "Compare the step shown with step c (old → shown); nil stops."
+  [c]
+  (show-view! (:step @state) c))
 
 ;; the box being collapsed/expanded and where its top-right corner (the
 ;; hide-button's anchor) was on screen: when the new layout lands, the
@@ -896,7 +987,10 @@
     (let [stops (scene/diff-stops (:scene st))]
       [:div {:id "diff-legend"}
        [:div {:class "dl-files"}
-        (str (format/basename (:old cmp)) " → " (format/basename (:new cmp)))]
+        ;; two steps are named by their labels, which may hold a /
+        (if (some? (:step-compare st))
+          (str (:old cmp) " → " (:new cmp))
+          (str (format/basename (:old cmp)) " → " (format/basename (:new cmp))))]
        (legend-row st "added" (get stops "added"))
        (legend-row st "modified" (get stops "modified"))
        (legend-row st "removed" (get stops "removed"))
@@ -1064,7 +1158,7 @@
      [:h2 "How to use"]
      (help-section
       "Navigate"
-      "Drag to pan, scroll to zoom. Hover an element to see its name and attributes; click it to inspect and edit them. A node of type database is drawn as a cylinder; :text on a node or box shows inside it. A double border marks a node with a :ref, a dotted border a node or box with an :md-ref (a linked markdown doc — \"open md\", f m, edits it); the mark on a node's corner is its :state — grey disc new, blue half disc in-progress, red square blocked, green check done. The − in a box header collapses the box to a single node — the panel on the left lists collapsed boxes and re-expands them."
+      "Drag to pan, scroll to zoom. Hover an element to see its name and attributes; click it to inspect and edit them. A node of type database is drawn as a cylinder; :text on a node or box shows inside it. A double border marks a node with a :ref, a dotted border a node or box with an :md-ref (a linked markdown doc — \"open md\", f m, edits it); the mark on a node's corner is its :state — grey disc new, blue half disc in-progress, red square blocked, green check done. :highlight true draws a thin ring in the accent color round a node, box or edge. The − in a box header collapses the box to a single node — the panel on the left lists collapsed boxes and re-expands them."
       "A :pair (\"views/deploy.edn#api\", or a vector of them) links a node or box to the same thing in another graph. The ⇄ mark on an element's bottom-left corner shows its pairs — red when one is broken; the inspector lists them, those declared here and those pointing here. Click one, or use \"follow pair\" (f p, or f p 1–9 with several — the inspector numbers them), to open that graph with the element selected.")
      (help-section
       "Edit"
@@ -1080,6 +1174,9 @@
      (help-section
       "Keys"
       "Chords act on the selection, when no text field has focus (the toolbar buttons show them); the first key opens a pop-out of what comes next, which can be clicked too: d d delete · e 1/2/3/4 edge direction → ← ↔ — · c s / c t change an edge's source / target · a e add edge · a b add to box (node) or add a box as member (box) · a n add a node as member (box) — either moves it out of the box it was in · n n n new node (connected to the selected node, or inside the selected box) · n n b new box (inside the selected box) · n n s new node in the selection's box · n n c / n n i new node in the selection's box, connected from / to it · n n e split the selected edge with a new node · n b wrap the selection in a new box · r r rename the id · r n take a node out of the selected box · r b take the selected node out of its box · f r follow the selection's :ref · f p follow the selection's pair (f p 1–9 with several) · f m open the selection's :md-ref doc (Ctrl+S saves it) · s s select mode: click nodes and boxes to add or drop them · s a select all · s r select by dragging a rectangle · then y y copy / x x cut / d d delete them — a box with what it holds, and the edges among them all · p p paste what was copied or cut, here or in another graph (into the selected box; a taken id gets -1). Esc cancels a pending chord and ends select mode; ? toggles this help; Ctrl+Z undoes.")
+     (help-section
+      "Steps"
+      ":steps in the file lists states of the graph, each an editscript change of the one before ([path op value], op :+ :- :r). Steps (bottom left) shows them — click one, or ◂ ▸; the page animates the change. + adds a step after the one shown: while a step shows, your edits change that step, and the steps after it build on it. Its name, its edits as text (Save, Ctrl+Enter) and delete are under the list. compare with shows what changes from another step to the one shown, read-only, styled like a comparison with a fork; × stops. Presenting, a graph with steps has Next at the bottom right.")
      (help-section
       "Compare"
       "Serving a file with a suffix (simpleviz graph.edn next) renders it against its fork graph-next.edn as one merged diagram: added elements get a green +, modified an amber ~ (select for an old → new list), removed ones stay as red dashed ghosts. Click a legend row to jump through the changes; the old|new toggle picks which file edits apply to.")
@@ -1652,6 +1749,155 @@
       (side-choose-view c)
       [:div {:id "side-empty"} "a linked graph opens here"])))
 
+(defn- step-label
+  "What step k of state st is called: its name, \"start\" for the file
+  as written."
+  [st k]
+  (if (zero? k) "start" (:name (nth (:steps st) (dec k) nil))))
+
+(defn- ^:async post-step-op!
+  "Post step op `op` (add-step, …); true when it took."
+  [op]
+  (js-await (post-edit! [op]))
+  (nil? (:edit-error @state)))
+
+(defn- ^:async add-step!
+  "A new step after the one shown, the same state until you edit it —
+  shown at once, so what you edit next is its change."
+  []
+  (let [k (:step @state)]
+    (when (js-await (post-step-op! {:op "add-step" :after k}))
+      (show-step! (inc k)))))
+
+(defn- ^:async delete-step!
+  "Delete step k (> 0), the one shown; the step before it shows."
+  [k]
+  (when (js/confirm (str "Delete step " k ", \"" (step-label @state k) "\"? Its edits go with it."))
+    (reset! tween-from (:scene @state))
+    (swap! state assoc :step (dec k) :step-edit nil :step-name nil)
+    (when-not (js-await (post-step-op! {:op "delete-step" :step k}))
+      (reset! tween-from nil)
+      (swap! state assoc :step k))))
+
+(defn- commit-step-name! []
+  (let [st @state
+        k (:step st)
+        nm (some-> (:step-name st) .trim)]
+    (swap! state assoc :step-name nil)
+    (when (and (pos? k) (some? nm) (not= nm "") (not= nm (step-label st k)))
+      (post-step-op! {:op "rename-step" :step k :name nm}))))
+
+(defn- ^:async save-step-edits! []
+  (let [st @state]
+    (when (js-await (post-step-op! {:op "set-step-edits" :step (:step st) :edits (:text (:step-edit st))}))
+      (swap! state assoc :step-edit nil))))
+
+(defn- step-chip [st i]
+  [:button {:key (str "step-" i) :type "button"
+            :class (str "sb-chip" (when (= i (:step st)) " on") (when (= i (:step-compare st)) " base"))
+            :title (cond (= i (:step-compare st)) "Compared with: the old side"
+                         (zero? i) "The graph as the file has it, before any step"
+                         :else (str "Step " i))
+            :on-click (fn [e] (.stopPropagation e) (show-step! i))}
+   (when (pos? i) [:span {:class "sb-num"} (str i)])
+   (step-label st i)])
+
+(defn- steps-bar
+  "Bottom left: the graph's steps, each a state of it — click one to
+  see it, animated from the one shown. Editable, + adds a step after
+  the shown one, and while a step shows, what you edit is its change;
+  its name, its edits as text and delete are below the list."
+  [st]
+  (let [n (count (or (:states st) []))
+        k (:step st)
+        editable (current-edit-target-editable? st)]
+    (when (or (> n 1) editable)
+      [:div {:id "steps-bar" :on-click (fn [e] (.stopPropagation e))}
+       [:div {:class "sb-row"}
+        [:span {:class "sb-title"} "Steps"]
+        (when (> n 1)
+          [:button {:type "button" :class "sb-nav" :disabled (zero? k) :title "Previous step"
+                    :on-click (fn [_] (show-step! (dec k)))} "◂"])
+        (when (> n 1)
+          [:button {:type "button" :class "sb-nav" :disabled (>= k (dec n)) :title "Next step"
+                    :on-click (fn [_] (show-step! (inc k)))} "▸"])
+        (when editable
+          [:button {:type "button" :class "sb-add"
+                    :title "Add a step after this one: what you edit then is its change, animated when shown"
+                    :on-click (fn [_] (add-step!))}
+           (if (> n 1) "+" "+ step")])]
+       (when (> n 1)
+         (into [:div {:class "sb-list"}] (mapv (fn [i] (step-chip st i)) (range n))))
+       (when (> n 1)
+         (let [c (:step-compare st)]
+           [:div {:class "sb-row sb-compare"}
+            [:span {:class "sb-hint"} "compare with"]
+            (into [:select {:class "sb-select" :aria-label "Compare the step shown with"
+                            :title "Show what changes from that step to the one shown"
+                            :on-change (fn [e]
+                                         (let [v (.. e -target -value)]
+                                           (.blur (.-target e))
+                                           (compare-steps! (if (= v "") nil (js/Number v)))))}
+                   [:option {:value "" :selected (nil? c)} "nothing"]]
+                  (mapv (fn [i] [:option {:value (str i) :selected (= i c)}
+                                 (str (when (pos? i) (str i " ")) (step-label st i))])
+                        (range n)))
+            (when (some? c)
+              [:button {:type "button" :class "sb-btn" :title "Stop comparing"
+                        :on-click (fn [_] (compare-steps! nil))} "×"])]))
+       (when (some? (:step-compare st))
+         [:div {:class "sb-hint"}
+          (str "What changes from " (step-label st (:step-compare st)) " to " (step-label st k)
+               " — click a step to compare another. Read-only.")])
+       (when (and editable (pos? k))
+         [:div {:class "sb-row sb-step"}
+          [:input {:class "sb-name" :type "text" :aria-label "Step name"
+                   :value (if (some? (:step-name st)) (:step-name st) (step-label st k))
+                   :on-input (fn [e] (swap! state assoc :step-name (.. e -target -value)))
+                   :on-blur (fn [_] (commit-step-name!))
+                   :on-keydown (fn [e]
+                                 (case (.-key e)
+                                   "Enter" (do (commit-step-name!) (.blur (.-target e)))
+                                   "Escape" (do (swap! state assoc :step-name nil) (.blur (.-target e)))
+                                   nil))}]
+          [:button {:type "button" :class (str "sb-btn" (when (some? (:step-edit st)) " on"))
+                    :title "The step's edits as editscript EDN: [path op value]"
+                    :on-click (fn [_] (swap! state assoc :step-edit
+                                             (when (nil? (:step-edit @state))
+                                               {:text (:edits (nth (:steps @state) (dec k)))})))}
+           "edits"]
+          [:button {:type "button" :class "sb-btn sb-delete" :title "Delete this step"
+                    :on-click (fn [_] (delete-step! k))}
+           "delete"]])
+       (when (and editable (pos? k) (some? (:step-edit st)))
+         [:div {:class "sb-edits"}
+          [:textarea {:class "sb-edits-text" :spellcheck "false" :value (:text (:step-edit st))
+                      :on-input (fn [e] (swap! state assoc-in [:step-edit :text] (.. e -target -value)))
+                      :on-keydown (fn [e]
+                                    (cond (and (= (.-key e) "Enter") (or (.-ctrlKey e) (.-metaKey e)))
+                                          (do (.preventDefault e) (save-step-edits!))
+                                          (= (.-key e) "Escape") (swap! state assoc :step-edit nil)))}]
+          [:div {:class "sb-row"}
+           [:span {:class "sb-hint"} "[path op value] — op :+ add, :- remove, :r replace"]
+           [:button {:type "button" :class "sb-btn" :on-click (fn [_] (swap! state assoc :step-edit nil))} "Cancel"]
+           [:button {:type "button" :class "sb-btn sb-save" :title "Save (Ctrl+Enter)"
+                     :on-click (fn [_] (save-step-edits!))} "Save"]]])
+       (when (and editable (pos? k) (nil? (:step-edit st)))
+         [:div {:class "sb-hint"} (str "Edits change step " k " — the steps after it build on it.")])])))
+
+(defn- present-steps-view
+  "While presenting a graph with steps: back, where you are, and Next."
+  [st]
+  (let [n (count (or (:states st) []))
+        k (:step st)]
+    (when (> n 1)
+      [:div {:id "present-steps" :on-click (fn [e] (.stopPropagation e))}
+       [:button {:type "button" :class "ps-back" :disabled (zero? k) :title "Previous step"
+                 :on-click (fn [_] (show-step! (dec k)))} "◂"]
+       [:span {:class "ps-label"} [:span {:class "ps-count"} (str (inc k) " / " n)] (step-label st k)]
+       [:button {:type "button" :class "ps-next" :disabled (>= k (dec n)) :title "Next step"
+                 :on-click (fn [_] (show-step! (inc k)))} "Next ▸"]])))
+
 (defn- app-view [st]
   (let [page (page? st)
         split (split? st)
@@ -1730,6 +1976,11 @@
    (canvas-view)
    (when (and (some? (:scene st)) (current-edit-target-editable? st))
      (selection-toolbar st))
+   ;; a fork comparison has no steps; a comparison of two steps does
+   (when (and graph (some? (:scene st)) (not pres)
+              (or (nil? (:compare (:graph st))) (some? (:step-compare st))))
+     (steps-bar st))
+   (when (and pres (some? (:scene st))) (present-steps-view st))
    (when (some? (:md st)) (if pres (present-panel st) (md-panel st)))
    (when pres (present-side-view st))
    ;; the inspector: beside the graph of an md page too, not beside a docked doc
@@ -1801,8 +2052,13 @@
     (swap! state assoc :pending-focus nil :focus-center false)))
 
 (defn- show-layout!
-  "Show a layout-cache entry: its colors, layout and scene."
+  "Show a layout-cache entry: its colors, layout and scene — animated
+  from the scene before when the step changed; while presenting, the
+  view moves to fit it."
   [{:keys [colors layout placed scene]}]
+  (when-let [from @tween-from]
+    (reset! tween-from nil)
+    (canvas/start-tween! from scene (presenting? @state)))
   (keep-pinned! scene)
   (swap! state (fn [st]
                  (refresh-selection
@@ -1932,34 +2188,47 @@
               (apply-theme! (effective-theme nil (:theme-pref @state) (:theme @state))))
             (swap! state assoc :error (str "Graph error: " (:error raw)) :dismissed-error nil))
         :else
-        (let [g (assoc raw :boxes-by-name
-                       (let [o {}] (doseq [b (:boxes raw)] (assoc! o (:name b) b)) o))
+        (let [view0 (view-key (:step @state) (:step-compare @state))
+              states (graph-states raw)
+              step (min (:step @state) (dec (count states)))
+              sc (some-> (:step-compare @state) (min (dec (count states))))
+              cmp (when (and (some? sc) (> (count states) 1)) (js-await (step-graph states step sc)))
+              ;; a comparison that fails shows the step itself
+              sc (when (and (some? cmp) (nil? (:error cmp))) sc)
+              g (if (some? sc) cmp (nth states step))
               first-load? (nil? (:graph @state))]
-          (swap! graph-gen inc)
-          (demote-layout-cache!)
-          (when-not (page? @state) (set! (.-title js/document) (format/tab-title g)))
-          (apply-theme! (effective-theme g (:theme-pref @state) (:theme @state)))
-          (swap! state (fn [st]
-                         (assoc st :error nil :graph g
-                                :edit-target (resolve-edit-target g (:edit-target st)))))
-          ;; big graphs open as a collapsed overview: all top-level boxes
-          ;; start folded, drill in from there (also makes the first ELK
-          ;; run cheap). Small graphs open fully expanded. The box holding
-          ;; a URL's focus stays open, so the focused element has a scene
-          ;; item to select (load-nav! clears :graph: every navigation
-          ;; comes through here).
-          (when (and first-load?
-                     (> (.-length (js/Object.keys (:nodes g))) 500))
-            (let [pf (:pending-focus @state)
-                  keep-open (when (some? pf) (editor/top-box-of (:parent-of g) pf))]
-              (swap! state assoc :collapsed-boxes
-                     (set (keep (fn [b]
-                                  (when (and (nil? (get (:parent-of g)
-                                                        (str "b:" (:name b))))
-                                             (not= (:name b) keep-open))
-                                    (:name b)))
-                                (:boxes g))))))
-          (js-await (relayout!)))))
+          (if (not= view0 (view-key (:step @state) (:step-compare @state)))
+            ;; another step showed while the comparison loaded: the next
+            ;; tick loads the file again, for that one
+            (reset! last-mtime nil)
+            (do
+              (swap! graph-gen inc)
+              (demote-layout-cache!)
+              (.clear step-caches)
+              (when-not (page? @state) (set! (.-title js/document) (format/tab-title g)))
+              (apply-theme! (effective-theme g (:theme-pref @state) (:theme @state)))
+              (swap! state (fn [st]
+                             (assoc st :error nil :graph g :states states :step step :step-compare sc
+                                    :steps (mapv (fn [s] {:name (:name s) :edits (:edits s)}) (or (:steps raw) []))
+                                    :edit-target (resolve-edit-target g (:edit-target st)))))
+              ;; big graphs open as a collapsed overview: all top-level boxes
+              ;; start folded, drill in from there (also makes the first ELK
+              ;; run cheap). Small graphs open fully expanded. The box holding
+              ;; a URL's focus stays open, so the focused element has a scene
+              ;; item to select (load-nav! clears :graph: every navigation
+              ;; comes through here).
+              (when (and first-load?
+                         (> (.-length (js/Object.keys (:nodes g))) 500))
+                (let [pf (:pending-focus @state)
+                      keep-open (when (some? pf) (editor/top-box-of (:parent-of g) pf))]
+                  (swap! state assoc :collapsed-boxes
+                         (set (keep (fn [b]
+                                      (when (and (nil? (get (:parent-of g)
+                                                            (str "b:" (:name b))))
+                                                 (not= (:name b) keep-open))
+                                        (:name b)))
+                                    (:boxes g))))))
+              (js-await (relayout!)))))))
     (catch :default e
       (js/console.error "Reload failed:" e)
       (reset! last-mtime nil)
@@ -2085,7 +2354,9 @@
         f (graph-file st)]
     (cond-> body
       (some? (:compare st)) (assoc :compare (:compare st))
-      (some? f) (assoc :path f))))
+      (some? f) (assoc :path f)
+      ;; edits and copies work on the step shown
+      (pos? (:step st)) (assoc :step (:step st)))))
 
 (defn- ^:async follow-to!
   "Navigate to root-relative `path` (selecting `focus`, when given), the

@@ -2049,3 +2049,71 @@
       (is (re-find #"is not" (:error (ask ">> [s](doc.md)")))))
     (is (re-find #"md file" (-> (serve/handler (calc-req {:tables [{:cells [["=(sum :b)"]] :defs ">> [s](data/s.csv)"}]}))
                                 :body (json/parse-string true) (get-in [:tables 0 :results 0 0 :error]))))))
+
+;; --- :steps: states of the graph, edited at a step ----------------------
+
+(def ^:private steps-file
+  (str "{:nodes {:a nil :b nil} :edges {[:a :b] nil}\n"
+       " :steps [{:name \"add c\" :edits [[[:nodes :c] :+ {:type \"cache\"}]]}\n"
+       "         {:name \"broken\" :edits [[[:nodes :zz :x] :r 1]]}]}"))
+
+(deftest graph-json-carries-each-step-as-a-graph
+  (let [out (json/parse-string (serve/graph-json steps-file) true)]
+    (is (= #{:a :b} (set (keys (:nodes out)))) "the top level is the base")
+    (is (= ["add c" "broken"] (mapv :name (:steps out))))
+    (is (= #{:a :b :c} (set (keys (get-in out [:steps 0 :graph :nodes])))))
+    (is (= "cache" (get-in out [:steps 0 :graph :nodes :c :type])))
+    (is (= "[[[:nodes :c] :+ {:type \"cache\"}]]" (get-in out [:steps 0 :edits])))
+    (is (= #{:a :b :c} (set (keys (get-in out [:steps 1 :graph :nodes])))) "a broken step repeats the state")
+    (is (= 1 (count (:warnings out))))
+    (is (str/includes? (first (:warnings out)) "step 2 \"broken\""))))
+
+(deftest graph-json-without-steps-has-no-steps-key
+  (is (not (contains? (json/parse-string (serve/graph-json "{:nodes {:a nil}}")) "steps"))))
+
+(deftest a-steps-warning-is-in-api-errors
+  (let [p (temp-edn steps-file)]
+    (serve! p)
+    (is (= 1 (count (get (json/parse-string (:body (serve/handler {:uri "/api/errors"}))) "warnings"))))))
+
+(deftest api-edit-at-a-step-writes-that-steps-edits
+  (let [p (temp-edn steps-file)]
+    (serve! p)
+    (let [resp (serve/handler (edit-req {:file "new" :step 1 :ops [{:op "add-node" :id "d"}]}))]
+      (is (true? (get (json/parse-string (:body resp)) "ok")))
+      (let [g (edn/read-string (slurp p))]
+        (is (= #{:a :b} (set (keys (:nodes g)))))
+        (is (= [[[:nodes :c] :+ {:type "cache"}] [[:nodes :d] :+ nil]] (:edits (first (:steps g))))))
+      (serve/handler (edit-req {:file "new" :ops [{:op "undo"}]}))
+      (is (= steps-file (slurp p)) "undo takes the step edit back"))))
+
+(deftest api-copy-at-a-step-copies-from-that-state
+  (let [p (temp-edn steps-file)]
+    (serve! p)
+    (let [out (json/parse-string (:body (serve/handler (copy-req {:file "new" :step 1 :ids [{:section "nodes" :id "c"}]})))
+                                 true)]
+      (is (nil? (:error out)))
+      (is (= [{:section "nodes" :id "c"}] (:ids out))))))
+
+(deftest compare-json-ignores-steps
+  (let [out (json/parse-string (serve/compare-json steps-file steps-file "a.edn" "b.edn") true)]
+    (is (nil? (:steps out)))))
+
+(deftest api-graph-compares-two-steps
+  (let [p (temp-edn (str "{:nodes {:a nil :b {:name \"B\"}} :edges {[:a :b] nil}\n"
+                         " :steps [{:name \"add c\" :edits [[[:nodes :c] :+ nil]]}\n"
+                         "         {:name \"rename b, drop a\" :edits [[[:nodes :b :name] :r \"Bee\"] [[:nodes :a] :-] [[:edges [:a :b]] :-]]}]}"))]
+    (serve! p)
+    (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "steps=0,2"})) true)]
+      (is (nil? (:error out)))
+      (is (= {:old "start" :new "2 rename b, drop a"} (:compare out)))
+      (is (= "removed" (get-in out [:nodes :a :diff])))
+      (is (= "added" (get-in out [:nodes :c :diff])))
+      (is (= "modified" (get-in out [:nodes :b :diff])))
+      (is (= {:old "B" :new "Bee"} (get-in out [:nodes :b :changed :name])))
+      (is (false? (:editable out)) "a comparison of steps is read-only")
+      (is (nil? (:steps out))))
+    (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "steps=2,1"})) true)]
+      (is (= "added" (get-in out [:nodes :a :diff])) "either way round"))
+    (is (= "no step 7" (:error (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "steps=0,7"})) true))))
+    (is (some? (:error (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "steps=x"})) true))))))

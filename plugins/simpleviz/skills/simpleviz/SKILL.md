@@ -154,6 +154,25 @@ Attributes simpleviz reads:
   invent coordinates unless asked to keep a given arrangement. On a nested
   element it warns and is ignored.
 
+- `:highlight true` on a node, box or edge draws a thin ring in the theme's
+  accent color, to point at it (false or absent: none; other values
+  warn). A step can switch it on or off, `[[:nodes :queue :highlight] :+
+  true]`, and the animation fades it.
+- `:steps [{:name "add a cache" :edits [[[:nodes :cache] :+ {:type "cache"}]
+  [[:edges [:api :cache]] :+ {:direction :->}]]} ...]` at the top level
+  lists states of the graph: each step's `:edits` is an
+  [editscript](https://github.com/juji-io/editscript) edit vector, `[path
+  op value]` with op `:+` add, `:-` remove (no value), `:r` replace,
+  applied to the state before it; the file as written is the start. The
+  page animates between the states, and a deck slide showing the graph
+  gets a Next button. Paths walk the graph like `get-in`: an edge by its
+  key `[:edges [:api :cache]]`, a box member by its id `[:boxes :b
+  :components :cache]` (sets). A step that does not apply warns and
+  changes nothing. The page's "compare with" diffs two steps like a
+  fork comparison, and `curl -s "$URL/api/graph?steps=0,3"` answers that
+  union graph (`:diff` per element). Use it to show a sequence (a migration, a request's
+  path); a single proposed change is still a fork and compare.
+
 Paths in `:ref`, `:md-ref`, `:pair` and md links are relative to the file
 they are in and never reach above the served folder.
 

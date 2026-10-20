@@ -203,16 +203,15 @@
     (cond (true? h) 1 (number? h) h :else 0)))
 
 (defn- draw-highlight
-  "The highlight (:highlight true): a halo in the accent color round a
-  node or box, or along an edge, at strength h. Strokes only, no
-  shadow, so the SVG export draws it the same."
+  "The highlight (:highlight true): a thin ring in the accent color
+  round a node or box, a faint band along an edge, at strength h.
+  Strokes only, no shadow, so the SVG export draws it the same."
   [ctx item h]
   (let [a0 (.-globalAlpha ctx)
         edge? (= (:kind item) "edge")
         r (if (= (:kind item) "box") 10 6)]
     (set! (.-strokeStyle ctx) (:accent @palette))
-    ;; a soft wide stroke, then a crisp ring
-    (doseq [[pad w alpha] (if edge? [[0 10 0.2] [0 4.5 0.5]] [[7 8 0.2] [6 2.5 0.95]])]
+    (doseq [[pad w alpha] (if edge? [[0 4 0.35]] [[4 1.5 0.85]])]
       (set! (.-globalAlpha ctx) (* a0 h alpha))
       (set! (.-lineWidth ctx) w)
       (if edge?
@@ -510,7 +509,7 @@
             alpha (* (if (= "removed" (:diff item)) 0.45 1) (if (some? (:alpha item)) (:alpha item) 1))
             ghost? (< alpha 1)]
         (when ghost? (set! (.-globalAlpha ctx) alpha))
-        ;; under the element, so its fill covers the halo's inner edge
+        ;; first: an edge's band lies under its line
         (let [h (highlight-strength item)]
           (when (pos? h) (draw-highlight ctx item h)))
         (case (:kind item)

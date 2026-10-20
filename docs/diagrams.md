@@ -23,7 +23,7 @@ file in place and keeps its comments.
                    :pair "views/deploy.edn#api-svc" ; the same thing in another graph — "follow pair" jumps to it
                    :md-ref "docs/api.md" ; the markdown doc describing it (node or box) — dotted border; "open md" edits it
                    :state :in-progress   ; :new | :in-progress | :blocked | :done — a mark on the node's corner
-                   :highlight true}      ; true | false — a halo in the accent color (edges and boxes too)
+                   :highlight true}      ; true | false — a thin ring in the accent color (edges and boxes too)
              :web {:type "frontend"}
              :db  {:type "database"}}     ; drawn as the database cylinder
      :edges {[:web :api]                 ; key: endpoints (nodes or boxes), order defines left/right;

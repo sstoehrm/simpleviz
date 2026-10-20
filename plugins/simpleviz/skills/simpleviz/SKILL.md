@@ -154,7 +154,7 @@ Attributes simpleviz reads:
   invent coordinates unless asked to keep a given arrangement. On a nested
   element it warns and is ignored.
 
-- `:highlight true` on a node, box or edge draws a halo in the theme's
+- `:highlight true` on a node, box or edge draws a thin ring in the theme's
   accent color, to point at it (false or absent: none; other values
   warn). A step can switch it on or off, `[[:nodes :queue :highlight] :+
   true]`, and the animation fades it.

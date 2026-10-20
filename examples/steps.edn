@@ -1,0 +1,22 @@
+;; A graph with :steps: each step's :edits (editscript, [path op value])
+;; change the state before it. Serve it and click through the steps at
+;; the bottom left, or present it from deck.md.
+{:nodes {:web {:name "Web UI" :type "frontend"}
+         :api {:name "API" :type "service"}
+         :db  {:name "Postgres" :type "database"}}
+ :edges {[:web :api] {:direction :-> :name "REST"}
+         [:api :db]  {:direction :-> :name "queries"}}
+ :steps [{:name "add a cache"
+          :edits [[[:nodes :cache] :+ {:name "Redis" :type "cache"}]
+                  [[:edges [:api :cache]] :+ {:direction :<-> :name "session"}]]}
+         {:name "move work off the request"
+          :edits [[[:nodes :queue] :+ {:name "Queue" :type "queue"}]
+                  [[:nodes :worker] :+ {:name "Worker" :type "service"}]
+                  [[:edges [:api :queue]] :+ {:direction :-> :name "publish"}]
+                  [[:edges [:worker :queue]] :+ {:direction :-> :name "consume"}]
+                  [[:edges [:worker :db]] :+ {:direction :-> :name "writes"}]]}
+         {:name "group the backend"
+          :edits [[[:boxes] :+ {:backend {:type "zone" :components #{:api :worker :queue}}
+                                :storage {:type "zone" :components #{:db :cache}}}]]}
+         {:name "rename the API"
+          :edits [[[:nodes :api :name] :r "Gateway"]]}]}

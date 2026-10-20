@@ -3,6 +3,7 @@
             [simpleviz.scene :as scene]
             [simpleviz.svg :as svg]
             [simpleviz.transform :refer [NODE-FONT SUB-FONT diff-glyphs]]
+            [simpleviz.tween :as tween]
             [themes :as themes]))
 
 ;; HiDPI canvas painter + view state + pan/zoom. DOM-only namespace —
@@ -70,18 +71,63 @@
   []
   (assoc! view :initialized false))
 
+(defn- fitted
+  "The view {:k :x :y} that fits scene into the canvas, centered."
+  [scene]
+  (let [rect (.getBoundingClientRect (js/document.getElementById "canvas-wrap"))
+        w (js/Math.max (:width scene) 1)
+        h (js/Math.max (:height scene) 1)
+        k (js/Math.min 1.25 (* 0.9 (js/Math.min (/ (.-width rect) w)
+                                                (/ (.-height rect) h))))]
+    {:k k
+     :x (/ (- (.-width rect) (* w k)) 2)
+     :y (/ (- (.-height rect) (* h k)) 2)}))
+
 (defn fit-view-once! [scene]
   (when-not (:initialized view)
     (assoc! view :initialized true)
-    (let [rect (.getBoundingClientRect (js/document.getElementById "canvas-wrap"))
-          w (js/Math.max (:width scene) 1)
-          h (js/Math.max (:height scene) 1)
-          k (js/Math.min 1.25 (* 0.9 (js/Math.min (/ (.-width rect) w)
-                                                  (/ (.-height rect) h))))]
-      (assoc! view
-              :k k
-              :x (/ (- (.-width rect) (* w k)) 2)
-              :y (/ (- (.-height rect) (* h k)) 2)))))
+    (let [{:keys [k x y]} (fitted scene)]
+      (assoc! view :k k :x x :y y))))
+
+;; the animation from one scene to the next (a graph's steps):
+;; {:from :to scenes :start ms :dur ms :view-from :view-to views or nil};
+;; painting `to` paints the frame between them instead, until it is done
+(def ^:private tween-on (atom nil))
+
+(def ^:private TWEEN-MS 650)
+
+;; past this many items a frame costs more than it shows: no animation
+(def ^:private TWEEN-MAX-ITEMS 3000)
+
+(defn start-tween!
+  "Animate from scene `from` to scene `to`, the scene painted next;
+  with `fit?` the view moves to fit `to` along the way."
+  [from to fit?]
+  (reset! tween-on
+          (when (and (some? from) (some? to)
+                     (< (+ (count (:items from)) (count (:items to))) TWEEN-MAX-ITEMS))
+            {:from from :to to :start (js/performance.now) :dur TWEEN-MS
+             :view-from (when fit? {:k (:k view) :x (:x view) :y (:y view)})
+             :view-to (when fit? (fitted to))}))
+  (request-paint!))
+
+(defn- tween-frame
+  "What to paint for scene sc: the tween's frame while one runs to sc,
+  else sc itself."
+  [sc]
+  (let [tw @tween-on]
+    (if (and (some? tw) (identical? (:to tw) sc))
+      (let [t (js/Math.min 1 (/ (- (js/performance.now) (:start tw)) (:dur tw)))
+            e (tween/ease t)]
+        (when-let [{:keys [view-from view-to]} (when (some? (:view-to tw)) tw)]
+          (assoc! view
+                  :k (+ (:k view-from) (* e (- (:k view-to) (:k view-from))))
+                  :x (+ (:x view-from) (* e (- (:x view-to) (:x view-from))))
+                  :y (+ (:y view-from) (* e (- (:y view-to) (:y view-from))))))
+        (if (< t 1)
+          (do (request-paint!) (tween/frame (:from tw) sc e))
+          (do (reset! tween-on nil) sc)))
+      sc)))
 
 (defn center-on!
   "Pan so the item's bbox center is view-centered. Zoom is raised (never
@@ -428,8 +474,11 @@
   (doseq [item (:items sc)]
     (when (scene/visible? item vr)
       (let [sel? (contains? selected (:id item))
-            ghost? (= "removed" (:diff item))]
-        (when ghost? (set! (.-globalAlpha ctx) 0.45))
+            ;; a removed item (compare mode) is ghosted; one coming or
+            ;; going in a step's animation carries its :alpha
+            alpha (* (if (= "removed" (:diff item)) 0.45 1) (if (some? (:alpha item)) (:alpha item) 1))
+            ghost? (< alpha 1)]
+        (when ghost? (set! (.-globalAlpha ctx) alpha))
         (case (:kind item)
           "box" (draw-box ctx item sel? text?)
           "edge" (draw-edge ctx item sel? text?)
@@ -481,10 +530,12 @@
         (set! (.-globalAlpha ctx) 1)))))
 
 (defn paint!
-  "Paint scene sc2, the items whose ids are in the set `selected` drawn
+  "Paint scene sc — or, while a step's animation runs to it, the frame
+  on the way — the items whose ids are in the set `selected` drawn
   selected."
-  [canvas-el sc2 selected]
-  (let [ctx (.getContext canvas-el "2d")
+  [canvas-el sc selected]
+  (let [sc2 (tween-frame sc)
+        ctx (.getContext canvas-el "2d")
         dpr (or (.-devicePixelRatio js/window) 1)
         pw (js/Math.round (* (.-clientWidth canvas-el) dpr))
         ph (js/Math.round (* (.-clientHeight canvas-el) dpr))]

@@ -15,8 +15,16 @@
 
 (defn- fail! [msg] (throw (ex-info msg {:edit-error true})))
 
-(defn- pr-edn [x]
-  (binding [*print-namespace-maps* false] (pr-str x)))
+(defn- pr-edn
+  "x as EDN text, without the commas pr-str puts between map entries."
+  [x]
+  (binding [*print-namespace-maps* false]
+    (cond
+      (map? x) (str "{" (str/join " " (map (fn [[k v]] (str (pr-edn k) " " (pr-edn v))) x)) "}")
+      (vector? x) (str "[" (str/join " " (map pr-edn x)) "]")
+      (set? x) (str "#{" (str/join " " (map pr-edn x)) "}")
+      (seq? x) (str "(" (str/join " " (map pr-edn x)) ")")
+      :else (pr-str x))))
 
 (defn edits-text
   "The EDN text of edit vector `edits`, one edit a line, the lines after

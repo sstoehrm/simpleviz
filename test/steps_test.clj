@@ -129,3 +129,8 @@
 
 (deftest state-text-of-a-step
   (is (= #{:api :db :cache} (set (keys (:nodes (edn/read-string (steps/state-text file-text 1))))))))
+
+(deftest edits-text-has-no-commas
+  (is (= "[[[:boxes] :+ {:b {:type \"zone\" :components #{:a}}}]\n [[:nodes :a] :-]]"
+         (steps/edits-text [[[:boxes] :+ {:b {:type "zone" :components #{:a}}}] [[:nodes :a] :-]] 0)))
+  (is (= "{:a 1 :b [1 2]}" (steps/state-text "{:a 1 :b [1 2]}" 0))))

@@ -33,7 +33,9 @@ file in place and keeps its comments.
      :boxes {:backend                    ; key is the box id
              {:name "Backend"            ; display name (defaults to the key)
               :type "zone"               ; colors the box (separate palette)
-              :components #{:api :db}}}} ; node and/or box ids; boxes nest
+              :components #{:api :db}}}
+     :steps [{:name "add a cache"        ; optional: states of the graph, each an
+              :edits [[[:nodes :cache] :+ {:type "cache"}]]}]} ; editscript change of the one before
 
 Identifiers may be keywords or strings. An invalid element is skipped with a
 warning banner instead of breaking the render. The guide has
@@ -45,6 +47,8 @@ warning banner instead of breaking the render. The guide has
 - [Editing](guide.md#editing) — the inspector and the toolbar, in the page.
 - [Manual layout](guide.md#manual-layout) — ✥ places nodes and boxes by
   hand on a 20 px grid.
+- [Steps](guide.md#steps) — `:steps` lists states of the graph; the page
+  animates between them, in a deck too (Next).
 - [Comparing two versions](guide.md#comparing-two-versions) — `simpleviz
   fork my-arch.edn next`, then `simpleviz my-arch.edn next` shows what
   was added, changed and removed.

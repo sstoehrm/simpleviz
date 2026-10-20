@@ -36,6 +36,17 @@ The path is relative to this file, like a link.
 
 ---
 
+>> [steps](steps.edn)
+
+# A graph with :steps
+
+`steps.edn` lists states of its graph, each a change of the one before. Next, bottom right, animates the graph to its next state.
+
+- What stays moves, what comes fades in
+- → still goes to the next slide
+
+---
+
 >> [notes](api/notes.md)
 
 # Another md file

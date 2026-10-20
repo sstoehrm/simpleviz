@@ -607,3 +607,63 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
 #tooltip dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 #tooltip dd ul, #tooltip dd ol { margin: 0; padding-left: 16px; }
 #tooltip dd ol.dd-map { padding-left: 0; list-style: none; }
+
+/* a graph's steps (:steps): top left of the canvas, right of the
+   collapsed boxes and of an md page's column */
+#steps-bar { position: fixed; left: 12px; top: 60px; z-index: 6; width: 260px;
+             max-height: calc(100vh - 150px); overflow: auto;
+             display: flex; flex-direction: column; gap: 6px;
+             background: var(--panel); border: 1px solid var(--panel-border);
+             border-radius: 10px; padding: 8px 10px; box-shadow: 0 2px 8px var(--shadow);
+             font: 12px system-ui, sans-serif; color: var(--text); }
+#steps-bar:has(.sb-edits) { width: min(480px, 46vw); }
+#collapsed-panel ~ #steps-bar { left: 228px; }
+#root.split #steps-bar { left: calc(var(--md-w) + 12px); }
+#steps-bar .sb-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+#steps-bar .sb-title { font-weight: 600; font-size: 10.5px; letter-spacing: .07em;
+                       text-transform: uppercase; color: var(--text-muted); flex: 1; }
+#steps-bar .sb-list { display: flex; flex-direction: column; gap: 2px; }
+#steps-bar button { font: inherit; color: var(--text); background: none; cursor: pointer;
+                    border: 1px solid var(--panel-border); border-radius: 999px;
+                    padding: 2px 9px; line-height: 1.5; white-space: nowrap; flex: none; }
+#steps-bar button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent);
+                                        background: var(--hover); }
+#steps-bar button:disabled { opacity: .4; cursor: default; }
+#steps-bar .sb-chip { text-align: left; border-radius: 6px; border-color: transparent;
+                      overflow: hidden; text-overflow: ellipsis; }
+#steps-bar .sb-chip.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+#steps-bar .sb-num { display: inline-block; min-width: 1.4em; opacity: .7; font-variant-numeric: tabular-nums; }
+#steps-bar .sb-nav { border-color: transparent; padding: 2px 6px; }
+#steps-bar .sb-btn.on { border-color: var(--accent); color: var(--accent); }
+#steps-bar .sb-delete { color: var(--diff-removed); border-color: transparent; }
+#steps-bar .sb-delete:hover:not(:disabled) { border-color: var(--diff-removed); color: var(--diff-removed); }
+#steps-bar .sb-save { border-color: var(--accent); color: var(--accent); }
+#steps-bar .sb-step { border-top: 1px solid var(--panel-divider); padding-top: 7px; }
+#steps-bar .sb-name { flex: 1; min-width: 0; font: inherit; color: var(--text);
+                      background: var(--bg); border: 1px solid var(--panel-border);
+                      border-radius: 6px; padding: 3px 7px; }
+#steps-bar .sb-name:focus { outline: none; border-color: var(--accent); }
+#steps-bar .sb-hint { color: var(--text-muted); font-size: 11px; flex: 1; min-width: 0; }
+#steps-bar .sb-edits { display: flex; flex-direction: column; gap: 6px; }
+#steps-bar .sb-edits-text { width: 100%; height: 10em; resize: vertical;
+                            font: 11.5px ui-monospace, SFMono-Regular, Menlo, monospace;
+                            color: var(--text); background: var(--bg); white-space: pre;
+                            border: 1px solid var(--panel-border); border-radius: 6px; padding: 6px 8px; }
+#steps-bar .sb-edits-text:focus { outline: none; border-color: var(--accent); }
+
+/* presenting a graph with steps: bottom right, over the graph */
+#present-steps { position: fixed; right: 20px; bottom: 18px; z-index: 6;
+                 display: flex; align-items: center; gap: 10px;
+                 background: var(--panel); border: 1px solid var(--panel-border);
+                 border-radius: 999px; padding: 5px 6px 5px 6px; box-shadow: 0 2px 8px var(--shadow);
+                 font: 13px system-ui, sans-serif; color: var(--text); }
+#present-steps button { font: inherit; cursor: pointer; border-radius: 999px; line-height: 1.4;
+                        border: 1px solid var(--panel-border); background: none; color: var(--text);
+                        padding: 4px 10px; }
+#present-steps button:disabled { opacity: .35; cursor: default; }
+#present-steps .ps-next { background: var(--accent); border-color: var(--accent); color: var(--on-accent);
+                          font-weight: 600; padding: 4px 14px; }
+#present-steps .ps-next:disabled { background: none; color: var(--text); border-color: var(--panel-border); }
+#present-steps .ps-label { display: flex; gap: 8px; align-items: baseline; max-width: 28vw;
+                           overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#present-steps .ps-count { color: var(--text-muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }

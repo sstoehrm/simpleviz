@@ -2098,3 +2098,22 @@
 (deftest compare-json-ignores-steps
   (let [out (json/parse-string (serve/compare-json steps-file steps-file "a.edn" "b.edn") true)]
     (is (nil? (:steps out)))))
+
+(deftest api-graph-compares-two-steps
+  (let [p (temp-edn (str "{:nodes {:a nil :b {:name \"B\"}} :edges {[:a :b] nil}\n"
+                         " :steps [{:name \"add c\" :edits [[[:nodes :c] :+ nil]]}\n"
+                         "         {:name \"rename b, drop a\" :edits [[[:nodes :b :name] :r \"Bee\"] [[:nodes :a] :-] [[:edges [:a :b]] :-]]}]}"))]
+    (serve! p)
+    (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "steps=0,2"})) true)]
+      (is (nil? (:error out)))
+      (is (= {:old "start" :new "2 rename b, drop a"} (:compare out)))
+      (is (= "removed" (get-in out [:nodes :a :diff])))
+      (is (= "added" (get-in out [:nodes :c :diff])))
+      (is (= "modified" (get-in out [:nodes :b :diff])))
+      (is (= {:old "B" :new "Bee"} (get-in out [:nodes :b :changed :name])))
+      (is (false? (:editable out)) "a comparison of steps is read-only")
+      (is (nil? (:steps out))))
+    (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "steps=2,1"})) true)]
+      (is (= "added" (get-in out [:nodes :a :diff])) "either way round"))
+    (is (= "no step 7" (:error (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "steps=0,7"})) true))))
+    (is (some? (:error (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "steps=x"})) true))))))

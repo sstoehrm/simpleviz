@@ -40,7 +40,9 @@ the file as written. `/api/edit` and `/api/copy` take a `:step`: ops then
 run on that state's EDN text and the step's `:edits` become the diff from
 the state before. The page keeps one layout cache per step, seeds a
 step's first layout from the one shown, and animates between scenes
-(`tween.cljs`, painted through `canvas/start-tween!`).
+(`tween.cljs`, painted through `canvas/start-tween!`). `?steps=a,b`
+on `/api/graph` diffs state a with state b through `diff/union`, the
+fork comparison's code, into a read-only union graph.
 
 Rendering: HTML5 canvas (HiDPI) fed by a pure scene list; layout by vendored
 [ELK.js](https://github.com/kieler/elkjs) (layered, left-to-right, compound

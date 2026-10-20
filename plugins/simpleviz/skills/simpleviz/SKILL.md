@@ -164,7 +164,9 @@ Attributes simpleviz reads:
   gets a Next button. Paths walk the graph like `get-in`: an edge by its
   key `[:edges [:api :cache]]`, a box member by its id `[:boxes :b
   :components :cache]` (sets). A step that does not apply warns and
-  changes nothing. Use it to show a sequence (a migration, a request's
+  changes nothing. The page's "compare with" diffs two steps like a
+  fork comparison, and `curl -s "$URL/api/graph?steps=0,3"` answers that
+  union graph (`:diff` per element). Use it to show a sequence (a migration, a request's
   path); a single proposed change is still a fork and compare.
 
 Paths in `:ref`, `:md-ref`, `:pair` and md links are relative to the file

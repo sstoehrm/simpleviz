@@ -614,6 +614,36 @@
      (catch Exception e
        (json/generate-string {:error (ex-message e)})))))
 
+(defn- step-pair
+  "The `steps` query parameter \"a,b\" as [a b], two step numbers."
+  [v]
+  (let [[a b :as ks] (map #(parse-long (str/trim %)) (str/split v #","))]
+    (when-not (and (= 2 (count ks)) (some? a) (some? b))
+      (throw (ex-info (str "steps must be two step numbers, like 0,2 — got " (pr-str v)) {})))
+    [a b]))
+
+(defn steps-compare-json
+  "States a (old) and b (new) of the graph in EDN text s — 0 the file as
+  written — diffed into one union graph JSON string, as compare-json
+  does for a file and its fork; read-only. prepare transforms each
+  state first (pairs/attach); extra-map is merged into the payload."
+  [s [a b] extra-map prepare]
+  (try
+    (let [g (parse-graph s)
+          steps (or (:steps g) [])
+          state (fn [k]
+                  (when-not (<= 0 k (count steps)) (throw (ex-info (str "no step " k) {})))
+                  (if (zero? k) (dissoc g :steps) (:graph (nth steps (dec k)))))
+          label (fn [k] (if (zero? k) "start" (str k " " (:name (nth steps (dec k))))))
+          old-g (prepare (state a))
+          new-g (prepare (state b))]
+      (json/generate-string
+       (merge (diff/union old-g new-g (label a) (label b))
+              extra-map
+              {:editable false :editable-old false})))
+    (catch Exception e
+      (json/generate-string {:error (ex-message e)}))))
+
 (def mime-types
   {"html" "text/html; charset=utf-8"
    "css"  "text/css; charset=utf-8"
@@ -730,13 +760,23 @@
                          ;; one scan per request, shared by both sides
                          index (pair-index @root-dir suffix)
                          prepare (fn [g which] (pairs/attach g (pair-context @root-dir path suffix index which)))]
-                     (if (some? old)
+                     (cond
+                       (some? old)
                        (compare-json (side-source pair "old") (side-source pair "new")
                                      path (fork-name path suffix) (.getName new)
                                      {:editable (not (read-only-side? pair "new"))
                                       :editable-old (not (read-only-side? pair "old"))
                                       :path path}
                                      prepare)
+
+                       ;; two states of the file's :steps, compared
+                       (some? (query-param query-string "steps"))
+                       (steps-compare-json (read-source new-p)
+                                           (step-pair (query-param query-string "steps"))
+                                           {:path path :file (.getName new)}
+                                           #(prepare % "new"))
+
+                       :else
                        (graph-json (read-source new-p) (.getName new)
                                    {:editable (not (embedded/export? new-p)) :path path}
                                    #(prepare % "new"))))))

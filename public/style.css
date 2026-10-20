@@ -667,3 +667,8 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
 #present-steps .ps-label { display: flex; gap: 8px; align-items: baseline; max-width: 28vw;
                            overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #present-steps .ps-count { color: var(--text-muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+#steps-bar .sb-chip.base { border-color: var(--accent); border-style: dashed; }
+#steps-bar .sb-select { flex: 1; min-width: 0; font: inherit; color: var(--text);
+                        background: var(--bg); border: 1px solid var(--panel-border);
+                        border-radius: 6px; padding: 2px 4px; }
+#steps-bar .sb-compare .sb-hint { flex: none; }

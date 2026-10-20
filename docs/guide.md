@@ -262,6 +262,15 @@ remove (no value) or `:r` replace. `simpleviz demo` brings `steps.edn`.
 - Below the list, the step shown has its name (Enter saves it),
   **edits** — its edit vector as text, saved with Save or Ctrl+Enter,
   refused when it does not apply — and **delete**.
+- **compare with** (under the list) compares the step shown with
+  another: the graph shows what changes from that step (old, its entry
+  dashed) to the one shown (new), styled like
+  [a comparison with a fork](#comparing-two-versions) — rings, the
+  legend with its counts, the old → new list in the inspector. Clicking
+  a step compares it instead; × stops. Either can come first, so
+  comparing a later step with an earlier one shows what it takes back.
+  A comparison is read-only. `/api/graph?steps=0,3` answers the same
+  union graph.
 - Presenting a deck, a graph with steps shows **◂ · Next ▸** at the
   bottom right: each step animates in and the view fits the graph. The
   arrow keys still step through the slides.

@@ -70,18 +70,26 @@
   {:x0 (js/Math.min (:x0 a) (:x0 b)) :y0 (js/Math.min (:y0 a) (:y0 b))
    :x1 (js/Math.max (:x1 a) (:x1 b)) :y1 (js/Math.max (:y1 a) (:y1 b))})
 
+(defn- strength
+  "An item's :highlight as a number: true 1, a frame's fade itself, else 0."
+  [it]
+  (let [h (:highlight it)]
+    (cond (true? h) 1 (number? h) h :else 0)))
+
 (defn- between
-  "Item `b` (the new scene's) on its way from `a` at t."
+  "Item `b` (the new scene's) on its way from `a` at t; a highlight
+  coming or going fades."
   [a b t]
-  (if (= (:kind b) "edge")
-    (let [pa (resample (route a) EDGE-PTS)
-          pb (resample (route b) EDGE-PTS)
-          pts (mapv (fn [p q] {:x (lerp (:x p) (:x q) t) :y (lerp (:y p) (:y q) t)}) pa pb)]
-      (assoc b :sections [pts] :points pts :bbox (lerp-bbox (:bbox a) (:bbox b) t)))
-    (assoc b
-           :x (lerp (:x a) (:x b) t) :y (lerp (:y a) (:y b) t)
-           :w (lerp (:w a) (:w b) t) :h (lerp (:h a) (:h b) t)
-           :bbox (lerp-bbox (:bbox a) (:bbox b) t))))
+  (let [b (if (= (strength a) (strength b)) b (assoc b :highlight (lerp (strength a) (strength b) t)))]
+    (if (= (:kind b) "edge")
+      (let [pa (resample (route a) EDGE-PTS)
+            pb (resample (route b) EDGE-PTS)
+            pts (mapv (fn [p q] {:x (lerp (:x p) (:x q) t) :y (lerp (:y p) (:y q) t)}) pa pb)]
+        (assoc b :sections [pts] :points pts :bbox (lerp-bbox (:bbox a) (:bbox b) t)))
+      (assoc b
+             :x (lerp (:x a) (:x b) t) :y (lerp (:y a) (:y b) t)
+             :w (lerp (:w a) (:w b) t) :h (lerp (:h a) (:h b) t)
+             :bbox (lerp-bbox (:bbox a) (:bbox b) t)))))
 
 (def ^:private KINDS ["box" "edge" "edge-label" "node"])
 

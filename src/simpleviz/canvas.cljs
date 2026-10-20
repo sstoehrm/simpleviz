@@ -195,6 +195,37 @@
       (set! (.-textAlign ctx) "left")
       (.fillText ctx (get diff-glyphs d) (- (:x item) 2) (- (:y item) 6)))))
 
+(defn- highlight-strength
+  "An item's :highlight as a number from 0 to 1: true is 1, a number is
+  a step's animation fading it, anything else 0."
+  [item]
+  (let [h (:highlight item)]
+    (cond (true? h) 1 (number? h) h :else 0)))
+
+(defn- draw-highlight
+  "The highlight (:highlight true): a halo in the accent color round a
+  node or box, or along an edge, at strength h. Strokes only, no
+  shadow, so the SVG export draws it the same."
+  [ctx item h]
+  (let [a0 (.-globalAlpha ctx)
+        edge? (= (:kind item) "edge")
+        r (if (= (:kind item) "box") 10 6)]
+    (set! (.-strokeStyle ctx) (:accent @palette))
+    ;; a soft wide stroke, then a crisp ring
+    (doseq [[pad w alpha] (if edge? [[0 10 0.2] [0 4.5 0.5]] [[7 8 0.2] [6 2.5 0.95]])]
+      (set! (.-globalAlpha ctx) (* a0 h alpha))
+      (set! (.-lineWidth ctx) w)
+      (if edge?
+        (doseq [pts (:sections item)]
+          (.beginPath ctx)
+          (.moveTo ctx (:x (nth pts 0)) (:y (nth pts 0)))
+          (doseq [p (rest pts)] (.lineTo ctx (:x p) (:y p)))
+          (.stroke ctx))
+        (do (rounded-rect ctx (- (:x item) pad) (- (:y item) pad)
+                          (+ (:w item) (* 2 pad)) (+ (:h item) (* 2 pad)) (+ r pad))
+            (.stroke ctx))))
+    (set! (.-globalAlpha ctx) a0)))
+
 (defn- stroke-border
   "Strokes the current path as the item's outer border: dotted when it
   has an :md-ref (a linked markdown doc)."
@@ -479,6 +510,9 @@
             alpha (* (if (= "removed" (:diff item)) 0.45 1) (if (some? (:alpha item)) (:alpha item) 1))
             ghost? (< alpha 1)]
         (when ghost? (set! (.-globalAlpha ctx) alpha))
+        ;; under the element, so its fill covers the halo's inner edge
+        (let [h (highlight-strength item)]
+          (when (pos? h) (draw-highlight ctx item h)))
         (case (:kind item)
           "box" (draw-box ctx item sel? text?)
           "edge" (draw-edge ctx item sel? text?)

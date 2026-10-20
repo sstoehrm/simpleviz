@@ -73,3 +73,10 @@
     (assert/equal (tween/ease 1) 1)
     (assert/equal (tween/ease 0.5) 0.5)
     (assert/ok (< (tween/ease 0.1) 0.1))))
+
+(test "a highlight coming on fades in, one going off fades out"
+  (fn []
+    (let [on (assoc (node "n:a" 0 0) :highlight true)
+          off (assoc (node "n:a" 0 0) :highlight false)]
+      (assert/equal (:highlight (item (tween/frame (scene [off]) (scene [on]) 0.25) "n:a")) 0.25)
+      (assert/equal (:highlight (item (tween/frame (scene [on]) (scene [off]) 0.25) "n:a")) 0.75))))

@@ -406,6 +406,19 @@
                      (assoc b :pos v) b))
            boxes)]))
 
+(defn- warn-bad-highlights!
+  "A :highlight that is neither true nor false warns; the page draws
+  only true."
+  [nodes boxes edges warn!]
+  (let [bad? (fn [attrs] (and (contains? attrs :highlight) (not (boolean? (:highlight attrs)))))
+        msg ": :highlight must be true or false, ignored"]
+    (doseq [n (sort-by :id (vals nodes)) :when (bad? (:attrs n))]
+      (warn! (str "node \"" (:id n) "\"" msg)))
+    (doseq [e edges :when (bad? (:attrs e))]
+      (warn! (str "edge [" (str/join " " (:nodes (:attrs e))) "]" msg)))
+    (doseq [b boxes :when (bad? (:attrs b))]
+      (warn! (str "box \"" (:name b) "\"" msg)))))
+
 (defn normalize [raw]
   (let [warnings (atom [])
         warn! (fn [msg] (swap! warnings conj msg))
@@ -434,6 +447,7 @@
         edges (drop-containment-edges edges0 parent-of warn!)
         _ (warn-gone-layouts! raw nodes boxes warn!)
         [nodes boxes] (resolve-positions nodes boxes parent-of warn!)
+        _ (warn-bad-highlights! nodes boxes edges warn!)
         theme (resolve-theme (:theme raw) warn!)
         ;; the built-in's name when the file names one (the page's theme
         ;; menu can rewrite that); a :theme map is custom and has none

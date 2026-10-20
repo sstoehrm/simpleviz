@@ -19,4 +19,7 @@
           :edits [[[:boxes] :+ {:backend {:type "zone" :components #{:api :worker :queue}}
                                 :storage {:type "zone" :components #{:db :cache}}}]]}
          {:name "rename the API"
-          :edits [[[:nodes :api :name] :r "Gateway"]]}]}
+          :edits [[[:nodes :api :name] :r "Gateway"]]}
+         {:name "where requests wait"
+          :edits [[[:nodes :queue :highlight] :+ true]
+                  [[:edges [:api :queue] :highlight] :+ true]]}]}

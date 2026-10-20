@@ -16,6 +16,10 @@ The [Diagrams](diagrams.md#data-format) example shows every attribute simpleviz 
   under a box's header (not while the box is collapsed). A string breaks at
   `\n`; a vector of strings gives one line each. Lines wrap at about 220 px,
   and the element grows to fit.
+- `:highlight true` on a node, box or edge draws a halo round it in the
+  theme's accent color, to point at it — in a step, it fades in and out
+  with the step's animation. `false`, or none, draws it as usual; any
+  other value warns and is ignored.
 - `:state` — `:new`, `:in-progress`, `:blocked` or `:done` — puts a mark on
   the node's top-right corner: grey disc, blue half disc, red square, green
   disc with a check. Any other value is an ordinary attribute.

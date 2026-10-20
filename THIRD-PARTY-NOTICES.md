@@ -49,8 +49,8 @@ Licensed under the MIT License:
 
 ## Server dependencies
 
-The tarball declares metosin/malli as a dependency; babashka downloads it
-and its dependencies from Clojars and Maven Central on the user's machine.
+The tarball declares metosin/malli and juji/editscript as dependencies;
+babashka downloads them and their dependencies from Clojars and Maven Central on the user's machine.
 
 `simpleviz.jar`, the release jar for bbin, bundles them:
 
@@ -64,6 +64,7 @@ and its dependencies from Clojars and Maven Central on the user's machine.
 | org.clojure/test.check | 1.1.3 | Eclipse Public License 1.0 | [Maven Central](https://central.sonatype.com/artifact/org.clojure/test.check) |
 | org.clojure/tools.reader | 1.5.2 | Eclipse Public License 1.0 | [Maven Central](https://central.sonatype.com/artifact/org.clojure/tools.reader) |
 | mvxcvi/arrangement | 2.1.0 | The Unlicense (public domain) | [Clojars](https://clojars.org/mvxcvi/arrangement) |
+| juji/editscript | 0.8.0 | Eclipse Public License 1.0 | [Clojars](https://clojars.org/juji/editscript) |
 
 Sources for each listed library are available from Clojars or Maven
 Central (as listed) under the coordinates and versions above.

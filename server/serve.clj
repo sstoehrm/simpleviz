@@ -18,6 +18,7 @@
             [mdlinks]
             [pairs]
             [paths]
+            [steps]
             [themes])
   (:import [clojure.lang LineNumberingPushbackReader]
            [java.io StringReader]))
@@ -320,7 +321,7 @@
     (refuse-embedded-compare!)
     rel))
 
-(defn- edit-response [{:keys [file ops path compare]}]
+(defn- edit-response [{:keys [file ops path compare step]}]
   (try
     (when (some? path) (refuse-embedded-compare!))
     (let [{:keys [old new] :as pair} (sides path compare)
@@ -344,7 +345,7 @@
         ;; snapshot the ORIGINAL text before applying — `before` feeds
         ;; both the patch and the undo stack
         (let [before (if (some? source) (slurp source) empty-graph)
-              {:keys [text error]} (edit/apply-ops before ops)]
+              {:keys [text error]} (steps/apply-ops before ops step)]
           (if (some? error)
             {:error error}
             (do (push-undo! path before)
@@ -356,11 +357,11 @@
   "The EDN text of nodes and boxes `ids` with what they hold, and the
   targets that took (edit/copy), from the side `file` names — what an
   edit there would change."
-  [{:keys [file ids path compare]}]
+  [{:keys [file ids path compare step]}]
   (try
     (when (some? path) (refuse-embedded-compare!))
     (let [text (side-source (sides path compare) file)]
-      (edit/copy text {:ids ids}))
+      (edit/copy (if (and (some? step) (pos? step)) (steps/state-text text step) text) {:ids ids}))
     (catch Exception e {:error (or (ex-message e) (str e))})))
 
 (defn- new-graph-target
@@ -473,7 +474,7 @@
           (throw (ex-info (str "content after the end of the graph: its map closes at line "
                                line " — check there for an extra }")
                           {})))))
-    (graph/normalize root)))
+    (steps/attach (graph/normalize root) root graph/normalize)))
 
 (def ^:private graph-cache
   "canonical path -> {:stamp [mtime length] :graph g} or {:stamp ..
@@ -576,7 +577,9 @@
   ([s fname extra-map prepare]
    (try
      (json/generate-string
-      (cond-> (prepare (parse-graph s))
+      (cond-> (let [g (parse-graph s)]
+                (cond-> (prepare g)
+                  (some? (:steps g)) (assoc :steps (mapv (fn [st] (update st :graph prepare)) (:steps g)))))
         (some? fname) (assoc :file fname)
         (some? extra-map) (merge extra-map)))
      (catch Exception e
@@ -601,8 +604,9 @@
                    (try (parse-graph s)
                         (catch Exception e
                           (throw (ex-info (str nm ": " (ex-message e)) {})))))
-           old-g (prepare (parse old-s old-name) "old")
-           new-g (prepare (parse new-s new-name) "new")]
+           ;; a comparison shows two files, not the states of one
+           old-g (prepare (dissoc (parse old-s old-name) :steps) "old")
+           new-g (prepare (dissoc (parse new-s new-name) :steps) "new")]
        (json/generate-string
         (cond-> (assoc (diff/union old-g new-g old-name new-name)
                        :file file-name)

@@ -1,6 +1,6 @@
 ;; A graph with :steps: each step's :edits (editscript, [path op value])
 ;; change the state before it. Serve it and click through the steps at
-;; the top left, or present it from deck.md (the slide after ">> states").
+;; the bottom left, or present it from deck.md (the slide after ">> states").
 {:nodes {:web {:name "Web UI" :type "frontend"}
          :api {:name "API" :type "service"}
          :db  {:name "Postgres" :type "database"}}

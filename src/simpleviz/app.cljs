@@ -1176,7 +1176,7 @@
       "Chords act on the selection, when no text field has focus (the toolbar buttons show them); the first key opens a pop-out of what comes next, which can be clicked too: d d delete · e 1/2/3/4 edge direction → ← ↔ — · c s / c t change an edge's source / target · a e add edge · a b add to box (node) or add a box as member (box) · a n add a node as member (box) — either moves it out of the box it was in · n n n new node (connected to the selected node, or inside the selected box) · n n b new box (inside the selected box) · n n s new node in the selection's box · n n c / n n i new node in the selection's box, connected from / to it · n n e split the selected edge with a new node · n b wrap the selection in a new box · r r rename the id · r n take a node out of the selected box · r b take the selected node out of its box · f r follow the selection's :ref · f p follow the selection's pair (f p 1–9 with several) · f m open the selection's :md-ref doc (Ctrl+S saves it) · s s select mode: click nodes and boxes to add or drop them · s a select all · s r select by dragging a rectangle · then y y copy / x x cut / d d delete them — a box with what it holds, and the edges among them all · p p paste what was copied or cut, here or in another graph (into the selected box; a taken id gets -1). Esc cancels a pending chord and ends select mode; ? toggles this help; Ctrl+Z undoes.")
      (help-section
       "Steps"
-      ":steps in the file lists states of the graph, each an editscript change of the one before ([path op value], op :+ :- :r). Steps (top left) shows them — click one, or ◂ ▸; the page animates the change. + adds a step after the one shown: while a step shows, your edits change that step, and the steps after it build on it. Its name, its edits as text (Save, Ctrl+Enter) and delete are under the list. compare with shows what changes from another step to the one shown, read-only, styled like a comparison with a fork; × stops. Presenting, a graph with steps has Next at the bottom right.")
+      ":steps in the file lists states of the graph, each an editscript change of the one before ([path op value], op :+ :- :r). Steps (bottom left) shows them — click one, or ◂ ▸; the page animates the change. + adds a step after the one shown: while a step shows, your edits change that step, and the steps after it build on it. Its name, its edits as text (Save, Ctrl+Enter) and delete are under the list. compare with shows what changes from another step to the one shown, read-only, styled like a comparison with a fork; × stops. Presenting, a graph with steps has Next at the bottom right.")
      (help-section
       "Compare"
       "Serving a file with a suffix (simpleviz graph.edn next) renders it against its fork graph-next.edn as one merged diagram: added elements get a green +, modified an amber ~ (select for an old → new list), removed ones stay as red dashed ghosts. Click a legend row to jump through the changes; the old|new toggle picks which file edits apply to.")
@@ -1803,7 +1803,7 @@
    (step-label st i)])
 
 (defn- steps-bar
-  "Top left: the graph's steps, each a state of it — click one to
+  "Bottom left: the graph's steps, each a state of it — click one to
   see it, animated from the one shown. Editable, + adds a step after
   the shown one, and while a step shows, what you edit is its change;
   its name, its edits as text and delete are below the list."

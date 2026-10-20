@@ -608,9 +608,9 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
 #tooltip dd ul, #tooltip dd ol { margin: 0; padding-left: 16px; }
 #tooltip dd ol.dd-map { padding-left: 0; list-style: none; }
 
-/* a graph's steps (:steps): top left of the canvas, right of the
+/* a graph's steps (:steps): bottom left of the canvas, right of the
    collapsed boxes and of an md page's column */
-#steps-bar { position: fixed; left: 12px; top: 60px; z-index: 6; width: 260px;
+#steps-bar { position: fixed; left: 12px; bottom: 12px; z-index: 6; width: 260px;
              max-height: calc(100vh - 150px); overflow: auto;
              display: flex; flex-direction: column; gap: 6px;
              background: var(--panel); border: 1px solid var(--panel-border);

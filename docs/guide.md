@@ -248,7 +248,7 @@ An edit is `[path op value]`: the path walks the graph like `get-in`
 (an edge by its key, a box member by its id), op is `:+` add, `:-`
 remove (no value) or `:r` replace. `simpleviz demo` brings `steps.edn`.
 
-- **Steps** (top left of the page) lists them: click one, or ◂ ▸, to
+- **Steps** (bottom left of the page) lists them: click one, or ◂ ▸, to
   show that state. The page animates the change — what stays moves to
   its new place, what goes fades out, what comes fades in — and a step
   shown the first time is laid out from the one shown, so what stays

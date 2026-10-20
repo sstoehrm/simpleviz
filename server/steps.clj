@@ -8,6 +8,7 @@
   state and store its diff from the state before as the step's edits."
   (:require [clojure.edn :as edn]
             [clojure.string :as str]
+            [edamame.core :as ed]
             [editscript.core :as e]
             [edit]
             [rewrite-clj.node :as n]
@@ -115,9 +116,21 @@
 
 ;; ---- editing ----
 
-(defn- tracked-root [text]
-  (edit/zroot text)
-  (z/of-string text {:track-position? true}))
+(defn- step-forms
+  "The steps in text, read with each one's position as metadata
+  ({:row :col :end-row :end-col}, 1-based, end exclusive), nil when
+  there are none. The zipper knows positions too, but tracking them
+  stringifies every form it moves past: seconds in a big graph."
+  [text]
+  (let [steps (try (:steps (ed/parse-string text {:all true :readers (fn [_] identity)}))
+                   (catch Exception _ nil))]
+    (when (vector? steps) steps)))
+
+(defn- column
+  "The column (0-based) step k's form starts in, 9 when not known —
+  where it is in ` :steps [{...`."
+  [text k]
+  (or (some-> (nth (step-forms text) (dec k) nil) meta :col dec) 9))
 
 (defn- form-at
   "loc, or the first form right of it that is no `#_` discard."
@@ -146,8 +159,6 @@
       (when-not (map? (z/sexpr loc)) (fail! (str "step " k " is not a map")))
       loc)))
 
-(defn- column [loc] (dec (second (z/position loc))))
-
 (defn- set-key
   "Map zloc `m` with key `k` set to the node `v` (rewrite-clj node)."
   [m k v]
@@ -164,7 +175,7 @@
   "Text with an empty step `name` after step `after` (0: first)."
   [text {:keys [after name]}]
   (let [nm (if (str/blank? (str name)) nil (str name))
-        root (tracked-root text)
+        root (edit/zroot text)
         sv (steps-loc root)
         locs (if (some? sv) (step-locs sv) [])
         node (step-node (or nm (str "step " (inc (or after 0)))))]
@@ -186,18 +197,18 @@
        (let [first-loc (first locs)]
          (-> first-loc
              (z/insert-left* node) (z/insert-left* (n/newlines 1))
-             (z/insert-left* (n/spaces (column first-loc)))))
+             (z/insert-left* (n/spaces (column text 1)))))
 
        :else
        (let [loc (nth locs (dec after))]
          (-> loc
-             (z/insert-right* node) (z/insert-right* (n/spaces (column (first locs))))
+             (z/insert-right* node) (z/insert-right* (n/spaces (column text 1)))
              (z/insert-right* (n/newlines 1))))))))
 
 (defn delete-step
   "Text without step k; without :steps once the last step is gone."
   [text {:keys [step]}]
-  (let [root (tracked-root text)
+  (let [root (edit/zroot text)
         loc (step-loc root step)]
     (if (= 1 (count (step-locs (steps-loc root))))
       (z/root-string (edit/remove-pair (edit/find-key (edit/zroot text) #(= % :steps))))
@@ -205,7 +216,7 @@
 
 (defn rename-step [text {:keys [step name]}]
   (when (str/blank? (str name)) (fail! "a step needs a name"))
-  (z/root-string (set-key (step-loc (tracked-root text) step) :name (n/coerce (str name)))))
+  (z/root-string (set-key (step-loc (edit/zroot text) step) :name (n/coerce (str name)))))
 
 (defn state-of
   "State k (0: the base) of text's graph; fails on a step that doesn't
@@ -221,20 +232,30 @@
   [text k]
   (pr-edn (state-of text k)))
 
+(defn- offset
+  "The index in text of 1-based position [row col]."
+  [text [row col]]
+  (+ (dec col) (loop [r 1 i 0] (if (= r row) i (recur (inc r) (inc (str/index-of text "\n" i)))))))
+
 (defn- write-edits
-  "Text with step k's :edits set to `edits`."
+  "Text with step k's :edits set to `edits`. An :edits vector already
+  there is replaced by splicing the text: rebuilding a big file from the
+  zipper (z/root-string) takes seconds, and every edit at a step comes
+  here."
   [text k edits]
-  (let [loc (step-loc (tracked-root text) k)
-        col (if-let [v (edit/find-val loc #(= % :edits))]
-              (column v)
-              (+ (column loc) 8))]
-    (z/root-string (set-key loc :edits (node-of (edits-text edits col))))))
+  (let [loc (step-loc (edit/zroot text) k)
+        m (some-> (nth (step-forms text) (dec k) nil) :edits meta)
+        old (edit/find-val loc #(= % :edits))
+        [from to] (when (some? m) [(offset text [(:row m) (:col m)]) (offset text [(:end-row m) (:end-col m)])])]
+    (if (and (some? from) (some? old) (= (subs text from to) (z/string old)))
+      (str (subs text 0 from) (edits-text edits (dec (:col m))) (subs text to))
+      (z/root-string (set-key loc :edits (node-of (edits-text edits (+ (column text k) 8))))))))
 
 (defn- apply-edits-check
   "Refuses `edits` for step k unless they apply to state k-1."
   [text k edits]
   (when-let [err (edits-error edits)] (fail! err))
-  (step-loc (tracked-root text) k)
+  (step-loc (edit/zroot text) k)
   (let [[_ err] (patch (state-of text (dec k)) edits)]
     (when (some? err) (fail! err))))
 
@@ -251,7 +272,7 @@
   [text k op]
   (let [prev (state-of text (dec k))
         after (edn/read-string (edit/apply-op (state-text text k) op))]
-    (write-edits text k (e/get-edits (e/diff prev after)))))
+    (write-edits text k (e/get-edits (e/diff prev after {:algo :quick})))))
 
 (def ^:private step-ops
   {"add-step" add-step "delete-step" delete-step

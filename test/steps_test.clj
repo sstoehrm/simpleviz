@@ -134,3 +134,17 @@
   (is (= "[[[:boxes] :+ {:b {:type \"zone\" :components #{:a}}}]\n [[:nodes :a] :-]]"
          (steps/edits-text [[[:boxes] :+ {:b {:type "zone" :components #{:a}}}] [[:nodes :a] :-]] 0)))
   (is (= "{:a 1 :b [1 2]}" (steps/state-text "{:a 1 :b [1 2]}" 0))))
+
+(deftest edits-are-spliced-in-place-also-after-crlf-and-unicode
+  (let [text (str "{:nodes {:a {:name \"Ä\"}}\r\n"
+                  " :steps [{:name \"one\" ;; keep\r\n"
+                  "          :edits []}]}")
+        out (run text [{:op "add-node" :id "b"}] 1)]
+    (is (= (str "{:nodes {:a {:name \"Ä\"}}\r\n"
+                " :steps [{:name \"one\" ;; keep\r\n"
+                "          :edits [[[:nodes :b] :+ nil]]}]}")
+           out))))
+
+(deftest a-step-without-edits-gets-them
+  (let [out (run "{:nodes {:a nil}\n :steps [{:name \"one\"}]}" [{:op "add-node" :id "b"}] 1)]
+    (is (= [[[:nodes :b] :+ nil]] (:edits (first (:steps (edn/read-string out))))))))

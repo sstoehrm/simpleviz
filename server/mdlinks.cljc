@@ -250,6 +250,31 @@
       (let [n (loop [n 0] (if (= (ch line (+ k n)) c) (recur (inc n)) n))]
         (when (>= n 3) [c n])))))
 
+(defn fences
+  "The fenced code blocks of md `text` outside quotes and lists, as the
+  page reads them: [{:line (1-based, of the opening fence) :info (the
+  rest of that line, trimmed) :body [lines] :closed}]. A ``` fence whose
+  info holds a ` opens none."
+  [text]
+  (let [lines (vec (str/split (normalize-breaks (str text)) #"\n" -1))
+        n (count lines)
+        closes? (fn [line [c len]]
+                  (when-let [[c2 len2] (fence-of line)]
+                    (and (= c c2) (>= len2 len)
+                         (= "" (str/trim (subs line (+ (skip-blanks line 0 false) len2)))))))]
+    (loop [i 0 out []]
+      (if (>= i n)
+        out
+        (let [line (nth lines i)
+              [c len :as f] (fence-of line)
+              info (when (some? f) (str/trim (subs line (+ (skip-blanks line 0 false) len))))]
+          (if (or (nil? f) (and (= c "`") (str/includes? info "`")))
+            (recur (inc i) out)
+            (let [end (loop [j (inc i)] (cond (>= j n) nil (closes? (nth lines j) f) j :else (recur (inc j))))]
+              (recur (if (some? end) (inc end) n)
+                     (conj out {:line (inc i) :info info :closed (some? end)
+                                :body (subvec lines (inc i) (or end n))})))))))))
+
 (defn- parse-def
   "[label raw-dest] when line is a reference definition, else nil."
   [line]

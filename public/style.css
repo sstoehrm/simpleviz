@@ -167,9 +167,10 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
 :is(#md-view, .md-doc) td.calc.error { color: var(--diff-removed); font-size: .85em; }
 /* charts: a table's below it shows instead of it, a button switching
    between the two; a chart alone has no table */
-:is(#md-view, .md-doc) figure.chart-table, :is(#md-view, .md-doc) figure.chart-solo { position: relative; margin: 0 0 1em; }
-.chart-table > table, .chart-table.show-table > .chart:not(.error) { display: none !important; }
-.chart-table.show-table > table { display: block !important; }
+.chart-table, .chart-solo { position: relative; margin: 0 0 1em; }
+/* the md table rule sets display: block, so these need its specificity */
+:is(#md-view, .md-doc) .chart-table > table, .chart-table.show-table > .chart:not(.error) { display: none; }
+:is(#md-view, .md-doc) .chart-table.show-table > table { display: block; }
 .chart-toggle { position: absolute; top: 0; right: 0; z-index: 1; font: 12px system-ui, sans-serif;
                 color: var(--text-muted); background: var(--panel); border: 1px solid var(--panel-border);
                 border-radius: 6px; padding: 2px 8px; cursor: pointer; }
@@ -190,12 +191,12 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
 .chart-base { stroke: var(--panel-border); stroke-width: 1; }
 .chart-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
 .chart-dot { stroke: var(--panel); stroke-width: 2; }
-.chart-hit { fill: transparent !important; }
+.chart-hit { fill: transparent; }
 .chart-mark:hover, .chart-dot:hover { opacity: .8; }
 .chart-x-name { text-align: right; font-size: .8em; color: var(--text-muted); margin-top: -4px; }
-.s1 { --c: var(--series-1); } .s2 { --c: var(--series-2); } .s3 { --c: var(--series-3); } .s4 { --c: var(--series-4); }
-.s5 { --c: var(--series-5); } .s6 { --c: var(--series-6); } .s7 { --c: var(--series-7); } .s8 { --c: var(--series-8); }
-.chart-mark, .chart-dot, .chart-key i { fill: var(--c); background: var(--c); }
+/* each mark's style sets --c, its series colour */
+.chart-mark, .chart-dot { fill: var(--c); }
+.chart-key i { background: var(--c); }
 .chart-line { stroke: var(--c); }
 :is(#md-view, .md-doc) caption.calc-error { caption-side: top; text-align: left; color: var(--diff-removed); font-size: .85em; padding-bottom: 4px; }
 :is(#md-view, .md-doc) a { color: var(--accent); text-underline-offset: 2px; }

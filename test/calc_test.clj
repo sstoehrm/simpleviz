@@ -312,7 +312,9 @@
                             :chart "{:kind :bar :x :a :y [:b] :rows [1 2]}"})]
     (is (= {:kind "bar" :x 0 :y [1] :rows [1 2]} (:chart out)))
     (is (= {:value "1370 €" :num 1370} (get-in out [:results 2 1])))
-    (is (= {:value "950 €"} (get-in out [:results 0 1])) "plain cells: the page reads the number off the cell"))
+    (is (= {:value "950 €" :num 950} (get-in out [:results 0 1])) "plain cells carry their number too")
+    (is (= 420 (get-in out [:results 1 1 :num])))
+    (is (nil? (get-in out [:results 1 0])) "text has no number"))
   (testing "without formulas or def block the spec still reads"
     (is (= {:kind "bar" :x 0 :y [1]}
            (:chart (calc/evaluate {:cells [["a" "1"]] :chart "{:kind :bar :x :a :y :b}"})))))

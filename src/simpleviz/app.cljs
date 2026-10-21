@@ -1479,7 +1479,7 @@
     (cond (some? (:failed hit)) hit
           (some? hit) (:tables hit)
           ;; most texts have no table to calculate: skip parsing them
-          (not (or (.includes text "=(") (.includes text "simpleviz-table") (.includes text "simpleviz-chart"))) (do (remember-calc! path text {}) nil)
+          (not (markdown/may-calc? text)) (do (remember-calc! path text {}) nil)
           :else (let [tables (markdown/calc-tables text)]
                   (if (markdown/calc? tables) (fetch-calc! path text tables) (remember-calc! path text {}))
                   nil))))

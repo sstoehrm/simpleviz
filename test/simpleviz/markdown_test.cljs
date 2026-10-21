@@ -1,7 +1,7 @@
 (ns simpleviz.markdown-test
   (:require ["node:test" :refer [test]]
             ["node:assert/strict$default" :as assert]
-            [simpleviz.markdown :refer [calc-tables render tidy tidy-caret]]))
+            [simpleviz.markdown :refer [calc-tables may-calc? render tidy tidy-caret]]))
 
 (defn- link [l kids] (into [:a {:href (:dest l) :kind (:kind l)}] kids))
 
@@ -401,7 +401,7 @@
       (assert/deepEqual (nth fig 3) [:div {:class "chart pending"} "…"])
       (assert/equal (first (nth fig 4)) :table)
       (assert/deepEqual p [:p "after"]))
-    (let [[fig] (render chart-doc link [{:results [[nil nil] [nil {:value "420" :num 420}]]
+    (let [[fig] (render chart-doc link [{:results [[nil {:num 950}] [nil {:value "420" :num 420}]]
                                          :chart {:kind "bar" :x 0 :y [1]}}])
           chart (nth fig 3)]
       (assert/deepEqual (second chart) {:class "chart"})
@@ -423,3 +423,10 @@
       ((:on-click (second button)) #js {:currentTarget #js {:closest (fn [_] nil)}})
       (assert/notEqual (tidy doc) doc)
       ((:on-click (second button)) #js {:currentTarget #js {:closest (fn [_] nil)}}))))
+
+(test "may-calc?: a formula, a table or chart block needs the server; other text doesn't"
+  (fn []
+    (assert/ok (may-calc? "| a |\n|--|\n| =(+ 1 2) |"))
+    (assert/ok (may-calc? "```simpleviz-chart\n```"))
+    (assert/ok (may-calc? "```simpleviz-table\n```"))
+    (assert/ok (not (may-calc? "# plain\n\n| a |\n|--|\n| 1 |")))))

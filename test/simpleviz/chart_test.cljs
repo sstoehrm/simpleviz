@@ -1,7 +1,7 @@
 (ns simpleviz.chart-test
   (:require ["node:test" :refer [test]]
             ["node:assert/strict$default" :as assert]
-            [simpleviz.chart :refer [compact runs ticks view]]))
+            [simpleviz.chart :refer [compact runs stacked ticks view]]))
 
 (test "ticks are round steps covering the values"
   (fn []
@@ -45,3 +45,8 @@
     (let [grid (mapv (fn [i] [{:num i :label (str i)} {:num (* i i)}]) (range 20000))]
       (doseq [kind ["bar" "line" "scatter"]]
         (assert/equal (first (nth (view {:spec {:kind kind :x 0 :y [1]} :names ["a" "b"] :grid grid}) 3)) :svg)))))
+
+(test "a stack piles positives up and negatives down, blanks and zeros left out, the last of each sign outer"
+  (fn []
+    (assert/deepEqual (stacked [3 -1 nil 2 0 -4])
+                      [[0 3 0 false] [1 -1 0 false] [3 2 3 true] [5 -4 -1 true]])))

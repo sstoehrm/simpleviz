@@ -16,8 +16,9 @@ a table in the same file, or a data file on its own:
 
 - A ```` ```simpleviz-chart-table ```` block right below a table shows
   that table as a chart. A button at its top right switches to the table
-  and back. Columns are the table's letters, and rows are its body rows
-  from 1, as in its formulas.
+  and back. Columns are the table's letters, `:a` the first, and rows
+  are its body rows from 1, as in its formulas. A table takes one chart
+  block; to chart it twice, repeat the table.
 - The chart takes a formula's number, never its formatted text, so `=(/
   1 4)` shown as `25 %` is charted as 0.25. It charts the table, never
   the data file the table's own `simpleviz-table` block may link.

@@ -38,3 +38,10 @@
           dots (rest (last svg))]
       (assert/equal (count dots) 2)
       (assert/deepEqual (mapv (fn [t] (last t)) (drop 2 (nth svg 3))) ["80" "90" "100" "110" "120"]))))
+
+(test "no rows draw an empty chart; the most rows the server lets through draw too"
+  (fn []
+    (assert/equal (first (nth (view {:spec {:kind "bar" :x 0 :y [1]} :names ["a" "b"] :grid []}) 3)) :svg)
+    (let [grid (mapv (fn [i] [{:num i :label (str i)} {:num (* i i)}]) (range 20000))]
+      (doseq [kind ["bar" "line" "scatter"]]
+        (assert/equal (first (nth (view {:spec {:kind kind :x 0 :y [1]} :names ["a" "b"] :grid grid}) 3)) :svg)))))

@@ -414,3 +414,12 @@
   (fn []
     (assert/deepEqual (md "text\n\n```simpleviz-chart-table\n{}\n```") [[:p "text"] [:pre [:code "{}"]]])
     (assert/equal (first (first (md "| a |\n|--|\n| 1 |\n```simpleviz-chart-table\n{}"))) :table)))
+
+(test "charts: Format still aligns a chart's table once its table was shown"
+  (fn []
+    (let [doc "| a | b |\n|-|-|\n| x | 1 |\n\n```simpleviz-chart-table\n{:kind :bar :x :a :y :b}\n```\n"
+          [fig] (md doc)
+          button (nth fig 2)]
+      ((:on-click (second button)) #js {:currentTarget #js {:closest (fn [_] nil)}})
+      (assert/notEqual (tidy doc) doc)
+      ((:on-click (second button)) #js {:currentTarget #js {:closest (fn [_] nil)}}))))

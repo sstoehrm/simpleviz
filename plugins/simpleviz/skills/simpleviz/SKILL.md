@@ -364,16 +364,21 @@ table as a chart; the page hides the table behind a Table button. A
 ````
 
 - The map: `:kind` `:bar`, `:line` or `:scatter`; `:x` one column, `:y`
-  one or a vector (a series each), as letters; `:rows [from to]` the
-  body rows to chart (leave out a totals row); `:stack true` and
+  one (`:b`) or a vector (`[:b :c]`, a series each); `:rows [from to]`
+  the body rows to chart (leave out a totals row); `:stack true` and
   `:horizontal true` for bars; `:title`. Any other key is an error.
-- Of a table: its letters, its body rows from 1; a formula is charted by
-  its number, never by the text a `simpleviz-table` block formats it to,
-  and the table's own data file is never charted.
+- Of a table: `:a` is its first column (usually the labels), rows its
+  body rows from 1. A formula is charted by its number, not its
+  formatted text; a table over a data file is charted by the cells it
+  shows, not the file's records. One chart block per table, after it
+  (blank lines allowed, nothing else); for a second chart, repeat the
+  table.
 - Alone: the first lines are a table block's data lines, `>>` the data,
-  then `>>` its fields, which are required here and become the letters.
-  Each record is a row; the chart doesn't group or sum. To chart totals
-  per group, sum them in a table and chart that table.
+  then `>>` its fields, required here: their order makes the letters,
+  and they may pick a subset. Each record is a row; the chart doesn't
+  group or sum — sum in a table and chart that. A line or scatter whose
+  x values are all numbers gets a numeric axis, else evenly spaced
+  categories.
 - `simpleviz check` warns about a chart block not right below a table,
   a map that doesn't read or names a column or row that isn't there,
   and data that can't be read. It runs no formulas.

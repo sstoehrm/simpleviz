@@ -796,8 +796,8 @@
 (defn- errors-response-body
   "What the page's banners would show for the same query: the graph
   route's parse error (or nil) and validation warnings, nothing else —
-  or, for an md file, its read error, broken links and malformed
-  questions."
+  or, for an md file, its read error, broken links, malformed
+  questions and broken charts."
   [query-string]
   (let [rel (try (or (nav-rel query-string) (root-rel)) (catch Exception _ nil))]
     (if (and (some? rel) (paths/md-path? rel))

@@ -518,8 +518,9 @@
   (let [t (.trim s)] (when (.test #"^-?\d+(\.\d+)?$" t) (js/Number t))))
 
 (def ^:private tables-shown
-  "The chart tables whose table shows instead of their chart, by
-  header line and spec: kept across renders."
+  "The chart tables whose table shows instead of their chart, by their
+  place among the text's tables and their spec — neither of which
+  Format changes, as tidy compares renders: kept across renders."
   (js/Set.))
 
 (defn- toggle-table! [k e]
@@ -576,7 +577,8 @@
         grid (fn [l] (let [cs (cells l)] (mapv (fn [k] (or (get cs k) "")) (range (count aligns)))))
         body (mapv (fn [j] (grid (nth lines j))) (range (+ i 2) end))
         failed (:failed (:calc ctx))
-        mine (when (nil? failed) (get (:calc ctx) (count (:tables ctx))))
+        at (count (:tables ctx))
+        mine (when (nil? failed) (get (:calc ctx) at))
         row (fn [tag cs r]
               (into [:tr] (map-indexed (fn [k a]
                                          (let [c (nth cs k)
@@ -594,7 +596,7 @@
                         (into [:tbody] (map-indexed (fn [r cs] (row :td cs r)) body))))]
       (if (nil? chart)
         [tbl end]
-        (let [k (str (nth lines i) "\n" chart)
+        (let [k (str at "\n" chart)
               cells (map-indexed (fn [r cs]
                                    (vec (map-indexed (fn [c x]
                                                        (let [res (get-in mine [:results r c])]

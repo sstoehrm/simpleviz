@@ -238,6 +238,10 @@
 
 (def ^:private chart-keys #{:kind :x :y :rows :stack :horizontal :title})
 
+(def ^:private max-chart-rows
+  "The rows a chart draws at most: past them the page would stall."
+  20000)
+
 (defn chart-spec
   "A chart block's map, read and checked against a table of `cols`
   columns and `rows` rows: {:kind \"bar\" :x 0 :y [1]}, columns as
@@ -256,15 +260,20 @@
       (fail "a chart takes :kind :x :y :rows :stack :horizontal :title, not " (pr-str bad)))
     (when-not (#{:bar :line :scatter} (:kind m)) (fail ":kind is :bar, :line or :scatter"))
     (when (nil? (:x m)) (fail "a chart names its :x column"))
-    (when (nil? (:y m)) (fail "a chart names its :y columns, like :y [:b :c]"))
-    (when-some [[from to :as r] (:rows m)]
-      (when-not (and (vector? r) (= 2 (count r))) (fail ":rows is [from to], like [1 4]"))
-      (ranges [:a from to] rows))
+    (when (or (nil? (:y m)) (= [] (:y m))) (fail ":y names the columns to chart, like :y [:b :c]"))
+    (when-some [r (:rows m)]
+      (when-not (and (vector? r) (= 2 (count r)) (every? integer? r)) (fail ":rows is [from to], like [1 4]"))
+      (ranges (into [:a] r) rows))
+    (when (and (contains? m :title) (not (string? (:title m)))) (fail ":title is a string"))
+    (doseq [k [:stack :horizontal]]
+      (when (and (contains? m k) (not (boolean? (get m k)))) (fail k " is true or false")))
+    (when (zero? rows) (fail "there are no rows to chart"))
+    (when (> rows max-chart-rows) (fail "there are " rows " rows; a chart draws " max-chart-rows " at most"))
     (cond-> {:kind (name (:kind m)) :x (col (:x m)) :y (mapv col (if (vector? (:y m)) (:y m) [(:y m)]))}
       (some? (:rows m)) (assoc :rows (:rows m))
       (:stack m) (assoc :stack true)
       (:horizontal m) (assoc :horizontal true)
-      (string? (:title m)) (assoc :title (:title m)))))
+      (some? (:title m)) (assoc :title (:title m)))))
 
 (defn- field-name [f]
   (cond (keyword? f) (name f)
@@ -319,7 +328,9 @@
                          (string? k) (get m (keyword k))))
         (and (sequential? m) (integer? k)) (nth m k nil)))
 
-(defn- plain [v] (if (or (nil? v) (number? v) (string? v) (boolean? v)) v (pr-str v)))
+(defn- plain? [v] (or (nil? v) (number? v) (string? v) (boolean? v)))
+
+(defn- plain [v] (if (plain? v) v (pr-str v)))
 
 (defn records
   "The rows of values in data file text of type ext: a csv's columns,
@@ -373,7 +384,7 @@
 
 ;; ---------------------------------------------------------------- checking
 
-(def ^:private fence-re #"^ {0,3}(`{3,}|~{3,})[ \t]*([^`\s]*)[^`]*$")
+(def ^:private fence-re #"^ {0,3}(`{3,}|~{3,})([^`]*)$")
 (def ^:private sep-re #"^ {0,3}\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)*\|?[ \t]*$")
 
 (defn- fenced-blocks
@@ -384,23 +395,26 @@
     (if (>= i (count lines))
       out
       (if-let [[_ mark info] (re-matches fence-re (nth lines i))]
+        ;; the info as the page compares it: the whole rest, trimmed
         (let [close? (fn [l] (let [t (str/trim l)]
                                (and (str/starts-with? t (subs mark 0 1)) (>= (count t) (count mark))
                                     (re-matches #"(`+|~+)" t))))
               end (first (filter #(close? (nth lines %)) (range (inc i) (count lines))))]
           (recur (if end (inc end) (count lines))
-                 (conj out {:at i :info info :closed (some? end)
+                 (conj out {:at i :info (str/trim info) :closed (some? end)
                             :body (subvec lines (inc i) (or end (count lines)))})))
         (recur (inc i) out)))))
 
 (defn- table-above
   "{:cols :rows} of the table ending right above line i, blank lines
-  between allowed — its columns by the separator line — or nil."
+  between allowed — its columns by the separator line — or nil. Its
+  lines are those with a pipe, as a table's header has; a body row
+  without one is rare enough to miss."
   [lines i]
   (let [j (loop [j (dec i)] (if (and (>= j 0) (str/blank? (nth lines j))) (recur (dec j)) j))
-        s (loop [s j] (if (and (pos? s) (not (str/blank? (nth lines (dec s))))) (recur (dec s)) s))]
-    (when (and (>= j 0) (< (inc s) (count lines)) (<= (inc s) j)
-               (re-matches sep-re (nth lines (inc s))) (str/includes? (nth lines s) "|"))
+        piped? (fn [k] (str/includes? (nth lines k) "|"))
+        s (loop [s j] (if (and (pos? s) (piped? (dec s))) (recur (dec s)) s))]
+    (when (and (>= j 0) (piped? j) (< s j) (re-matches sep-re (nth lines (inc s))))
       (let [sep (str/replace (str/trim (nth lines (inc s))) #"^\||\|$" "")]
         {:cols (count (str/split sep #"\|")) :rows (- j s 1)}))))
 
@@ -458,10 +472,12 @@
        (str/join java.io.File/pathSeparator)))
 
 (defn- failed
-  "The results of `tables` with every formula failing with `msg`."
+  "The results of `tables` with every formula and chart failing with
+  `msg`."
   [tables msg]
-  (mapv (fn [{:keys [cells]}]
-          {:results (mapv (fn [row] (mapv (fn [s] (when (formula? s) {:error msg})) row)) cells)})
+  (mapv (fn [{:keys [cells chart]}]
+          (cond-> {:results (mapv (fn [row] (mapv (fn [s] (when (formula? s) {:error msg})) row)) cells)}
+            (some? chart) (assoc :chart-error msg)))
         tables))
 
 (defn- colour? [v]
@@ -485,8 +501,6 @@
                      (number? (:num cell)) (assoc :num (:num cell))
                      (seq style) (assoc :style (select-keys style style-keys))))))))
 
-(defn- plain-value? [v] (or (nil? v) (number? v) (string? v) (boolean? v)))
-
 (defn- checked-chart
   "A child's chart spec as the page may get it: the keys chart-spec
   writes, with the types it writes them in; nil for anything else."
@@ -503,7 +517,7 @@
                   (string? (:error t)) (assoc :error (:error t))
                   (some? (checked-chart (:chart t))) (assoc :chart (checked-chart (:chart t)))
                   (string? (:chart-error t)) (assoc :chart-error (:chart-error t))
-                  (and (sequential? (:data t)) (every? #(and (sequential? %) (every? plain-value? %)) (:data t)))
+                  (and (sequential? (:data t)) (every? #(and (sequential? %) (every? plain? %)) (:data t)))
                   (assoc :data (:data t))
                   (and (sequential? (:fields t)) (every? string? (:fields t))) (assoc :fields (:fields t))))
         tables))

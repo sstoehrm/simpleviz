@@ -364,3 +364,26 @@
             [37 "chart: :kind is :bar, :line or :scatter"]
             [45 "the simpleviz-chart block is never closed"]]
            (calc/chart-warnings text read)))))
+
+(deftest a-chart-spec-takes-only-what-the-page-can-draw
+  (is (thrown-with-msg? Exception #":rows is \[from to\]" (calc/chart-spec "{:kind :bar :x :a :y :b :rows [1 :b]}" 2 4)))
+  (is (thrown-with-msg? Exception #":y names" (calc/chart-spec "{:kind :bar :x :a :y []}" 2 4)))
+  (is (thrown-with-msg? Exception #":title is a string" (calc/chart-spec "{:kind :bar :x :a :y :b :title 3}" 2 4)))
+  (is (thrown-with-msg? Exception #":stack is true or false" (calc/chart-spec "{:kind :bar :x :a :y :b :stack \"no\"}" 2 4)))
+  (is (thrown-with-msg? Exception #"no rows to chart" (calc/chart-spec "{:kind :bar :x :a :y :b}" 2 0)))
+  (is (thrown-with-msg? Exception #"20001 rows.*20000" (calc/chart-spec "{:kind :bar :x :a :y :b}" 2 20001))))
+
+(deftest a-failed-child-fails-the-charts-too
+  (is (= [{:results [[nil {:error "took too long"}]] :chart-error "took too long"}
+          {:results [] :chart-error "took too long"}
+          {:results [[nil]]}]
+         (#'calc/failed [{:cells [["x" "=(+ 1 2)"]] :chart "{}"} {:cells [] :solo true :chart "{}"} {:cells [["x"]]}]
+                        "took too long"))))
+
+(deftest chart-warnings-find-the-table-as-the-page-does
+  (let [ok (fn [above] (calc/chart-warnings (str above "| a | b |\n|---|---|\n| x | 1 |\n\n```simpleviz-chart-table\n{:kind :bar :x :a :y :b}\n```\n") nil))]
+    (is (= [] (ok "## Sales\n")) "a heading right above")
+    (is (= [] (ok "Some text\n")) "a paragraph line right above")
+    (is (= [] (ok "```simpleviz-table\n[:b] str\n```\n")) "a def block right above"))
+  (is (= [] (calc/chart-warnings "```simpleviz-chart-table extra\n{}\n```\n" nil))
+      "another info string is plain code, as the page shows it"))

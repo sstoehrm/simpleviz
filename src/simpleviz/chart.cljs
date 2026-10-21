@@ -71,7 +71,12 @@
                             :values (mapv (fn [row] (let [n (:num (get row c))] (when (number? n) n))) rows)})
                    (:y spec))}))
 
-(defn- extent [vs] (let [vs (filterv number? vs)] (when (seq vs) [(apply min vs) (apply max vs)])))
+(defn- extent
+  "[min max] of the numbers in vs, or nil — by reduce, as apply would
+  spread every value into one call."
+  [vs]
+  (let [vs (filterv number? vs)]
+    (when (seq vs) [(reduce min vs) (reduce max vs)])))
 
 (defn- value-axis
   "Gridlines and tick labels for ticks ts, at (pos v) along the value
@@ -125,19 +130,21 @@
                   (if horizontal?
                     (bar-path lo-px c-start len thick side)
                     (bar-path c-start lo-px thick len side))))
-        marks (for [i (range n)
+        marks (for [i (range (count xs))
                     :let [start (+ c0 (* band i) (/ (- band group) 2))
                           label (:label (nth xs i))]
                     [j s] (map-indexed vector series)
                     :let [v (nth (:values s) i)]
-                    :when (number? v)]
+                    :when (and (number? v) (not (and stack? (zero? v))))]
                 (if stack?
                   (let [before (reduce + 0 (filter (fn [w] (and (number? w) (= (pos? w) (pos? v))))
                                                    (map (fn [s2] (nth (:values s2) i)) (take j series))))
                         outer? (not-any? (fn [s2] (let [w (nth (:values s2) i)] (and (number? w) (not (zero? w)) (= (pos? w) (pos? v)))))
                                          (drop (inc j) series))
                         ;; the gap between segments, cut off the segment's start
-                        from (if (zero? before) 0 (+ before (* (if (pos? v) 1 -1) (/ (* gap (- t1 t0)) (js/Math.abs (- a1 a0))))))]
+                        ;; unless the segment is thinner than the gap
+                        cut (/ (* gap (- t1 t0)) (js/Math.abs (- a1 a0)))
+                        from (if (or (zero? before) (<= (js/Math.abs v) cut)) before (+ before (* (if (pos? v) 1 -1) cut)))]
                     [:path {:class (str "chart-mark " (slot j)) :d (shape start from (+ before v) outer?)}
                      (tip label " · " (:name s) ": " (compact v))])
                   [:path {:class (str "chart-mark " (slot j)) :d (shape (+ start (* j (+ thick gap))) 0 v true)}
@@ -151,17 +158,20 @@
                                  (if horizontal?
                                    [:text {:x (- (:l pad) 8) :y (r1 (+ c 4)) :text-anchor "end"} (clip label 16) (tip label)]
                                    [:text {:x (r1 c) :y (- H (:b pad) -18) :text-anchor "middle"} (clip label 12) (tip label)]))))
-                           (range n)))]
+                           (range (count xs))))]
     [(value-axis ts pos horizontal? pad) labels (into [:g] marks)]))
 
 (defn runs
   "The indexes of `order` split where values has no number: a gap in
   the values breaks the line."
   [values order]
-  (loop [is (seq order) run [] out []]
-    (cond (nil? is) (if (seq run) (conj out run) out)
-          (number? (nth values (first is))) (recur (next is) (conj run (first is)) out)
-          :else (recur (next is) [] (if (seq run) (conj out run) out)))))
+  (loop [k 0 run [] out []]
+    (if (>= k (count order))
+      (if (seq run) (conj out run) out)
+      (let [i (nth order k)]
+        (if (number? (nth values i))
+          (recur (inc k) (conj run i) out)
+          (recur (inc k) [] (if (seq run) (conj out run) out)))))))
 
 (defn- numeric-xs?
   "Are the xs numbers, leaving out blanks — a record without one?"
@@ -169,7 +179,7 @@
   (let [given (remove (fn [x] (and (nil? (:num x)) (= "" (:label x)))) xs)]
     (and (seq given) (every? (fn [x] (number? (:num x))) given))))
 
-(defn- points [{:keys [xs series]} spec names]
+(defn- points [{:keys [xs series]} spec]
   (let [pad {:l 48 :r 16 :t 12 :b 32}
         n (count xs)
         line? (= "line" (:kind spec))
@@ -223,7 +233,7 @@
   [{:keys [spec names] :as chart}]
   (let [{:keys [series] :as data} (prepared chart)
         title (or (:title spec) (when (= 1 (count series)) (:name (first series))))
-        body (if (= "bar" (:kind spec)) (bars data spec) (points data spec names))
+        body (if (= "bar" (:kind spec)) (bars data spec) (points data spec))
         x-name (get names (:x spec))]
     [:div {:class "chart"}
      (when (or (some? title) (> (count series) 1))

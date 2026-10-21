@@ -15,6 +15,8 @@
   &nbsp;·&nbsp;
   <a href="docs/tables.md">Tables</a>
   &nbsp;·&nbsp;
+  <a href="docs/charts.md">Charts</a>
+  &nbsp;·&nbsp;
   <a href="docs/presentations.md">Presentations</a>
   &nbsp;·&nbsp;
   <a href="docs/quizzes.md">Quizzes</a>
@@ -52,6 +54,8 @@ layout — [45-second video](docs/assets/whats-new-0.42.mp4)
 - [Tables](docs/tables.md) — GitHub tables in md files that calculate:
   formulas in cells, formats and colours, over the table or a CSV, JSON
   or EDN file.
+- [Charts](docs/charts.md) — a table shown as a bar, line or scatter
+  chart, or a chart of a CSV, JSON or EDN file on its own.
 - [Presentations](docs/presentations.md) — an md file as slides, a graph,
   doc or picture beside each.
 - [Quizzes](docs/quizzes.md) — questions and polls on a slide, the

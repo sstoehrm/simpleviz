@@ -343,3 +343,24 @@
   (let [[out] (calc/evaluate-tables [{:cells [["a" "=(* 2 3)"]] :defs "" :chart "{:kind :bar :x :a :y :b}"}])]
     (is (= {:kind "bar" :x 0 :y [1]} (:chart out)))
     (is (= {:value "6" :num 6} (get-in out [:results 0 1])))))
+
+(deftest chart-warnings-check-what-the-page-would-show
+  (let [read (fn [dest] (if (= dest "s.csv") ["csv" "units,price\n120,3.5\n95,3.5\n"] (throw (ex-info (str dest " not found") {}))))
+        text (str "| a | b |\n|---|--:|\n| x | 1 |\n| y | 2 |\n\n"
+                  "```simpleviz-chart-table\n{:kind :bar :x :a :y [:b] :rows [1 2]}\n```\n\n"   ; line 6: fine
+                  "| a | b |\n|---|---|\n| x | 1 |\n"
+                  "```simpleviz-chart-table\n{:kind :bar :x :a :y :c}\n```\n\n"                  ; line 13: no :c
+                  "text\n\n```simpleviz-chart-table\n{}\n```\n\n"                                 ; line 19: no table
+                  "```simpleviz-chart\n>> [s](s.csv)\n>> [\"units\" \"price\"]\n{:kind :scatter :x :a :y :b}\n```\n" ; line 23: fine
+                  "```simpleviz-chart\n>> [s](s.csv)\n{:kind :line :x :a :y :b}\n```\n"         ; line 28: no fields
+                  "```simpleviz-chart\n>> [g](gone.csv)\n>> [:a]\n{:kind :bar :x :a :y :a}\n```\n" ; line 32: no file
+                  "```simpleviz-chart\n>> [s](s.csv)\n>> [\"units\"]\n{:kind :pie :x :a :y :a}\n```\n" ; line 37: bad kind
+                  "```clojure\n{:kind :pie}\n```\n"
+                  "```simpleviz-chart\n{:kind :bar}\n")]                                         ; line 45: unclosed
+    (is (= [[13 "chart: no column :c — the chart has 2"]
+            [19 "a simpleviz-chart-table block goes right below a table"]
+            [28 "chart: a chart alone names its fields: >> [\"units\" \"price\"]"]
+            [32 "chart: gone.csv not found"]
+            [37 "chart: :kind is :bar, :line or :scatter"]
+            [45 "the simpleviz-chart block is never closed"]]
+           (calc/chart-warnings text read)))))

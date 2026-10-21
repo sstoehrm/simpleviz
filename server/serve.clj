@@ -949,6 +949,25 @@
               (catch Exception _ false)))
     (str dest ": " (missing-fork dest suffix))))
 
+(def ^:private data-extensions #{"csv" "jsonl" "json" "edn"})
+
+(def ^:private max-data-bytes (* 50 1024 1024))
+
+(defn- data-reader
+  "calc/with-data's reader for the tables of md file `md` (relative to
+  folder `root`, by default the served one): a >> link resolves as the
+  md file's links do, and must name a csv, jsonl, json or edn file of
+  that folder."
+  ([md] (data-reader @root-dir md))
+  ([root md]
+   (fn [dest]
+     (when-not (string? md) (throw (ex-info "data needs the md file's path" {})))
+     (let [rel (or (paths/resolve-ref md dest) (throw (ex-info (str dest " leaves the served folder") {})))
+           f (resolve-path root rel true data-extensions)]
+       (when (> (.length f) max-data-bytes)
+         (throw (ex-info (str rel " is over 50 MiB") {})))
+       [(ext-of (.getName f)) (slurp f)]))))
+
 (defn- link-warnings
   "The broken links of md file `rel` (root-relative, under folder `root`)
   holding `text`: one [N \"<dest> not found\"], [N \"<dest> leaves the
@@ -979,12 +998,13 @@
 (defn md-warnings
   "What is wrong with md file `rel` (root-relative, under folder `root`)
   holding `text`, one \"line N: <warning>\" each, in line order: its
-  broken links (link-warnings) and the malformed questions of its
-  slides (deck/warnings)."
+  broken links (link-warnings), the malformed questions of its slides
+  (deck/warnings) and its broken charts (calc/chart-warnings)."
   [root rel text]
   ;; sort-by is stable: one line's warnings keep their order
   (mapv (fn [[line w]] (str "line " line ": " w))
-        (sort-by first (concat (link-warnings root rel text) (deck/warnings text)))))
+        (sort-by first (concat (link-warnings root rel text) (deck/warnings text)
+                               (calc/chart-warnings text (data-reader root rel))))))
 
 (defn- md-errors
   "The /api/errors report for md file `rel`: its read error, or its
@@ -1168,23 +1188,6 @@
        (or (nil? (:defs t)) (string? (:defs t)))
        (or (nil? (:chart t)) (string? (:chart t)))
        (or (nil? (:solo t)) (boolean? (:solo t)))))
-
-(def ^:private data-extensions #{"csv" "jsonl" "json" "edn"})
-
-(def ^:private max-data-bytes (* 50 1024 1024))
-
-(defn- data-reader
-  "calc/with-data's reader for the tables of md file `md` (root-relative):
-  a >> link resolves as the md file's links do, and must name a csv,
-  jsonl, json or edn file of the served folder."
-  [md]
-  (fn [dest]
-    (when-not (string? md) (throw (ex-info "data needs the md file's path" {})))
-    (let [rel (or (paths/resolve-ref md dest) (throw (ex-info (str dest " leaves the served folder") {})))
-          f (resolve-path @root-dir rel true data-extensions)]
-      (when (> (.length f) max-data-bytes)
-        (throw (ex-info (str rel " is over 50 MiB") {})))
-      [(ext-of (.getName f)) (slurp f)])))
 
 (defn- calc-response
   "The formula results of the request's md tables (calc/evaluate-tables),

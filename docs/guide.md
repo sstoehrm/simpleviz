@@ -503,6 +503,41 @@ cells:
   nothing a formula does outlives it. A formula has a second; the
   process is killed when its formulas run past their time.
 
+### Charts
+
+A ```` ```simpleviz-chart-table ```` block right below a table (blank
+lines between allowed) shows the table as a chart; a
+```` ```simpleviz-chart ```` block charts a data file alone. The block
+holds one EDN map, after the data lines of a chart alone:
+
+    ```simpleviz-chart-table
+    {:kind :bar :x :a :y [:b :c] :rows [1 4] :stack true :title "Sales"}
+    ```
+
+- `:kind` is `:bar`, `:line` or `:scatter`. `:x` is one column, `:y` one
+  or a vector of them, as column letters. `:rows [from to]` picks body
+  rows, counted from 1. `:stack true` stacks the bars and `:horizontal
+  true` lays them on their side; both only change bars. `:title` is a
+  string. Any other key is an error.
+- Of a table: a cell's number is its plain number, or a formula's result
+  when that is a number. The formatting of a `simpleviz-table` block
+  never reaches the chart. A category label is the cell as shown,
+  formatted. The page shows the chart instead of the table, with a
+  Table button to switch; the choice holds while the page re-renders.
+  When the chart fails, the table shows, with the error above it.
+- Alone: `>> [text](data.csv)`, then `>> [fields]`, then the map, the
+  same data lines as a `simpleviz-table` block (formats, paths, the 50
+  MiB limit). The fields are required, and the letters follow their
+  order. Each record is a row.
+- Series take eight fixed colours, in order. A legend names the series
+  when there are two or more. A line or scatter has a numeric x axis
+  when every x it has is a number; a record without an x is left out.
+  Bars always start at 0; lines and dots fit their axis to the values.
+- A `simpleviz-chart-table` block with no table right above it, or a
+  chart block never closed, is ordinary code. `simpleviz check` warns about it, about a map that
+  doesn't read or names a column or row that isn't there, and about
+  data that can't be read.
+
 ### Presenting
 
 Present (top right of the column) shows the md page as slides, one at a

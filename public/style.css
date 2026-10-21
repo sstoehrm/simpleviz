@@ -168,7 +168,7 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
 /* charts: a table's below it shows instead of it, a button switching
    between the two; a chart alone has no table */
 :is(#md-view, .md-doc) figure.chart-table, :is(#md-view, .md-doc) figure.chart-solo { position: relative; margin: 0 0 1em; }
-.chart-table > table, .chart-table.show-table > .chart { display: none !important; }
+.chart-table > table, .chart-table.show-table > .chart:not(.error) { display: none !important; }
 .chart-table.show-table > table { display: block !important; }
 .chart-toggle { position: absolute; top: 0; right: 0; z-index: 1; font: 12px system-ui, sans-serif;
                 color: var(--text-muted); background: var(--panel); border: 1px solid var(--panel-border);

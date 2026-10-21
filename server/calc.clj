@@ -371,6 +371,66 @@
                          (catch Exception e (assoc t :defs defs :data-error (message e)))))))
         tables)))
 
+;; ---------------------------------------------------------------- checking
+
+(def ^:private fence-re #"^ {0,3}(`{3,}|~{3,})[ \t]*([^`\s]*)[^`]*$")
+(def ^:private sep-re #"^ {0,3}\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)*\|?[ \t]*$")
+
+(defn- fenced-blocks
+  "The top-level fenced blocks of md lines: {:at (index of the opening
+  fence) :info :body [lines] :closed}."
+  [lines]
+  (loop [i 0 out []]
+    (if (>= i (count lines))
+      out
+      (if-let [[_ mark info] (re-matches fence-re (nth lines i))]
+        (let [close? (fn [l] (let [t (str/trim l)]
+                               (and (str/starts-with? t (subs mark 0 1)) (>= (count t) (count mark))
+                                    (re-matches #"(`+|~+)" t))))
+              end (first (filter #(close? (nth lines %)) (range (inc i) (count lines))))]
+          (recur (if end (inc end) (count lines))
+                 (conj out {:at i :info info :closed (some? end)
+                            :body (subvec lines (inc i) (or end (count lines)))})))
+        (recur (inc i) out)))))
+
+(defn- table-above
+  "{:cols :rows} of the table ending right above line i, blank lines
+  between allowed — its columns by the separator line — or nil."
+  [lines i]
+  (let [j (loop [j (dec i)] (if (and (>= j 0) (str/blank? (nth lines j))) (recur (dec j)) j))
+        s (loop [s j] (if (and (pos? s) (not (str/blank? (nth lines (dec s))))) (recur (dec s)) s))]
+    (when (and (>= j 0) (< (inc s) (count lines)) (<= (inc s) j)
+               (re-matches sep-re (nth lines (inc s))) (str/includes? (nth lines s) "|"))
+      (let [sep (str/replace (str/trim (nth lines (inc s))) #"^\||\|$" "")]
+        {:cols (count (str/split sep #"\|")) :rows (- j s 1)}))))
+
+(defn chart-warnings
+  "What is wrong with the chart blocks of md `text`, as the page would
+  show it, one [N message] each, N the line of the block's fence: a
+  simpleviz-chart-table block not right below a table, a spec that
+  doesn't read or names a column or row the table lacks, a
+  simpleviz-chart block whose data (read as with-data does) or fields
+  are missing, or a block never closed. Formulas don't run."
+  [text read]
+  (let [lines (vec (str/split-lines (str text)))]
+    (vec (for [{:keys [at info body closed]} (fenced-blocks lines)
+               :when (#{"simpleviz-chart" "simpleviz-chart-table"} info)
+               :let [w (cond
+                         (not closed) (str "the " info " block is never closed")
+                         (= info "simpleviz-chart-table")
+                         (if-let [{:keys [cols rows]} (table-above lines at)]
+                           (try (chart-spec (str/join "\n" body) cols rows) nil
+                                (catch Exception e (str "chart: " (message e))))
+                           "a simpleviz-chart-table block goes right below a table")
+                         :else
+                         (let [head (take-while #(str/starts-with? (str/trim %) ">>") body)
+                               [t] (with-data [{:cells [] :defs (str/join "\n" head) :solo true
+                                                :chart (str/join "\n" (drop (count head) body))}]
+                                              read)]
+                           (some->> (:chart-error (evaluate t)) (str "chart: "))))]
+               :when w]
+           [(inc at) w]))))
+
 (defn child
   "The child's main: tables as JSON on stdin, their results as JSON on
   stdout, then exit — whatever a formula left running or altered goes

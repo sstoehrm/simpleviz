@@ -1,6 +1,6 @@
 ---
 name: simpleviz
-description: Writes and checks simpleviz files — EDN graphs of nodes, edges and nested boxes, and markdown docs around them: slide decks, quiz and poll questions on slides, and tables that calculate (formulas, also over CSV, JSON or EDN data) — and serves, compares, exports and presents them with the simpleviz CLI. Use when creating or editing simpleviz graph EDN files or md docs, decks, quizzes or calculated tables; visualizing an architecture or system diagram with simpleviz; making a talk, quiz or poll for a team, or a doc table that sums or summarises data, where simpleviz is in use; showing a proposed change as a before/after; or serving, forking and comparing graphs (bb serve, the simpleviz launcher, nodes/edges/boxes .edn files, exported PNGs/SVGs with embedded EDN).
+description: Writes and checks simpleviz files — EDN graphs of nodes, edges and nested boxes, and markdown docs around them: slide decks, quiz and poll questions on slides, tables that calculate (formulas, also over CSV, JSON or EDN data), and bar, line and scatter charts of a table or data file — and serves, compares, exports and presents them with the simpleviz CLI. Use when creating or editing simpleviz graph EDN files or md docs, decks, quizzes, calculated tables or charts; visualizing an architecture or system diagram with simpleviz; making a talk, quiz or poll for a team, or a doc table or chart that sums, summarises or plots data, where simpleviz is in use; showing a proposed change as a before/after; or serving, forking and comparing graphs (bb serve, the simpleviz launcher, nodes/edges/boxes .edn files, exported PNGs/SVGs with embedded EDN).
 ---
 
 # simpleviz
@@ -22,6 +22,8 @@ What you can make — offer these when a user asks what simpleviz can do:
   for you to read. See Quizzes.
 - **Tables that calculate**: formulas in md tables, formatted and
   coloured cells, totals over a CSV, JSON or EDN file. See Tables.
+- **Charts**: a table shown as a bar, line or scatter chart, or a chart
+  of a CSV, JSON or EDN file alone. See Charts.
 
 Terms used below: a *graph* is an EDN file, an *md file* a markdown doc,
 *the page* what the browser shows (its *inspector* lists a clicked
@@ -35,6 +37,7 @@ file simpleviz was started with.
 - Slides
 - Quizzes
 - Tables
+- Charts
 - Checking
 - Running
 - Proposing a change: fork and compare
@@ -199,8 +202,8 @@ its language is highlighted: `clojure`/`edn`, `bash`/`sh`, `python`,
   doc or talk.
 - `simpleviz check notes.md` lists broken links and images: `line N:
   <dest> not found` or `leaves the served folder`, and for `?compare=` a
-  missing fork or invalid suffix. It lists malformed questions too (see
-  Quizzes).
+  missing fork or invalid suffix. It lists malformed questions (see
+  Quizzes) and broken charts (see Charts) too.
 
 ## Slides
 
@@ -335,6 +338,50 @@ formats its cells, and the page hides it.
   second each. A failing formula shows its error in its cell.
   `simpleviz check` does not run formulas: serve the file and look, or
   read the cells in the page.
+
+## Charts
+
+A ```` ```simpleviz-chart-table ```` block right below a table shows the
+table as a chart; the page hides the table behind a Table button. A
+```` ```simpleviz-chart ```` block charts a data file without a table.
+
+````markdown
+| quarter | tea | coffee |
+|---------|----:|-------:|
+| Q1      | 120 | 80     |
+| Q2      | 140 | 95     |
+| total   | =(sum :b) | =(sum :c) |
+
+```simpleviz-chart-table
+{:kind :bar :x :a :y [:b :c] :rows [1 2] :title "Sales"}
+```
+
+```simpleviz-chart
+>> [the sales](sales.csv)
+>> ["units" "price"]
+{:kind :scatter :x :a :y [:b]}
+```
+````
+
+- The map: `:kind` `:bar`, `:line` or `:scatter`; `:x` one column, `:y`
+  one (`:b`) or a vector (`[:b :c]`, a series each); `:rows [from to]`
+  the body rows to chart (leave out a totals row); `:stack true` and
+  `:horizontal true` for bars; `:title`. Any other key is an error.
+- Of a table: `:a` is its first column (usually the labels), rows its
+  body rows from 1. A formula is charted by its number, not its
+  formatted text; a table over a data file is charted by the cells it
+  shows, not the file's records. One chart block per table, after it
+  (blank lines allowed, nothing else); for a second chart, repeat the
+  table.
+- Alone: the first lines are a table block's data lines, `>>` the data,
+  then `>>` its fields, required here: their order makes the letters,
+  and they may pick a subset. Each record is a row; the chart doesn't
+  group or sum — sum in a table and chart that. A line or scatter whose
+  x values are all numbers gets a numeric axis, else evenly spaced
+  categories.
+- `simpleviz check` warns about a chart block not right below a table,
+  a map that doesn't read or names a column or row that isn't there,
+  and data that can't be read. It runs no formulas.
 
 ## Checking
 

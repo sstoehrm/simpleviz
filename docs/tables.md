@@ -49,5 +49,6 @@ its tables, one of them over `sales.csv`.
 
 ## More
 
+- [Charts](charts.md) — a table shown as a chart.
 - [Table formulas](guide.md#table-formulas) — every rule.
 - [Editing docs](guide.md#editing-docs) — what Format changes.

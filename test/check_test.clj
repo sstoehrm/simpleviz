@@ -165,3 +165,13 @@
       (is (= ["line 2: sub/a.edn: no sub/a-v2.edn — create it with: simpleviz fork sub/a.edn v2"]
              (serve/md-warnings (str dir) "docs/notes.md" "[a](sub/a.edn?compare=next)\n[b](sub/a.edn?compare=v2)")))
       (finally (fs/delete-tree outer)))))
+
+(deftest check-md-reports-charts
+  (let [[outer dir] (temp-md-folder {"notes.md" (str "```simpleviz-chart\n>> [s](data/s.csv)\n>> [\"units\"]\n{:kind :bar :x :a :y :b}\n```\n"
+                                                     "```simpleviz-chart\n>> [s](data/s.csv)\n>> [\"units\"]\n{:kind :bar :x :a :y :a}\n```\n")})]
+    (try
+      (fs/create-dirs (fs/file dir "data"))
+      (spit (fs/file dir "data/s.csv") "units\n1\n")
+      (is (= {:error nil :warnings ["line 1: chart: no column :b — the chart has 1"]}
+             (check/check (str (fs/file dir "notes.md")))))
+      (finally (fs/delete-tree outer)))))

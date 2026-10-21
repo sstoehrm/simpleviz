@@ -291,3 +291,101 @@
 (deftest a-data-error-shows-without-formulas
   (let [[t] (calc/with-data [{:cells [["1"]] :defs ">> [s](gone.csv)"}] (fn [d] (throw (ex-info (str "no such file: " d) {}))))]
     (is (re-find #"no such file" (:error (first (calc/evaluate-tables [t])))))))
+
+;; ---------------------------------------------------------------- charts
+
+(deftest a-chart-spec-reads-into-column-indexes
+  (is (= {:kind "bar" :x 0 :y [1 2] :rows [1 3] :stack true :title "Per month"}
+         (calc/chart-spec "{:kind :bar :x :a :y [:b :c] :rows [1 3] :stack true :title \"Per month\"}" 3 4)))
+  (is (= {:kind "line" :x 0 :y [1]} (calc/chart-spec "{:kind :line :x :a :y :b}" 2 4)))
+  (testing "mistakes say what a chart takes"
+    (is (thrown-with-msg? Exception #"is a map" (calc/chart-spec "[:bar]" 2 4)))
+    (is (thrown-with-msg? Exception #":kind is :bar, :line or :scatter" (calc/chart-spec "{:kind :pie :x :a :y :b}" 2 4)))
+    (is (thrown-with-msg? Exception #"not :colour" (calc/chart-spec "{:kind :bar :x :a :y :b :colour 1}" 2 4)))
+    (is (thrown-with-msg? Exception #"no column :c" (calc/chart-spec "{:kind :bar :x :a :y :c}" 2 4)))
+    (is (thrown-with-msg? Exception #"row 9" (calc/chart-spec "{:kind :bar :x :a :y :b :rows [1 9]}" 2 4)))
+    (is (thrown-with-msg? Exception #"doesn't read" (calc/chart-spec "{:kind" 2 4)))))
+
+(deftest a-chart-of-a-table-gets-its-spec-and-plain-numbers
+  (let [out (calc/evaluate {:cells [["rent" "950"] ["food" "420"] ["total" "=(sum :b 1 2)"]]
+                            :defs "[:b] #(str %1 \" €\")"
+                            :chart "{:kind :bar :x :a :y [:b] :rows [1 2]}"})]
+    (is (= {:kind "bar" :x 0 :y [1] :rows [1 2]} (:chart out)))
+    (is (= {:value "1370 €" :num 1370} (get-in out [:results 2 1])))
+    (is (= {:value "950 €" :num 950} (get-in out [:results 0 1])) "plain cells carry their number too")
+    (is (= 420 (get-in out [:results 1 1 :num])))
+    (is (nil? (get-in out [:results 1 0])) "text has no number"))
+  (testing "without formulas or def block the spec still reads"
+    (is (= {:kind "bar" :x 0 :y [1]}
+           (:chart (calc/evaluate {:cells [["a" "1"]] :chart "{:kind :bar :x :a :y :b}"})))))
+  (testing "a bad spec is the chart's error, the table stays"
+    (let [out (calc/evaluate {:cells [["a" "=(+ 1 2)"]] :chart "{:kind :pie}"})]
+      (is (re-find #":kind" (:chart-error out)))
+      (is (= "3" (get-in out [:results 0 1 :value]))))))
+
+(deftest a-chart-alone-charts-its-data
+  (let [read (fn [_] ["csv" "region,product,units,price\nNorth,tea,120,3.5\nSouth,tea,95,3.5\n"])
+        [t] (calc/with-data [{:cells [] :defs ">> [s](s.csv)\n>> [\"units\" \"price\"]"
+                              :chart "{:kind :scatter :x :a :y [:b]}" :solo true}]
+                            read)
+        out (calc/evaluate t)]
+    (is (= {:kind "scatter" :x 0 :y [1]} (:chart out)))
+    (is (= [[120 3.5] [95 3.5]] (:data out)))
+    (is (= ["units" "price"] (:fields out))))
+  (testing "it names its fields: the letters are theirs"
+    (let [[t] (calc/with-data [{:cells [] :defs ">> [s](s.csv)" :chart "{:kind :bar :x :a :y :b}" :solo true}]
+                              (fn [_] ["csv" "a,b\n1,2\n"]))]
+      (is (re-find #"names its fields" (:chart-error (calc/evaluate t))))))
+  (testing "a data error is the chart's"
+    (let [[t] (calc/with-data [{:cells [] :defs ">> [s](s.csv)\n>> [:a]" :chart "{:kind :bar :x :a :y :a}" :solo true}]
+                              (fn [_] (throw (ex-info "s.csv: no such file" {}))))]
+      (is (re-find #"no such file" (:chart-error (calc/evaluate t)))))))
+
+(deftest the-server-lets-chart-data-through-plainly
+  (let [[out] (calc/evaluate-tables [{:cells [["a" "=(* 2 3)"]] :defs "" :chart "{:kind :bar :x :a :y :b}"}])]
+    (is (= {:kind "bar" :x 0 :y [1]} (:chart out)))
+    (is (= {:value "6" :num 6} (get-in out [:results 0 1])))))
+
+(deftest chart-warnings-check-what-the-page-would-show
+  (let [read (fn [dest] (if (= dest "s.csv") ["csv" "units,price\n120,3.5\n95,3.5\n"] (throw (ex-info (str dest " not found") {}))))
+        text (str "| a | b |\n|---|--:|\n| x | 1 |\n| y | 2 |\n\n"
+                  "```simpleviz-chart-table\n{:kind :bar :x :a :y [:b] :rows [1 2]}\n```\n\n"   ; line 6: fine
+                  "| a | b |\n|---|---|\n| x | 1 |\n"
+                  "```simpleviz-chart-table\n{:kind :bar :x :a :y :c}\n```\n\n"                  ; line 13: no :c
+                  "text\n\n```simpleviz-chart-table\n{}\n```\n\n"                                 ; line 19: no table
+                  "```simpleviz-chart\n>> [s](s.csv)\n>> [\"units\" \"price\"]\n{:kind :scatter :x :a :y :b}\n```\n" ; line 23: fine
+                  "```simpleviz-chart\n>> [s](s.csv)\n{:kind :line :x :a :y :b}\n```\n"         ; line 28: no fields
+                  "```simpleviz-chart\n>> [g](gone.csv)\n>> [:a]\n{:kind :bar :x :a :y :a}\n```\n" ; line 32: no file
+                  "```simpleviz-chart\n>> [s](s.csv)\n>> [\"units\"]\n{:kind :pie :x :a :y :a}\n```\n" ; line 37: bad kind
+                  "```clojure\n{:kind :pie}\n```\n"
+                  "```simpleviz-chart\n{:kind :bar}\n")]                                         ; line 45: unclosed
+    (is (= [[13 "chart: no column :c — the chart has 2"]
+            [19 "a simpleviz-chart-table block goes right below a table"]
+            [28 "chart: a chart alone names its fields: >> [\"units\" \"price\"]"]
+            [32 "chart: gone.csv not found"]
+            [37 "chart: :kind is :bar, :line or :scatter"]
+            [45 "the simpleviz-chart block is never closed"]]
+           (calc/chart-warnings text read)))))
+
+(deftest a-chart-spec-takes-only-what-the-page-can-draw
+  (is (thrown-with-msg? Exception #":rows is \[from to\]" (calc/chart-spec "{:kind :bar :x :a :y :b :rows [1 :b]}" 2 4)))
+  (is (thrown-with-msg? Exception #":y names" (calc/chart-spec "{:kind :bar :x :a :y []}" 2 4)))
+  (is (thrown-with-msg? Exception #":title is a string" (calc/chart-spec "{:kind :bar :x :a :y :b :title 3}" 2 4)))
+  (is (thrown-with-msg? Exception #":stack is true or false" (calc/chart-spec "{:kind :bar :x :a :y :b :stack \"no\"}" 2 4)))
+  (is (thrown-with-msg? Exception #"no rows to chart" (calc/chart-spec "{:kind :bar :x :a :y :b}" 2 0)))
+  (is (thrown-with-msg? Exception #"20001 rows.*20000" (calc/chart-spec "{:kind :bar :x :a :y :b}" 2 20001))))
+
+(deftest a-failed-child-fails-the-charts-too
+  (is (= [{:results [[nil {:error "took too long"}]] :chart-error "took too long"}
+          {:results [] :chart-error "took too long"}
+          {:results [[nil]]}]
+         (#'calc/failed [{:cells [["x" "=(+ 1 2)"]] :chart "{}"} {:cells [] :solo true :chart "{}"} {:cells [["x"]]}]
+                        "took too long"))))
+
+(deftest chart-warnings-find-the-table-as-the-page-does
+  (let [ok (fn [above] (calc/chart-warnings (str above "| a | b |\n|---|---|\n| x | 1 |\n\n```simpleviz-chart-table\n{:kind :bar :x :a :y :b}\n```\n") nil))]
+    (is (= [] (ok "## Sales\n")) "a heading right above")
+    (is (= [] (ok "Some text\n")) "a paragraph line right above")
+    (is (= [] (ok "```simpleviz-table\n[:b] str\n```\n")) "a def block right above"))
+  (is (= [] (calc/chart-warnings "```simpleviz-chart-table extra\n{}\n```\n" nil))
+      "another info string is plain code, as the page shows it"))

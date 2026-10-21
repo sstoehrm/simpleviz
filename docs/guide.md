@@ -503,6 +503,42 @@ cells:
   nothing a formula does outlives it. A formula has a second; the
   process is killed when its formulas run past their time.
 
+### Charts
+
+A ```` ```simpleviz-chart-table ```` block right below a table (blank
+lines between allowed, one per table) shows the table as a chart; a
+```` ```simpleviz-chart ```` block charts a data file alone. The block
+holds one EDN map, after the data lines of a chart alone:
+
+    ```simpleviz-chart-table
+    {:kind :bar :x :a :y [:b :c] :rows [1 4] :stack true :title "Sales"}
+    ```
+
+- `:kind` is `:bar`, `:line` or `:scatter`. `:x` is one column, `:y` one
+  or a vector of them, as column letters. `:rows [from to]` picks body
+  rows, counted from 1. `:stack true` stacks the bars and `:horizontal
+  true` lays them on their side; both only change bars. `:title` is a
+  string. Any other key is an error.
+- Of a table: a cell's number is its plain number, or a formula's result
+  when that is a number. The formatting of a `simpleviz-table` block
+  never reaches the chart. A category label is the cell as shown,
+  formatted. The page shows the chart instead of the table, with a
+  Table button to switch; the choice holds while the page re-renders.
+  When the chart fails, the table shows, with the error above it.
+- Alone: `>> [text](data.csv)`, then `>> [fields]`, then the map, the
+  same data lines as a `simpleviz-table` block (formats, paths, the 50
+  MiB limit). The fields are required, and the letters follow their
+  order. Each record is a row. A chart draws at most 20000 rows; past
+  that, or with none, it shows an error.
+- Series take eight fixed colours, in order. A legend names the series
+  when there are two or more. A line or scatter has a numeric x axis
+  when every x it has is a number; a record without an x is left out.
+  Bars always start at 0; lines and dots fit their axis to the values.
+- A `simpleviz-chart-table` block with no table right above it, or a
+  chart block never closed, is ordinary code. `simpleviz check` warns about it, about a map that
+  doesn't read or names a column or row that isn't there, and about
+  data that can't be read.
+
 ### Presenting
 
 Present (top right of the column) shows the md page as slides, one at a
@@ -685,7 +721,7 @@ The page shows a file's problems in banners. To get the same report
 without a browser, for example from a script or an agent:
 
     simpleviz check graph.edn                           # works without a server
-    simpleviz check notes.md                            # an md file's broken links and questions
+    simpleviz check notes.md                            # an md file's broken links, questions and charts
     curl -s http://localhost:7373/api/errors            # the served file
     curl -s 'http://localhost:7373/api/errors?file=sub/api.edn'
 
@@ -694,7 +730,7 @@ without a browser, for example from a script or an agent:
 clean file. In compare mode `file` names the original, not the fork; the
 report covers both sides, and each warning starts with its file's name.
 
-For an md file, each warning names the line and the link: `line 3: pay.edn not found`, `line 7: ../x.edn leaves the served folder`. A link with `?compare=` is also checked for its fork: `line 4: api.edn: no api-next.edn — create it with: simpleviz fork api.edn next`, an invalid suffix, an md file, or a fork named instead of its original. A question slide without a name, or without 2 to 4 choices, is reported at its `??` line: `line 12: ?? storage takes 2 to 4 choices, - [ ] lines; it has 1`.
+For an md file, each warning names the line and the link: `line 3: pay.edn not found`, `line 7: ../x.edn leaves the served folder`. A link with `?compare=` is also checked for its fork: `line 4: api.edn: no api-next.edn — create it with: simpleviz fork api.edn next`, an invalid suffix, an md file, or a fork named instead of its original. A question slide without a name, or without 2 to 4 choices, is reported at its `??` line: `line 12: ?? storage takes 2 to 4 choices, - [ ] lines; it has 1`. A broken [chart](#charts) is reported at its fence: `line 20: chart: no column :c — the chart has 2`.
 
 `/api/errors` takes `compare=<suffix>` as well, for the comparison a link opens: `/api/errors?file=api.edn&compare=next`.
 

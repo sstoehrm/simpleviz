@@ -1,6 +1,6 @@
 {
   "name": "simpleviz",
-  "version": "0.46.0",
+  "version": "0.47.0",
   "description": "Teaches Grok simpleviz: EDN graphs (nodes, edges, boxes) and the markdown docs and slides around them, and how to serve, compare and present them",
   "author": {
     "name": "Sören Stöhrmann",

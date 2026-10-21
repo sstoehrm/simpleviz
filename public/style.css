@@ -21,6 +21,9 @@
   --syntax-attr: #2563eb;
   --syntax-comment: #6b7280;
   --inspector-w: 320px;
+  /* chart series, in this order (dataviz reference palette): themes leave them */
+  --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --series-4: #eda100;
+  --series-5: #e87ba4; --series-6: #008300; --series-7: #6250d6; --series-8: #e34948;
 }
 
 * { box-sizing: border-box; }
@@ -162,6 +165,38 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
 :is(#md-view, .md-doc) td.calc { font-variant-numeric: tabular-nums; }
 :is(#md-view, .md-doc) td.calc.pending { color: var(--text-dim); }
 :is(#md-view, .md-doc) td.calc.error { color: var(--diff-removed); font-size: .85em; }
+/* charts: a table's below it shows instead of it, a button switching
+   between the two; a chart alone has no table */
+:is(#md-view, .md-doc) figure.chart-table, :is(#md-view, .md-doc) figure.chart-solo { position: relative; margin: 0 0 1em; }
+.chart-table > table, .chart-table.show-table > .chart { display: none !important; }
+.chart-table.show-table > table { display: block !important; }
+.chart-toggle { position: absolute; top: 0; right: 0; z-index: 1; font: 12px system-ui, sans-serif;
+                color: var(--text-muted); background: var(--panel); border: 1px solid var(--panel-border);
+                border-radius: 6px; padding: 2px 8px; cursor: pointer; }
+.chart-toggle:hover { color: var(--text-strong); background: var(--hover-plain); }
+.chart-toggle .to-chart, .show-table > .chart-toggle .to-table { display: none; }
+.show-table > .chart-toggle .to-chart { display: inline; }
+.chart-table.show-table > table { margin-top: 28px; }
+.chart.pending { color: var(--text-dim); padding: 2em 0; text-align: center; }
+.chart.error { color: var(--diff-removed); font-size: .85em; padding: 4px 0; }
+.chart-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; min-height: 24px;
+              padding-right: 64px; font-size: .85em; color: var(--text-muted); }
+.chart-title { font-weight: 600; color: var(--text); margin-right: 6px; }
+.chart-key { display: inline-flex; align-items: center; gap: 6px; }
+.chart-key i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; }
+.chart-svg { display: block; width: 100%; height: auto; overflow: visible; }
+.chart-svg text { font: 11px system-ui, sans-serif; fill: var(--text-muted); font-variant-numeric: tabular-nums; }
+.chart-grid { stroke: var(--panel-divider); stroke-width: 1; }
+.chart-base { stroke: var(--panel-border); stroke-width: 1; }
+.chart-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.chart-dot { stroke: var(--panel); stroke-width: 2; }
+.chart-hit { fill: transparent !important; }
+.chart-mark:hover, .chart-dot:hover { opacity: .8; }
+.chart-x-name { text-align: right; font-size: .8em; color: var(--text-muted); margin-top: -4px; }
+.s1 { --c: var(--series-1); } .s2 { --c: var(--series-2); } .s3 { --c: var(--series-3); } .s4 { --c: var(--series-4); }
+.s5 { --c: var(--series-5); } .s6 { --c: var(--series-6); } .s7 { --c: var(--series-7); } .s8 { --c: var(--series-8); }
+.chart-mark, .chart-dot, .chart-key i { fill: var(--c); background: var(--c); }
+.chart-line { stroke: var(--c); }
 :is(#md-view, .md-doc) caption.calc-error { caption-side: top; text-align: left; color: var(--diff-removed); font-size: .85em; padding-bottom: 4px; }
 :is(#md-view, .md-doc) a { color: var(--accent); text-underline-offset: 2px; }
 :is(#md-view, .md-doc) a:hover { color: var(--text-strong); }

@@ -291,3 +291,55 @@
 (deftest a-data-error-shows-without-formulas
   (let [[t] (calc/with-data [{:cells [["1"]] :defs ">> [s](gone.csv)"}] (fn [d] (throw (ex-info (str "no such file: " d) {}))))]
     (is (re-find #"no such file" (:error (first (calc/evaluate-tables [t])))))))
+
+;; ---------------------------------------------------------------- charts
+
+(deftest a-chart-spec-reads-into-column-indexes
+  (is (= {:kind "bar" :x 0 :y [1 2] :rows [1 3] :stack true :title "Per month"}
+         (calc/chart-spec "{:kind :bar :x :a :y [:b :c] :rows [1 3] :stack true :title \"Per month\"}" 3 4)))
+  (is (= {:kind "line" :x 0 :y [1]} (calc/chart-spec "{:kind :line :x :a :y :b}" 2 4)))
+  (testing "mistakes say what a chart takes"
+    (is (thrown-with-msg? Exception #"is a map" (calc/chart-spec "[:bar]" 2 4)))
+    (is (thrown-with-msg? Exception #":kind is :bar, :line or :scatter" (calc/chart-spec "{:kind :pie :x :a :y :b}" 2 4)))
+    (is (thrown-with-msg? Exception #"not :colour" (calc/chart-spec "{:kind :bar :x :a :y :b :colour 1}" 2 4)))
+    (is (thrown-with-msg? Exception #"no column :c" (calc/chart-spec "{:kind :bar :x :a :y :c}" 2 4)))
+    (is (thrown-with-msg? Exception #"row 9" (calc/chart-spec "{:kind :bar :x :a :y :b :rows [1 9]}" 2 4)))
+    (is (thrown-with-msg? Exception #"doesn't read" (calc/chart-spec "{:kind" 2 4)))))
+
+(deftest a-chart-of-a-table-gets-its-spec-and-plain-numbers
+  (let [out (calc/evaluate {:cells [["rent" "950"] ["food" "420"] ["total" "=(sum :b 1 2)"]]
+                            :defs "[:b] #(str %1 \" €\")"
+                            :chart "{:kind :bar :x :a :y [:b] :rows [1 2]}"})]
+    (is (= {:kind "bar" :x 0 :y [1] :rows [1 2]} (:chart out)))
+    (is (= {:value "1370 €" :num 1370} (get-in out [:results 2 1])))
+    (is (= {:value "950 €"} (get-in out [:results 0 1])) "plain cells: the page reads the number off the cell"))
+  (testing "without formulas or def block the spec still reads"
+    (is (= {:kind "bar" :x 0 :y [1]}
+           (:chart (calc/evaluate {:cells [["a" "1"]] :chart "{:kind :bar :x :a :y :b}"})))))
+  (testing "a bad spec is the chart's error, the table stays"
+    (let [out (calc/evaluate {:cells [["a" "=(+ 1 2)"]] :chart "{:kind :pie}"})]
+      (is (re-find #":kind" (:chart-error out)))
+      (is (= "3" (get-in out [:results 0 1 :value]))))))
+
+(deftest a-chart-alone-charts-its-data
+  (let [read (fn [_] ["csv" "region,product,units,price\nNorth,tea,120,3.5\nSouth,tea,95,3.5\n"])
+        [t] (calc/with-data [{:cells [] :defs ">> [s](s.csv)\n>> [\"units\" \"price\"]"
+                              :chart "{:kind :scatter :x :a :y [:b]}" :solo true}]
+                            read)
+        out (calc/evaluate t)]
+    (is (= {:kind "scatter" :x 0 :y [1]} (:chart out)))
+    (is (= [[120 3.5] [95 3.5]] (:data out)))
+    (is (= ["units" "price"] (:fields out))))
+  (testing "it names its fields: the letters are theirs"
+    (let [[t] (calc/with-data [{:cells [] :defs ">> [s](s.csv)" :chart "{:kind :bar :x :a :y :b}" :solo true}]
+                              (fn [_] ["csv" "a,b\n1,2\n"]))]
+      (is (re-find #"names its fields" (:chart-error (calc/evaluate t))))))
+  (testing "a data error is the chart's"
+    (let [[t] (calc/with-data [{:cells [] :defs ">> [s](s.csv)\n>> [:a]" :chart "{:kind :bar :x :a :y :a}" :solo true}]
+                              (fn [_] (throw (ex-info "s.csv: no such file" {}))))]
+      (is (re-find #"no such file" (:chart-error (calc/evaluate t)))))))
+
+(deftest the-server-lets-chart-data-through-plainly
+  (let [[out] (calc/evaluate-tables [{:cells [["a" "=(* 2 3)"]] :defs "" :chart "{:kind :bar :x :a :y :b}"}])]
+    (is (= {:kind "bar" :x 0 :y [1]} (:chart out)))
+    (is (= {:value "6" :num 6} (get-in out [:results 0 1])))))

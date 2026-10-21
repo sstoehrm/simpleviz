@@ -1165,7 +1165,9 @@
   (and (map? t)
        (sequential? (:cells t))
        (every? (fn [row] (and (sequential? row) (every? string? row))) (:cells t))
-       (or (nil? (:defs t)) (string? (:defs t)))))
+       (or (nil? (:defs t)) (string? (:defs t)))
+       (or (nil? (:chart t)) (string? (:chart t)))
+       (or (nil? (:solo t)) (boolean? (:solo t)))))
 
 (def ^:private data-extensions #{"csv" "jsonl" "json" "edn"})
 

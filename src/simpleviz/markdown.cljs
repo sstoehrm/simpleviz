@@ -8,6 +8,7 @@
   as the text it is. Links and images render through the caller's
   link-fn, so what a click does stays the page's business."
   (:require [mdlinks :as mdlinks]
+            [simpleviz.chart :as chart]
             [simpleviz.highlight :as highlight]))
 
 (def ^:private punct "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~")
@@ -499,6 +500,41 @@
 
 (defn- formula? [c] (.startsWith c "=("))
 
+(defn- chart-after
+  "The ```simpleviz-chart-table fence right below the table ending at
+  line `end`, blank lines between allowed: [its text, the line after
+  it], or nil when there is none or it never closes."
+  [lines end]
+  (let [n (count lines)
+        j (loop [j end] (if (and (< j n) (blank? (nth lines j))) (recur (inc j)) j))
+        fence (when (< j n) (fence-open (nth lines j)))]
+    (when (= "simpleviz-chart-table" (:info fence))
+      (let [[body close] (fence-body lines j fence)]
+        (when (some? close) [(.join body "\n") (inc close)])))))
+
+(defn- number-of
+  "The number cell text s is, in plain English notation, else nil."
+  [s]
+  (let [t (.trim s)] (when (.test #"^-?\d+(\.\d+)?$" t) (js/Number t))))
+
+(def ^:private tables-shown
+  "The chart tables whose table shows instead of their chart, by
+  header line and spec: kept across renders."
+  (js/Set.))
+
+(defn- toggle-table! [k e]
+  (if (.has tables-shown k) (.delete tables-shown k) (.add tables-shown k))
+  (some-> (.closest (.-currentTarget e) "figure") .-classList (.toggle "show-table")))
+
+(defn- chart-part
+  "A chart block's chart, by the server's reply `mine`: pending until it
+  comes, its error, or the chart of `grid` with columns `names`."
+  [mine failed names grid]
+  (cond (some? failed) [:div {:class "chart error"} failed]
+        (some? (:chart-error mine)) [:div {:class "chart error"} (:chart-error mine)]
+        (some? (:chart mine)) (chart/view {:spec (:chart mine) :names names :grid grid})
+        :else [:div {:class "chart pending"} "…"]))
+
 (defn- style-of
   "A result's :style as the cell's inline style, in longhands, so a value
   can only ever be a colour; the server checked them too."
@@ -531,8 +567,10 @@
   also collected in (:tables ctx) with the def block `defs` for the
   server to calculate; its cells show the results (:calc ctx) holds for
   it — {:failed msg} fails every formula, the other cells as written —
-  and its own :error is its caption."
-  [lines i defs ctx]
+  and its own :error is its caption. With `chart`, the text of the
+  chart block below it, it shows as that chart, a button turning it to
+  the table and back."
+  [lines i defs chart ctx]
   (let [end (table-end lines i)
         aligns (aligns-of (nth lines (inc i)))
         grid (fn [l] (let [cs (cells l)] (mapv (fn [k] (or (get cs k) "")) (range (count aligns)))))
@@ -550,11 +588,42 @@
                                              (result-cell c res al f? ctx)
                                              (into (if (some? al) [tag {:class al}] [tag]) (inline c ctx)))))
                                        aligns)))]
-    (conj! (:tables ctx) {:cells body :defs defs})
-    [(-> (cond-> [:table] (some? (:error mine)) (conj [:caption {:class "calc-error"} (:error mine)]))
-         (conj [:thead (row :th (grid (nth lines i)) nil)]
-               (into [:tbody] (map-indexed (fn [r cs] (row :td cs r)) body))))
-     end]))
+    (conj! (:tables ctx) (cond-> {:cells body :defs defs} (some? chart) (assoc :chart chart)))
+    (let [tbl (-> (cond-> [:table] (some? (:error mine)) (conj [:caption {:class "calc-error"} (:error mine)]))
+                  (conj [:thead (row :th (grid (nth lines i)) nil)]
+                        (into [:tbody] (map-indexed (fn [r cs] (row :td cs r)) body))))]
+      (if (nil? chart)
+        [tbl end]
+        (let [k (str (nth lines i) "\n" chart)
+              cells (map-indexed (fn [r cs]
+                                   (vec (map-indexed (fn [c x]
+                                                       (let [res (get-in mine [:results r c])]
+                                                         {:num (if (formula? x) (:num res) (number-of x))
+                                                          :label (or (:value res) (.trim x))}))
+                                                     cs)))
+                                 body)
+              broken? (or (some? failed) (some? (:chart-error mine)))]
+          [[:figure {:class (str "chart-table" (when (or broken? (.has tables-shown k)) " show-table"))}
+            [:button {:class "chart-toggle" :title "Show the table or the chart"
+                      :on-click (fn [e] (toggle-table! k e))}
+             [:span {:class "to-table"} "Table"] [:span {:class "to-chart"} "Chart"]]
+            (chart-part mine failed (grid (nth lines i)) (vec cells))
+            tbl]
+           end])))))
+
+(defn- solo-chart
+  "The ```simpleviz-chart block of lines `body`: its >> lines name the
+  data and its fields, the rest is the chart. Collected in (:tables
+  ctx) for the server to read the data; shows as the chart of it."
+  [body ctx]
+  (let [head (vec (take-while (fn [l] (.startsWith (.trim l) ">>")) body))
+        spec (.join (.slice body (count head)) "\n")
+        failed (:failed (:calc ctx))
+        mine (when (nil? failed) (get (:calc ctx) (count (:tables ctx))))
+        rows (mapv (fn [rec] (mapv (fn [v] {:num (when (number? v) v) :label (if (nil? v) "" (str v))}) rec))
+                   (or (:data mine) []))]
+    (conj! (:tables ctx) {:cells [] :defs (.join head "\n") :chart spec :solo true})
+    [:figure {:class "chart-solo"} (chart-part mine failed (or (:fields mine) []) rows)]))
 
 (defn- blocks
   "Hiccup for the block-level lines."
@@ -566,14 +635,21 @@
         (let [l (nth lines i)
               fence (fence-open l)
               table-def (when (= "simpleviz-table" (:info fence)) (def-block lines i fence))
+              solo (when (= "simpleviz-chart" (:info fence))
+                     (let [[body close] (fence-body lines i fence)] (when (some? close) [body close])))
               heading (.exec heading-re l)]
           (cond
             (blank? l) (recur (inc i) out)
 
             (some? table-def)
             (let [[defs t] table-def
-                  [tbl end] (table-block lines t defs ctx)]
-              (recur end (conj out tbl)))
+                  [chart after] (chart-after lines (table-end lines t))
+                  [tbl end] (table-block lines t defs chart ctx)]
+              (recur (or after end) (conj out tbl)))
+
+            (some? solo)
+            (let [[body close] solo]
+              (recur (inc close) (conj out (solo-chart body ctx))))
 
             (some? fence)
             (let [[body close] (fence-body lines i fence)
@@ -624,7 +700,9 @@
               (recur end (conj out (into [:blockquote] (blocks inner ctx)))))
 
             (table-start? lines i)
-            (let [[tbl end] (table-block lines i nil ctx)] (recur end (conj out tbl)))
+            (let [[chart after] (chart-after lines (table-end lines i))
+                  [tbl end] (table-block lines i nil chart ctx)]
+              (recur (or after end) (conj out tbl)))
 
             (some? (item-of l))
             (let [[t end] (list-block lines i ctx)] (recur end (conj out t)))
@@ -733,7 +811,7 @@
 (defn calc?
   "Has one of `tables` (calc-tables) a formula or a def block?"
   [tables]
-  (boolean (some (fn [t] (or (some? (:defs t)) (some (fn [row] (some formula? row)) (:cells t))))
+  (boolean (some (fn [t] (or (some? (:defs t)) (some? (:chart t)) (some (fn [row] (some formula? row)) (:cells t))))
                  tables)))
 
 ;; ---------------------------------------------------------------- tidy

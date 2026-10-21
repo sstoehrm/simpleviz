@@ -193,7 +193,7 @@
           {:v v :style {}}
           fs))
 
-(defn evaluate
+(defn- table-results
   "A table's results: {:results grid} where grid has the shape of
   `cells` (the body rows) and holds nil for a cell left as it is, else
   {:value s} with :style {:color :background :border} when a def block
@@ -201,8 +201,9 @@
   A cell's value — a formula's result, else the cell's — goes through
   the fns of every pair covering it, top to bottom. With `data` (rows of
   values, with-data) formula ranges address the data, not the table;
-  `data-error` fails every formula, as a failing def block does."
-  [{:keys [cells defs data data-error]}]
+  `data-error` fails every formula, as a failing def block does. With
+  `num?` a formula's number is in its result too, as :num, for a chart."
+  [{:keys [cells defs data data-error]} num?]
   (let [cells (vec (map vec cells))
         rows (count cells)
         cols (apply max 0 (map count cells))
@@ -227,10 +228,69 @@
                                         {:keys [v style]} (chain fs v0 {:row (inc r) :col (col-name c) :raw s})]
                                     (not-empty (cond-> {}
                                                  (or f? (not= v v0)) (assoc :value (show v))
+                                                 (and num? f? (number? v0)) (assoc :num (if (ratio? v0) (double v0) v0))
                                                  (seq style) (assoc :style style)))))
                             (catch Throwable e {:error (message e)})))))]
         (cond-> {:results (vec (map-indexed (fn [r row] (vec (map-indexed (fn [c s] (cell r c s)) row))) cells))}
           (some? err) (assoc :error err))))))
+
+;; ---------------------------------------------------------------- charts
+
+(def ^:private chart-keys #{:kind :x :y :rows :stack :horizontal :title})
+
+(defn chart-spec
+  "A chart block's map, read and checked against a table of `cols`
+  columns and `rows` rows: {:kind \"bar\" :x 0 :y [1]}, columns as
+  indexes from 0, plus :rows [from to], :stack, :horizontal and :title
+  when it has them."
+  [text cols rows]
+  (let [m (try (edn/read-string (str text))
+               (catch Exception e (fail "the chart spec doesn't read: " (message e))))
+        col (fn [k]
+              (let [i (col-index k)]
+                (cond (nil? i) (fail "expected a column keyword like :a, got " (pr-str k))
+                      (>= i cols) (fail "no column " k " — the chart has " cols)
+                      :else i)))]
+    (when-not (map? m) (fail "a chart is a map, like {:kind :bar :x :a :y [:b]}"))
+    (when-let [bad (first (remove chart-keys (keys m)))]
+      (fail "a chart takes :kind :x :y :rows :stack :horizontal :title, not " (pr-str bad)))
+    (when-not (#{:bar :line :scatter} (:kind m)) (fail ":kind is :bar, :line or :scatter"))
+    (when (nil? (:x m)) (fail "a chart names its :x column"))
+    (when (nil? (:y m)) (fail "a chart names its :y columns, like :y [:b :c]"))
+    (when-some [[from to :as r] (:rows m)]
+      (when-not (and (vector? r) (= 2 (count r))) (fail ":rows is [from to], like [1 4]"))
+      (ranges [:a from to] rows))
+    (cond-> {:kind (name (:kind m)) :x (col (:x m)) :y (mapv col (if (vector? (:y m)) (:y m) [(:y m)]))}
+      (some? (:rows m)) (assoc :rows (:rows m))
+      (:stack m) (assoc :stack true)
+      (:horizontal m) (assoc :horizontal true)
+      (string? (:title m)) (assoc :title (:title m)))))
+
+(defn- field-name [f]
+  (cond (keyword? f) (name f)
+        (vector? f) (str/join "." (map #(if (keyword? %) (name %) (str %)) f))
+        :else (str f)))
+
+(defn evaluate
+  "table-results of a table, plus, for one with a :chart block, its spec
+  as chart-spec reads it, or :chart-error. A :solo chart has no table:
+  it charts its block's data, its rows as :data and the names of the
+  fields its second >> line lists as :fields."
+  [t]
+  (let [solo (:solo t)
+        out (if solo {:results []} (table-results t (some? (:chart t))))]
+    (if (nil? (:chart t))
+      out
+      (try (let [fields (when solo
+                          (cond (some? (:data-error t)) (fail (:data-error t))
+                                (nil? (:data t)) (fail "a chart alone links its data first: >> [sales](sales.csv)")
+                                (empty? (:fields t)) (fail "a chart alone names its fields: >> [\"units\" \"price\"]")
+                                :else (mapv field-name (:fields t))))
+                 cells (if solo (:data t) (:cells t))
+                 cols (if solo (count fields) (apply max 0 (map count cells)))]
+             (cond-> (assoc out :chart (chart-spec (:chart t) cols (count cells)))
+               solo (assoc :data (:data t) :fields fields)))
+           (catch Exception e (assoc out :chart-error (message e)))))))
 
 ;; ---------------------------------------------------------------- data
 
@@ -306,7 +366,8 @@
             (cond
               (some? error) (assoc t :defs defs :data-error error)
               (nil? source) t
-              :else (try (assoc t :defs defs :data (data source fields))
+              :else (try (cond-> (assoc t :defs defs :data (data source fields))
+                           (:solo t) (assoc :fields fields))
                          (catch Exception e (assoc t :defs defs :data-error (message e)))))))
         tables)))
 
@@ -361,11 +422,30 @@
         :else
         (not-empty (cond-> {}
                      (string? (:value cell)) (assoc :value (:value cell))
+                     (number? (:num cell)) (assoc :num (:num cell))
                      (seq style) (assoc :style (select-keys style style-keys))))))))
+
+(defn- plain-value? [v] (or (nil? v) (number? v) (string? v) (boolean? v)))
+
+(defn- checked-chart
+  "A child's chart spec as the page may get it: the keys chart-spec
+  writes, with the types it writes them in; nil for anything else."
+  [c]
+  (when (and (map? c) (string? (:kind c)) (int? (:x c)) (sequential? (:y c)) (every? int? (:y c)))
+    (cond-> (select-keys c [:kind :x :y])
+      (and (sequential? (:rows c)) (every? int? (:rows c))) (assoc :rows (vec (:rows c)))
+      (true? (:stack c)) (assoc :stack true)
+      (true? (:horizontal c)) (assoc :horizontal true)
+      (string? (:title c)) (assoc :title (:title c)))))
 
 (defn- checked [tables]
   (mapv (fn [t] (cond-> {:results (mapv (fn [row] (mapv checked-cell row)) (:results t))}
-                  (string? (:error t)) (assoc :error (:error t))))
+                  (string? (:error t)) (assoc :error (:error t))
+                  (some? (checked-chart (:chart t))) (assoc :chart (checked-chart (:chart t)))
+                  (string? (:chart-error t)) (assoc :chart-error (:chart-error t))
+                  (and (sequential? (:data t)) (every? #(and (sequential? %) (every? plain-value? %)) (:data t)))
+                  (assoc :data (:data t))
+                  (and (sequential? (:fields t)) (every? string? (:fields t))) (assoc :fields (:fields t))))
         tables))
 
 (defn evaluate-tables

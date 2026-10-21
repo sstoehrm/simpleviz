@@ -381,3 +381,36 @@
       (assert/deepEqual @seen [{:dest "api.edn" :label "a" :kind "inline" :compare "next"}
                                {:dest "b.edn" :label "b" :kind "inline"}
                                {:dest "c.edn" :label "r" :kind "ref" :compare "v2"}]))))
+
+(def ^:private chart-doc
+  (str "| item | per month |\n|--|--:|\n| rent | 950 |\n| food | =(* 2 210) |\n\n"
+       "```simpleviz-chart-table\n{:kind :bar :x :a :y [:b]}\n```\n\nafter"))
+
+(test "charts: a chart block below a table goes with it to the server; a chart alone takes its >> lines as data"
+  (fn []
+    (assert/deepEqual (calc-tables chart-doc)
+                      [{:cells [["rent" "950"] ["food" "=(* 2 210)"]] :defs nil :chart "{:kind :bar :x :a :y [:b]}"}])
+    (assert/deepEqual (calc-tables "```simpleviz-chart\n>> [s](s.csv)\n>> [\"units\" \"price\"]\n{:kind :scatter :x :a :y [:b]}\n```")
+                      [{:cells [] :defs ">> [s](s.csv)\n>> [\"units\" \"price\"]" :chart "{:kind :scatter :x :a :y [:b]}" :solo true}])))
+
+(test "charts: a chart table shows its chart, pending until the server answers; the table stays for the toggle"
+  (fn []
+    (let [[fig p] (md chart-doc)]
+      (assert/equal (first fig) :figure)
+      (assert/deepEqual (second fig) {:class "chart-table"})
+      (assert/deepEqual (nth fig 3) [:div {:class "chart pending"} "…"])
+      (assert/equal (first (nth fig 4)) :table)
+      (assert/deepEqual p [:p "after"]))
+    (let [[fig] (render chart-doc link [{:results [[nil nil] [nil {:value "420" :num 420}]]
+                                         :chart {:kind "bar" :x 0 :y [1]}}])
+          chart (nth fig 3)]
+      (assert/deepEqual (second chart) {:class "chart"})
+      (assert/equal (count (filter (fn [m] (= :path (first m))) (last (nth chart 3)))) 2))
+    (let [[fig] (render chart-doc link [{:results [[nil nil] [nil nil]] :chart-error ":kind is :bar, :line or :scatter"}])]
+      (assert/deepEqual (second fig) {:class "chart-table show-table"} "a broken chart shows its table")
+      (assert/deepEqual (nth fig 3) [:div {:class "chart error"} ":kind is :bar, :line or :scatter"]))))
+
+(test "charts: a chart block not right below a table, or unclosed, is code"
+  (fn []
+    (assert/deepEqual (md "text\n\n```simpleviz-chart-table\n{}\n```") [[:p "text"] [:pre [:code "{}"]]])
+    (assert/equal (first (first (md "| a |\n|--|\n| 1 |\n```simpleviz-chart-table\n{}"))) :table)))

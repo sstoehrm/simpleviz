@@ -39,10 +39,10 @@ The diagrams in depth: a [60-second tour](docs/assets/demo.mp4)
 ([gif](docs/assets/demo.gif)) — live reload, editing in place, state marks,
 themes, pairs, refs, comparing a fork, exporting.
 
-**New in 0.42:** [manual layout](docs/guide.md#manual-layout) — ✥ places nodes
-and boxes by hand, snapped to a 20 px grid; layered is now the only automatic
-layout — [45-second video](docs/assets/whats-new-0.42.mp4)
-([gif](docs/assets/whats-new-0.42.gif)).
+**New in 0.47:** [charts](docs/charts.md) — a block below a table shows it as a
+bar, line or scatter chart, and a chart can plot a CSV, JSON or EDN file on its
+own — [40-second video](docs/assets/whats-new-0.47.mp4)
+([gif](docs/assets/whats-new-0.47.gif)).
 
 ## Features
 

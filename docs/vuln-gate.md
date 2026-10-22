@@ -67,8 +67,8 @@ ignore:
     expires: 2026-12-31
 ```
 
-- `id`: the CVE, or the scanner's ID for a finding without one. A CVE also
-  matches findings that list it as an alias.
+- `id`: the CVE, or the scanner's ID for a finding without one, in any
+  case. A CVE also matches findings that list it as an alias.
 - `reason`: why the finding doesn't apply or can wait. It's reviewed with
   the pull request, so make it checkable.
 - `expires`: a `YYYY-MM-DD` date; the entry holds through that day. After
@@ -148,6 +148,9 @@ gate. Trivy then scans the final image (OS packages included) too.
   compromise (CVE-2026-33634). Dependabot does not bump these, so a bump is
   a manual edit of the version and checksum (from the release's
   `*_checksums.txt`) in `vuln-gate.yml` and `sbom-jars/action.yml`.
+- `npx` pins `@cyclonedx/cyclonedx-npm` itself, not its dependencies, which
+  resolve afresh each run. Unlike Trivy and Syft, this tool isn't locked down
+  by checksum.
 - The Trivy DB is cached per day (`~/.cache/trivy`) and resolved deps per
   `bb.edn` hash (`~/.m2/repository`); Trivy refreshes a stale restored DB.
 - The gate script's tests run with the rest: `bb test:clj`

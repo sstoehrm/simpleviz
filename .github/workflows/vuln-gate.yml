@@ -73,10 +73,11 @@ jobs:
           echo "$RUNNER_TEMP/trivy" >> "$GITHUB_PATH"
           echo "day=$(date -u +%F)" >> "$GITHUB_OUTPUT"
 
-      # Trivy's vulnerability DB, saved once a day; Trivy still refreshes a
-      # restored copy that has gone stale
-      - name: Cache the Trivy DB
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # Trivy's vulnerability DB, saved once a day (see "Save the Trivy DB");
+      # Trivy still refreshes a restored copy that has gone stale
+      - name: Restore the Trivy DB
+        id: trivy-db
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/trivy
           key: trivy-db-${{ steps.trivy.outputs.day }}
@@ -94,6 +95,8 @@ jobs:
           path: ${{ runner.temp }}/image
 
       - name: Scan the SBOMs and images
+        env:
+          IMAGE_ARTIFACT: ${{ inputs.image-artifact }}
         run: |
           set -euo pipefail
           shopt -s globstar nullglob
@@ -108,11 +111,25 @@ jobs:
             trivy sbom --quiet --scanners vuln --format json --exit-code 0 \
               --output "vuln-gate-report/sbom-$name.trivy.json" "$sbom"
           done
-          for image in "$RUNNER_TEMP"/image/**/*.tar; do
+          images=("$RUNNER_TEMP"/image/**/*.tar)
+          if [ -n "$IMAGE_ARTIFACT" ] && [ ${#images[@]} -eq 0 ]; then
+            echo "::error::no *.tar image in the artifact $IMAGE_ARTIFACT"
+            exit 1
+          fi
+          for image in "${images[@]}"; do
             name=$(basename "$image" .tar)
             trivy image --quiet --scanners vuln --format json --exit-code 0 \
               --input "$image" --output "vuln-gate-report/image-$name.trivy.json"
           done
+
+      # saved even when the gate fails, which a red repo would otherwise
+      # never do (actions/cache saves only after a passing job)
+      - name: Save the Trivy DB
+        if: always() && steps.trivy-db.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/trivy
+          key: trivy-db-${{ steps.trivy.outputs.day }}
 
       # KEV and EPSS are fetched here, at job time; the gate fails closed
       # (exit 2) when either cannot be read

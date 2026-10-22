@@ -106,6 +106,12 @@
                                :allowlist [{:id "CVE-2024-9" :reason "r" :expires (LocalDate/parse "2027-01-01")}]})]
     (is (= :suppressed (:verdict (first (:findings f)))))))
 
+(deftest the-allowlist-ignores-case
+  (let [f (vuln-gate/evaluate [{:id "CVE-2024-9" :cves ["CVE-2024-9"] :cvss 9.0 :package "p" :version "1"}]
+                              {:kev #{"CVE-2024-9"} :epss {} :today today :epss-min 0.1 :cvss-min 7.0
+                               :allowlist [{:id "cve-2024-9" :reason "r" :expires (LocalDate/parse "2027-01-01")}]})]
+    (is (= :suppressed (:verdict (first (:findings f)))))))
+
 (deftest parse-allowlist-reads-dates-quoted-or-not
   (is (= {:entries [{:id "CVE-2024-1" :reason "a" :expires (LocalDate/parse "2026-12-31")}
                     {:id "CVE-2024-2" :reason "b" :expires (LocalDate/parse "2027-01-15")}]
@@ -200,6 +206,15 @@
                                      (fixture "trivy.json"))]
     (is (= 2 exit))
     (is (str/includes? err "reason is missing"))))
+
+(deftest the-script-exits-2-on-unparseable-yaml
+  (let [{:keys [exit err]} (run-gate {"--allowlist" (temp-file ".yaml" "ignore:\n  - id: [unclosed\n")}
+                                     (fixture "trivy.json"))]
+    (is (= 2 exit))
+    (is (str/includes? err "is malformed"))))
+
+(deftest the-script-exits-2-on-a-bad-today
+  (is (= 2 (:exit (run-gate {"--today" "2026-13-01"} (fixture "trivy.json"))))))
 
 (deftest the-script-fails-closed-when-a-feed-cannot-be-read
   (is (= 2 (:exit (run-gate {"--kev" "no-such-kev.json"} (fixture "trivy.json")))))

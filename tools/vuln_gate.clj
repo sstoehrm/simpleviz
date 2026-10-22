@@ -144,10 +144,17 @@
   "The entries of a .vuln-ignore.yaml text and what is wrong with it:
   every entry needs an id, a reason and an `expires` date."
   [text]
-  (let [doc (yaml/parse-string text)
-        items (if (nil? doc) [] (:ignore doc))]
-    (if-not (or (nil? doc) (and (map? doc) (or (nil? items) (sequential? items))))
+  (let [doc (try (yaml/parse-string text)
+                 (catch Exception e ::unparseable))
+        items (when (map? doc) (:ignore doc))]
+    (cond
+      (= ::unparseable doc)
+      {:entries [] :errors ["not valid YAML"]}
+
+      (not (or (nil? doc) (and (map? doc) (or (nil? items) (sequential? items)))))
       {:entries [] :errors ["the file must hold a top-level `ignore:` list"]}
+
+      :else
       (let [checked
             (map-indexed
              (fn [i {:keys [id reason expires]}]
@@ -181,11 +188,11 @@
   (let [current? #(not (.isAfter today (:expires %)))
         decided
         (for [f findings]
-          (let [ids (set (cons (:id f) (:cves f)))
+          (let [ids (set (map str/upper-case (cons (:id f) (:cves f))))
                 kev? (boolean (some kev (:cves f)))
                 score (some->> (seq (keep epss (:cves f))) (apply max))
                 why (gate-reasons f kev? score opts)
-                entries (filter #(ids (:id %)) allowlist)
+                entries (filter #(ids (str/upper-case (:id %))) allowlist)
                 allowed (first (filter current? entries))
                 expired (first (remove current? entries))]
             (assoc f
@@ -301,7 +308,9 @@
         (fail! "no Trivy JSON report given"))
       (when-let [late (seq (filter #(str/starts-with? % "--") args))]
         (fail! (str "options go before the Trivy reports: " (str/join " " late))))
-      (let [today (if (:today opts) (LocalDate/parse (:today opts)) (LocalDate/now ZoneOffset/UTC))
+      (let [today (if-let [t (:today opts)]
+                    (or (->date t) (fail! (str "--today is not a YYYY-MM-DD date: " t)))
+                    (LocalDate/now ZoneOffset/UTC))
             {:keys [entries errors]} (if (fs/exists? allowlist)
                                        (parse-allowlist (slurp allowlist))
                                        {:entries [] :errors []})

@@ -1,13 +1,13 @@
 # Vulnerability gate
 
 Every push to main, every pull request and a weekly schedule build a
-CycloneDX SBOM of everything simpleviz ships, scan it with Trivy, and fail
+CycloneDX SBOM of everything simpleviz ships, scan it with OSV-Scanner, and fail
 only on findings that are exploited or likely to be. Everything else is
 reported, not blocking.
 
 ```
 sbom job (per repo)                     gate job (shared: vuln-gate.yml)
-  npm lockfile  → cyclonedx-npm  ┐        Trivy: each SBOM (+ saved images)
+  npm lockfile  → cyclonedx-npm  ┐        OSV-Scanner: each SBOM (+ saved images)
   elkjs vendor  → one-line SBOM  ├─ sbom → tools/vuln_gate.clj
   bb.edn deps   → jars → Syft    ┘          ← CISA KEV feed, FIRST EPSS API
                                             ← .vuln-ignore.yaml
@@ -19,7 +19,7 @@ sbom job (per repo)                     gate job (shared: vuln-gate.yml)
 | `.github/workflows/vulns.yml` | this repo's caller: the SBOM job, then the gate |
 | `.github/workflows/vuln-gate.yml` | the shared gate (reusable workflow) |
 | `.github/actions/sbom-jars` | SBOM for bb.edn / deps.edn / project.clj (no lockfile, no SBOM tool) |
-| `tools/vuln_gate.clj` | the policy: reads Trivy JSON, fetches KEV and EPSS, decides |
+| `tools/vuln_gate.clj` | the policy: reads OSV-Scanner JSON, fetches KEV and EPSS, decides |
 | `tools/stage_jars.clj` | stages a resolved classpath's jars for Syft |
 | `.vuln-ignore.yaml` | the allowlist |
 
@@ -32,22 +32,24 @@ A finding **fails the build** when it is
    in the next 30 days, and severe if it happens.
 
 Everything else is **report only**: listed in the job summary and in the
-`vuln-gate-report` artifact (each Trivy result plus `gate.json`), but
+`vuln-gate-report` artifact (each OSV-Scanner result plus `gate.json`), but
 never failing the build. A finding a current allowlist entry covers is
 **suppressed**.
 
 Details that decide edge cases:
 
-- **CVSS** is the highest v3 or v4 base score any source gives (NVD, GHSA,
-  vendors). A finding with none counts as 7.0 when its severity is HIGH or
-  CRITICAL, so a missing score cannot hide it. v2 scores are ignored.
-- **KEV and EPSS know CVEs only.** A finding is looked up by its ID and its
-  CVE aliases; one with no CVE at all (a bare GHSA or `NSWG-…` ID) can never
-  fail the build, only be reported.
+- **One finding per vulnerability and package.** OSV-Scanner groups the
+  records different databases keep for the same vulnerability (a GHSA and
+  a PYSEC entry, say); a group is one finding, shown under its CVE when it
+  has one.
+- **CVSS** is the group's highest score as OSV-Scanner computes it from
+  the records' CVSS vectors. A finding with none counts as 7.0 when a
+  record rates it HIGH or CRITICAL, so a missing score cannot hide it.
+- **KEV and EPSS know CVEs only.** A finding is looked up by its CVE
+  aliases; one with no CVE at all (a bare GHSA ID) can never fail the
+  build, only be reported.
 - **Both feeds are fetched at job time** and never cached. When either
   can't be read, the gate fails closed (exit 2) instead of passing silently.
-- An **end-of-life OS** in a scanned image shows as a warning: no one
-  publishes advisories for it, so its scan comes back empty.
 - The thresholds are inputs (`epss-min`, `cvss-min`) of the reusable
   workflow; the defaults are the policy above.
 
@@ -67,8 +69,8 @@ ignore:
     expires: 2026-12-31
 ```
 
-- `id`: the CVE, or the scanner's ID for a finding without one, in any
-  case. A CVE also matches findings that list it as an alias.
+- `id`: the CVE, or any other ID of the finding (GHSA, PYSEC, …), in any
+  case. It matches every finding that lists it as an ID or an alias.
 - `reason`: why the finding doesn't apply or can wait. It's reviewed with
   the pull request, so make it checkable.
 - `expires`: a `YYYY-MM-DD` date; the entry holds through that day. After
@@ -128,7 +130,7 @@ built from its path in `~/.m2`, so it isn't silently dropped. Cache
 
 **Container images:** in the SBOM job, `docker save <image> -o image.tar`,
 upload the tar as its own artifact, and pass `image-artifact: <name>` to the
-gate. Trivy then scans the final image (OS packages included) too.
+gate. OSV-Scanner then scans the final image (OS packages included) too.
 
 ## Not covered
 
@@ -139,26 +141,30 @@ gate. Trivy then scans the final image (OS packages included) too.
   `stage_jars.clj` prints a warning for each one outside the project.
 - **Vendored code** without a manifest stays invisible unless the SBOM job
   describes it, as `vulns.yml` does for `public/vendor` (elkjs).
+- **An end-of-life OS** in a scanned image is not flagged: no one publishes
+  advisories for it any more, so its scan shows only what was known before
+  its end of life. Check the base image's support dates by hand.
 
 ## Maintenance
 
-- Trivy (0.75.0) and Syft (1.54.1) are downloaded as release binaries and
-  checked against a pinned SHA-256, not installed through `trivy-action` or
-  `setup-trivy`: those tags were rewritten in the March 2026 Trivy
-  compromise (CVE-2026-33634). Dependabot does not bump these, so a bump is
-  a manual edit of the version and checksum (from the release's
-  `*_checksums.txt`) in `vuln-gate.yml` and `sbom-jars/action.yml`.
+- OSV-Scanner (2.7.0) and Syft (1.54.1) are downloaded as release binaries
+  and checked against a pinned SHA-256. Renovate does not bump these, so a
+  bump is a manual edit of the version and checksum (from the release's
+  `osv-scanner_SHA256SUMS` or `syft_*_checksums.txt`) in `vuln-gate.yml` and
+  `sbom-jars/action.yml`.
 - `npx` pins `@cyclonedx/cyclonedx-npm` itself, not its dependencies, which
-  resolve afresh each run. Unlike Trivy and Syft, this tool isn't locked down
-  by checksum.
-- The Trivy DB is cached per day (`~/.cache/trivy`) and resolved deps per
-  `bb.edn` hash (`~/.m2/repository`); Trivy refreshes a stale restored DB.
+  resolve afresh each run. Unlike OSV-Scanner and Syft, this tool isn't
+  locked down by checksum.
+- OSV-Scanner asks the OSV API (api.osv.dev) at scan time, so there is no
+  vulnerability DB to cache; resolved deps are cached per `bb.edn` hash
+  (`~/.m2/repository`). The scan step fails on any OSV-Scanner exit code
+  but 0 (clean) and 1 (findings), e.g. 128 for an SBOM with no packages.
 - The gate script's tests run with the rest: `bb test:clj`
   (`test/vuln_gate_test.clj`, `test/stage_jars_test.clj`).
-- Run the gate locally on any Trivy JSON:
+- Run the gate locally on any OSV-Scanner JSON:
 
   ```sh
-  trivy sbom --format json --output scan.json sbom.cdx.json
+  osv-scanner scan source --format json --output-file scan.json -L sbom.cdx.json
   bb tools/vuln_gate.clj --allowlist .vuln-ignore.yaml scan.json
   ```
 

@@ -11,14 +11,14 @@
 
 (defn- fixture [f] (str (fs/path dir f)))
 
-(defn- trivy [] (json/parse-string (slurp (fixture "trivy.json")) true))
+(defn- osv [] (json/parse-string (slurp (fixture "osv.json")) true))
 
 (def ^:private today (LocalDate/parse "2026-10-22"))
 
 (defn- evaluate
   ([] (evaluate (slurp (fixture "allowlist.yaml"))))
   ([allowlist-text]
-   (vuln-gate/evaluate (vuln-gate/findings [(trivy)])
+   (vuln-gate/evaluate (vuln-gate/findings [(osv)])
                        {:kev (vuln-gate/kev-ids (json/parse-string (slurp (fixture "kev.json")) true))
                         :epss (vuln-gate/epss-scores (json/parse-string (slurp (fixture "epss.json")) true))
                         :allowlist (:entries (vuln-gate/parse-allowlist allowlist-text))
@@ -29,34 +29,54 @@
 (defn- verdicts [result]
   (into {} (map (juxt :id :verdict)) (:findings result)))
 
-(deftest findings-flatten-every-result-of-every-report
-  (let [fs (vuln-gate/findings [(trivy)])]
+(deftest findings-are-one-per-group-of-every-package-of-every-report
+  (let [fs (vuln-gate/findings [(osv)])]
     (is (= 7 (count fs)))
     (is (= {:id "CVE-2021-44228"
+            :aliases ["GHSA-jfh8-c2jp-5v3q" "CVE-2021-44228"]
             :cves ["CVE-2021-44228"]
             :package "org.apache.logging.log4j:log4j-core"
             :version "2.14.1"
             :fixed "2.15.0, 2.3.1, 2.12.2"
             :severity "CRITICAL"
             :cvss 10.0
-            :target "sbom/vulnerable.cdx.json: Java"}
-           (-> (first (filter #(= "CVE-2021-44228" (:id %)) fs))
-               (select-keys [:id :cves :package :version :fixed :severity :cvss :target]))))))
+            :title "Remote code injection in Log4j"
+            :url "https://osv.dev/vulnerability/GHSA-jfh8-c2jp-5v3q"
+            :target "sbom/vulnerable.cdx.json"}
+           (first (filter #(= "CVE-2021-44228" (:id %)) fs))))))
 
 (deftest findings-dedupe-the-same-vulnerability-in-the-same-package
-  (is (= 7 (count (vuln-gate/findings [(trivy) (trivy)])))))
+  (is (= 7 (count (vuln-gate/findings [(osv) (osv)])))))
 
-(deftest cvss-takes-the-highest-v3-or-v4-score-of-any-source
-  (is (= 9.8 (vuln-gate/cvss {:CVSS {:nvd {:V3Score 7.5 :V2Score 10.0} :ghsa {:V40Score 9.8}}})))
+(deftest a-group-merges-the-records-osv-scanner-found-to-be-one-vulnerability
+  (let [report {:results [{:source {:path "a.cdx.json"}
+                           :packages [{:package {:name "p" :version "1"}
+                                       :vulnerabilities [{:id "PYSEC-1" :aliases ["CVE-2024-1"]
+                                                          :affected [{:package {:name "p"}
+                                                                      :ranges [{:events [{:fixed "1.1"}]}]}]}
+                                                         {:id "GHSA-aaaa" :aliases ["CVE-2024-1"]
+                                                          :affected [{:package {:name "p"}
+                                                                      :ranges [{:events [{:fixed "1.1"} {:fixed "2.0"}]}]}
+                                                                     {:package {:name "other"}
+                                                                      :ranges [{:events [{:fixed "9.9"}]}]}]}]
+                                       :groups [{:ids ["PYSEC-1" "GHSA-aaaa"]
+                                                 :aliases ["CVE-2024-1" "GHSA-aaaa" "PYSEC-1"]
+                                                 :max_severity "8.8"}]}]}]}]
+    (is (= [{:id "CVE-2024-1" :aliases ["PYSEC-1" "GHSA-aaaa" "CVE-2024-1"] :fixed "1.1, 2.0" :cvss 8.8}]
+           (map #(select-keys % [:id :aliases :fixed :cvss]) (vuln-gate/findings [report]))))))
+
+(deftest cvss-is-osv-scanners-highest-score-of-the-group
+  (is (= 9.8 (vuln-gate/cvss {:max_severity "9.8"} [])))
   (testing "without a score, HIGH and CRITICAL count as 7.0, the floor of their CVSS band"
-    (is (= 7.0 (vuln-gate/cvss {:Severity "HIGH"})))
-    (is (= 7.0 (vuln-gate/cvss {:Severity "CRITICAL" :CVSS {:nvd {:V2Score 9.0}}})))
-    (is (nil? (vuln-gate/cvss {:Severity "MEDIUM"})))))
+    (is (= 7.0 (vuln-gate/cvss {:max_severity ""} [{:database_specific {:severity "HIGH"}}])))
+    (is (= 7.0 (vuln-gate/cvss {} [{:database_specific {:severity "LOW"}}
+                                   {:database_specific {:severity "CRITICAL"}}])))
+    (is (nil? (vuln-gate/cvss {:max_severity ""} [{:database_specific {:severity "MODERATE"}}])))))
 
-(deftest cve-ids-come-from-the-id-and-the-aliases
-  (is (= ["CVE-2024-1" "CVE-2024-2"]
-         (vuln-gate/cve-ids {:VulnerabilityID "GHSA-xxxx" :VendorIDs ["CVE-2024-1" "CVE-2024-2" "GHSA-yyyy"]})))
-  (is (= [] (vuln-gate/cve-ids {:VulnerabilityID "NSWG-ECO-516"}))))
+(deftest a-finding-without-a-cve-keeps-the-advisory-id
+  (let [f (first (filter #(= "GHSA-0000-0000-0000" (:id %)) (vuln-gate/findings [(osv)])))]
+    (is (= [] (:cves f)))
+    (is (= 7.0 (:cvss f)) "HIGH, no score")))
 
 (deftest the-policy-fails-on-kev-or-on-epss-and-cvss-together
   (let [v (verdicts (evaluate))]
@@ -64,7 +84,7 @@
     (is (= :fail (v "CVE-2019-17531")) "EPSS 0.4, CVSS 9.8")
     (is (= :report (v "CVE-2020-10650")) "CVSS 8.1, but EPSS 0.05")
     (is (= :report (v "CVE-2020-28500")) "EPSS 0.3, but CVSS 5.3")
-    (is (= :report (v "NSWG-ECO-516")) "no CVE: neither KEV nor EPSS knows it")))
+    (is (= :report (v "GHSA-0000-0000-0000")) "no CVE: neither KEV nor EPSS knows it")))
 
 (deftest a-failing-finding-says-why
   (let [by-id (into {} (map (juxt :id identity)) (:findings (evaluate)))]
@@ -100,10 +120,11 @@
                                              "  - {id: CVE-2019-14892, reason: r, expires: 2027-01-01}\n"
                                              "  - {id: CVE-2020-8203, reason: r, expires: 2027-01-01}\n"))))))
 
-(deftest the-allowlist-matches-a-cve-alias-too
-  (let [f (vuln-gate/evaluate [{:id "GHSA-aaaa" :cves ["CVE-2024-9"] :cvss 9.0 :package "p" :version "1"}]
+(deftest the-allowlist-matches-any-alias
+  (let [f (vuln-gate/evaluate [{:id "CVE-2024-9" :aliases ["GHSA-aaaa" "CVE-2024-9"] :cves ["CVE-2024-9"]
+                                :cvss 9.0 :package "p" :version "1"}]
                               {:kev #{"CVE-2024-9"} :epss {} :today today :epss-min 0.1 :cvss-min 7.0
-                               :allowlist [{:id "CVE-2024-9" :reason "r" :expires (LocalDate/parse "2027-01-01")}]})]
+                               :allowlist [{:id "GHSA-aaaa" :reason "r" :expires (LocalDate/parse "2027-01-01")}]})]
     (is (= :suppressed (:verdict (first (:findings f)))))))
 
 (deftest the-allowlist-ignores-case
@@ -143,17 +164,6 @@
   (is (= ["the file must hold a top-level `ignore:` list"]
          (:errors (vuln-gate/parse-allowlist "- {id: CVE-2024-1, reason: a, expires: 2026-12-31}\n")))))
 
-(deftest an-end-of-life-os-is-a-warning
-  ;; Trivy finds nothing in an end-of-life OS: no one publishes its advisories
-  (is (= ["image.tar: alpine 3.14.10 is end-of-life; its packages get no security fixes and the scan cannot see their vulnerabilities"]
-         (vuln-gate/warnings [{:ArtifactName "image.tar"
-                               :Metadata {:OS {:Family "alpine" :Name "3.14.10" :EOSL true}}}
-                              {:ArtifactName "ok.tar"
-                               :Metadata {:OS {:Family "debian" :Name "12.12"}}}
-                              (trivy)])))
-  (is (str/includes? (vuln-gate/summary (assoc (evaluate) :warnings ["w1"]) {:epss-min 0.1 :cvss-min 7.0})
-                     "### Warnings\n\n- w1")))
-
 (deftest epss-is-asked-for-in-batches-of-100
   (is (= [100 100 37] (map count (vuln-gate/epss-batches (map #(str "CVE-2024-" %) (range 237)))))))
 
@@ -186,7 +196,7 @@
     (assoc r :dir out)))
 
 (deftest the-script-exits-1-when-the-gate-fails
-  (let [{:keys [exit dir]} (run-gate {} (fixture "trivy.json"))]
+  (let [{:keys [exit dir]} (run-gate {} (fixture "osv.json"))]
     (is (= 1 exit))
     (is (str/includes? (slurp (str dir "/summary.md")) "CVE-2021-44228"))
     (is (= 7 (count (:findings (json/parse-string (slurp (str dir "/report.json")) true)))))))
@@ -194,39 +204,39 @@
 (deftest the-script-exits-0-with-only-report-only-findings
   (let [{:keys [exit dir]} (run-gate {"--kev" (temp-file ".json" "{\"vulnerabilities\": []}")
                                       "--cvss-min" "10.5"}
-                                     (fixture "trivy.json"))]
+                                     (fixture "osv.json"))]
     (is (= 0 exit))
     (is (str/includes? (slurp (str dir "/summary.md")) "0 failing"))))
 
 (deftest the-script-runs-without-an-allowlist-file
-  (is (= 1 (:exit (run-gate {"--allowlist" "no-such-file.yaml"} (fixture "trivy.json"))))))
+  (is (= 1 (:exit (run-gate {"--allowlist" "no-such-file.yaml"} (fixture "osv.json"))))))
 
 (deftest the-script-exits-2-on-a-malformed-allowlist
   (let [{:keys [exit err]} (run-gate {"--allowlist" (temp-file ".yaml" "ignore:\n  - {id: CVE-2024-1}\n")}
-                                     (fixture "trivy.json"))]
+                                     (fixture "osv.json"))]
     (is (= 2 exit))
     (is (str/includes? err "reason is missing"))))
 
 (deftest the-script-exits-2-on-unparseable-yaml
   (let [{:keys [exit err]} (run-gate {"--allowlist" (temp-file ".yaml" "ignore:\n  - id: [unclosed\n")}
-                                     (fixture "trivy.json"))]
+                                     (fixture "osv.json"))]
     (is (= 2 exit))
     (is (str/includes? err "is malformed"))))
 
 (deftest the-script-exits-2-on-a-bad-today
-  (is (= 2 (:exit (run-gate {"--today" "2026-13-01"} (fixture "trivy.json"))))))
+  (is (= 2 (:exit (run-gate {"--today" "2026-13-01"} (fixture "osv.json"))))))
 
 (deftest the-script-fails-closed-when-a-feed-cannot-be-read
-  (is (= 2 (:exit (run-gate {"--kev" "no-such-kev.json"} (fixture "trivy.json")))))
-  (is (= 2 (:exit (run-gate {"--kev" (fixture "epss.json")} (fixture "trivy.json"))))
+  (is (= 2 (:exit (run-gate {"--kev" "no-such-kev.json"} (fixture "osv.json")))))
+  (is (= 2 (:exit (run-gate {"--kev" (fixture "epss.json")} (fixture "osv.json"))))
       "a KEV file without a vulnerabilities list")
-  (is (= 2 (:exit (run-gate {"--epss" (fixture "kev.json")} (fixture "trivy.json"))))
+  (is (= 2 (:exit (run-gate {"--epss" (fixture "kev.json")} (fixture "osv.json"))))
       "an EPSS answer without a data list"))
 
 (deftest the-script-exits-2-without-a-scan
   (is (= 2 (:exit (run-gate {})))))
 
 (deftest the-script-says-so-when-an-option-follows-the-reports
-  (let [{:keys [exit err]} (run-gate {} (fixture "trivy.json") "--epss-min" "0.5")]
+  (let [{:keys [exit err]} (run-gate {} (fixture "osv.json") "--epss-min" "0.5")]
     (is (= 2 exit))
-    (is (str/includes? err "options go before the Trivy reports: --epss-min"))))
+    (is (str/includes? err "options go before the OSV-Scanner reports: --epss-min"))))

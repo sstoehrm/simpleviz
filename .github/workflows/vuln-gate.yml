@@ -1,5 +1,5 @@
 # The vulnerability gate, shared across repos: scans the SBOMs a caller's
-# job uploaded (and, optionally, a container image it saved) with Trivy and
+# job uploaded (and, optionally, a container image it saved) with OSV-Scanner and
 # fails only on what tools/vuln_gate.clj calls failing — CISA KEV, or EPSS
 # >= 0.1 and CVSS >= 7.0 — minus current .vuln-ignore.yaml entries.
 # docs/vuln-gate.md has the policy and the caller's side.
@@ -34,11 +34,11 @@ jobs:
   gate:
     runs-on: ubuntu-latest
     env:
-      # Trivy's binary, checksum-pinned. Not trivy-action / setup-trivy:
-      # their tags were rewritten in the March 2026 compromise
-      # (CVE-2026-33634). A bump edits both lines by hand (Dependabot won't).
-      TRIVY_VERSION: 0.75.0
-      TRIVY_SHA256: c6e65abddb348e25f10549df887045629cf28cc72453cd1c63acb717316b3f3f
+      # OSV-Scanner's release binary, checksum-pinned (from the release's
+      # osv-scanner_SHA256SUMS). A bump edits both lines by hand; Renovate
+      # won't.
+      OSV_SCANNER_VERSION: 2.7.0
+      OSV_SCANNER_SHA256: 160c6253e2922e9e0a6a9771c5c4c40a4b3c6090b34a3cdd5e80c96cc2e4218b
     steps:
       # the caller's repo, for its allowlist
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -60,28 +60,16 @@ jobs:
         with:
           bb: '1.13.225'
 
-      - name: Install Trivy
-        id: trivy
+      - name: Install OSV-Scanner
         run: |
           set -euo pipefail
-          tarball="trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
-          curl -fsSL -o "$RUNNER_TEMP/$tarball" \
-            "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/$tarball"
-          echo "$TRIVY_SHA256  $RUNNER_TEMP/$tarball" | sha256sum --check --strict
-          mkdir -p "$RUNNER_TEMP/trivy"
-          tar -xzf "$RUNNER_TEMP/$tarball" -C "$RUNNER_TEMP/trivy" trivy
-          echo "$RUNNER_TEMP/trivy" >> "$GITHUB_PATH"
-          echo "day=$(date -u +%F)" >> "$GITHUB_OUTPUT"
-
-      # Trivy's vulnerability DB, saved once a day (see "Save the Trivy DB");
-      # Trivy still refreshes a restored copy that has gone stale
-      - name: Restore the Trivy DB
-        id: trivy-db
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/trivy
-          key: trivy-db-${{ steps.trivy.outputs.day }}
-          restore-keys: trivy-db-
+          mkdir -p "$RUNNER_TEMP/osv-scanner"
+          bin="$RUNNER_TEMP/osv-scanner/osv-scanner"
+          curl -fsSL -o "$bin" \
+            "https://github.com/google/osv-scanner/releases/download/v${OSV_SCANNER_VERSION}/osv-scanner_linux_amd64"
+          echo "$OSV_SCANNER_SHA256  $bin" | sha256sum --check --strict
+          chmod +x "$bin"
+          echo "$RUNNER_TEMP/osv-scanner" >> "$GITHUB_PATH"
 
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -94,6 +82,10 @@ jobs:
           name: ${{ inputs.image-artifact }}
           path: ${{ runner.temp }}/image
 
+      # OSV-Scanner asks api.osv.dev at scan time, so there is no
+      # vulnerability DB to cache. It exits 1 on findings, which the gate
+      # decides on; anything but 0 or 1 (128: no packages in the SBOM) is
+      # a broken scan and fails here.
       - name: Scan the SBOMs and images
         env:
           IMAGE_ARTIFACT: ${{ inputs.image-artifact }}
@@ -101,6 +93,14 @@ jobs:
           set -euo pipefail
           shopt -s globstar nullglob
           mkdir -p vuln-gate-report
+          scan() { # scan source|image <args>
+            local code=0
+            osv-scanner scan "$1" --verbosity error --format json "${@:2}" || code=$?
+            if [ "$code" -gt 1 ]; then
+              echo "::error::osv-scanner scan $* exited $code"
+              exit "$code"
+            fi
+          }
           sboms=("$RUNNER_TEMP"/sbom/**/*.cdx.json)
           if [ ${#sboms[@]} -eq 0 ]; then
             echo "::error::no *.cdx.json SBOM in the artifact"
@@ -108,8 +108,7 @@ jobs:
           fi
           for sbom in "${sboms[@]}"; do
             name=$(basename "$sbom" .cdx.json)
-            trivy sbom --quiet --scanners vuln --format json --exit-code 0 \
-              --output "vuln-gate-report/sbom-$name.trivy.json" "$sbom"
+            scan source --output-file "vuln-gate-report/sbom-$name.osv.json" -L "$sbom"
           done
           images=("$RUNNER_TEMP"/image/**/*.tar)
           if [ -n "$IMAGE_ARTIFACT" ] && [ ${#images[@]} -eq 0 ]; then
@@ -118,18 +117,8 @@ jobs:
           fi
           for image in "${images[@]}"; do
             name=$(basename "$image" .tar)
-            trivy image --quiet --scanners vuln --format json --exit-code 0 \
-              --input "$image" --output "vuln-gate-report/image-$name.trivy.json"
+            scan image --archive --output-file "vuln-gate-report/image-$name.osv.json" "$image"
           done
-
-      # saved even when the gate fails, which a red repo would otherwise
-      # never do (actions/cache saves only after a passing job)
-      - name: Save the Trivy DB
-        if: always() && steps.trivy-db.outputs.cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/trivy
-          key: trivy-db-${{ steps.trivy.outputs.day }}
 
       # KEV and EPSS are fetched here, at job time; the gate fails closed
       # (exit 2) when either cannot be read
@@ -144,7 +133,7 @@ jobs:
           bb tools/vuln_gate.clj \
             --allowlist "$ALLOWLIST" --epss-min "$EPSS_MIN" --cvss-min "$CVSS_MIN" \
             --summary "$GITHUB_STEP_SUMMARY" --report "$REPORT_DIR/gate.json" \
-            "$REPORT_DIR"/*.trivy.json
+            "$REPORT_DIR"/*.osv.json
 
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

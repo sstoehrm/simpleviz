@@ -1,10 +1,10 @@
 (ns vuln-gate
-  "The vulnerability gate: reads Trivy JSON reports and fails only on
+  "The vulnerability gate: reads OSV-Scanner JSON reports and fails only on
   findings that are being exploited or likely to be — in CISA's KEV
   catalog, or with EPSS >= 0.1 and CVSS >= 7.0 — unless a current entry in
   .vuln-ignore.yaml suppresses them. Everything else is reported only.
 
-    bb tools/vuln_gate.clj [options] trivy.json...
+    bb tools/vuln_gate.clj [options] osv.json...
 
   Exit 0: passed. Exit 1: a finding fails the gate. Exit 2: the gate could
   not decide (unreadable scan, KEV or EPSS feed, or a malformed allowlist)
@@ -27,40 +27,52 @@
 ;; findings
 
 (defn cvss
-  "The highest CVSS v3 or v4 base score any source gives `vuln`. Without
-  one, HIGH and CRITICAL count as 7.0, the floor of their CVSS band, so a
-  missing score cannot hide a severe finding."
-  [vuln]
-  (let [scores (mapcat (juxt :V3Score :V40Score) (vals (:CVSS vuln)))]
-    (if-let [s (seq (keep identity scores))]
-      (double (apply max s))
-      (when (#{"HIGH" "CRITICAL"} (:Severity vuln)) 7.0))))
+  "The CVSS score of a `group`: the highest OSV-Scanner found among its
+  `records`. Without one, HIGH and CRITICAL count as 7.0, the floor of
+  their CVSS band, so a missing score cannot hide a severe finding."
+  [group records]
+  (or (some-> (:max_severity group) str str/trim not-empty parse-double)
+      (when (some #{"HIGH" "CRITICAL"} (map #(get-in % [:database_specific :severity]) records))
+        7.0)))
 
-(defn cve-ids
-  "The CVE IDs of `vuln`: its own ID and its aliases. KEV and EPSS know
-  CVEs only."
-  [vuln]
-  (->> (cons (:VulnerabilityID vuln) (:VendorIDs vuln))
-       (filter #(str/starts-with? (str %) "CVE-"))
+(defn- fixed-versions
+  "The versions that fix `package` according to `records`; a record often
+  lists other packages too."
+  [package records]
+  (->> (for [r records
+             a (:affected r)
+             :when (= (:name package) (get-in a [:package :name]))
+             range (:ranges a)
+             event (:events range)
+             :when (:fixed event)]
+         (:fixed event))
        distinct
-       vec))
+       seq))
 
 (defn findings
-  "One finding per vulnerability and package across the Trivy `reports`."
+  "One finding per vulnerability and package across the OSV-Scanner
+  `reports`. A group is one vulnerability: OSV-Scanner puts the records of
+  different databases that describe the same one (a GHSA and a PYSEC entry,
+  say) into one group."
   [reports]
   (->> (for [report reports
-             result (:Results report)
-             v (:Vulnerabilities result)]
-         {:id (:VulnerabilityID v)
-          :cves (cve-ids v)
-          :package (:PkgName v)
-          :version (:InstalledVersion v)
-          :fixed (:FixedVersion v)
-          :severity (:Severity v)
-          :cvss (cvss v)
-          :title (:Title v)
-          :url (:PrimaryURL v)
-          :target (str (:ArtifactName report) ": " (:Target result))})
+             result (:results report)
+             {:keys [package vulnerabilities groups]} (:packages result)
+             group groups]
+         (let [records (filter (comp (set (:ids group)) :id) vulnerabilities)
+               aliases (vec (distinct (concat (:ids group) (:aliases group) (mapcat :aliases records))))
+               cves (filterv #(str/starts-with? % "CVE-") aliases)]
+           {:id (or (first cves) (first (:ids group)))
+            :aliases aliases
+            :cves cves
+            :package (:name package)
+            :version (:version package)
+            :fixed (some->> (fixed-versions package records) (str/join ", "))
+            :severity (some #(get-in % [:database_specific :severity]) records)
+            :cvss (cvss group records)
+            :title (some :summary records)
+            :url (str "https://osv.dev/vulnerability/" (first (:ids group)))
+            :target (get-in result [:source :path])}))
        (reduce (fn [acc f]
                  (let [k ((juxt :id :package :version) f)]
                    (if (contains? (:seen acc) k)
@@ -68,16 +80,6 @@
                      (-> acc (update :seen conj k) (update :out conj f)))))
                {:seen #{} :out []})
        :out))
-
-(defn warnings
-  "What the reports cannot show: an end-of-life OS has no advisories, so
-  its image scans clean."
-  [reports]
-  (vec (for [r reports
-             :let [{:keys [Family Name EOSL]} (get-in r [:Metadata :OS])]
-             :when EOSL]
-         (str (:ArtifactName r) ": " Family " " Name " is end-of-life; its packages get no "
-              "security fixes and the scan cannot see their vulnerabilities"))))
 
 ;; feeds
 
@@ -145,7 +147,7 @@
   every entry needs an id, a reason and an `expires` date."
   [text]
   (let [doc (try (yaml/parse-string text)
-                 (catch Exception e ::unparseable))
+                 (catch Exception _ ::unparseable))
         items (when (map? doc) (:ignore doc))]
     (cond
       (= ::unparseable doc)
@@ -188,7 +190,7 @@
   (let [current? #(not (.isAfter today (:expires %)))
         decided
         (for [f findings]
-          (let [ids (set (map str/upper-case (cons (:id f) (:cves f))))
+          (let [ids (set (map str/upper-case (cons (:id f) (:aliases f))))
                 kev? (boolean (some kev (:cves f)))
                 score (some->> (seq (keep epss (:cves f))) (apply max))
                 why (gate-reasons f kev? score opts)
@@ -236,7 +238,7 @@
 
 (defn summary
   "The gate's result as GitHub-flavoured markdown."
-  [{:keys [findings expired unused warnings] :as result} {:keys [epss-min cvss-min]}]
+  [{:keys [findings expired unused] :as result} {:keys [epss-min cvss-min]}]
   (let [by (group-by :verdict findings)
         fail (:fail by) suppressed (:suppressed by) report (:report by)]
     (str/join
@@ -247,8 +249,6 @@
                    (count report) " report only")
               (str "Fails on a finding in the CISA KEV catalog, or with EPSS >= " epss-min
                    " and CVSS >= " cvss-min ". Suppress one in `.vuln-ignore.yaml`.")
-              (when (seq warnings)
-                (str "### Warnings\n\n" (str/join "\n" (map #(str "- " %) warnings))))
               (when (seq fail)
                 (str "### Failing\n\n"
                      (table ["ID" "Package" "Installed" "Fixed in" "CVSS" "EPSS" "Why"]
@@ -305,9 +305,9 @@
         {:keys [allowlist kev epss] summary-file :summary report-file :report} opts]
     (try
       (when (empty? args)
-        (fail! "no Trivy JSON report given"))
+        (fail! "no OSV-Scanner JSON report given"))
       (when-let [late (seq (filter #(str/starts-with? % "--") args))]
-        (fail! (str "options go before the Trivy reports: " (str/join " " late))))
+        (fail! (str "options go before the OSV-Scanner reports: " (str/join " " late))))
       (let [today (if-let [t (:today opts)]
                     (or (->date t) (fail! (str "--today is not a YYYY-MM-DD date: " t)))
                     (LocalDate/now ZoneOffset/UTC))
@@ -316,15 +316,14 @@
                                        {:entries [] :errors []})
             _ (when (seq errors)
                 (fail! (str allowlist " is malformed:\n  " (str/join "\n  " errors))))
-            reports (mapv #(read-json % "Trivy report") args)
+            reports (mapv #(read-json % "OSV-Scanner report") args)
             found (findings reports)
             cves (sort (distinct (mapcat :cves found)))
-            result (-> (evaluate found (assoc opts
-                                              :kev (load-kev kev)
-                                              :epss (if (seq cves) (load-epss epss cves) {})
-                                              :allowlist entries
-                                              :today today))
-                       (assoc :warnings (warnings reports)))
+            result (evaluate found (assoc opts
+                                          :kev (load-kev kev)
+                                          :epss (if (seq cves) (load-epss epss cves) {})
+                                          :allowlist entries
+                                          :today today))
             md (summary result opts)]
         (println md)
         (when summary-file (spit summary-file (str md "\n") :append true))

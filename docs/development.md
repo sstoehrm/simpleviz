@@ -106,5 +106,11 @@ release. The tarball contains the precompiled
 frontend, the server, the examples, `VERSION` and a serve-only `bb.edn`;
 the jar holds the same plus the server's dependencies (listed in
 `THIRD-PARTY-NOTICES.md`; `bb jar` fails when one is missing). End users
-need only babashka. Dependabot keeps the GitHub Actions pins and npm
-devDependencies current (weekly).
+need only babashka. Renovate keeps the GitHub Actions pins, the npm
+devDependencies and the bb.edn deps current (weekly, `renovate.json`).
+
+The vulnerability gate (`.github/workflows/vulns.yml`) builds an SBOM of
+the npm packages, the vendored elkjs and the bb.edn deps, scans it with
+OSV-Scanner, and fails only on findings in CISA's KEV catalog or with EPSS >= 0.1
+and CVSS >= 7.0. [vuln-gate.md](vuln-gate.md) has the policy, how to
+suppress a finding in `.vuln-ignore.yaml`, and how other repos reuse it.

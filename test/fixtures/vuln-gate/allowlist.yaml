@@ -1,0 +1,10 @@
+ignore:
+  - id: CVE-2020-8203
+    reason: zipObjectDeep is never called with untrusted input
+    expires: 2026-12-31
+  - id: CVE-2019-14892
+    reason: was waiting on a jackson upgrade
+    expires: 2026-09-30
+  - id: CVE-2000-0001
+    reason: the dependency is gone
+    expires: 2027-01-31

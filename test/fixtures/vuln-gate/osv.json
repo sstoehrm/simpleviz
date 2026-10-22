@@ -1,0 +1,561 @@
+{
+ "results": [
+  {
+   "source": {
+    "path": "sbom/vulnerable.cdx.json",
+    "type": "sbom"
+   },
+   "packages": [
+    {
+     "package": {
+      "name": "com.fasterxml.jackson.core:jackson-databind",
+      "version": "2.9.8",
+      "ecosystem": "Maven",
+      "purl": "pkg:maven/com.fasterxml.jackson.core/jackson-databind@2.9.8"
+     },
+     "groups": [
+      {
+       "ids": [
+        "GHSA-cf6r-3wgc-h863"
+       ],
+       "aliases": [
+        "CVE-2019-14892",
+        "GHSA-cf6r-3wgc-h863"
+       ],
+       "max_severity": "7.5"
+      },
+      {
+       "ids": [
+        "GHSA-gjmw-vf9h-g25v"
+       ],
+       "aliases": [
+        "CVE-2019-17531",
+        "GHSA-gjmw-vf9h-g25v"
+       ],
+       "max_severity": "9.8"
+      },
+      {
+       "ids": [
+        "GHSA-rpr3-cw39-3pxh"
+       ],
+       "aliases": [
+        "CVE-2020-10650",
+        "GHSA-rpr3-cw39-3pxh"
+       ],
+       "max_severity": "8.1"
+      }
+     ],
+     "vulnerabilities": [
+      {
+       "id": "GHSA-cf6r-3wgc-h863",
+       "aliases": [
+        "CVE-2019-14892"
+       ],
+       "summary": "Polymorphic deserialization of malicious object in jackson-databind",
+       "severity": [
+        {
+         "score": "CVSS:3.0/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N",
+         "type": "CVSS_V3"
+        }
+       ],
+       "database_specific": {
+        "severity": "HIGH"
+       },
+       "affected": [
+        {
+         "package": {
+          "ecosystem": "Maven",
+          "name": "com.fasterxml.jackson.core:jackson-databind",
+          "purl": "pkg:maven/com.fasterxml.jackson.core/jackson-databind"
+         },
+         "ranges": [
+          {
+           "events": [
+            {
+             "introduced": "0"
+            },
+            {
+             "fixed": "2.6.7.3"
+            }
+           ],
+           "type": "ECOSYSTEM"
+          }
+         ]
+        },
+        {
+         "package": {
+          "ecosystem": "Maven",
+          "name": "com.fasterxml.jackson.core:jackson-databind",
+          "purl": "pkg:maven/com.fasterxml.jackson.core/jackson-databind"
+         },
+         "ranges": [
+          {
+           "events": [
+            {
+             "introduced": "2.7.0"
+            },
+            {
+             "fixed": "2.8.11.5"
+            }
+           ],
+           "type": "ECOSYSTEM"
+          }
+         ]
+        },
+        {
+         "package": {
+          "ecosystem": "Maven",
+          "name": "com.fasterxml.jackson.core:jackson-databind",
+          "purl": "pkg:maven/com.fasterxml.jackson.core/jackson-databind"
+         },
+         "ranges": [
+          {
+           "events": [
+            {
+             "introduced": "2.9.0"
+            },
+            {
+             "fixed": "2.9.10"
+            }
+           ],
+           "type": "ECOSYSTEM"
+          }
+         ]
+        }
+       ],
+       "references": [
+        {
+         "type": "ADVISORY",
+         "url": "https://nvd.nist.gov/vuln/detail/CVE-2019-14892"
+        },
+        {
+         "type": "WEB",
+         "url": "https://github.com/FasterXML/jackson-databind/issues/2462"
+        }
+       ]
+      },
+      {
+       "id": "GHSA-gjmw-vf9h-g25v",
+       "aliases": [
+        "CVE-2019-17531"
+       ],
+       "summary": "jackson-databind polymorphic typing issue",
+       "severity": [
+        {
+         "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+         "type": "CVSS_V3"
+        }
+       ],
+       "database_specific": {
+        "severity": "CRITICAL"
+       },
+       "affected": [
+        {
+         "package": {
+          "ecosystem": "Maven",
+          "name": "com.fasterxml.jackson.core:jackson-databind",
+          "purl": "pkg:maven/com.fasterxml.jackson.core/jackson-databind"
+         },
+         "ranges": [
+          {
+           "events": [
+            {
+             "introduced": "2.9.0"
+            },
+            {
+             "fixed": "2.9.10.1"
+            }
+           ],
+           "type": "ECOSYSTEM"
+          }
+         ]
+        },
+        {
+         "package": {
+          "ecosystem": "Maven",
+          "name": "com.fasterxml.jackson.core:jackson-databind",
+          "purl": "pkg:maven/com.fasterxml.jackson.core/jackson-databind"
+         },
+         "ranges": [
+          {
+           "events": [
+            {
+             "introduced": "2.7.0"
+            },
+            {
+             "fixed": "2.8.11.5"
+            }
+           ],
+           "type": "ECOSYSTEM"
+          }
+         ]
+        },
+        {
+         "package": {
+          "ecosystem": "Maven",
+          "name": "com.fasterxml.jackson.core:jackson-databind",
+          "purl": "pkg:maven/com.fasterxml.jackson.core/jackson-databind"
+         },
+         "ranges": [
+          {
+           "events": [
+            {
+             "introduced": "0"
+            },
+            {
+             "fixed": "2.6.7.3"
+            }
+           ],
+           "type": "ECOSYSTEM"
+          }
+         ]
+        }
+       ],
+       "references": [
+        {
+         "type": "ADVISORY",
+         "url": "https://nvd.nist.gov/vuln/detail/CVE-2019-17531"
+        },
+        {
+         "type": "WEB",
+         "url": "https://github.com/FasterXML/jackson-databind/issues/2498"
+        }
+       ]
+      },
+      {
+       "id": "GHSA-rpr3-cw39-3pxh",
+       "aliases": [
+        "CVE-2020-10650"
+       ],
+       "summary": "jackson-databind vulnerable to unsafe deserialization",
+       "severity": [
+        {
+         "score": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H",
+         "type": "CVSS_V3"
+        }
+       ],
+       "database_specific": {
+        "severity": "HIGH"
+       },
+       "affected": [
+        {
+         "package": {
+          "ecosystem": "Maven",
+          "name": "com.fasterxml.jackson.core:jackson-databind",
+          "purl": "pkg:maven/com.fasterxml.jackson.core/jackson-databind"
+         },
+         "ranges": [
+          {
+           "events": [
+            {
+             "introduced": "0"
+            },
+            {
+             "fixed": "2.9.10.4"
+            }
+           ],
+           "type": "ECOSYSTEM"
+          }
+         ]
+        }
+       ],
+       "references": [
+        {
+         "type": "ADVISORY",
+         "url": "https://nvd.nist.gov/vuln/detail/CVE-2020-10650"
+        },
+        {
+         "type": "WEB",
+         "url": "https://github.com/FasterXML/jackson-databind/issues/2658"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "package": {
+      "name": "lodash",
+      "version": "4.17.15",
+      "ecosystem": "npm",
+      "purl": "pkg:npm/lodash@4.17.15"
+     },
+     "groups": [
+      {
+       "ids": [
+        "GHSA-29mw-wpgm-hmr9"
+       ],
+       "aliases": [
+        "CVE-2020-28500",
+        "GHSA-29mw-wpgm-hmr9"
+       ],
+       "max_severity": "5.3"
+      },
+      {
+       "ids": [
+        "GHSA-p6mc-m468-83gw"
+       ],
+       "aliases": [
+        "CVE-2020-8203",
+        "GHSA-p6mc-m468-83gw"
+       ],
+       "max_severity": "7.4"
+      },
+      {
+       "ids": [
+        "GHSA-0000-0000-0000"
+       ],
+       "aliases": [
+        "GHSA-0000-0000-0000"
+       ],
+       "max_severity": ""
+      }
+     ],
+     "vulnerabilities": [
+      {
+       "id": "GHSA-29mw-wpgm-hmr9",
+       "aliases": [
+        "CVE-2020-28500"
+       ],
+       "summary": "Regular Expression Denial of Service (ReDoS) in lodash",
+       "severity": [
+        {
+         "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L",
+         "type": "CVSS_V3"
+        }
+       ],
+       "database_specific": {
+        "severity": "MODERATE"
+       },
+       "affected": [
+        {
+         "package": {
+          "ecosystem": "npm",
+          "name": "lodash",
+          "purl": "pkg:npm/lodash"
+         },
+         "ranges": [
+          {
+           "events": [
+            {
+             "introduced": "4.0.0"
+            },
+            {
+             "fixed": "4.17.21"
+            }
+           ],
+           "type": "SEMVER"
+          }
+         ]
+        }
+       ],
+       "references": [
+        {
+         "type": "ADVISORY",
+         "url": "https://nvd.nist.gov/vuln/detail/CVE-2020-28500"
+        },
+        {
+         "type": "WEB",
+         "url": "https://github.com/github/advisory-database/pull/6139"
+        }
+       ]
+      },
+      {
+       "id": "GHSA-p6mc-m468-83gw",
+       "aliases": [
+        "CVE-2020-8203"
+       ],
+       "summary": "Prototype Pollution in lodash",
+       "severity": [
+        {
+         "score": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:H/A:H",
+         "type": "CVSS_V3"
+        }
+       ],
+       "database_specific": {
+        "severity": "HIGH"
+       },
+       "affected": [
+        {
+         "package": {
+          "ecosystem": "npm",
+          "name": "lodash",
+          "purl": "pkg:npm/lodash"
+         },
+         "ranges": [
+          {
+           "events": [
+            {
+             "introduced": "3.7.0"
+            },
+            {
+             "fixed": "4.17.19"
+            }
+           ],
+           "type": "SEMVER"
+          }
+         ]
+        }
+       ],
+       "references": [
+        {
+         "type": "ADVISORY",
+         "url": "https://nvd.nist.gov/vuln/detail/CVE-2020-8203"
+        },
+        {
+         "type": "WEB",
+         "url": "https://github.com/lodash/lodash/issues/4744"
+        }
+       ]
+      },
+      {
+       "id": "GHSA-0000-0000-0000",
+       "aliases": [],
+       "summary": "An advisory no CVE was ever assigned to",
+       "database_specific": {
+        "severity": "HIGH"
+       },
+       "affected": [
+        {
+         "package": {
+          "ecosystem": "npm",
+          "name": "lodash",
+          "purl": "pkg:npm/lodash"
+         },
+         "ranges": [
+          {
+           "type": "SEMVER",
+           "events": [
+            {
+             "introduced": "0"
+            },
+            {
+             "fixed": "4.17.19"
+            }
+           ]
+          }
+         ]
+        }
+       ],
+       "references": [
+        {
+         "type": "ADVISORY",
+         "url": "https://github.com/advisories/GHSA-0000-0000-0000"
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "package": {
+      "name": "org.apache.logging.log4j:log4j-core",
+      "version": "2.14.1",
+      "ecosystem": "Maven",
+      "purl": "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1"
+     },
+     "groups": [
+      {
+       "ids": [
+        "GHSA-jfh8-c2jp-5v3q"
+       ],
+       "aliases": [
+        "CVE-2021-44228",
+        "GHSA-jfh8-c2jp-5v3q"
+       ],
+       "max_severity": "10.0"
+      }
+     ],
+     "vulnerabilities": [
+      {
+       "id": "GHSA-jfh8-c2jp-5v3q",
+       "aliases": [
+        "CVE-2021-44228"
+       ],
+       "summary": "Remote code injection in Log4j",
+       "severity": [
+        {
+         "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H/E:H",
+         "type": "CVSS_V3"
+        }
+       ],
+       "database_specific": {
+        "severity": "CRITICAL"
+       },
+       "affected": [
+        {
+         "package": {
+          "ecosystem": "Maven",
+          "name": "org.apache.logging.log4j:log4j-core",
+          "purl": "pkg:maven/org.apache.logging.log4j/log4j-core"
+         },
+         "ranges": [
+          {
+           "events": [
+            {
+             "introduced": "2.13.0"
+            },
+            {
+             "fixed": "2.15.0"
+            }
+           ],
+           "type": "ECOSYSTEM"
+          }
+         ]
+        },
+        {
+         "package": {
+          "ecosystem": "Maven",
+          "name": "org.apache.logging.log4j:log4j-core",
+          "purl": "pkg:maven/org.apache.logging.log4j/log4j-core"
+         },
+         "ranges": [
+          {
+           "events": [
+            {
+             "introduced": "2.0-beta9"
+            },
+            {
+             "fixed": "2.3.1"
+            }
+           ],
+           "type": "ECOSYSTEM"
+          }
+         ]
+        },
+        {
+         "package": {
+          "ecosystem": "Maven",
+          "name": "org.apache.logging.log4j:log4j-core",
+          "purl": "pkg:maven/org.apache.logging.log4j/log4j-core"
+         },
+         "ranges": [
+          {
+           "events": [
+            {
+             "introduced": "2.4"
+            },
+            {
+             "fixed": "2.12.2"
+            }
+           ],
+           "type": "ECOSYSTEM"
+          }
+         ]
+        }
+       ],
+       "references": [
+        {
+         "type": "ADVISORY",
+         "url": "https://nvd.nist.gov/vuln/detail/CVE-2021-44228"
+        },
+        {
+         "type": "WEB",
+         "url": "https://github.com/apache/logging-log4j2/pull/608"
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

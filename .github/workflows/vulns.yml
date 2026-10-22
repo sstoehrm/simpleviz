@@ -1,0 +1,78 @@
+# This repo's side of the vulnerability gate: the SBOM job is the only
+# per-repo part; the scan and the policy live in vuln-gate.yml.
+name: Vulnerabilities
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # new CVEs land on unchanged code too
+  schedule:
+    - cron: '23 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sbom:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install babashka
+        uses: DeLaGuardo/setup-clojure@6d46099eae24853c33c0482f2bb54edf4f1a4c74 # 13.7.0
+        with:
+          bb: '1.13.225'
+
+      - name: Cache babashka deps
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.m2/repository
+          key: bb-deps-${{ hashFiles('bb.edn') }}
+
+      # dev dependencies included: bb build copies reagami and squint-cljs
+      # into the page
+      - name: SBOM of the npm packages
+        run: |
+          mkdir -p sbom
+          npx --yes @cyclonedx/cyclonedx-npm@6.0.1 \
+            --package-lock-only --output-format JSON --output-file sbom/npm.cdx.json
+
+      # elkjs is vendored, its version recorded only in public/vendor/package.json
+      - name: SBOM of the vendored elkjs
+        run: |
+          bb -e '
+          (let [v (get (cheshire.core/parse-string (slurp "public/vendor/package.json")) "elkjs")]
+            (assert v "public/vendor/package.json names no elkjs version")
+            (spit "sbom/vendor.cdx.json"
+                  (cheshire.core/generate-string
+                   {:bomFormat "CycloneDX" :specVersion "1.6" :version 1
+                    :components [{:type "library" :name "elkjs" :version v
+                                  :purl (str "pkg:npm/elkjs@" v)}]})))'
+
+      # bb.edn's deps and their transitives, as the resolved jars
+      - name: SBOM of the babashka deps
+        uses: ./.github/actions/sbom-jars
+        with:
+          output: sbom/bb.cdx.json
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sbom
+          path: sbom/
+          if-no-files-found: error
+          overwrite: true
+
+  gate:
+    needs: sbom
+    uses: ./.github/workflows/vuln-gate.yml
+    with:
+      sbom-artifact: sbom

@@ -5,7 +5,27 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
+  # the Clojure side only: squint's cljs in src/ uses forms clj-kondo
+  # doesn't know (js-await, forward references); config in .clj-kondo/
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install clj-kondo
+        uses: DeLaGuardo/setup-clojure@6d46099eae24853c33c0482f2bb54edf4f1a4c74 # 13.7.0
+        with:
+          clj-kondo: '2026.08.04'
+
+      - name: Lint
+        run: clj-kondo --lint server tools test bb.edn --fail-level error
+
   test:
     runs-on: ubuntu-latest
     strategy:

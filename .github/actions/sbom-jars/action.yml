@@ -1,0 +1,55 @@
+# CycloneDX SBOM for stacks with no SBOM tool of their own (bb.edn,
+# deps.edn, project.clj): stages the jars of the resolved classpath —
+# transitives included — and runs Syft over them. Needs babashka on PATH
+# and the deps already resolved (cache ~/.m2/repository before this).
+name: SBOM from a resolved classpath
+description: Stage the jars of a JVM classpath and write a CycloneDX SBOM with Syft
+
+inputs:
+  classpath-command:
+    description: Shell command that prints the resolved classpath
+    default: bb -e '(print (babashka.classpath/get-classpath))'
+  output:
+    description: Path of the CycloneDX JSON SBOM to write
+    required: true
+  m2:
+    description: Maven repository the deps resolve into
+    default: ~/.m2/repository
+
+runs:
+  using: composite
+  steps:
+    # Syft's binary, checksum-pinned rather than through an action: a
+    # version bump is a manual edit of both lines (Renovate won't).
+    - name: Install Syft
+      shell: bash
+      env:
+        SYFT_VERSION: 1.54.1
+        SYFT_SHA256: c069905b391cc4c20a5ba65ad5c10be2a7ba074f8ea6ad203e24d14e303dad47
+      run: |
+        set -euo pipefail
+        tarball="syft_${SYFT_VERSION}_linux_amd64.tar.gz"
+        curl -fsSL -o "$RUNNER_TEMP/$tarball" \
+          "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/$tarball"
+        echo "$SYFT_SHA256  $RUNNER_TEMP/$tarball" | sha256sum --check --strict
+        mkdir -p "$RUNNER_TEMP/syft"
+        tar -xzf "$RUNNER_TEMP/$tarball" -C "$RUNNER_TEMP/syft" syft
+
+    - name: Stage the classpath's jars and write the SBOM
+      shell: bash
+      env:
+        CLASSPATH_COMMAND: ${{ inputs.classpath-command }}
+        OUTPUT: ${{ inputs.output }}
+        M2: ${{ inputs.m2 }}
+        STAGE_JARS: ${{ github.action_path }}/../../../tools/stage_jars.clj
+        SOURCE_NAME: ${{ github.repository }}
+      run: |
+        set -euo pipefail
+        stage="$RUNNER_TEMP/sbom-jars"
+        rm -rf "$stage"
+        cp="$(bash -c "$CLASSPATH_COMMAND")"
+        bb "$STAGE_JARS" --m2 "${M2/#\~/$HOME}" "$stage" "$cp"
+        mkdir -p "$(dirname "$OUTPUT")"
+        "$RUNNER_TEMP/syft/syft" scan "dir:$stage" \
+          --source-name "$SOURCE_NAME" \
+          -o "cyclonedx-json=$OUTPUT"

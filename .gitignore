@@ -3,11 +3,21 @@ node_modules/
 public/js/
 dist/
 
-# editor / LSP tooling: clj-kondo holds only its cache and imported library
-# configs; an .lsp/config.edn stays committable
-.clj-kondo/
+# editor / LSP tooling: of .clj-kondo only the shared config.edn is
+# committed, not its cache or imported library configs; an .lsp/config.edn
+# stays committable
+.clj-kondo/*
+!.clj-kondo/config.edn
 .lsp/.cache/
 .nrepl-port
+.idea/
+.vscode/
+*.iml
+
+# local secrets: commit a .env.example instead
+.env
+.env.*
+!.env.example
 
 # Claude Code session scratch
 .claude/worktrees/

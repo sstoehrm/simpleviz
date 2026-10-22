@@ -37,11 +37,14 @@
 
 (defn- fixed-versions
   "The versions that fix `package` according to `records`; a record often
-  lists other packages too."
+  lists other packages too, and a distro's lists its package once per
+  release, under the source package's name (`os_package_name`)."
   [package records]
   (->> (for [r records
              a (:affected r)
-             :when (= (:name package) (get-in a [:package :name]))
+             :when (and (contains? (set (keep identity [(:name package) (:os_package_name package)]))
+                                  (get-in a [:package :name]))
+                        (= (:ecosystem package) (get-in a [:package :ecosystem])))
              range (:ranges a)
              event (:events range)
              :when (:fixed event)]

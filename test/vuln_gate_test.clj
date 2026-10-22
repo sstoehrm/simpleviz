@@ -65,6 +65,26 @@
     (is (= [{:id "CVE-2024-1" :aliases ["PYSEC-1" "GHSA-aaaa" "CVE-2024-1"] :fixed "1.1, 2.0" :cvss 8.8}]
            (map #(select-keys % [:id :aliases :fixed :cvss]) (vuln-gate/findings [report]))))))
 
+(deftest fixed-in-comes-from-the-packages-own-ecosystem-and-source-package
+  ;; distro records list a package once per release, under its source name
+  (let [record {:id "ALPINE-CVE-2024-1"
+                :affected [{:package {:ecosystem "Alpine:v3.11" :name "openssl"}
+                            :ranges [{:events [{:fixed "1.1.1-r1"}]}]}
+                           {:package {:ecosystem "Alpine:v3.12" :name "openssl"}
+                            :ranges [{:events [{:fixed "1.1.1-r9"}]}]}]}
+        report {:results [{:source {:path "/lib/apk/db/installed"}
+                           :packages [{:package {:name "libssl1.1" :os_package_name "openssl"
+                                                 :version "1.1.1-r0" :ecosystem "Alpine:v3.12"}
+                                       :vulnerabilities [record]
+                                       :groups [{:ids ["ALPINE-CVE-2024-1"]
+                                                 :aliases ["ALPINE-CVE-2024-1" "CVE-2024-1"]
+                                                 :max_severity "7.5"}]}]}]}]
+    (is (= "1.1.1-r9" (:fixed (first (vuln-gate/findings [report])))))
+    (testing "a binary package named like its source package"
+      (is (= "1.1.1-r9" (:fixed (first (vuln-gate/findings
+                                        [(update-in report [:results 0 :packages 0 :package]
+                                                    assoc :name "openssl")]))))))))
+
 (deftest cvss-is-osv-scanners-highest-score-of-the-group
   (is (= 9.8 (vuln-gate/cvss {:max_severity "9.8"} [])))
   (testing "without a score, HIGH and CRITICAL count as 7.0, the floor of their CVSS band"

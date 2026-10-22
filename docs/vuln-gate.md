@@ -43,8 +43,10 @@ Details that decide edge cases:
   a PYSEC entry, say); a group is one finding, shown under its CVE when it
   has one.
 - **CVSS** is the group's highest score as OSV-Scanner computes it from
-  the records' CVSS vectors. A finding with none counts as 7.0 when a
-  record rates it HIGH or CRITICAL, so a missing score cannot hide it.
+  the records' CVSS vectors, v2 included: an old CVE scored 7.5 in v2 and
+  6.5 in v3 counts as 7.5. A finding with none counts as 7.0 when a record
+  rates it HIGH or CRITICAL (GHSA does, distro records don't), so a
+  missing score cannot hide it.
 - **KEV and EPSS know CVEs only.** A finding is looked up by its CVE
   aliases; one with no CVE at all (a bare GHSA ID) can never fail the
   build, only be reported.

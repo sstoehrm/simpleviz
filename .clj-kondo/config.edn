@@ -1,0 +1,6 @@
+;; Shared lint config; the rest of .clj-kondo/ (cache, imported configs)
+;; stays local. CI lints server, tools, test and bb.edn with it.
+{:lint-as {export-test/e2e clojure.test/deftest}
+ :linters {:unresolved-symbol
+           {:exclude [(export-test/e2e [tmp])
+                      (browser-test/with-real-browser [path])]}}}

@@ -130,3 +130,18 @@ on the [issue tracker](https://github.com/sstoehrm/simpleviz/issues).
   exporting, checking files and write locks.
 - [Development](docs/development.md) — building, testing and releasing
   simpleviz itself.
+
+## Development
+
+`bb build` compiles the page, `bb test` runs every test;
+[docs/development.md](docs/development.md) has the rest, releasing included.
+
+## License
+
+MIT ([LICENSE](LICENSE)): the code and everything else in this repo —
+the docs, the images and videos in `docs/assets`, the examples and the
+test fixtures. Not covered: the third-party components in
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md), and
+`test/fixtures/vuln-gate/osv.json`, excerpts of
+[GitHub Advisory Database](https://github.com/github/advisory-database)
+records (CC-BY-4.0).

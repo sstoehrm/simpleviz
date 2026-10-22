@@ -20,7 +20,7 @@ runs:
   using: composite
   steps:
     # Syft's binary, checksum-pinned rather than through an action: a
-    # version bump is a manual edit of both lines (Dependabot won't).
+    # version bump is a manual edit of both lines (Renovate won't).
     - name: Install Syft
       shell: bash
       env:

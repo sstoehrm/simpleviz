@@ -1,0 +1,137 @@
+# The vulnerability gate, shared across repos: scans the SBOMs a caller's
+# job uploaded (and, optionally, a container image it saved) with Trivy and
+# fails only on what tools/vuln_gate.clj calls failing — CISA KEV, or EPSS
+# >= 0.1 and CVSS >= 7.0 — minus current .vuln-ignore.yaml entries.
+# docs/vuln-gate.md has the policy and the caller's side.
+name: Vulnerability gate
+
+on:
+  workflow_call:
+    inputs:
+      sbom-artifact:
+        description: Artifact holding the CycloneDX JSON SBOMs (*.cdx.json) to scan
+        type: string
+        default: sbom
+      image-artifact:
+        description: Artifact holding container images saved with `docker save` (*.tar); empty skips the image scan
+        type: string
+        default: ''
+      allowlist:
+        description: Allowlist file in the caller's repo
+        type: string
+        default: .vuln-ignore.yaml
+      epss-min:
+        type: number
+        default: 0.1
+      cvss-min:
+        type: number
+        default: 7.0
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    env:
+      # Trivy's binary, checksum-pinned. Not trivy-action / setup-trivy:
+      # their tags were rewritten in the March 2026 compromise
+      # (CVE-2026-33634). A bump edits both lines by hand (Dependabot won't).
+      TRIVY_VERSION: 0.75.0
+      TRIVY_SHA256: c6e65abddb348e25f10549df887045629cf28cc72453cd1c63acb717316b3f3f
+    steps:
+      # the caller's repo, for its allowlist
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # this workflow's own repo at this workflow's commit, for the gate script
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .vuln-gate
+          sparse-checkout: tools/vuln_gate.clj
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Install babashka
+        uses: DeLaGuardo/setup-clojure@6d46099eae24853c33c0482f2bb54edf4f1a4c74 # 13.7.0
+        with:
+          bb: '1.13.225'
+
+      - name: Install Trivy
+        id: trivy
+        run: |
+          set -euo pipefail
+          tarball="trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          curl -fsSL -o "$RUNNER_TEMP/$tarball" \
+            "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/$tarball"
+          echo "$TRIVY_SHA256  $RUNNER_TEMP/$tarball" | sha256sum --check --strict
+          mkdir -p "$RUNNER_TEMP/trivy"
+          tar -xzf "$RUNNER_TEMP/$tarball" -C "$RUNNER_TEMP/trivy" trivy
+          echo "$RUNNER_TEMP/trivy" >> "$GITHUB_PATH"
+          echo "day=$(date -u +%F)" >> "$GITHUB_OUTPUT"
+
+      # Trivy's vulnerability DB, saved once a day; Trivy still refreshes a
+      # restored copy that has gone stale
+      - name: Cache the Trivy DB
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/trivy
+          key: trivy-db-${{ steps.trivy.outputs.day }}
+          restore-keys: trivy-db-
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ inputs.sbom-artifact }}
+          path: ${{ runner.temp }}/sbom
+
+      - if: inputs.image-artifact != ''
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ inputs.image-artifact }}
+          path: ${{ runner.temp }}/image
+
+      - name: Scan the SBOMs and images
+        run: |
+          set -euo pipefail
+          shopt -s globstar nullglob
+          mkdir -p vuln-gate-report
+          sboms=("$RUNNER_TEMP"/sbom/**/*.cdx.json)
+          if [ ${#sboms[@]} -eq 0 ]; then
+            echo "::error::no *.cdx.json SBOM in the artifact"
+            exit 1
+          fi
+          for sbom in "${sboms[@]}"; do
+            name=$(basename "$sbom" .cdx.json)
+            trivy sbom --quiet --scanners vuln --format json --exit-code 0 \
+              --output "vuln-gate-report/sbom-$name.trivy.json" "$sbom"
+          done
+          for image in "$RUNNER_TEMP"/image/**/*.tar; do
+            name=$(basename "$image" .tar)
+            trivy image --quiet --scanners vuln --format json --exit-code 0 \
+              --input "$image" --output "vuln-gate-report/image-$name.trivy.json"
+          done
+
+      # KEV and EPSS are fetched here, at job time; the gate fails closed
+      # (exit 2) when either cannot be read
+      - name: Gate
+        working-directory: .vuln-gate
+        env:
+          ALLOWLIST: ${{ github.workspace }}/${{ inputs.allowlist }}
+          EPSS_MIN: ${{ inputs.epss-min }}
+          CVSS_MIN: ${{ inputs.cvss-min }}
+          REPORT_DIR: ${{ github.workspace }}/vuln-gate-report
+        run: |
+          bb tools/vuln_gate.clj \
+            --allowlist "$ALLOWLIST" --epss-min "$EPSS_MIN" --cvss-min "$CVSS_MIN" \
+            --summary "$GITHUB_STEP_SUMMARY" --report "$REPORT_DIR/gate.json" \
+            "$REPORT_DIR"/*.trivy.json
+
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: vuln-gate-report
+          path: vuln-gate-report/
+          if-no-files-found: ignore

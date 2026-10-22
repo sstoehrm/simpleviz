@@ -152,3 +152,4 @@ jobs:
           name: vuln-gate-report
           path: vuln-gate-report/
           if-no-files-found: ignore
+          overwrite: true

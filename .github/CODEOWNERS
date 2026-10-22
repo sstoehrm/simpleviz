@@ -1,0 +1,7 @@
+# CI, release and supply-chain paths: changes here need the owner's eye.
+/.github/           @sstoehrm
+/install.sh         @sstoehrm
+/tools/             @sstoehrm
+/renovate.json      @sstoehrm
+/.vuln-ignore.yaml  @sstoehrm
+/SECURITY.md        @sstoehrm

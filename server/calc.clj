@@ -256,6 +256,7 @@
   when it has them."
   [text cols rows]
   (let [m (try (edn/read-string (str text))
+               (catch StackOverflowError _ (fail "the chart spec doesn't read: it nests too deeply"))
                (catch Exception e (fail "the chart spec doesn't read: " (message e))))
         col (fn [k]
               (let [i (col-index k)]
@@ -398,6 +399,8 @@
               (nil? source) t
               :else (try (cond-> (assoc t :defs defs :data (data source fields))
                            (:solo t) (assoc :fields fields))
+                         ;; a data file nested past the stack is an Error
+                         (catch StackOverflowError _ (assoc t :defs defs :data-error "the data file nests too deeply to read"))
                          (catch Exception e (assoc t :defs defs :data-error (message e)))))))
         tables)))
 

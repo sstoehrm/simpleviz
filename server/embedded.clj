@@ -45,7 +45,11 @@
 
         (nil? out) (print text)
 
-        (.exists (io/file out))
-        (do (println (str out " already exists")) (System/exit 1))
-
-        :else (do (spit out text) (println (str "wrote " out)))))))
+        :else
+        ;; CREATE_NEW: never over a file, nor through a link to one
+        (try (java.nio.file.Files/write (.toPath (io/file out)) (.getBytes ^String text "UTF-8")
+                                        (into-array java.nio.file.OpenOption
+                                                    [java.nio.file.StandardOpenOption/CREATE_NEW]))
+             (println (str "wrote " out))
+             (catch java.nio.file.FileAlreadyExistsException _
+               (println (str out " already exists")) (System/exit 1)))))))

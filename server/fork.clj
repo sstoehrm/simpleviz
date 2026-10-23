@@ -72,16 +72,21 @@
 (defn fork!
   "Copy `file` and every file in its ref closure to their `suffix`
   forks. Returns the created paths. Throws ex-info naming the first
-  existing target before anything is written."
+  existing target — or one that leaves the folder or is a symlink —
+  before anything is written."
   [file suffix warn!]
   (let [[root start] (root-and-start file)
         rels (closure start (read-base root) warn!)
-        pairs (mapv (fn [rel] [(io/file root rel) (io/file root (serve/fork-name rel suffix))]) rels)]
+        ;; resolve-path refuses a target a link takes out of the folder,
+        ;; a dangling one included: a cloned repo may carry either
+        pairs (mapv (fn [rel] [(io/file root rel) (serve/resolve-path root (serve/fork-name rel suffix) false)])
+                    rels)]
     (doseq [[_ to] pairs]
       (when (.exists to)
         (throw (ex-info (str (.getPath to) " already exists") {}))))
     (doseq [[from to] pairs]
-      (io/copy from to))
+      ;; a file or link that appeared since the check fails
+      (serve/write-new! to (java.nio.file.Files/readAllBytes (.toPath from))))
     (mapv (fn [[_ to]] (.getPath to)) pairs)))
 
 (defn promote!

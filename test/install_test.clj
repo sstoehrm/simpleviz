@@ -122,6 +122,7 @@
       (fs/create-dirs (fs/path home "templates"))
       (spit (tpl "default.edn") ";; edited\n")
       (spit (tpl "mine.edn") ";; mine\n")
+      (spit (str (fs/path home "VERSION")) "v0.0.0\n")
       (spit (str (fs/path home "stale.txt")) "old")
       (let [res (install-files tmp (tarball! tmp {"server/cli.clj" "(ns cli)\n"
                                                   "templates/default.edn" ";; shipped\n"
@@ -188,10 +189,39 @@
         real (fs/path tmp "real")]
     (try
       (fs/create-dirs real)
+      (spit (str (fs/path real "VERSION")) "v0.0.0\n")
       (spit (str (fs/path real "stale.txt")) "old")
       (fs/create-sym-link (fs/path tmp "home") real)
       (let [res (install-files tmp (tarball! tmp {"server/cli.clj" "(ns cli)\n"}))]
         (is (= 0 (:exit res)) (:err res)))
       (is (not (fs/exists? (fs/path real "stale.txt"))))
       (is (fs/exists? (fs/path real "server" "cli.clj")))
+      (finally (fs/delete-tree tmp)))))
+
+(deftest install-refuses-a-home-that-is-no-simpleviz-install
+  ;; SIMPLEVIZ_HOME=$HOME, or a typo, must not empty that folder
+  (let [tmp (fs/create-temp-dir {:prefix "simpleviz-install"})
+        home (fs/path tmp "home")]
+    (try
+      (fs/create-dirs home)
+      (spit (str (fs/path home "thesis.tex")) "years of work")
+      (let [res (install-files tmp (tarball! tmp {"server/cli.clj" "(ns cli)\n"}))]
+        (is (= 1 (:exit res)))
+        (is (= (str "install: " home " holds files that aren't simpleviz's — set SIMPLEVIZ_HOME to an empty or new folder")
+               (str/trim (:err res)))))
+      (is (= "years of work" (slurp (str (fs/path home "thesis.tex")))))
+      (finally (fs/delete-tree tmp)))))
+
+(deftest install-takes-a-home-with-only-what-simpleviz-keeps-there
+  ;; a bbin install or a run leaves templates, prefs and logs, no VERSION
+  (let [tmp (fs/create-temp-dir {:prefix "simpleviz-install"})
+        home (fs/path tmp "home")]
+    (try
+      (fs/create-dirs (fs/path home "templates"))
+      (fs/create-dirs (fs/path home "logs"))
+      (spit (str (fs/path home "prefs.edn")) "{:theme \"nord\"}")
+      (let [res (install-files tmp (tarball! tmp {"server/cli.clj" "(ns cli)\n"}))]
+        (is (= 0 (:exit res)) (:err res)))
+      (is (= "{:theme \"nord\"}" (slurp (str (fs/path home "prefs.edn")))))
+      (is (= "rwx------" (fs/posix->str (fs/posix-file-permissions home))) "yours alone")
       (finally (fs/delete-tree tmp)))))

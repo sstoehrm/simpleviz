@@ -2117,3 +2117,42 @@
       (is (= "added" (get-in out [:nodes :a :diff])) "either way round"))
     (is (= "no step 7" (:error (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "steps=0,7"})) true))))
     (is (some? (:error (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "steps=x"})) true))))))
+
+(deftest a-file-nested-too-deep-to-read-breaks-no-other-graph
+  ;; every graph view reads every .edn of the folder for its pairs
+  (let [dir (.getCanonicalFile (.toFile (babashka.fs/create-temp-dir {:prefix "deep"})))
+        deep (str (apply str (repeat 200000 "[")) (apply str (repeat 200000 "]")))]
+    (spit (java.io.File. dir "g.edn") "{:nodes {:a {}}}")
+    (.mkdirs (java.io.File. dir "sub"))
+    (spit (java.io.File. dir "sub/deep.edn") deep)
+    (serve! (str (java.io.File. dir "g.edn")))
+    (let [resp (serve/handler {:uri "/api/graph"})]
+      (is (= 200 (:status resp)))
+      (is (nil? (get (json/parse-string (:body resp)) "error"))))
+    (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "file=sub/deep.edn"})))]
+      (is (re-find #"nests too deeply" (str (get out "error")))))))
+
+(deftest a-malformed-query-is-no-crash
+  ;; any web page can send one: <img src="http://127.0.0.1:P/api/graphs?path=%zz">
+  (let [dir (babashka.fs/create-temp-dir {:prefix "serve-test-logs"})]
+    (try
+      (serve! "examples/demo.edn")
+      (with-redefs [log/default-dir (constantly (str dir))]
+        (doseq [q ["path=%zz" "file=%e"]]
+          (is (not= 500 (:status ((serve/guard serve/handler) {:uri "/api/graphs" :query-string q}))) q)
+          (is (not= 500 (:status ((serve/guard serve/handler) {:uri "/api/graph" :query-string q}))) q)))
+      (is (empty? (babashka.fs/list-dir dir)) "no crash report")
+      (finally (babashka.fs/delete-tree dir)))))
+
+(deftest the-debug-log-keeps-no-doc-text
+  ;; a 409 answers with the file's text as it is on disk
+  (let [dir (babashka.fs/create-temp-dir {:prefix "serve-test-logs"})
+        logged (atom [])]
+    (try
+      (with-redefs [log/event! (fn [kind data] (swap! logged conj [kind data]))]
+        ((serve/guard (fn [_] (#'serve/json-status-response 409 {:text "secret doc" :error "changed on disk"})))
+         {:uri "/api/text"}))
+      (is (= 1 (count @logged)))
+      (is (not (re-find #"secret doc" (pr-str @logged))))
+      (is (re-find #"changed on disk" (pr-str @logged)))
+      (finally (babashka.fs/delete-tree dir)))))

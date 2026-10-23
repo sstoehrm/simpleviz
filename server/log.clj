@@ -4,7 +4,8 @@
   `crash!` always writes a standalone crash report. Neither writer throws:
   a log that cannot be written falls back to a note on stderr, so the
   failure being reported is never made worse by the reporting."
-  (:require [cheshire.core :as json]
+  (:require [babashka.fs :as fs]
+            [cheshire.core :as json]
             [clojure.java.io :as io])
   (:import [java.time LocalDateTime]
            [java.time.format DateTimeFormatter]))
@@ -24,8 +25,17 @@
   []
   (str (io/file (home) "logs")))
 
+(def max-crash-reports
+  "Crash reports written per minute at most: a web page can make a
+  request fail in a loop, and the disk must not fill."
+  10)
+
+;; when the crash reports of the last minute were written, in ms
+(def ^:private crash-times (atom []))
+
 (defn clear! []
-  (clojure.core/reset! state {:dir nil :file nil :header nil}))
+  (clojure.core/reset! state {:dir nil :file nil :header nil})
+  (clojure.core/reset! crash-times []))
 
 (defn enabled?
   "True while a run log is open (--debug)."
@@ -40,12 +50,24 @@
 (defn- warn! [& parts]
   (binding [*out* *err*] (println (apply str "simpleviz: " parts))))
 
+(defn- private!
+  "Make `p` readable by you alone, where the file system has POSIX
+  permissions."
+  [p perms]
+  (try (fs/set-posix-file-permissions p perms)
+       (catch UnsupportedOperationException _ nil)))
+
 (defn- write!
   "Write text to file f (creating its directory), returning f's path; on
-  failure, say so on stderr and return nil."
+  failure, say so on stderr and return nil. Logs hold paths, edit ops and
+  doc text: the directory and the file are yours alone."
   [f text & opts]
   (try
     (io/make-parents f)
+    (private! (.getParentFile (io/file f)) "rwx------")
+    (when-not (.exists (io/file f))
+      (fs/create-file f)
+      (private! f "rw-------"))
     (apply spit f text opts)
     (str f)
     (catch Exception e
@@ -77,6 +99,17 @@
     (.printStackTrace e (java.io.PrintWriter. sw))
     (str sw)))
 
+(defn- crash-allowed?
+  "May a crash report be written now — fewer than max-crash-reports in
+  the last minute? Counts it when so."
+  []
+  (locking crash-times
+    (let [now (System/currentTimeMillis)
+          recent (filterv #(< (- now %) 60000) @crash-times)
+          ok (< (count recent) max-crash-reports)]
+      (clojure.core/reset! crash-times (if ok (conj recent now) recent))
+      ok)))
+
 (defn crash!
   "Write `crash-<timestamp>.log` in the log directory (the default one
   when init! has not run) — the run header, `context` (a map describing
@@ -85,6 +118,7 @@
   one-line note, and stderr always gets the message and the report path.
   Returns the report's path, or nil when it could not be written."
   [context ^Throwable e]
+  (when (crash-allowed?)
   (let [{:keys [dir header]} @state
         f (io/file (or dir (default-dir)) (str "crash-" (stamp) ".log"))
         msg (or (ex-message e) (.getName (class e)))
@@ -97,7 +131,7 @@
                      :append true)]
     (warn! "crash: " msg (if path (str " — report written to " path) ""))
     (event! "crash" (assoc context :error msg :report path))
-    path))
+    path)))
 
 (defn install-crash-handler!
   "Report exceptions that escape a thread without a handler of its own as

@@ -65,3 +65,21 @@
   (spit (str (fs/path *dir* "not-a-dir-but-a-file")) "occupied")
   (is (nil? (log/crash! {:n 1} (try (throw (ex-info "boom" {})) (catch Exception e e)))))
   (is (nil? (log/event! "edit" {:x 1}))))
+
+(defn- perms [p] (fs/posix->str (fs/posix-file-permissions p)))
+
+(deftest logs-are-for-your-eyes-only
+  ;; they hold paths, edit ops and doc text
+  (let [run (log/init! {:dir (str *dir* "/logs") :debug true :header "hdr"})
+        crash (log/crash! {:n 1} (ex-info "boom" {}))]
+    (is (= "rwx------" (perms (str *dir* "/logs"))))
+    (is (= "rw-------" (perms run)))
+    (is (= "rw-------" (perms crash)))))
+
+(deftest a-flood-of-crashes-writes-only-a-few-reports
+  ;; a web page can make requests in a loop; the disk must not fill
+  (log/init! {:dir *dir* :debug false :header "hdr"})
+  (dotimes [i 50] (log/crash! {:n i} (ex-info "boom" {})))
+  ;; reports in the same millisecond share a file
+  (is (= log/max-crash-reports
+         (reduce + (map #(count (re-seq #" crash\n" (slurp (str %)))) (fs/glob *dir* "crash-*.log"))))))

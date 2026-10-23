@@ -71,14 +71,19 @@
   []
   (assoc! view :initialized false))
 
+(defn fit-scale
+  "The zoom that fits a w×h scene into a box-w×box-h area: to 90% of it,
+  at most 1.25×."
+  [w h box-w box-h]
+  (js/Math.min 1.25 (* 0.9 (js/Math.min (/ box-w (js/Math.max w 1)) (/ box-h (js/Math.max h 1))))))
+
 (defn- fitted
   "The view {:k :x :y} that fits scene into the canvas, centered."
   [scene]
   (let [rect (.getBoundingClientRect (js/document.getElementById "canvas-wrap"))
         w (js/Math.max (:width scene) 1)
         h (js/Math.max (:height scene) 1)
-        k (js/Math.min 1.25 (* 0.9 (js/Math.min (/ (.-width rect) w)
-                                                (/ (.-height rect) h))))]
+        k (fit-scale w h (.-width rect) (.-height rect))]
     {:k k
      :x (/ (- (.-width rect) (* w k)) 2)
      :y (/ (- (.-height rect) (* h k)) 2)}))

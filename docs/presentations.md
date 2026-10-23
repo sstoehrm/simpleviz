@@ -34,6 +34,8 @@ To start one:
 - The URL keeps the slide, and the text follows the file on disk while
   you present.
 - A slide can ask a question: see [Quizzes](quizzes.md).
+- `simpleviz export talk.md talk.pdf` writes the deck as a PDF, a 16:9
+  page per slide, with what each `>>` shows beside it.
 
 ## More
 

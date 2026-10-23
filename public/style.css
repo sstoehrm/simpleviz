@@ -225,21 +225,22 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
    with the window */
 #root.presenting #md-panel.page { top: 0; left: 0; width: 100vw; border: none; }
 #root.presenting.halves #md-panel.page { width: 50vw; border-right: 1px solid var(--panel-divider); }
-#present-slide { flex: 1 1 auto; min-height: 0; overflow: auto; display: flex; flex-direction: column;
+/* the slide's look, shared with the PDF's pages (.print-page, below) */
+:is(#present-slide, .print-slide) { flex: 1 1 auto; min-height: 0; overflow: auto; display: flex; flex-direction: column;
                  justify-content: safe center; align-items: center; padding: 8vh 7vw;
                  background: var(--panel); color: var(--text);
                  font: clamp(16px, calc(1.1vw + 9px), 40px)/1.5 system-ui, sans-serif; }
 #root.halves #present-slide { padding: 8vh 4vw; }
-#present-slide > .md-doc { width: 100%; max-width: 46em; }
-#present-slide :is(h1, h2) { border-bottom: none; }
+:is(#present-slide, .print-slide) > .md-doc { width: 100%; max-width: 46em; }
+:is(#present-slide, .print-slide) :is(h1, h2) { border-bottom: none; }
 /* code blocks scale with the slide's type, not a fixed 13px */
-:is(#present-slide, #present-side) pre code { font-size: .8em; }
-#present-slide .md-img { max-height: 55vh; }
-#present-slide.title { text-align: center; }
-#present-slide.title h1 { font-size: 2.6em; margin: 0 0 .3em; }
-#present-slide.title h2 { font-size: 1.5em; font-weight: 400; color: var(--text-muted); margin: 0 0 1.4em; }
+:is(#present-slide, #present-side, .print-slide, .print-side) pre code { font-size: .8em; }
+:is(#present-slide, .print-slide) .md-img { max-height: 55vh; }
+:is(#present-slide, .print-slide).title { text-align: center; }
+:is(#present-slide, .print-slide).title h1 { font-size: 2.6em; margin: 0 0 .3em; }
+:is(#present-slide, .print-slide).title h2 { font-size: 1.5em; font-weight: 400; color: var(--text-muted); margin: 0 0 1.4em; }
 /* a question's choices under its text (?? and ???) */
-#present-slide .ask { width: 100%; max-width: 46em; margin-top: .8em; }
+:is(#present-slide, .print-slide) .ask { width: 100%; max-width: 46em; margin-top: .8em; }
 .ask-choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(10em, 1fr)); gap: .6em; }
 .ask-choice { font: inherit; color: var(--text); background: var(--bg); text-align: left;
               border: 2px solid var(--panel-border); border-radius: 10px; padding: .7em 1em;
@@ -256,17 +257,28 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
 .ask-submit:disabled { opacity: .4; cursor: default; }
 .ask-hint { font-size: .8em; color: var(--text-muted); }
 #present-slide .ask-note { margin-top: .8em; font-size: .9em; }
-#present-slide .ask-error { width: 100%; max-width: 46em; font-size: .8em; color: var(--diff-removed); }
-#present-counter { position: absolute; left: 16px; bottom: 10px; font: 12px system-ui, sans-serif;
+:is(#present-slide, .print-slide) .ask-error { width: 100%; max-width: 46em; font-size: .8em; color: var(--diff-removed); }
+:is(#present-counter, .print-counter) { position: absolute; left: 16px; bottom: 10px; font: 12px system-ui, sans-serif;
                    color: var(--text-dim); }
-#present-side { position: fixed; top: 0; right: 0; bottom: 0; left: 50vw; z-index: 4;
-                display: flex; align-items: center; justify-content: center; overflow: auto;
-                background: var(--bg); }
-#present-side img { max-width: 92%; max-height: 92%; object-fit: contain; }
-#present-side.md { align-items: safe center; padding: 8vh 4vw; background: var(--panel);
+#present-side { position: fixed; top: 0; right: 0; bottom: 0; left: 50vw; z-index: 4; overflow: auto; }
+:is(#present-side, .print-side) { display: flex; align-items: center; justify-content: center;
+                                  background: var(--bg); }
+:is(#present-side, .print-side) img { max-width: 92%; max-height: 92%; object-fit: contain; }
+:is(#present-side, .print-side).md { align-items: safe center; padding: 8vh 4vw; background: var(--panel);
                    font: clamp(14px, calc(.9vw + 8px), 32px)/1.6 system-ui, sans-serif; color: var(--text); }
-#present-side.md > .md-doc { width: 100%; max-width: 46em; }
-#present-side .present-side-error { color: var(--text-muted); font-size: 14px; padding: 24px; }
+:is(#present-side, .print-side).md > .md-doc { width: 100%; max-width: 46em; }
+:is(#present-side, .print-side) .present-side-error { color: var(--text-muted); font-size: 14px; padding: 24px; }
+/* the deck laid out for its PDF (simpleviz export talk.md talk.pdf): a
+   page per slide, 1280×720 as server/browser.clj sets the window and
+   prints it; the page scrolls instead of the canvas filling it */
+body:has(#print) { overflow: visible; }
+body:has(#print) :is(#canvas-wrap, #app) { position: static; }
+.print-page { position: relative; width: 1280px; height: 720px; overflow: hidden; display: flex;
+              background: var(--panel); }
+.print-page + .print-page { break-before: page; }
+#print .halves .print-slide { flex: 0 0 50%; padding: 8vh 4vw; border-right: 1px solid var(--panel-divider); }
+#print .print-side { flex: 0 0 50%; overflow: hidden; }
+.print-slide .ask-submit-row { display: none; }
 /* the one control left: quiet until pointed at */
 #present-leave { pointer-events: auto; border: 1px solid var(--panel-border); background: var(--panel);
                  color: var(--text); border-radius: 6px; padding: 4px 10px; font-size: 12px;

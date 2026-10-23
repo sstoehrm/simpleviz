@@ -53,6 +53,8 @@
     "       simpleviz export <graph.edn> [<suffix>] <out.png|out.svg> [--theme <name>] [--force]"
     "                                         write the ⇩ export of the whole graph, made in a"
     "                                         headless Chrome/Chromium (SIMPLEVIZ_BROWSER overrides)"
+    "       simpleviz export <talk.md> <out.pdf> [--theme <name>] [--force]"
+    "                                         write its slides as a PDF, a 16:9 page each"
     "       simpleviz check <graph.edn|doc.md> print the parse error or validation warnings"
     "                                         the page would show, or an md file's broken"
     "                                         links and malformed questions; exit 1 if there"
@@ -258,20 +260,27 @@
             (contains? flags "--no-open"))))
 
 (def export-usage
-  "usage: simpleviz export <graph.edn|.png|.svg> [<suffix>] <out.png|out.svg> [--theme <name>] [--force]")
+  (str "usage: simpleviz export <graph.edn|.png|.svg> [<suffix>] <out.png|out.svg> [--theme <name>] [--force]\n"
+       "       simpleviz export <talk.md> <out.pdf> [--theme <name>] [--force]"))
 
 (defn parse-export-args
   "export's arguments -> {:in :suffix :out :format :theme :force}, or
-  {:error msg} for a usage problem."
+  {:error msg} for a usage problem. A graph exports as png or svg, an md
+  file as the pdf of its slides."
   [args]
   (loop [[a & more] args, pos [], theme nil, force false]
     (cond
       (nil? a)
       (let [[in suffix out] (if (= 3 (count pos)) pos [(first pos) nil (second pos)])
-            ext (some->> out (re-find #"(?i)\.(png|svg)$") second str/lower-case)
+            ext (some->> out (re-find #"(?i)\.(png|svg|pdf)$") second str/lower-case)
             names (map name themes/NAMES)]
         (cond (not (#{2 3} (count pos))) {:error export-usage}
-              (nil? ext) {:error (str "the output must end in .png or .svg: " out)}
+              (nil? ext) {:error (str "the output must end in .png, .svg or .pdf: " out)}
+              (and (paths/md-path? in) (nil? suffix) (not= ext "pdf"))
+              {:error (str "an md file exports as the PDF of its slides: simpleviz export " in " "
+                           (str/replace in #"(?i)\.md$" ".pdf"))}
+              (and (not (paths/md-path? in)) (= ext "pdf"))
+              {:error "a graph exports as .png or .svg — .pdf is for the slides of an md file"}
               (and (some? suffix) (not (re-matches serve/suffix-re suffix)))
               {:error (str "invalid suffix: " suffix)}
               (and (some? theme) (not (some #{theme} names)))
@@ -287,7 +296,6 @@
 (defn- export-cmd [args]
   (let [{:keys [error in suffix out format theme force]} (parse-export-args args)]
     (when error (die error))
-    (when (paths/md-path? in) (die "export needs a graph file (.edn, .png or .svg)"))
     (check-input! in suffix)
     (when (and (.exists (io/file out)) (not force))
       (die out " already exists (--force overwrites)"))
@@ -303,11 +311,14 @@
                     ;; anything else (a refused connection, a failed
                     ;; handshake) is still one line, not a stack trace
                     (catch Exception e (die (or (ex-message e) (.getName (class e))))))]
-      (try (if (= format "png")
-             (io/copy (.decode (java.util.Base64/getDecoder) ^String data) (io/file out))
-             (spit out data :encoding "UTF-8"))
+      (try (if (= format "svg")
+             (spit out (:data data) :encoding "UTF-8")
+             (io/copy (.decode (java.util.Base64/getDecoder) ^String (:data data)) (io/file out)))
            (catch java.io.IOException e (die "cannot write " out ": " (ex-message e))))
-      (println (str "wrote " out))
+      (binding [*out* *err*]
+        (doseq [[n why] (:problems data)] (println (str "simpleviz: slide " n ": " why))))
+      (println (str "wrote " out (when (= format "pdf")
+                                  (let [n (:slides data)] (str " (" n (if (= 1 n) " slide)" " slides)"))))))
       ;; http-kit's threads would keep the process alive
       (System/exit 0))))
 

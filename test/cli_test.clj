@@ -265,10 +265,18 @@
          (cli/parse-export-args ["g.edn" "next" "d.SVG" "--theme" "nord" "--force"])))
   (is (re-find #"usage" (:error (cli/parse-export-args ["g.edn"]))))
   (is (re-find #"usage" (:error (cli/parse-export-args ["g.edn" "g.png" "--theme"]))))
-  (is (re-find #"\.png or \.svg" (:error (cli/parse-export-args ["g.edn" "g.jpg"]))))
+  (is (re-find #"\.png, \.svg or \.pdf" (:error (cli/parse-export-args ["g.edn" "g.jpg"]))))
   (is (re-find #"unknown theme: neon" (:error (cli/parse-export-args ["g.edn" "g.png" "--theme" "neon"]))))
   (is (re-find #"unknown option: --nope" (:error (cli/parse-export-args ["g.edn" "g.png" "--nope"]))))
   (is (re-find #"invalid suffix" (:error (cli/parse-export-args ["g.edn" "a/b" "g.png"])))))
+
+(deftest export-args-parse-a-deck-to-pdf
+  (is (= {:in "talk.md" :suffix nil :out "talk.PDF" :format "pdf" :theme "nord" :force false}
+         (cli/parse-export-args ["talk.md" "talk.PDF" "--theme" "nord"])))
+  (is (= "an md file exports as the PDF of its slides: simpleviz export talk.md talk.pdf"
+         (:error (cli/parse-export-args ["talk.md" "talk.png"]))))
+  (is (= "a graph exports as .png or .svg — .pdf is for the slides of an md file"
+         (:error (cli/parse-export-args ["g.edn" "g.pdf"])))))
 
 (deftest export-refuses-before-any-browser
   (with-tmp
@@ -284,7 +292,7 @@
         (is (str/includes? (:err res) "no g-next.edn — create it with")))
       (let [res (run-cli ["export" "g.edn" "x.gif"] :dir tmp)]
         (is (= 1 (:exit res)))
-        (is (str/includes? (:err res) "the output must end in .png or .svg"))))))
+        (is (str/includes? (:err res) "the output must end in .png, .svg or .pdf"))))))
 
 (deftest export-failures-of-any-kind-are-one-line-messages
   ;; a "browser" that announces DevTools on a port nobody listens on
@@ -490,7 +498,8 @@
   (with-tmp
     (fn [tmp]
       (spit (str (fs/path tmp "notes.md")) "# n")
-      (doseq [[args msg] [[["export" "notes.md" "out.png"] "export needs a graph file (.edn, .png or .svg)"]
+      (doseq [[args msg] [[["export" "notes.md" "out.png"] "an md file exports as the PDF of its slides"]
+                          [["export" "notes.md" "next" "out.pdf"] "compare mode needs a graph file (.edn, .png or .svg)"]
                           [["fork" "notes.md" "next"] "fork works on graph files (.edn, .png or .svg)"]
                           [["promote" "notes.md" "next"] "promote works on graph files (.edn, .png or .svg)"]
                           [["notes.md" "next"] "compare mode needs a graph file (.edn, .png or .svg)"]]]

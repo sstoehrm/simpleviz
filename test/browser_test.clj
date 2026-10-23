@@ -32,6 +32,8 @@
 
 (deftest snaps-are-recognized
   (is (= "chromium" (browser/snap-name "/snap/bin/chromium" "/usr/bin/snap")))
+  ;; newer snapd: /usr/bin/snap is itself a link, to /usr/lib/snapd/snapd
+  (is (= "chromium" (browser/snap-name "/snap/bin/chromium" "/usr/lib/snapd/snapd")))
   (is (= "chromium" (browser/snap-name "/snap/chromium/3235/usr/lib/chromium-browser/chrome"
                                        "/snap/chromium/3235/usr/lib/chromium-browser/chrome")))
   (is (nil? (browser/snap-name "/usr/bin/google-chrome" "/opt/google/chrome/chrome"))))
@@ -94,8 +96,8 @@
       (try
         (browser/with-browser path
           (fn [ws-url _]
-            (is (= "svg:nord" (browser/export-page! ws-url (str "http://127.0.0.1:" (srv/server-port stop))
-                                                    {:format "svg" :theme "nord" :timeout-ms 10000})))))
+            (is (= {:data "svg:nord"} (browser/export-page! ws-url (str "http://127.0.0.1:" (srv/server-port stop))
+                                                              {:format "svg" :theme "nord" :timeout-ms 10000})))))
         (finally (srv/server-stop! stop))))))
 
 (defn- profiles-in [dir]

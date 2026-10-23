@@ -7,6 +7,7 @@
             [browser]
             [clojure.string :as str]
             [clojure.test :refer [deftest is]]
+            [deck]
             [embedded]
             [png]
             [proc-util]
@@ -67,3 +68,37 @@
   (let [r (export! tmp "demo.edn" "no/such/dir/x.png")]
     (is (= 1 (:exit r)))
     (is (str/starts-with? (:err r) "simpleviz: cannot write no/such/dir/x.png") (:err r))))
+
+(e2e a-deck-exports-as-a-pdf-page-per-slide
+  (let [n (count (deck/slides (slurp (at tmp "deck.md"))))
+        r (export! tmp "deck.md" "deck.pdf")]
+    (is (= 0 (:exit r)) (:err r))
+    (is (= (str "wrote deck.pdf (" n " slides)") (str/trim (:out r)))))
+  (is (= "%PDF-" (subs (slurp (at tmp "deck.pdf")) 0 5))))
+
+(e2e a-deck-with-broken-sides-still-exports-and-says-so
+  ;; the slide says what's wrong, as it does presenting, and so does stderr
+  (spit (at tmp "talk.md") (str "# Talk\n---\n>> [gone](gone.edn)\n# A\n---\n>> [demo](demo.edn)\n# B\n"
+                                "---\n>> ![pic](nope.jpg)\n# C\n"))
+  (let [r (export! tmp "talk.md" "talk.pdf")]
+    (is (= 0 (:exit r)) (:err r))
+    (is (= "wrote talk.pdf (4 slides)" (str/trim (:out r))))
+    (is (= ["simpleviz: slide 2: Graph error: no such file: gone.edn"
+            "simpleviz: slide 4: nope.jpg — no such picture, or not one the browser shows"]
+           (str/split-lines (str/trim (:err r)))))))
+
+(e2e a-long-deck-with-formulas-exports
+  ;; more slides with formulas than the page keeps results for at once
+  (let [table (fn [i] (str "| a | b |\n|---|--:|\n| x | " i " |\n| y | =(* 2 (sum :b 1)) |\n"))
+        slides (for [i (range 60)] (str "# Slide " i "\n\n" (table i) "\n"))]
+    (spit (at tmp "long.md") (str/join "---\n" slides))
+    (let [r (export! tmp "long.md" "long.pdf")]
+      (is (= 0 (:exit r)) (:err r))
+      (is (= "wrote long.pdf (60 slides)" (str/trim (:out r)))))))
+
+(e2e an-empty-deck-is-refused
+  (spit (at tmp "empty.md") "---\n\n---\n")
+  (let [r (export! tmp "empty.md" "empty.pdf")]
+    (is (= 1 (:exit r)))
+    (is (= "simpleviz: empty.md has no slides" (str/trim (:err r))))
+    (is (not (fs/exists? (at tmp "empty.pdf"))))))

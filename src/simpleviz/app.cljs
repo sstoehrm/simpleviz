@@ -82,6 +82,9 @@
                   ;; answers file could not be read; and the answers not
                   ;; written to it yet, name -> why (post-answer!)
                   :answers {} :answer-error nil :unsaved {}
+                  ;; the deck laid out for its PDF (pdf-export): what each
+                  ;; slide's >> shows beside it, nil for none; nil when not
+                  :print nil
                   :nav (editor/parse-nav js/location.search) :nav-error nil
                   ;; your theme (#115), for files without :theme (load-prefs!)
                   :theme-pref nil
@@ -1384,6 +1387,11 @@
                               (str (:label l) " → " (:dest l))])
                            (:links m)))))))
 
+(defn- file-url
+  "Where the page loads the served folder's file at root-relative `path`."
+  [path]
+  (str "/api/file?path=" (js/encodeURIComponent path)))
+
 (defn- picture
   "Image link `l` of the md file at `md-path` as the picture: a web URL as
   it is, a picture of the served folder through /api/file; nil for
@@ -1396,7 +1404,7 @@
             kind (when (some? path) (slides/side-kind path))]
         (when (or (= kind "image") (= kind "export"))
           [:img {:class "md-img" :alt (:label l)
-                 :src (str "/api/file?path=" (js/encodeURIComponent path))}])))))
+                 :src (file-url path)}])))))
 
 (defn- in-page-click
   "A click on a link within the page — a footnote and the way back:
@@ -1444,8 +1452,15 @@
 ;; text without a formula or def block, {} too while the server works,
 ;; {:tables …} after, {:failed msg} when it couldn't be asked — after a
 ;; network or server error asked again in 5 s. A text keeps its hash, so
-;; looking it up costs nothing; the oldest of a file's texts go past 50.
+;; looking it up costs nothing; past 50 the one used longest ago goes —
+;; unless the render now on the page uses it too (the PDF shows every
+;; slide at once). Texts without a formula aren't kept: may-calc? tells
+;; them apart.
 (def ^:private calc-results (js/Map.))
+;; the texts the last render asked calc-for! about (rerender! clears it)
+(def ^:private calc-shown (js/Set.))
+;; the /api/calc requests not answered yet: the PDF waits for them
+(def ^:private calc-in-flight (atom 0))
 
 (defn- calc-tick! [] (swap! state update :calc-tick (fnil inc 0)))
 
@@ -1453,10 +1468,13 @@
   (let [m (or (.get calc-results path) (let [m (js/Map.)] (.set calc-results path m) m))]
     (.delete m text)
     (.set m text v)
-    (when (> (.-size m) 50) (.delete m (.-value (.next (.keys m)))))))
+    (let [oldest (.-value (.next (.keys m)))]
+      (when (and (> (.-size m) 50) (not (.has calc-shown oldest)))
+        (.delete m oldest)))))
 
 (defn- ^:async fetch-calc! [path text tables]
   (remember-calc! path text {})
+  (swap! calc-in-flight inc)
   (let [[out retry]
         (try (let [resp (js-await (post-json "/api/calc" {:path path :tables tables}))]
                (if (.-ok resp)
@@ -1466,6 +1484,7 @@
                   (>= (.-status resp) 500)]))
              (catch :default _ [{:failed "couldn't calculate: no server"} true]))]
     (remember-calc! path text out)
+    (swap! calc-in-flight dec)
     (when retry
       (js/setTimeout (fn [] (some-> (.get calc-results path) (.delete text)) (calc-tick!)) 5000))
     (calc-tick!)))
@@ -1475,11 +1494,16 @@
   (markdown/render's calc) — the path, for the data their blocks link —
   nil until the server has them, asking it the first time."
   [path text]
-  (let [hit (some-> (.get calc-results path) (.get text))]
+  (.add calc-shown text)
+  (let [m (.get calc-results path)
+        hit (some-> m (.get text))]
+    ;; a hit is used now: it goes last — and evicts nothing, or it could
+    ;; take what a slide further on in this render is about to read
+    (when (some? hit) (.delete m text) (.set m text hit))
     (cond (some? (:failed hit)) hit
           (some? hit) (:tables hit)
           ;; most texts have no table to calculate: skip parsing them
-          (not (markdown/may-calc? text)) (do (remember-calc! path text {}) nil)
+          (not (markdown/may-calc? text)) nil
           :else (let [tables (markdown/calc-tables text)]
                   (if (markdown/calc? tables) (fetch-calc! path text tables) (remember-calc! path text {}))
                   nil))))
@@ -1634,6 +1658,17 @@
        (when (some? note)
          (into [:div {:class "md-doc ask-note"}] (markdown/render note link-fn (calc-for! (:path (:md st)) note))))])))
 
+(defn- title-slide?
+  "Is slide `s`, the i-th, the title slide? The first one, alone."
+  [i s]
+  (and (= i 0) (nil? (:side s)) (nil? (:ask s))))
+
+(defn- slide-doc
+  "The text of slide `s` of the md file at `md-path`, rendered."
+  [md-path s]
+  (into [:div {:class "md-doc" :on-click in-page-click}]
+        (markdown/render (:text s) (present-link-fn md-path) (calc-for! md-path (:text s)))))
+
 (defn- present-panel
   "The slide presented, in the md page's place: the window, or its left
   half while something shows beside it. The first slide, alone, is the
@@ -1644,11 +1679,10 @@
         i (:slide (:present st))
         s (nth ds i nil)]
     [:aside {:id "md-panel" :class "page"}
-     [:div {:id "present-slide" :class (if (and (= i 0) (nil? (:side s)) (nil? (:ask s))) "title" "")}
-      (into [:div {:class "md-doc" :on-click in-page-click}]
-            (if (some? s)
-              (markdown/render (:text s) (present-link-fn (:path (:md st))) (calc-for! (:path (:md st)) (:text s)))
-              [[:p {:class "md-empty"} "No slides left — the text is empty."]]))
+     [:div {:id "present-slide" :class (if (title-slide? i s) "title" "")}
+      (if (some? s)
+        (slide-doc (:path (:md st)) s)
+        [:div {:class "md-doc"} [:p {:class "md-empty"} "No slides left — the text is empty."]])
       (when (some? (:ask s)) (ask-view st (:ask s)))
       ;; on every slide: a presenter who went on must see it too
       (when (some? (:answer-error st))
@@ -1659,23 +1693,73 @@
               (last (vals (:unsaved st))))])]
      [:div {:id "present-counter"} (str (min (inc i) n) " / " n)]]))
 
+(defn- side-body
+  "What a slide's >> shows beside it, by its side {:kind :path :text}:
+  the picture, the md file rendered, or why it can't show."
+  [{:keys [kind path text]}]
+  (case kind
+    "image" [:img {:src (file-url path) :alt path}]
+    "md" (into [:div {:class "md-doc" :on-click in-page-click}]
+               (if (some? text)
+                 (markdown/render text (present-link-fn path) (calc-for! path text))
+                 [[:p {:class "md-empty"} "loading…"]]))
+    [:div {:class "present-side-error"} text]))
+
+(defn- no-picture
+  "The side of a slide whose picture at `path` won't load."
+  [path]
+  {:kind "error" :text (str path " — no such picture, or not one the browser shows")})
+
 (defn- present-side-view
   "Beside the slide: the md file or picture its >> names, or why it
   can't show. A graph shows on the canvas instead."
   [st]
-  (when-let [{:keys [kind path text]} (:side (:present st))]
-    [:div {:id "present-side" :class kind}
-     (case kind
-       "image" [:img {:src (str "/api/file?path=" (js/encodeURIComponent path)) :alt path
-                      :on-error (fn [_]
-                                  (when (= path (:path (:side (:present @state))))
-                                    (swap! state assoc-in [:present :side]
-                                           {:kind "error" :text (str path " — no such picture, or not one the browser shows")})))}]
-       "md" (into [:div {:class "md-doc" :on-click in-page-click}]
-                  (if (some? text)
-                    (markdown/render text (present-link-fn path) (calc-for! path text))
-                    [[:p {:class "md-empty"} "loading…"]]))
-       [:div {:class "present-side-error"} text])]))
+  (when-let [side (:side (:present st))]
+    [:div {:id "present-side" :class (:kind side)} (side-body side)]))
+
+(defn- theme-vars
+  "Theme map `theme` as the CSS custom properties the page's colors
+  read: {\"--key\" value}."
+  [theme]
+  (into {} (map (fn [k] [(str "--" k) (get theme k)]) themes/CSS-KEYS)))
+
+;; half a PDF page, in CSS px: a 1280×720 page (style.css's @page, and
+;; browser.clj's slide-size) split for a slide and what shows beside it
+(def ^:private print-half {:width 640 :height 720})
+
+(defn- print-view
+  "The deck laid out for its PDF (pdf-export): a page per slide, the
+  size browser.clj prints, each with what its >> shows beside it — a
+  graph as the SVG of its scene — and its number. A page whose graph
+  has its own :theme takes it, as presenting does. A question shows its
+  choices, unanswered."
+  [st]
+  (let [path (:path (:md st))
+        ds (deck st)
+        n (count ds)
+        unanswered (assoc st :answers {} :present {})]
+    (into [:div {:id "print"}
+           ;; only here: printing the page itself keeps the browser's pages
+           [:style "@page { size: 1280px 720px; margin: 0; }"]]
+          (map-indexed
+           (fn [i s]
+             (let [side (nth (:print st) i nil)]
+               [:section {:class (str "print-page" (when (some? side) " halves"))
+                          :style (when-let [t (:theme side)] (theme-vars t))}
+                [:div {:class (str "print-slide" (when (title-slide? i s) " title"))}
+                 (slide-doc path s)
+                 (when (some? (:ask s)) (ask-view unanswered (:ask s)))]
+                (when (some? side)
+                  [:div {:class (str "print-side " (:kind side))}
+                   (if (= "graph" (:kind side))
+                     ;; as presenting fits it
+                     (let [{:keys [width height]} side
+                           k (canvas/fit-scale width height (:width print-half) (:height print-half))]
+                       [:img {:src (:svg side) :alt (:path side)
+                              :style {:width (str (* k width) "px") :height (str (* k height) "px")}}])
+                     (side-body side))])
+                [:div {:class "print-counter"} (str (inc i) " / " n)]]))
+           ds))))
 
 (def ^:private max-choices-shown 200)
 
@@ -1899,7 +1983,7 @@
        [:button {:type "button" :class "ps-next" :disabled (>= k (dec n)) :title "Next step"
                  :on-click (fn [_] (show-step! (inc k)))} "Next ▸"]])))
 
-(defn- app-view [st]
+(defn- live-view [st]
   (let [page (page? st)
         split (split? st)
         graph (graph-shown? st)
@@ -1988,6 +2072,11 @@
    (when (and (some? (:selected st)) (or (nil? (:md st)) split))
      (details-view st))]))
 
+(defn- app-view [st]
+  (if (some? (:print st))
+    (print-view st)
+    (live-view st)))
+
 (defn- paint-now! []
   (when-let [canvas-el (js/document.getElementById "canvas")]
     (if-let [s (:scene @state)]
@@ -2001,6 +2090,7 @@
 (declare sync-split!)
 
 (defn- rerender! []
+  (.clear calc-shown)
   (render app-el (app-view @state))
   (sync-split!)
   (canvas/request-paint!))
@@ -2798,6 +2888,17 @@
                    (not (:exists out)) {:kind "error" :text (str "no such file: " (:path side))}
                    :else (assoc side :text (:text out)))))))
 
+(defn- ^:async check-picture!
+  "Load the picture of slide side `side`: one that won't load shows why
+  instead, unless slide change `gen` was overtaken."
+  [side gen]
+  (let [img (js/Image.)]
+    (set! (.-src img) (file-url (:path side)))
+    (try (js-await (.decode img))
+         (catch :default _
+           (when (= gen @present-gen)
+             (swap! state assoc-in [:present :side] (no-picture (:path side))))))))
+
 (defn- ^:async load-answers!
   "Take the answers to the questions of the md page presented from its
   answers file (talk.md's talk.answers.edn)."
@@ -2880,8 +2981,10 @@
             (js-await (open-side! (:path side) false compare))
             (do (drop-side!)
                 (swap! state assoc-in [:present :side] side)
-                (when (= "md" (:kind side))
-                  (js-await (show-md-side! side gen))))))))))
+                (case (:kind side)
+                  "md" (js-await (show-md-side! side gen))
+                  "image" (js-await (check-picture! side gen))
+                  nil))))))))
 
 (defn- leave-present!
   "Back to the md page, the slide's side closed."
@@ -3309,8 +3412,8 @@
   synchronous and the collapsed-panel dots read the palette."
   [theme]
   (let [style (.. js/document -documentElement -style)]
-    (doseq [k themes/CSS-KEYS]
-      (.setProperty style (str "--" k) (get theme k))))
+    (doseq [[k v] (theme-vars theme)]
+      (.setProperty style k v)))
   (canvas/set-theme! theme)
   (canvas/request-paint!))
 
@@ -3412,36 +3515,101 @@
 
 (defn- sleep [ms] (js/Promise. (fn [res] (js/setTimeout res ms))))
 
-(defn- ^:async wait-for!
-  "Resolve once (readiness @state) is {:ready true}; reject with its
-  :error. Polls every 50 ms — the CLI bounds the wait."
+(defn- ^:async settled
+  "(readiness @state) once it isn't nil. Polls every 50 ms — the CLI
+  bounds the wait."
   [readiness]
   (let [r (readiness @state)]
-    (cond (some? (:error r)) (throw (js/Error. (:error r)))
-          (:ready r) true
-          :else (do (js-await (sleep 50)) (js-await (wait-for! readiness))))))
+    (if (some? r) r (do (js-await (sleep 50)) (js-await (settled readiness))))))
 
-(defn- ^:async headless-export
-  "window.simplevizExport: wait for the graph, take `theme` as this page's
-  theme preference (never stored), expand every box, wait for the layout,
-  then hand back what the ⇩ menu would download — {:data base64} for
-  \"png\", {:data svg-text} for \"svg\"."
+(defn- ^:async wait-for!
+  "Resolve once (readiness @state) is {:ready true}; reject with its
+  :error."
+  [readiness]
+  (let [r (js-await (settled readiness))]
+    (if (some? (:error r)) (throw (js/Error. (:error r))) true)))
+
+(defn- ^:async graph-side
+  "The graph beside the slide presented, once laid out, as the PDF shows
+  it: the SVG of its scene (a blob URL), its size, and its own :theme
+  when it has one — or its error."
+  []
+  (let [r (js-await (settled editor/side-readiness))
+        {:keys [graph scene]} @state]
+    (if (some? (:error r))
+      {:kind "error" :text (:error r)}
+      {:kind "graph" :path (:side @state)
+       :width (:width scene) :height (:height scene)
+       :theme (:theme graph)
+       :svg (js/URL.createObjectURL (js/Blob. [(canvas/export-svg scene [])] {:type "image/svg+xml"}))})))
+
+(defn- ^:async print-sides
+  "What the deck's slides from i on show beside them, onto `out`: each
+  >> (and its compare) taken once, `taken` by \"dest compare\", by
+  presenting the first slide that names it — an md file, a picture or
+  why it can't show as presenting has it, a graph as graph-side."
+  [i out taken]
+  (let [ds (deck @state)
+        s (nth ds i nil)
+        k (when (some? (:side s)) (str (:side s) " " (slide-compare s)))]
+    (cond (nil? s) out
+          (nil? k) (js-await (print-sides (inc i) (conj out nil) taken))
+          (contains? taken k) (js-await (print-sides (inc i) (conj out (get taken k)) taken))
+          :else (do (js-await (show-slide! i))
+                    (let [side (or (:side (:present @state)) (js-await (graph-side)))]
+                      (js-await (print-sides (inc i) (conj out side) (assoc taken k side))))))))
+
+(defn- ^:async pdf-export
+  "window.simplevizExport for \"pdf\": wait for the md page, present each
+  slide once to take what its >> shows, then lay the deck out a page
+  per slide (print-view) and wait for what the pages still load —
+  formula results and charts, pictures, fonts. {:slides n :problems
+  [[slide-number why]]}, a problem each side that can't show:
+  browser.clj prints the PDF of the page. A deck without slides fails."
+  [theme]
+  (js-await (wait-for! editor/deck-readiness))
+  (when (empty? (deck @state))
+    (throw (js/Error. (str (:path (:md @state)) " has no slides"))))
+  (when (some? theme) (swap! state assoc :theme-pref theme))
+  (let [sides (js-await (print-sides 0 [] {}))]
+    (leave-present!)
+    (apply-theme! (effective-theme nil (:theme-pref @state) (:theme @state)))
+    (swap! state assoc :print sides)
+    (js-await (settled (fn [_] (when (zero? @calc-in-flight) {:ready true}))))
+    (js-await (.-ready js/document.fonts))
+    (js-await (js/Promise.all (mapv (fn [img] (.catch (.decode img) (fn [_] nil)))
+                                    (js/Array.from (js/document.querySelectorAll "#print img")))))
+    {:slides (count sides)
+     :problems (vec (keep-indexed (fn [i side] (when (= "error" (:kind side)) [(inc i) (:text side)]))
+                                  sides))}))
+
+(defn- ^:async graph-export
+  "window.simplevizExport for a graph: wait for it, take `theme` as this
+  page's theme preference (never stored), expand every box, wait for the
+  layout, then hand back what the ⇩ menu would download — {:data base64}
+  for \"png\", {:data svg-text} for \"svg\"."
+  [fmt theme]
+  (js-await (wait-for! editor/load-readiness))
+  (when (some? theme)
+    (apply-theme! (effective-theme (:graph @state) theme (:theme @state)))
+    (swap! state assoc :theme-pref theme))
+  ;; a render error notice from before must not fail this export
+  (swap! state assoc :notice nil)
+  (when (pos? (.-size (:collapsed-boxes @state)))
+    (swap! state assoc :collapsed-boxes #{} :selected nil)
+    (js-await (relayout!)))
+  (js-await (wait-for! editor/export-readiness))
+  (if (= fmt "svg")
+    {:data (js-await (svg-text))}
+    {:data (png/bytes->base64 (js-await (png-bytes)))}))
+
+(defn- headless-export
+  "window.simplevizExport (simpleviz export, server/browser.clj): a
+  graph's png or svg, or the pdf of an md page's slides."
   [opts]
-  (let [fmt (.-format opts)
-        theme (.-theme opts)]
-    (js-await (wait-for! editor/load-readiness))
-    (when (some? theme)
-      (apply-theme! (effective-theme (:graph @state) theme (:theme @state)))
-      (swap! state assoc :theme-pref theme))
-    ;; a render error notice from before must not fail this export
-    (swap! state assoc :notice nil)
-    (when (pos? (.-size (:collapsed-boxes @state)))
-      (swap! state assoc :collapsed-boxes #{} :selected nil)
-      (js-await (relayout!)))
-    (js-await (wait-for! editor/export-readiness))
-    (if (= fmt "svg")
-      {:data (js-await (svg-text))}
-      {:data (png/bytes->base64 (js-await (png-bytes)))})))
+  (if (= (.-format opts) "pdf")
+    (pdf-export (.-theme opts))
+    (graph-export (.-format opts) (.-theme opts))))
 
 ;; init
 (defn- typing?

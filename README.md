@@ -68,7 +68,7 @@ with live graphs and a deck beside it:
 
 ## Install
 
-Linux, with [babashka](https://babashka.org/) 1.13.220 or newer, curl and tar:
+Linux, with [babashka](https://babashka.org/) 1.13.226 or newer, curl and tar:
 
     curl -fsSL https://raw.githubusercontent.com/sstoehrm/simpleviz/main/install.sh | bash
 
@@ -85,8 +85,8 @@ command installs and updates the release jar:
 
 Both write `~/.local/bin/simpleviz`, so use one or the other.
 `simpleviz clean-all`, which stops every running server, needs the
-install.sh launcher on Linux. CI tests the oldest babashka simpleviz
-supports (1.13.220) and the latest.
+install.sh launcher on Linux. simpleviz supports and tests only the
+latest babashka release.
 
 Without an installer, unpack a tarball from the
 [releases page](https://github.com/sstoehrm/simpleviz/releases) and run

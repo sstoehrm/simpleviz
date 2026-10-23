@@ -31,8 +31,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # the floor, MIN_BB in install.sh, and the latest babashka release
-        bb: ['1.13.220', '1.13.226']
+        # the latest babashka release, also the floor: MIN_BB in install.sh
+        bb: ['1.13.226']
     name: test (bb ${{ matrix.bb }})
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

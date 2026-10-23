@@ -37,13 +37,11 @@
        {:error "export needs Chrome or Chromium — install one or set SIMPLEVIZ_BROWSER"}))))
 
 (defn snap-name
-  "The snap a browser runs in, or nil: a command resolving to
-  /usr/bin/snap (newer snapd: on to /usr/lib/snapd/snapd), or sitting in
-  /snap/bin/, is that snap's launcher, named like the snap; a path under
-  /snap/ names it after /snap/."
+  "The snap a browser runs in, or nil: a command in /snap/bin/, or
+  resolving to /usr/bin/snap, is that snap's launcher, named like the
+  snap; a path under /snap/ names it after /snap/."
   [path resolved]
-  (cond (or (#{"/usr/bin/snap" "/usr/lib/snapd/snapd"} resolved)
-            (str/starts-with? (str path) "/snap/bin/"))
+  (cond (or (str/starts-with? (str path) "/snap/bin/") (= resolved "/usr/bin/snap"))
         (str (fs/file-name path))
         (str/starts-with? (str path) "/snap/") (nth (str/split (str path) #"/" 4) 2)
         :else nil))

@@ -230,7 +230,7 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
                  justify-content: safe center; align-items: center; padding: 8vh 7vw;
                  background: var(--panel); color: var(--text);
                  font: clamp(16px, calc(1.1vw + 9px), 40px)/1.5 system-ui, sans-serif; }
-#root.halves #present-slide, #print .halves .print-slide { padding: 8vh 4vw; }
+#root.halves #present-slide { padding: 8vh 4vw; }
 :is(#present-slide, .print-slide) > .md-doc { width: 100%; max-width: 46em; }
 :is(#present-slide, .print-slide) :is(h1, h2) { border-bottom: none; }
 /* code blocks scale with the slide's type, not a fixed 13px */
@@ -272,14 +272,13 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
    page per slide, 1280×720 as server/browser.clj sets the window and
    prints it; the page scrolls instead of the canvas filling it */
 @page { size: 1280px 720px; margin: 0; }
-body.printing { overflow: visible; }
-body.printing :is(#canvas-wrap, #app) { position: static; }
+body:has(#print) { overflow: visible; }
+body:has(#print) :is(#canvas-wrap, #app) { position: static; }
 .print-page { position: relative; width: 1280px; height: 720px; overflow: hidden; display: flex;
-              background: var(--panel); break-before: page; }
-.print-page:first-child { break-before: auto; }
-#print .halves .print-slide { flex: 0 0 50%; border-right: 1px solid var(--panel-divider); }
+              background: var(--panel); }
+.print-page + .print-page { break-before: page; }
+#print .halves .print-slide { flex: 0 0 50%; padding: 8vh 4vw; border-right: 1px solid var(--panel-divider); }
 #print .print-side { flex: 0 0 50%; overflow: hidden; }
-#print .print-side.graph img { max-width: 90%; max-height: 90%; object-fit: contain; }
 .print-slide .ask-submit-row { display: none; }
 /* the one control left: quiet until pointed at */
 #present-leave { pointer-events: auto; border: 1px solid var(--panel-border); background: var(--panel);

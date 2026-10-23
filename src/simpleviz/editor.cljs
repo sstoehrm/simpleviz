@@ -761,28 +761,6 @@
         (some? (:error st)) {:error (:error st)}
         :else nil))
 
-(defn export-readiness
-  "Whether page state st can be exported whole: {:ready true} for a laid
-  out scene with no box collapsed, {:error msg} when the page shows an
-  error and has nothing laid out — or a failed relayout left a render
-  error notice over an older scene — nil while layout is still going."
-  [st]
-  (cond (and (string? (:notice st)) (.startsWith (:notice st) "Render error"))
-        {:error (:notice st)}
-        (and (some? (:scene st)) (not (:layouting st))
-             (zero? (.-size (:collapsed-boxes st)))) {:ready true}
-        (and (nil? (:scene st)) (some? (:error st))) {:error (:error st)}
-        :else nil))
-
-(defn deck-readiness
-  "Where the md page's first load stands for the PDF of its slides:
-  {:ready true} once its text arrived, {:error msg} when only an error
-  did, nil while waiting."
-  [st]
-  (cond (string? (:text (:md st))) {:ready true}
-        (some? (:error st)) {:error (:error st)}
-        :else nil))
-
 (defn side-readiness
   "Whether the graph beside a slide can go into the PDF as presenting
   draws it — boxes collapsed or not: {:ready true} for a settled scene,
@@ -791,6 +769,27 @@
   [st]
   (cond (and (some? (:scene st)) (not (:layouting st))) {:ready true}
         (and (nil? (:scene st)) (some? (:error st))) {:error (:error st)}
+        :else nil))
+
+(defn export-readiness
+  "Whether page state st can be exported whole: {:ready true} for a laid
+  out scene with no box collapsed, {:error msg} when the page shows an
+  error and has nothing laid out — or a failed relayout left a render
+  error notice over an older scene — nil while layout is still going."
+  [st]
+  (let [r (side-readiness st)]
+    (cond (and (string? (:notice st)) (.startsWith (:notice st) "Render error"))
+          {:error (:notice st)}
+          (and (:ready r) (pos? (.-size (:collapsed-boxes st)))) nil
+          :else r)))
+
+(defn deck-readiness
+  "Where the md page's first load stands for the PDF of its slides:
+  {:ready true} once its text arrived, {:error msg} when only an error
+  did, nil while waiting."
+  [st]
+  (cond (string? (:text (:md st))) {:ready true}
+        (some? (:error st)) {:error (:error st)}
         :else nil))
 
 (defn layout-landing

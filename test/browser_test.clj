@@ -150,8 +150,9 @@
   "Serve `file` (holding `text`) from a fresh folder, open it in the
   browser at `path` and evaluate `js` there; its value. The server keeps
   your choices in `home` (default: a fresh one), never in ~/.simpleviz.
-  `extra` maps more file names in the folder to their text."
-  [path file text js & {:keys [home extra]}]
+  `extra` maps more file names in the folder to their text; `size`
+  ({:width :height}) sets the window's, else the browser's default."
+  [path file text js & {:keys [home extra size]}]
   (let [dir (fs/create-temp-dir {:prefix "served-page"})
         port (proc-util/free-port)
         _ (spit (str (fs/path dir file)) text)
@@ -166,6 +167,7 @@
         (fn [ws-url _]
           (let [page (browser/open-page ws-url)]
             (try
+              (when (some? size) (browser/set-viewport! page size))
               (browser/navigate! page (str "http://127.0.0.1:" port "/"))
               (browser/evaluate page js 10000)
               (finally (browser/close-page page))))))
@@ -249,6 +251,30 @@
                  " r.closed = !document.getElementById('side-bar') && !location.search.includes('compare');"
                  " ok(r); }, 50); })")
             :extra {"g.edn" "{:nodes {:a {}}}" "g-next.edn" "{:nodes {:a {} :b {}}}"})))))
+
+(deftest the-name-prompt-beside-the-md-page-clears-the-steps-bar
+  ;; the graph beside the md page has little room: the toolbar, its name
+  ;; prompt open, keeps clear of the steps bar and inside the window
+  (with-real-browser
+    (doseq [size [nil {:width 1280 :height 720} {:width 1920 :height 1080}]]
+      (is (= {:steps true :prompt true :overlap false :inside true}
+             (eval-on-served-page
+              path "notes.md" "See [the graph](g.edn).\n"
+              (str "new Promise(ok => { let step = 0; const t = setInterval(() => {"
+                   " if (step === 0) { const link = document.querySelector('#md-view a.md-link'); if (!link) return;"
+                   "  link.click(); step = 1; return; }"
+                   " if (step === 1) { const b = [...document.querySelectorAll('#selection-toolbar button')].find(b => b.innerText.startsWith('new'));"
+                   "  if (!b) return; b.click(); step = 2; return; }"
+                   " if (step === 2) { const b = [...document.querySelectorAll('#chord-popout button')].find(b => b.innerText.startsWith('new node'));"
+                   "  if (!b) return; b.click(); step = 3; return; }"
+                   " const input = document.querySelector('.id-entry-input'), steps = document.getElementById('steps-bar');"
+                   " if (!input || !steps) return; clearInterval(t);"
+                   " const a = document.getElementById('selection-toolbar').getBoundingClientRect(), b = steps.getBoundingClientRect();"
+                   " ok({steps: true, prompt: document.activeElement === input,"
+                   "     overlap: a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom,"
+                   "     inside: a.right <= innerWidth}); }, 50); })")
+              :extra {"g.edn" "{:nodes {:a {}}}"} :size size))
+        (str "at " (or size "the default size"))))))
 
 (deftest a-presentation-steps-through-its-slides
   ;; Present: the title slide alone and centered, every tool hidden but

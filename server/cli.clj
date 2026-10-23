@@ -315,6 +315,8 @@
              (spit out (:data data) :encoding "UTF-8")
              (io/copy (.decode (java.util.Base64/getDecoder) ^String (:data data)) (io/file out)))
            (catch java.io.IOException e (die "cannot write " out ": " (ex-message e))))
+      (binding [*out* *err*]
+        (doseq [[n why] (:problems data)] (println (str "simpleviz: slide " n ": " why))))
       (println (str "wrote " out (when (= format "pdf")
                                   (let [n (:slides data)] (str " (" n (if (= 1 n) " slide)" " slides)"))))))
       ;; http-kit's threads would keep the process alive

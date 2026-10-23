@@ -1458,7 +1458,10 @@
   (let [m (or (.get calc-results path) (let [m (js/Map.)] (.set calc-results path m) m))]
     (.delete m text)
     (.set m text v)
-    (when (> (.-size m) 50) (.delete m (.-value (.next (.keys m)))))))
+    ;; the PDF renders every slide at once: evicting one would ask again,
+    ;; its answer evict another, and so on without end
+    (when (and (> (.-size m) 50) (nil? (:print @state)))
+      (.delete m (.-value (.next (.keys m)))))))
 
 (defn- ^:async fetch-calc! [path text tables]
   (remember-calc! path text {})
@@ -1689,6 +1692,11 @@
                  [[:p {:class "md-empty"} "loading…"]]))
     [:div {:class "present-side-error"} text]))
 
+(defn- no-picture
+  "The side of a slide whose picture at `path` won't load."
+  [path]
+  {:kind "error" :text (str path " — no such picture, or not one the browser shows")})
+
 (defn- present-side-view
   "Beside the slide: the md file or picture its >> names, or why it
   can't show. A graph shows on the canvas instead."
@@ -1698,13 +1706,13 @@
      (side-body side
                 (fn [_]
                   (when (= path (:path (:side (:present @state))))
-                    (swap! state assoc-in [:present :side]
-                           {:kind "error" :text (str path " — no such picture, or not one the browser shows")}))))]))
+                    (swap! state assoc-in [:present :side] (no-picture path)))))]))
 
 (defn- print-view
   "The deck laid out for its PDF (pdf-export): a page per slide, the
   size browser.clj prints, each with what its >> shows beside it — a
-  graph as the SVG of its scene — and its number. A question shows its
+  graph as the SVG of its scene — and its number. A page whose graph
+  has its own :theme takes it, as presenting does. A question shows its
   choices, unanswered."
   [st]
   (let [path (:path (:md st))
@@ -1715,7 +1723,9 @@
           (map-indexed
            (fn [i s]
              (let [side (nth (:print st) i nil)]
-               [:section {:class (str "print-page" (when (some? side) " halves"))}
+               [:section {:class (str "print-page" (when (some? side) " halves"))
+                          :style (when-let [t (:theme side)]
+                                   (into {} (map (fn [k] [(str "--" k) (get t k)]) themes/CSS-KEYS)))}
                 [:div {:class (str "print-slide" (when (title-slide? i s) " title"))}
                  (slide-doc path s)
                  (when (some? (:ask s)) (ask-view unanswered (:ask s)))]
@@ -3484,36 +3494,55 @@
   (let [r (js-await (settled readiness))]
     (if (some? (:error r)) (throw (js/Error. (:error r))) true)))
 
+(defn- ^:async picture-side
+  "Side `side` of a picture once it loads, else why it won't — the page
+  has no presenter to see it fail."
+  [{:keys [path] :as side}]
+  (let [img (js/Image.)]
+    (set! (.-src img) (str "/api/file?path=" (js/encodeURIComponent path)))
+    (try (js-await (.decode img)) side
+         (catch :default _ (no-picture path)))))
+
+(defn- ^:async graph-side
+  "The graph beside the slide presented, once laid out, as the PDF shows
+  it: the SVG of its scene (a blob URL), its size, and its own :theme
+  when it has one — or its error."
+  []
+  (let [r (js-await (settled editor/side-readiness))
+        {:keys [graph scene]} @state]
+    (if (some? (:error r))
+      {:kind "error" :text (:error r)}
+      {:kind "graph" :path (:side @state)
+       :width (:width scene) :height (:height scene)
+       :theme (:theme graph)
+       :svg (js/URL.createObjectURL (js/Blob. [(canvas/export-svg scene [])] {:type "image/svg+xml"}))})))
+
 (defn- ^:async print-sides
   "Present the deck's slides from i on, in turn, taking what each one's
-  >> shows — a graph as the SVG of its scene as presenting lays it out,
-  in a data URL — onto `out`."
+  >> shows onto `out`."
   [i out]
   (if (>= i (count (deck @state)))
     out
     (do (js-await (show-slide! i))
         (let [p (:present @state)
               side (cond (nil? (:dest p)) nil
-                         ;; not a graph: an md file, a picture, an error
+                         (= "image" (:kind (:side p))) (js-await (picture-side (:side p)))
+                         ;; an md file, an error
                          (some? (:side p)) (:side p)
-                         :else (let [r (js-await (settled editor/side-readiness))]
-                                 (if (some? (:error r))
-                                   {:kind "error" :text (:error r)}
-                                   (let [sc (:scene @state)]
-                                     {:kind "graph" :path (:side @state)
-                                      :width (:width sc) :height (:height sc)
-                                      :svg (str "data:image/svg+xml;charset=utf-8,"
-                                                (js/encodeURIComponent (canvas/export-svg sc [])))}))))]
+                         :else (js-await (graph-side)))]
           (js-await (print-sides (inc i) (conj out side)))))))
 
 (defn- ^:async pdf-export
   "window.simplevizExport for \"pdf\": wait for the md page, present each
   slide once to take what its >> shows, then lay the deck out a page
   per slide (print-view) and wait for what the pages still load —
-  formula results and charts, pictures, fonts. {:slides n}: browser.clj
-  prints the PDF of the page."
+  formula results and charts, pictures, fonts. {:slides n :problems
+  [[slide-number why]]}, a problem each side that can't show:
+  browser.clj prints the PDF of the page. A deck without slides fails."
   [theme]
   (js-await (wait-for! editor/deck-readiness))
+  (when (empty? (deck @state))
+    (throw (js/Error. (str (:path (:md @state)) " has no slides"))))
   (when (some? theme) (swap! state assoc :theme-pref theme))
   (let [sides (js-await (print-sides 0 []))]
     (leave-present!)
@@ -3524,7 +3553,9 @@
     (js-await (.-ready js/document.fonts))
     (js-await (js/Promise.all (mapv (fn [img] (.catch (.decode img) (fn [_] nil)))
                                     (js/Array.from (js/document.querySelectorAll "#print img")))))
-    {:slides (count sides)}))
+    {:slides (count sides)
+     :problems (vec (keep-indexed (fn [i side] (when (= "error" (:kind side)) [(inc i) (:text side)]))
+                                  sides))}))
 
 (defn- ^:async graph-export
   "window.simplevizExport for a graph: wait for it, take `theme` as this

@@ -76,9 +76,29 @@
     (is (= (str "wrote deck.pdf (" n " slides)") (str/trim (:out r)))))
   (is (= "%PDF-" (subs (slurp (at tmp "deck.pdf")) 0 5))))
 
-(e2e a-deck-with-a-broken-side-still-exports
-  ;; the slide says what's wrong, as it does presenting
-  (spit (at tmp "talk.md") "# Talk\n---\n>> [gone](gone.edn)\n# A\n---\n>> [demo](demo.edn)\n# B\n")
+(e2e a-deck-with-broken-sides-still-exports-and-says-so
+  ;; the slide says what's wrong, as it does presenting, and so does stderr
+  (spit (at tmp "talk.md") (str "# Talk\n---\n>> [gone](gone.edn)\n# A\n---\n>> [demo](demo.edn)\n# B\n"
+                                "---\n>> ![pic](nope.jpg)\n# C\n"))
   (let [r (export! tmp "talk.md" "talk.pdf")]
     (is (= 0 (:exit r)) (:err r))
-    (is (= "wrote talk.pdf (3 slides)" (str/trim (:out r))))))
+    (is (= "wrote talk.pdf (4 slides)" (str/trim (:out r))))
+    (is (= ["simpleviz: slide 2: Graph error: no such file: gone.edn"
+            "simpleviz: slide 4: nope.jpg — no such picture, or not one the browser shows"]
+           (str/split-lines (str/trim (:err r)))))))
+
+(e2e a-long-deck-with-formulas-exports
+  ;; more slides than the page keeps formula results for, two tables apart
+  (let [table "| a | b |\n|---|--:|\n| x | 2 |\n| y | =(* 2 (sum :b 1)) |\n"
+        slides (for [i (range 60)] (str "# Slide " i "\n\n" (if (#{3 57} i) table (str "text " i)) "\n"))]
+    (spit (at tmp "long.md") (str/join "---\n" slides))
+    (let [r (export! tmp "long.md" "long.pdf")]
+      (is (= 0 (:exit r)) (:err r))
+      (is (= "wrote long.pdf (60 slides)" (str/trim (:out r)))))))
+
+(e2e an-empty-deck-is-refused
+  (spit (at tmp "empty.md") "---\n\n---\n")
+  (let [r (export! tmp "empty.md" "empty.pdf")]
+    (is (= 1 (:exit r)))
+    (is (= "simpleviz: empty.md has no slides" (str/trim (:err r))))
+    (is (not (fs/exists? (at tmp "empty.pdf"))))))

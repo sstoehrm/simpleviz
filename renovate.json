@@ -5,5 +5,12 @@
     "helpers:pinGitHubActionDigests",
     "group:allNonMajor",
     "schedule:weekly"
+  ],
+  "packageRules": [
+    {
+      "description": "Let a new npm or Maven/Clojars release (package.json, tools/sbom, bb.edn) age before it is proposed: a hijacked release is usually caught and pulled within days",
+      "matchDatasources": ["npm", "maven", "clojure"],
+      "minimumReleaseAge": "3 days"
+    }
   ]
 }

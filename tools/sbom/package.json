@@ -1,0 +1,8 @@
+{
+  "name": "simpleviz-sbom-tools",
+  "private": true,
+  "description": "The SBOM generator vulns.yml runs, locked with its dependencies: npm ci --ignore-scripts --prefix tools/sbom",
+  "devDependencies": {
+    "@cyclonedx/cyclonedx-npm": "6.0.1"
+  }
+}

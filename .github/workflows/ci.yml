@@ -36,6 +36,8 @@ jobs:
     name: test (bb ${{ matrix.bb }})
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -52,6 +54,11 @@ jobs:
         with:
           path: ~/.m2/repository
           key: bb-deps-${{ hashFiles('bb.edn') }}
+
+      # exactly package-lock.json, no install scripts (none of its packages
+      # has one); bb build then finds node_modules and installs nothing
+      - name: Install npm packages
+        run: npm ci --ignore-scripts
 
       - name: Run tests
         run: bb test

@@ -25,7 +25,6 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
-          cache: npm
 
       - name: Install babashka
         uses: DeLaGuardo/setup-clojure@6d46099eae24853c33c0482f2bb54edf4f1a4c74 # 13.7.0
@@ -38,12 +37,19 @@ jobs:
           path: ~/.m2/repository
           key: bb-deps-${{ hashFiles('bb.edn') }}
 
+      # the generator and all its dependencies come from the committed
+      # tools/sbom/package-lock.json, not resolved afresh by npx; no install
+      # scripts (the one package with one, libxmljs2, is optional and only
+      # for XML output)
+      - name: Install the SBOM generator
+        run: npm ci --ignore-scripts --prefix tools/sbom
+
       # dev dependencies included: bb build copies reagami and squint-cljs
       # into the page
       - name: SBOM of the npm packages
         run: |
           mkdir -p sbom
-          npx --yes @cyclonedx/cyclonedx-npm@6.0.1 \
+          tools/sbom/node_modules/.bin/cyclonedx-npm \
             --package-lock-only --output-format JSON --output-file sbom/npm.cdx.json
 
       # elkjs is vendored, its version recorded only in public/vendor/package.json

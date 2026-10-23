@@ -74,9 +74,19 @@ install_files() {
   # shipped template included, and add only the templates it lacks.
   # It may be a symlink (to a dotfiles repo, say): copy through it.
   local templates="$SIMPLEVIZ_HOME/templates" f
+  # everything else in SIMPLEVIZ_HOME goes below: refuse a folder that is
+  # no install (SIMPLEVIZ_HOME=$HOME, a typo). An install has the VERSION
+  # it writes; without one, it may hold only what simpleviz keeps there
+  # (a bbin install, a run: templates, prefs, logs)
+  if [ -d "$SIMPLEVIZ_HOME" ] && [ ! -f "$SIMPLEVIZ_HOME/VERSION" ] \
+     && [ -n "$(find -H "$SIMPLEVIZ_HOME" -mindepth 1 -maxdepth 1 ! -name templates ! -name prefs.edn ! -name logs)" ]; then
+    die "$SIMPLEVIZ_HOME holds files that aren't simpleviz's — set SIMPLEVIZ_HOME to an empty or new folder"
+  fi
   [ ! -e "$templates" ] && [ ! -L "$templates" ] || [ -d "$templates" ] \
     || die "$templates is not a directory — move it away and rerun"
   mkdir -p "$templates"
+  # its logs hold paths and doc text: yours alone
+  chmod 700 "$SIMPLEVIZ_HOME"
   # prefs.edn (your page choices: theme, vi) is the user's too
   find -H "$SIMPLEVIZ_HOME" -mindepth 1 -maxdepth 1 ! -name templates ! -name prefs.edn -exec rm -rf {} +
   if [ -d "$dir/templates" ]; then

@@ -108,6 +108,22 @@
     (is (not (.exists (io/file root "sub/api-next.edn"))))
     (fs/delete-tree root)))
 
+(deftest fork-never-writes-through-a-symlink
+  ;; a cloned repo can carry g-next.edn -> ~/.config/autostart/x.desktop
+  (let [root (tree! {"g.edn" "{:nodes {:a {:ref \"b.edn\"}}}" "b.edn" "{:nodes {:b {}}}"})
+        outside (.getCanonicalFile (.toFile (fs/create-temp-dir {:prefix "fork-victim"})))
+        planted (io/file outside "planted.txt")]
+    (fs/create-sym-link (io/file root "b-next.edn") planted)
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"b-next\.edn is a dangling symlink"
+                          (fork/fork! (str (io/file root "g.edn")) "next" (fn [_]))))
+    (is (not (.exists planted)) "nothing written outside")
+    (is (not (.exists (io/file root "g-next.edn"))) "nothing written at all")
+    ;; nor through one to a file outside that exists
+    (spit planted "keep")
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"b-next\.edn leaves the served folder"
+                          (fork/fork! (str (io/file root "g.edn")) "next" (fn [_]))))
+    (is (= "keep" (slurp planted)))))
+
 (deftest promote-moves-every-fork-in-the-forks-closure
   (let [root (tree! {"root.edn" "{:nodes {:a {:ref \"sub/api.edn\"}}}"
                      "root-next.edn" "{:nodes {:a {:ref \"sub/api.edn\"} :n {:ref \"new.edn\"}}}"

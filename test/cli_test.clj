@@ -181,6 +181,26 @@
         (is (= "created talk.md — view it with: simpleviz talk.md" (str/trim (:out res)))))
       (is (= "{:nodes {:mine {}}}" (slurp (str (fs/path tmp "talk.edn"))))))))
 
+(deftest init-and-extract-never-write-through-a-symlink
+  ;; a cloned repo may carry a link where a file would be written
+  (with-tmp
+    (fn [tmp]
+      (let [outside (str (fs/path tmp "outside"))
+            res (do (fs/create-dirs outside)
+                    (fs/create-sym-link (fs/path tmp "talk.edn") (fs/path outside "g.edn"))
+                    (run-cli ["init" "talk.md" "-t" "presentation"] :dir tmp :env (home-env tmp)))]
+        (is (= 0 (:exit res)) (:err res))
+        (is (= "created talk.md — view it with: simpleviz talk.md" (str/trim (:out res))))
+        (fs/create-sym-link (fs/path tmp "new.md") (fs/path outside "n.md"))
+        (let [res (run-cli ["init" "new.md" "-t" "presentation"] :dir tmp :env (home-env tmp))]
+          (is (= 1 (:exit res)))
+          (is (str/includes? (:err res) "new.md already exists") (:err res)))
+        (fs/create-sym-link (fs/path tmp "out.edn") (fs/path outside "x.edn"))
+        (let [res (run-cli ["extract" (str proc-util/repo-root "/test/fixtures/compare.svg") "out.edn"] :dir tmp)]
+          (is (= 1 (:exit res)))
+          (is (str/includes? (str (:out res) (:err res)) "out.edn already exists")))
+        (is (empty? (fs/list-dir outside)) "nothing written outside")))))
+
 (deftest init-writes-no-graph-outside-the-md-files-folder
   ;; a template of your own may name any path after >>
   (with-tmp

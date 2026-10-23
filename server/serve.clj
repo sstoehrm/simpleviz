@@ -108,6 +108,22 @@
   [rel suffix]
   (str "no " (fork-name rel suffix) " — create it with: simpleviz fork " rel " " suffix))
 
+(defn there?
+  "Is anything at File `f` — a symlink too, even one whose target is
+  missing (which .exists calls nothing)?"
+  [f]
+  (java.nio.file.Files/exists (.toPath (io/file f))
+                              (into-array java.nio.file.LinkOption [java.nio.file.LinkOption/NOFOLLOW_LINKS])))
+
+(defn write-new!
+  "Write `content` (bytes) to File `f`, which must not be there yet:
+  CREATE_NEW fails on anything that is, a symlink included, instead of
+  writing through it. Throws FileAlreadyExistsException."
+  [f ^bytes content]
+  (java.nio.file.Files/write (.toPath (io/file f)) content
+                             (into-array java.nio.file.OpenOption
+                                         [java.nio.file.StandardOpenOption/CREATE_NEW])))
+
 (defn resolve-path
   "The canonical file for the root-relative path `rel` under `root`.
   Refuses (ex-info, message names the problem) an absolute path, a
@@ -199,13 +215,15 @@
   (when (embedded/export? f) (embedded/extract f "simpleviz-edn-old")))
 
 (defn- query-param
-  "The URL-decoded value of parameter k in a query string, or nil."
+  "The URL-decoded value of parameter k in a query string, or nil — also
+  when its encoding is broken (%zz), as any web page can send."
   [query-string k]
   (when (some? query-string)
     (some (fn [kv]
             (let [[name v] (str/split kv #"=" 2)]
               (when (= name k)
-                (java.net.URLDecoder/decode (or v "") "UTF-8"))))
+                (try (java.net.URLDecoder/decode (or v "") "UTF-8")
+                     (catch IllegalArgumentException _ nil)))))
           (str/split query-string #"&"))))
 
 (defn- embedded-compare?
@@ -405,10 +423,8 @@
         {:ok true :created nil}
         (do (.mkdirs (.getParentFile target))
             (try
-              ;; CREATE_NEW: a file that appeared since the check is kept
-              (java.nio.file.Files/write (.toPath target) content
-                                         (into-array java.nio.file.OpenOption
-                                                     [java.nio.file.StandardOpenOption/CREATE_NEW]))
+              ;; a file that appeared since the check is kept
+              (write-new! target content)
               {:ok true :created rel}
               (catch java.nio.file.FileAlreadyExistsException _
                 {:ok true :created nil})))))
@@ -463,14 +479,19 @@
   [s]
   ;; LineNumberingPushbackReader counts lines (and folds \r\n to \n,
   ;; also inside strings); it wraps reader errors in a ReaderException,
-  ;; so rethrow the plain message
+  ;; so rethrow the plain message. A form nested past the stack is an
+  ;; Error, not an Exception: made one here, it is just a file that
+  ;; doesn't parse, for every caller.
   (let [r (LineNumberingPushbackReader. (StringReader. s))
         root (try (edn/read {:eof nil} r)
+                  (catch StackOverflowError _ (throw (ex-info "the file nests too deeply to read" {})))
                   (catch Exception e (throw (ex-info (ex-message (or (ex-cause e) e)) {} e))))]
     ;; a root that isn't a map gets normalize's own warning instead
     (when (map? root)
       (let [line (.getLineNumber r)]
-        (when-not (= ::eof (try (edn/read {:eof ::eof} r) (catch Exception _ ::stray)))
+        (when-not (= ::eof (try (edn/read {:eof ::eof} r)
+                                (catch StackOverflowError _ ::stray)
+                                (catch Exception _ ::stray)))
           (throw (ex-info (str "content after the end of the graph: its map closes at line "
                                line " — check there for an extra }")
                           {})))))
@@ -1264,6 +1285,15 @@
 (defn- request-line [req]
   (str (some-> (:request-method req) name str/upper-case) " " (:uri req)))
 
+(defn- logged-body
+  "What the debug log keeps of a rejected response's body: a JSON one's
+  error alone — the rest may be a doc's whole text (a 409 has it)."
+  [{:keys [headers body]}]
+  (when (string? body)
+    (if (= "application/json" (get headers "Content-Type"))
+      (try (get (json/parse-string body) "error") (catch Exception _ nil))
+      body)))
+
 (defn guard
   "Wrap a ring handler so an uncaught exception becomes a crash report on
   disk plus a 500 JSON error (with a non-null message, which the browser
@@ -1272,10 +1302,10 @@
   [h]
   (fn [req]
     (try
-      (let [{:keys [status body] :as resp} (h req)]
+      (let [{:keys [status] :as resp} (h req)]
         (when (and (some? status) (>= status 400))
           (log/event! "error" {:request (request-line req) :status status
-                               :body (when (string? body) body)}))
+                               :body (logged-body resp)}))
         resp)
       (catch Throwable e
         (log/crash! {:request (request-line req)} e)

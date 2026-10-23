@@ -389,3 +389,10 @@
     (is (= [] (ok "```simpleviz-table\n[:b] str\n```\n")) "a def block right above"))
   (is (= [] (calc/chart-warnings "```simpleviz-chart-table extra\n{}\n```\n" nil))
       "another info string is plain code, as the page shows it"))
+
+(deftest data-and-charts-nested-too-deep-to-read-say-so
+  (let [deep (str (apply str (repeat 200000 "[")) (apply str (repeat 200000 "]")))
+        [t] (calc/with-data [{:cells [["=(sum :b)"]] :defs ">> [s](s.edn)\n>> [:a]"}] (fn [_] ["edn" deep]))]
+    (is (re-find #"nests too deeply" (:data-error t))))
+  (is (thrown-with-msg? Exception #"nests too deeply"
+                        (calc/chart-spec (str (apply str (repeat 200000 "{:a ")) (apply str (repeat 200000 "}"))) 2 4))))

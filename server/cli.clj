@@ -125,9 +125,13 @@
          distinct
          sort)))
 
-(defn- write-file! [f text]
+(defn- write-file!
+  "Write `text` to `f`, which must not be there — a link that is would
+  take the write wherever it points."
+  [f text]
   (try (io/make-parents f)
-       (spit f text)
+       (serve/write-new! f (.getBytes ^String text "UTF-8"))
+       (catch java.nio.file.FileAlreadyExistsException _ (die f " already exists"))
        (catch java.io.IOException e (die "cannot write " f ": " (ex-message e)))))
 
 (defn- shown-graphs
@@ -154,7 +158,7 @@
     (into [file]
           (keep (fn [rel]
                   (let [g (io/file (.getParentFile (.getAbsoluteFile f)) rel)]
-                    (when (and (some? graph-src) (not (.exists g)))
+                    (when (and (some? graph-src) (not (serve/there? g)))
                       (write-file! g (slurp graph-src))
                       (str (.normalize (.toPath (if-let [dir (.getParent f)] (io/file dir rel) (io/file rel)))))))))
           (shown-graphs text))))
@@ -168,12 +172,10 @@
     (let [src (or (template-source template ext)
                   (die "unknown template: " template
                        " (available: " (str/join ", " (available-templates ext)) ")"))]
-      (when (.exists (io/file file)) (die file " already exists"))
+      (when (serve/there? file) (die file " already exists"))
       (let [written (if (= ext "md")
                       (init-md! file (slurp src))
-                      (do (try (with-open [in (io/input-stream src)] (io/copy in (io/file file)))
-                               (catch java.io.IOException e (die "cannot write " file ": " (ex-message e))))
-                          [file]))]
+                      (do (write-file! file (slurp src)) [file]))]
         (println (str "created " (str/join ", " written) " — view it with: simpleviz " file))))))
 
 (def port-range (range 7370 7470))

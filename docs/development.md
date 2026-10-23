@@ -83,10 +83,13 @@ compare export (PNG or SVG) refuses the parameter. `/api/root` names the root fi
 
 CI (`bb test`, then `bb jar:smoke`) runs on every push to main and every
 pull request (`.github/workflows/ci.yml`), once per babashka version in its
-matrix: only the last two minor releases (currently 1.12 and 1.13), pinned
-to their latest patch. When a new minor release comes out, move the matrix
-up, and raise `MIN_BB` in `install.sh` to the older of the two; the release
-workflow builds with the newer one.
+matrix: only the latest babashka release, which is also the floor,
+`MIN_BB` in `install.sh` — so no release runs on a babashka with fixes it
+lacks (every 1.12, and 1.13 before 1.13.220, bundle an http-kit with
+GHSA-qwg7-h8j3-975p, GHSA-h7mc-gw66-cwmx, GHSA-4gx4-prhm-c233 and
+GHSA-j9v4-rr7v-r6pw). When babashka releases, move all of them up
+together: `MIN_BB`, the CI matrix, and the release and vulnerability
+workflows.
 
 Cut a release with `bb release vX.Y.Z` from a clean `main` that matches
 `origin/main`. It writes the version into the plugin manifests

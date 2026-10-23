@@ -14,7 +14,7 @@ REPO="sstoehrm/simpleviz"
 API_URL="https://api.github.com/repos/$REPO/releases/latest"
 SIMPLEVIZ_HOME="${SIMPLEVIZ_HOME:-$HOME/.simpleviz}"
 BIN_DIR="${SIMPLEVIZ_BIN:-$HOME/.local/bin}"
-MIN_BB="1.12.0"
+MIN_BB="1.13.226"
 
 die() { echo "install: $*" >&2; exit 1; }
 
@@ -104,7 +104,7 @@ set -euo pipefail
 
 SIMPLEVIZ_HOME="${SIMPLEVIZ_HOME:-$HOME/.simpleviz}"
 API_URL="https://api.github.com/repos/sstoehrm/simpleviz/releases/latest"
-MIN_BB="1.12.0"
+MIN_BB="1.13.226"
 
 die() { echo "simpleviz: $*" >&2; exit 1; }
 

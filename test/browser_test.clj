@@ -32,6 +32,8 @@
 
 (deftest snaps-are-recognized
   (is (= "chromium" (browser/snap-name "/snap/bin/chromium" "/usr/bin/snap")))
+  ;; newer snapd: /usr/bin/snap is itself a link, to /usr/lib/snapd/snapd
+  (is (= "chromium" (browser/snap-name "/snap/bin/chromium" "/usr/lib/snapd/snapd")))
   (is (= "chromium" (browser/snap-name "/snap/chromium/3235/usr/lib/chromium-browser/chrome"
                                        "/snap/chromium/3235/usr/lib/chromium-browser/chrome")))
   (is (nil? (browser/snap-name "/usr/bin/google-chrome" "/opt/google/chrome/chrome"))))

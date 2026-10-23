@@ -38,10 +38,13 @@
 
 (defn snap-name
   "The snap a browser runs in, or nil: a command resolving to
-  /usr/bin/snap is that snap's launcher, named like the snap; a path under
+  /usr/bin/snap (newer snapd: on to /usr/lib/snapd/snapd), or sitting in
+  /snap/bin/, is that snap's launcher, named like the snap; a path under
   /snap/ names it after /snap/."
   [path resolved]
-  (cond (= resolved "/usr/bin/snap") (str (fs/file-name path))
+  (cond (or (#{"/usr/bin/snap" "/usr/lib/snapd/snapd"} resolved)
+            (str/starts-with? (str path) "/snap/bin/"))
+        (str (fs/file-name path))
         (str/starts-with? (str path) "/snap/") (nth (str/split (str path) #"/" 4) 2)
         :else nil))
 

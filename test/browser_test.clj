@@ -276,6 +276,31 @@
               :extra {"g.edn" "{:nodes {:a {}}}"} :size size))
         (str "at " (or size "the default size"))))))
 
+(deftest the-toolbar-beside-the-md-page-sits-between-the-steps-bar-and-the-inspector
+  ;; the new node is selected: the inspector opens on the right and the
+  ;; toolbar keeps to the room between it and the steps bar
+  (with-real-browser
+    (is (= {:inspecting true :clear-of-steps true :clear-of-inspector true}
+           (eval-on-served-page
+            path "notes.md" "See [the graph](g.edn).\n"
+            (str "new Promise(ok => { let step = 0; const t = setInterval(() => {"
+                 " const tb = () => [...document.querySelectorAll('#selection-toolbar button')];"
+                 " if (step === 0) { const link = document.querySelector('#md-view a.md-link'); if (!link) return;"
+                 "  link.click(); step = 1; return; }"
+                 " if (step === 1) { const b = tb().find(b => b.innerText.startsWith('new')); if (!b) return; b.click(); step = 2; return; }"
+                 " if (step === 2) { const b = [...document.querySelectorAll('#chord-popout button')].find(b => b.innerText.startsWith('new node'));"
+                 "  if (!b) return; b.click(); step = 3; return; }"
+                 " if (step === 3) { const input = document.querySelector('.id-entry-input'); if (!input) return;"
+                 "  input.value = 'queue'; input.dispatchEvent(new Event('input', {bubbles: true}));"
+                 "  input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true})); step = 4; return; }"
+                 " const details = document.getElementById('details'), steps = document.getElementById('steps-bar');"
+                 " if (!document.getElementById('root').classList.contains('inspecting') || !details || !steps) return;"
+                 " clearInterval(t);"
+                 " const a = document.getElementById('selection-toolbar').getBoundingClientRect();"
+                 " ok({inspecting: true, 'clear-of-steps': steps.getBoundingClientRect().right <= a.left,"
+                 "     'clear-of-inspector': a.right <= details.getBoundingClientRect().left}); }, 50); })")
+            :extra {"g.edn" "{:nodes {:a {}}}"} :size {:width 1920 :height 1080})))))
+
 (deftest a-presentation-steps-through-its-slides
   ;; Present: the title slide alone and centered, every tool hidden but
   ;; Leave; → shows the next slide and what its >> names beside it — a

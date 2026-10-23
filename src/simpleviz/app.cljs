@@ -1452,9 +1452,13 @@
 ;; text without a formula or def block, {} too while the server works,
 ;; {:tables …} after, {:failed msg} when it couldn't be asked — after a
 ;; network or server error asked again in 5 s. A text keeps its hash, so
-;; looking it up costs nothing; past 50 the one used longest ago goes.
-;; Texts without a formula aren't kept: may-calc? tells them apart.
+;; looking it up costs nothing; past 50 the one used longest ago goes —
+;; unless the render now on the page uses it too (the PDF shows every
+;; slide at once). Texts without a formula aren't kept: may-calc? tells
+;; them apart.
 (def ^:private calc-results (js/Map.))
+;; the texts the last render asked calc-for! about (rerender! clears it)
+(def ^:private calc-shown (js/Set.))
 ;; the /api/calc requests not answered yet: the PDF waits for them
 (def ^:private calc-in-flight (atom 0))
 
@@ -1464,7 +1468,9 @@
   (let [m (or (.get calc-results path) (let [m (js/Map.)] (.set calc-results path m) m))]
     (.delete m text)
     (.set m text v)
-    (when (> (.-size m) 50) (.delete m (.-value (.next (.keys m)))))))
+    (let [oldest (.-value (.next (.keys m)))]
+      (when (and (> (.-size m) 50) (not (.has calc-shown oldest)))
+        (.delete m oldest)))))
 
 (defn- ^:async fetch-calc! [path text tables]
   (remember-calc! path text {})
@@ -1488,9 +1494,12 @@
   (markdown/render's calc) — the path, for the data their blocks link —
   nil until the server has them, asking it the first time."
   [path text]
-  (let [hit (some-> (.get calc-results path) (.get text))]
-    ;; a hit is used now: it goes last
-    (when (some? hit) (remember-calc! path text hit))
+  (.add calc-shown text)
+  (let [m (.get calc-results path)
+        hit (some-> m (.get text))]
+    ;; a hit is used now: it goes last — and evicts nothing, or it could
+    ;; take what a slide further on in this render is about to read
+    (when (some? hit) (.delete m text) (.set m text hit))
     (cond (some? (:failed hit)) hit
           (some? hit) (:tables hit)
           ;; most texts have no table to calculate: skip parsing them
@@ -1729,7 +1738,9 @@
         ds (deck st)
         n (count ds)
         unanswered (assoc st :answers {} :present {})]
-    (into [:div {:id "print"}]
+    (into [:div {:id "print"}
+           ;; only here: printing the page itself keeps the browser's pages
+           [:style "@page { size: 1280px 720px; margin: 0; }"]]
           (map-indexed
            (fn [i s]
              (let [side (nth (:print st) i nil)]
@@ -2079,6 +2090,7 @@
 (declare sync-split!)
 
 (defn- rerender! []
+  (.clear calc-shown)
   (render app-el (app-view @state))
   (sync-split!)
   (canvas/request-paint!))

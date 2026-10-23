@@ -88,9 +88,9 @@
            (str/split-lines (str/trim (:err r)))))))
 
 (e2e a-long-deck-with-formulas-exports
-  ;; more slides than the page keeps formula results for, two tables apart
-  (let [table "| a | b |\n|---|--:|\n| x | 2 |\n| y | =(* 2 (sum :b 1)) |\n"
-        slides (for [i (range 60)] (str "# Slide " i "\n\n" (if (#{3 57} i) table (str "text " i)) "\n"))]
+  ;; more slides with formulas than the page keeps results for at once
+  (let [table (fn [i] (str "| a | b |\n|---|--:|\n| x | " i " |\n| y | =(* 2 (sum :b 1)) |\n"))
+        slides (for [i (range 60)] (str "# Slide " i "\n\n" (table i) "\n"))]
     (spit (at tmp "long.md") (str/join "---\n" slides))
     (let [r (export! tmp "long.md" "long.pdf")]
       (is (= 0 (:exit r)) (:err r))

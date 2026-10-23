@@ -271,7 +271,6 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
 /* the deck laid out for its PDF (simpleviz export talk.md talk.pdf): a
    page per slide, 1280×720 as server/browser.clj sets the window and
    prints it; the page scrolls instead of the canvas filling it */
-@page { size: 1280px 720px; margin: 0; }
 body:has(#print) { overflow: visible; }
 body:has(#print) :is(#canvas-wrap, #app) { position: static; }
 .print-page { position: relative; width: 1280px; height: 720px; overflow: hidden; display: flex;

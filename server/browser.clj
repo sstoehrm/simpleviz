@@ -206,14 +206,28 @@
     (when (nil? (deref loaded page-timeout-ms nil))
       (throw (ex-info (str "the page did not load within " (quot page-timeout-ms 1000) " s") {})))))
 
+(def slide-size
+  "A PDF page, in CSS px: the page lays a slide out at this size, 16:9."
+  {:width 1280 :height 720})
+
 (defn export-page!
-  "Navigate to page-url and return window.simplevizExport's data: base64
-  for \"png\", SVG text for \"svg\"."
+  "Navigate to page-url and return window.simplevizExport's reply: its
+  :data base64 for \"png\", SVG text for \"svg\"; for \"pdf\" the page
+  lays out its slides, a page each (:slides how many), and :data is the
+  PDF Chrome prints of it, base64."
   [ws-url page-url {:keys [format theme timeout-ms]}]
   (let [page (open-page ws-url)]
     (try
+      (when (= format "pdf")
+        (call page "Emulation.setDeviceMetricsOverride"
+              (assoc slide-size :deviceScaleFactor 1 :mobile false) page-timeout-ms "the page"))
       (navigate! page page-url)
-      (:data (evaluate page (str "window.simplevizExport("
-                                 (json/generate-string {:format format :theme theme}) ")")
-                       timeout-ms))
+      (let [r (evaluate page (str "window.simplevizExport("
+                                  (json/generate-string {:format format :theme theme}) ")")
+                        timeout-ms)]
+        (if (= format "pdf")
+          (assoc r :data (:data (call page "Page.printToPDF"
+                                      {:printBackground true :preferCSSPageSize true}
+                                      timeout-ms "printing the PDF")))
+          r))
       (finally (close-page page)))))

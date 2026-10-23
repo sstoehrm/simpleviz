@@ -10,7 +10,7 @@
                                       add-node-in-box-ops box-remove-op
                                       name->id derived-id named-edge-ops creation-ops parse-entry
                                       parse-nav nav-query follow-url crumb-url ref-of banner-visible?
-                                      theme-menu top-box-of load-readiness export-readiness layout-landing
+                                      theme-menu top-box-of load-readiness export-readiness deck-readiness side-readiness layout-landing
                                       md-target from-disk to-disk md-dirty? adopt-doc gone-doc poll-outcome save-result
                                       parent-box split-parent doc-kind link-target line-markers link-title
                                       with-side with-slide mark-open? with-compare follow-compare
@@ -415,6 +415,23 @@
       (assert/equal (:error (export-readiness (assoc base :notice "Render error: ELK blew up")))
                     "Render error: ELK blew up")
       (assert/equal (:ready (export-readiness (assoc base :notice "PNG side is read-only"))) true))))
+
+(test "deck-readiness waits for the md page's text or its error"
+  (fn []
+    (assert/ok (nil? (deck-readiness {:md nil :error nil})))
+    (assert/equal (:ready (deck-readiness {:md {:page true :text "# T"} :error nil})) true)
+    (assert/equal (:ready (deck-readiness {:md {:page true :text ""} :error nil})) true)
+    (assert/equal (:error (deck-readiness {:md nil :error "Doc error: x"})) "Doc error: x")))
+
+(test "side-readiness takes the slide's graph as presenting draws it"
+  (fn []
+    (let [base {:scene {:items []} :layouting false :collapsed-boxes (js/Set. ["a"]) :error nil}]
+      ;; collapsed boxes stay collapsed: the page shows what presenting does
+      (assert/equal (:ready (side-readiness base)) true)
+      (assert/ok (nil? (side-readiness (assoc base :layouting true))))
+      (assert/ok (nil? (side-readiness (assoc base :scene nil))))
+      (assert/equal (:error (side-readiness (assoc base :scene nil :error "Graph error: x")))
+                    "Graph error: x"))))
 
 (test "layout-landing: the newest run shows, an overtaken one only caches"
   ;; layouts run off the page's thread, so a reload or a box toggle can

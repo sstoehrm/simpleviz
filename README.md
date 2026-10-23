@@ -57,7 +57,7 @@ own — [40-second video](docs/assets/whats-new-0.47.mp4)
 - [Charts](docs/charts.md) — a table shown as a bar, line or scatter
   chart, or a chart of a CSV, JSON or EDN file on its own.
 - [Presentations](docs/presentations.md) — an md file as slides, a graph,
-  doc or picture beside each.
+  doc or picture beside each; exported as a PDF.
 - [Quizzes](docs/quizzes.md) — questions and polls on a slide, the
   answers written to a file an agent can read.
 
@@ -105,6 +105,7 @@ Without an installer, unpack a tarball from the
     simpleviz my-arch.edn next                 # compare my-arch.edn → my-arch-next.edn
     simpleviz promote my-arch.edn next         # make the forks the new originals
     simpleviz export my-arch.edn my-arch.png   # the ⇩ export from the terminal (needs Chrome or Chromium)
+    simpleviz export talk.md talk.pdf          # a deck as a PDF, a page per slide
 
 `--no-open` prints the URL without opening a browser; `simpleviz --help`
 lists the rest. Press `?` in the page for controls and shortcuts.

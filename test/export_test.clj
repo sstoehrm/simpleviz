@@ -7,6 +7,7 @@
             [browser]
             [clojure.string :as str]
             [clojure.test :refer [deftest is]]
+            [deck]
             [embedded]
             [png]
             [proc-util]
@@ -67,3 +68,17 @@
   (let [r (export! tmp "demo.edn" "no/such/dir/x.png")]
     (is (= 1 (:exit r)))
     (is (str/starts-with? (:err r) "simpleviz: cannot write no/such/dir/x.png") (:err r))))
+
+(e2e a-deck-exports-as-a-pdf-page-per-slide
+  (let [n (count (deck/slides (slurp (at tmp "deck.md"))))
+        r (export! tmp "deck.md" "deck.pdf")]
+    (is (= 0 (:exit r)) (:err r))
+    (is (= (str "wrote deck.pdf (" n " slides)") (str/trim (:out r)))))
+  (is (= "%PDF-" (subs (slurp (at tmp "deck.pdf")) 0 5))))
+
+(e2e a-deck-with-a-broken-side-still-exports
+  ;; the slide says what's wrong, as it does presenting
+  (spit (at tmp "talk.md") "# Talk\n---\n>> [gone](gone.edn)\n# A\n---\n>> [demo](demo.edn)\n# B\n")
+  (let [r (export! tmp "talk.md" "talk.pdf")]
+    (is (= 0 (:exit r)) (:err r))
+    (is (= "wrote talk.pdf (3 slides)" (str/trim (:out r))))))

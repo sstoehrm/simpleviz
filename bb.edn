@@ -27,7 +27,7 @@
   extract  {:doc "Extract embedded EDN from an exported PNG/SVG: bb extract diagram.png|.svg [out.edn] [--old]"
             :requires ([embedded])
             :task (apply embedded/-main *command-line-args*)}
-  export   {:doc "Export a graph as PNG/SVG via headless Chrome: bb export graph.edn [suffix] out.png|out.svg [--theme t] [--force]"
+  export   {:doc "Export a graph as PNG/SVG, or an md deck as PDF, via headless Chrome: bb export graph.edn [suffix] out.png|out.svg | talk.md out.pdf [--theme t] [--force]"
             :requires ([cli])
             :task (apply cli/-main "export" *command-line-args*)}
   check    {:doc "Report a graph's parse error or validation warnings, or an md file's broken links and malformed questions (exit 1 on any): bb check graph.edn|.png|.svg|doc.md"
@@ -73,7 +73,7 @@
                                                    extract {:doc "Extract embedded EDN from an exported PNG/SVG: bb extract diagram.png|.svg [out.edn] [--old]"
                                                             :requires ([embedded])
                                                             :task (apply embedded/-main *command-line-args*)}
-                                                   export {:doc "Export a graph as PNG/SVG via headless Chrome: bb export graph.edn [suffix] out.png|out.svg [--theme t] [--force]"
+                                                   export {:doc "Export a graph as PNG/SVG, or an md deck as PDF, via headless Chrome: bb export graph.edn [suffix] out.png|out.svg | talk.md out.pdf [--theme t] [--force]"
                                                            :requires ([cli])
                                                            :task (apply cli/-main "export" *command-line-args*)}
                                                    check {:doc "Report a graph's parse error or validation warnings, or an md file's broken links and malformed questions (exit 1 on any): bb check graph.edn|.png|.svg|doc.md"

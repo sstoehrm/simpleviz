@@ -240,7 +240,10 @@ the platform team
   append slides.
 - A graph beside a slide can be hovered, inspected, panned, zoomed and
   collapsed, but not edited; refs and pairs don't follow.
-- There is no deck export (PDF, per-slide images); export the graphs.
+- `simpleviz export talk.md talk.pdf` writes the deck as a PDF, a 16:9
+  page per slide with its `>>` beside it (graphs as presented, first
+  step only; questions unanswered). Text that overflows a slide is cut
+  off — keep slides short.
 
 ## Quizzes
 
@@ -419,6 +422,7 @@ the file behind an extra `}`) is a parse error too.
     simpleviz export graph.edn out.png  # PNG/SVG via headless Chrome or Chromium, never a
                                      # window (suffix for a compare export, --theme <name>,
                                      # --force to overwrite)
+    simpleviz export talk.md talk.pdf   # a deck's slides as a PDF, a page each (--theme, --force)
     simpleviz extract diagram.png    # print the embedded EDN (a compare export embeds both:
                                      # --old for the old one; out.edn arg writes a file)
     simpleviz update                 # install the latest release if newer

@@ -415,7 +415,8 @@ understand too:
 - A `:ref` on a graph element may name an `.md` file: following it
   opens the md page. `:md-ref` still opens the doc beside the graph,
   and its links work the same way.
-- md files can't be compared, forked or exported; `simpleviz notes.md
+- md files can't be compared or forked, and export only as the PDF of
+  their slides (see [Presenting](#presenting)); `simpleviz notes.md
   next` is refused.
 
 ### Table formulas
@@ -579,6 +580,14 @@ line is `>>` and a link shows the linked file to the right of its text:
   text, except web links.
 - The URL keeps the slide (`?slide=3`), so a reload shows it again. The
   text follows the file on disk while you present.
+- `simpleviz export talk.md talk.pdf [--theme <name>] [--force]` writes
+  the deck as a PDF, one 1280×720 page per slide, in a headless Chrome
+  or Chromium (see [From the terminal](#from-the-terminal)). Each page
+  shows what presenting shows: the slide, what its `>>` names beside it
+  (a graph as drawn when presented, boxes collapsed or not, in vector),
+  and its number. A graph with `:steps` shows its first state; a
+  question shows its choices, unanswered, without Submit. Text that
+  overflows a slide is cut off, as it would scroll when presenting.
 - `simpleviz init talk.md -t presentation` writes a deck to start from,
   and `talk.edn` beside it for its graph slide. `simpleviz demo` brings
   `deck.md`, a deck about decks, and `quiz.md`, a quiz on the demo graph
@@ -702,8 +711,10 @@ the page renders it in a headless Chrome or Chromium.
     simpleviz export graph.edn next diff.svg           # compare export, both files embedded
     simpleviz export diagram.png diagram.svg           # re-export an export
     simpleviz export graph.edn graph.png --theme nord  # pick the theme
+    simpleviz export talk.md talk.pdf                  # an md file's slides, a page each
 
-- The format follows the output's extension, `.png` or `.svg`. An existing
+- The format follows the output's extension, `.png` or `.svg` — or `.pdf`
+  for an md file, the PDF of its slides (see [Presenting](#presenting)). An existing
   output is kept unless you pass `--force`.
 - Every box is expanded, even in a big graph that the page opens collapsed.
 - The theme is the file's `:theme`. A file without one gets `--theme`, else

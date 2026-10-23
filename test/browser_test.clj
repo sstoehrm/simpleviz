@@ -96,8 +96,8 @@
       (try
         (browser/with-browser path
           (fn [ws-url _]
-            (is (= "svg:nord" (browser/export-page! ws-url (str "http://127.0.0.1:" (srv/server-port stop))
-                                                    {:format "svg" :theme "nord" :timeout-ms 10000})))))
+            (is (= {:data "svg:nord"} (browser/export-page! ws-url (str "http://127.0.0.1:" (srv/server-port stop))
+                                                              {:format "svg" :theme "nord" :timeout-ms 10000})))))
         (finally (srv/server-stop! stop))))))
 
 (defn- profiles-in [dir]

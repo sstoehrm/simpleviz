@@ -774,6 +774,25 @@
         (and (nil? (:scene st)) (some? (:error st))) {:error (:error st)}
         :else nil))
 
+(defn deck-readiness
+  "Where the md page's first load stands for the PDF of its slides:
+  {:ready true} once its text arrived, {:error msg} when only an error
+  did, nil while waiting."
+  [st]
+  (cond (string? (:text (:md st))) {:ready true}
+        (some? (:error st)) {:error (:error st)}
+        :else nil))
+
+(defn side-readiness
+  "Whether the graph beside a slide can go into the PDF as presenting
+  draws it — boxes collapsed or not: {:ready true} for a settled scene,
+  {:error msg} when the graph failed and there is none, nil while it
+  loads or lays out."
+  [st]
+  (cond (and (some? (:scene st)) (not (:layouting st))) {:ready true}
+        (and (nil? (:scene st)) (some? (:error st))) {:error (:error st)}
+        :else nil))
+
 (defn layout-landing
   "What a finished layout run may do, given what it started under, `run`,
   and what holds now, `now` — each {:gen the graph generation :seq the

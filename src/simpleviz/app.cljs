@@ -82,6 +82,9 @@
                   ;; answers file could not be read; and the answers not
                   ;; written to it yet, name -> why (post-answer!)
                   :answers {} :answer-error nil :unsaved {}
+                  ;; the deck laid out for its PDF (pdf-export): what each
+                  ;; slide's >> shows beside it, nil for none; nil when not
+                  :print nil
                   :nav (editor/parse-nav js/location.search) :nav-error nil
                   ;; your theme (#115), for files without :theme (load-prefs!)
                   :theme-pref nil
@@ -1446,6 +1449,8 @@
 ;; network or server error asked again in 5 s. A text keeps its hash, so
 ;; looking it up costs nothing; the oldest of a file's texts go past 50.
 (def ^:private calc-results (js/Map.))
+;; the /api/calc requests not answered yet: the PDF waits for them
+(def ^:private calc-in-flight (atom 0))
 
 (defn- calc-tick! [] (swap! state update :calc-tick (fnil inc 0)))
 
@@ -1457,6 +1462,7 @@
 
 (defn- ^:async fetch-calc! [path text tables]
   (remember-calc! path text {})
+  (swap! calc-in-flight inc)
   (let [[out retry]
         (try (let [resp (js-await (post-json "/api/calc" {:path path :tables tables}))]
                (if (.-ok resp)
@@ -1466,6 +1472,7 @@
                   (>= (.-status resp) 500)]))
              (catch :default _ [{:failed "couldn't calculate: no server"} true]))]
     (remember-calc! path text out)
+    (swap! calc-in-flight dec)
     (when retry
       (js/setTimeout (fn [] (some-> (.get calc-results path) (.delete text)) (calc-tick!)) 5000))
     (calc-tick!)))
@@ -1634,6 +1641,17 @@
        (when (some? note)
          (into [:div {:class "md-doc ask-note"}] (markdown/render note link-fn (calc-for! (:path (:md st)) note))))])))
 
+(defn- title-slide?
+  "Is slide `s`, the i-th, the title slide? The first one, alone."
+  [i s]
+  (and (= i 0) (nil? (:side s)) (nil? (:ask s))))
+
+(defn- slide-doc
+  "The text of slide `s` of the md file at `md-path`, rendered."
+  [md-path s]
+  (into [:div {:class "md-doc" :on-click in-page-click}]
+        (markdown/render (:text s) (present-link-fn md-path) (calc-for! md-path (:text s)))))
+
 (defn- present-panel
   "The slide presented, in the md page's place: the window, or its left
   half while something shows beside it. The first slide, alone, is the
@@ -1644,11 +1662,10 @@
         i (:slide (:present st))
         s (nth ds i nil)]
     [:aside {:id "md-panel" :class "page"}
-     [:div {:id "present-slide" :class (if (and (= i 0) (nil? (:side s)) (nil? (:ask s))) "title" "")}
-      (into [:div {:class "md-doc" :on-click in-page-click}]
-            (if (some? s)
-              (markdown/render (:text s) (present-link-fn (:path (:md st))) (calc-for! (:path (:md st)) (:text s)))
-              [[:p {:class "md-empty"} "No slides left — the text is empty."]]))
+     [:div {:id "present-slide" :class (if (title-slide? i s) "title" "")}
+      (if (some? s)
+        (slide-doc (:path (:md st)) s)
+        [:div {:class "md-doc"} [:p {:class "md-empty"} "No slides left — the text is empty."]])
       (when (some? (:ask s)) (ask-view st (:ask s)))
       ;; on every slide: a presenter who went on must see it too
       (when (some? (:answer-error st))
@@ -1659,23 +1676,59 @@
               (last (vals (:unsaved st))))])]
      [:div {:id "present-counter"} (str (min (inc i) n) " / " n)]]))
 
+(defn- side-body
+  "What a slide's >> shows beside it, by its side {:kind :path :text}:
+  the picture (`img-error` handling one that won't load), the md file
+  rendered, or why it can't show."
+  [{:keys [kind path text]} img-error]
+  (case kind
+    "image" [:img {:src (str "/api/file?path=" (js/encodeURIComponent path)) :alt path :on-error img-error}]
+    "md" (into [:div {:class "md-doc" :on-click in-page-click}]
+               (if (some? text)
+                 (markdown/render text (present-link-fn path) (calc-for! path text))
+                 [[:p {:class "md-empty"} "loading…"]]))
+    [:div {:class "present-side-error"} text]))
+
 (defn- present-side-view
   "Beside the slide: the md file or picture its >> names, or why it
   can't show. A graph shows on the canvas instead."
   [st]
-  (when-let [{:keys [kind path text]} (:side (:present st))]
+  (when-let [{:keys [kind path] :as side} (:side (:present st))]
     [:div {:id "present-side" :class kind}
-     (case kind
-       "image" [:img {:src (str "/api/file?path=" (js/encodeURIComponent path)) :alt path
-                      :on-error (fn [_]
-                                  (when (= path (:path (:side (:present @state))))
-                                    (swap! state assoc-in [:present :side]
-                                           {:kind "error" :text (str path " — no such picture, or not one the browser shows")})))}]
-       "md" (into [:div {:class "md-doc" :on-click in-page-click}]
-                  (if (some? text)
-                    (markdown/render text (present-link-fn path) (calc-for! path text))
-                    [[:p {:class "md-empty"} "loading…"]]))
-       [:div {:class "present-side-error"} text])]))
+     (side-body side
+                (fn [_]
+                  (when (= path (:path (:side (:present @state))))
+                    (swap! state assoc-in [:present :side]
+                           {:kind "error" :text (str path " — no such picture, or not one the browser shows")}))))]))
+
+(defn- print-view
+  "The deck laid out for its PDF (pdf-export): a page per slide, the
+  size browser.clj prints, each with what its >> shows beside it — a
+  graph as the SVG of its scene — and its number. A question shows its
+  choices, unanswered."
+  [st]
+  (let [path (:path (:md st))
+        ds (deck st)
+        n (count ds)
+        unanswered (assoc st :answers {} :present {})]
+    (into [:div {:id "print"}]
+          (map-indexed
+           (fn [i s]
+             (let [side (nth (:print st) i nil)]
+               [:section {:class (str "print-page" (when (some? side) " halves"))}
+                [:div {:class (str "print-slide" (when (title-slide? i s) " title"))}
+                 (slide-doc path s)
+                 (when (some? (:ask s)) (ask-view unanswered (:ask s)))]
+                (when (some? side)
+                  [:div {:class (str "print-side " (:kind side))}
+                   (if (= "graph" (:kind side))
+                     ;; as presenting fits it: at most 1.25×, 90% of the half
+                     [:img {:src (:svg side) :alt (:path side)
+                            :style {:width (str (* 1.25 (:width side)) "px")
+                                    :height (str (* 1.25 (:height side)) "px")}}]
+                     (side-body side nil))])
+                [:div {:class "print-counter"} (str (inc i) " / " n)]]))
+           ds))))
 
 (def ^:private max-choices-shown 200)
 
@@ -1899,7 +1952,7 @@
        [:button {:type "button" :class "ps-next" :disabled (>= k (dec n)) :title "Next step"
                  :on-click (fn [_] (show-step! (inc k)))} "Next ▸"]])))
 
-(defn- app-view [st]
+(defn- live-view [st]
   (let [page (page? st)
         split (split? st)
         graph (graph-shown? st)
@@ -1987,6 +2040,11 @@
    ;; the inspector: beside the graph of an md page too, not beside a docked doc
    (when (and (some? (:selected st)) (or (nil? (:md st)) split))
      (details-view st))]))
+
+(defn- app-view [st]
+  (if (some? (:print st))
+    (print-view st)
+    (live-view st)))
 
 (defn- paint-now! []
   (when-let [canvas-el (js/document.getElementById "canvas")]
@@ -3412,36 +3470,89 @@
 
 (defn- sleep [ms] (js/Promise. (fn [res] (js/setTimeout res ms))))
 
-(defn- ^:async wait-for!
-  "Resolve once (readiness @state) is {:ready true}; reject with its
-  :error. Polls every 50 ms — the CLI bounds the wait."
+(defn- ^:async settled
+  "(readiness @state) once it isn't nil. Polls every 50 ms — the CLI
+  bounds the wait."
   [readiness]
   (let [r (readiness @state)]
-    (cond (some? (:error r)) (throw (js/Error. (:error r)))
-          (:ready r) true
-          :else (do (js-await (sleep 50)) (js-await (wait-for! readiness))))))
+    (if (some? r) r (do (js-await (sleep 50)) (js-await (settled readiness))))))
 
-(defn- ^:async headless-export
-  "window.simplevizExport: wait for the graph, take `theme` as this page's
-  theme preference (never stored), expand every box, wait for the layout,
-  then hand back what the ⇩ menu would download — {:data base64} for
-  \"png\", {:data svg-text} for \"svg\"."
+(defn- ^:async wait-for!
+  "Resolve once (readiness @state) is {:ready true}; reject with its
+  :error."
+  [readiness]
+  (let [r (js-await (settled readiness))]
+    (if (some? (:error r)) (throw (js/Error. (:error r))) true)))
+
+(defn- ^:async print-sides
+  "Present the deck's slides from i on, in turn, taking what each one's
+  >> shows — a graph as the SVG of its scene as presenting lays it out,
+  in a data URL — onto `out`."
+  [i out]
+  (if (>= i (count (deck @state)))
+    out
+    (do (js-await (show-slide! i))
+        (let [p (:present @state)
+              side (cond (nil? (:dest p)) nil
+                         ;; not a graph: an md file, a picture, an error
+                         (some? (:side p)) (:side p)
+                         :else (let [r (js-await (settled editor/side-readiness))]
+                                 (if (some? (:error r))
+                                   {:kind "error" :text (:error r)}
+                                   (let [sc (:scene @state)]
+                                     {:kind "graph" :path (:side @state)
+                                      :width (:width sc) :height (:height sc)
+                                      :svg (str "data:image/svg+xml;charset=utf-8,"
+                                                (js/encodeURIComponent (canvas/export-svg sc [])))}))))]
+          (js-await (print-sides (inc i) (conj out side)))))))
+
+(defn- ^:async pdf-export
+  "window.simplevizExport for \"pdf\": wait for the md page, present each
+  slide once to take what its >> shows, then lay the deck out a page
+  per slide (print-view) and wait for what the pages still load —
+  formula results and charts, pictures, fonts. {:slides n}: browser.clj
+  prints the PDF of the page."
+  [theme]
+  (js-await (wait-for! editor/deck-readiness))
+  (when (some? theme) (swap! state assoc :theme-pref theme))
+  (let [sides (js-await (print-sides 0 []))]
+    (leave-present!)
+    (apply-theme! (effective-theme nil (:theme-pref @state) (:theme @state)))
+    (.add (.-classList js/document.body) "printing")
+    (swap! state assoc :print sides)
+    (js-await (settled (fn [_] (when (zero? @calc-in-flight) {:ready true}))))
+    (js-await (.-ready js/document.fonts))
+    (js-await (js/Promise.all (mapv (fn [img] (.catch (.decode img) (fn [_] nil)))
+                                    (js/Array.from (js/document.querySelectorAll "#print img")))))
+    {:slides (count sides)}))
+
+(defn- ^:async graph-export
+  "window.simplevizExport for a graph: wait for it, take `theme` as this
+  page's theme preference (never stored), expand every box, wait for the
+  layout, then hand back what the ⇩ menu would download — {:data base64}
+  for \"png\", {:data svg-text} for \"svg\"."
+  [fmt theme]
+  (js-await (wait-for! editor/load-readiness))
+  (when (some? theme)
+    (apply-theme! (effective-theme (:graph @state) theme (:theme @state)))
+    (swap! state assoc :theme-pref theme))
+  ;; a render error notice from before must not fail this export
+  (swap! state assoc :notice nil)
+  (when (pos? (.-size (:collapsed-boxes @state)))
+    (swap! state assoc :collapsed-boxes #{} :selected nil)
+    (js-await (relayout!)))
+  (js-await (wait-for! editor/export-readiness))
+  (if (= fmt "svg")
+    {:data (js-await (svg-text))}
+    {:data (png/bytes->base64 (js-await (png-bytes)))}))
+
+(defn- headless-export
+  "window.simplevizExport (simpleviz export, server/browser.clj): a
+  graph's png or svg, or the pdf of an md page's slides."
   [opts]
-  (let [fmt (.-format opts)
-        theme (.-theme opts)]
-    (js-await (wait-for! editor/load-readiness))
-    (when (some? theme)
-      (apply-theme! (effective-theme (:graph @state) theme (:theme @state)))
-      (swap! state assoc :theme-pref theme))
-    ;; a render error notice from before must not fail this export
-    (swap! state assoc :notice nil)
-    (when (pos? (.-size (:collapsed-boxes @state)))
-      (swap! state assoc :collapsed-boxes #{} :selected nil)
-      (js-await (relayout!)))
-    (js-await (wait-for! editor/export-readiness))
-    (if (= fmt "svg")
-      {:data (js-await (svg-text))}
-      {:data (png/bytes->base64 (js-await (png-bytes)))})))
+  (if (= (.-format opts) "pdf")
+    (pdf-export (.-theme opts))
+    (graph-export (.-format opts) (.-theme opts))))
 
 ;; init
 (defn- typing?

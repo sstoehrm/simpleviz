@@ -113,7 +113,7 @@ The SBOM step for each stack, all producing CycloneDX JSON:
 
 | Stack | SBOM step |
 | --- | --- |
-| npm | `npx --yes @cyclonedx/cyclonedx-npm@6.0.1 --package-lock-only --output-format JSON --output-file sbom/npm.cdx.json` |
+| npm | `npm ci --ignore-scripts --prefix tools/sbom`, then `tools/sbom/node_modules/.bin/cyclonedx-npm --package-lock-only --output-format JSON --output-file sbom/npm.cdx.json` (`tools/sbom/` locks `@cyclonedx/cyclonedx-npm` 6.0.1 and its dependencies) |
 | Maven | `mvn -B org.cyclonedx:cyclonedx-maven-plugin:2.9.3:makeAggregateBom -DoutputFormat=json` → copy `target/bom.json` |
 | Gradle | plugin `id("org.cyclonedx.bom") version "3.5.0"`, `./gradlew cyclonedxBom` → copy `build/reports/cyclonedx/bom.json` |
 | Python | in the installed venv: `pipx run --spec cyclonedx-bom==7.5.0 cyclonedx-py environment --of JSON -o sbom/python.cdx.json` |
@@ -154,9 +154,10 @@ gate. OSV-Scanner then scans the final image (OS packages included) too.
   bump is a manual edit of the version and checksum (from the release's
   `osv-scanner_SHA256SUMS` or `syft_*_checksums.txt`) in `vuln-gate.yml` and
   `sbom-jars/action.yml`.
-- `npx` pins `@cyclonedx/cyclonedx-npm` itself, not its dependencies, which
-  resolve afresh each run. Unlike OSV-Scanner and Syft, this tool isn't
-  locked down by checksum.
+- `@cyclonedx/cyclonedx-npm` and all its dependencies are locked, with
+  their integrity hashes, in `tools/sbom/package-lock.json` and installed
+  with `npm ci --ignore-scripts`; Renovate bumps them like the other npm
+  packages.
 - OSV-Scanner asks the OSV API (api.osv.dev) at scan time, so there is no
   vulnerability DB to cache; resolved deps are cached per `bb.edn` hash
   (`~/.m2/repository`). The scan step fails on any OSV-Scanner exit code

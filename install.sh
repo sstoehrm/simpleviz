@@ -8,6 +8,10 @@
 #
 # Env overrides: SIMPLEVIZ_HOME (default ~/.simpleviz),
 #                SIMPLEVIZ_BIN  (default ~/.local/bin)
+#
+# The tarball is checked against the SHA-256 digest GitHub lists for the
+# release asset before anything is extracted; every download is
+# HTTPS-only, redirects included.
 set -euo pipefail
 
 REPO="sstoehrm/simpleviz"
@@ -17,6 +21,9 @@ BIN_DIR="${SIMPLEVIZ_BIN:-$HOME/.local/bin}"
 MIN_BB="1.13.226"
 
 die() { echo "install: $*" >&2; exit 1; }
+
+# curl, HTTPS-only (redirects too), failing on HTTP errors
+fetch() { curl --proto '=https' --proto-redir '=https' -fsSL "$@"; }
 
 check_deps() {
   local c have
@@ -45,14 +52,42 @@ check_paths() {
   esac
 }
 
-fetch_release() { # sets TAG and TARBALL_URL
-  local json
-  json=$(curl -fsSL "$API_URL") || die "could not query $API_URL"
-  TAG=$(grep -m1 '"tag_name"' <<<"$json" | sed -E 's/.*: *"([^"]+)".*/\1/' || true)
-  TARBALL_URL=$(grep -m1 -o '"browser_download_url" *: *"[^"]*\.tar\.gz"' <<<"$json" \
-                | sed -E 's/.*"(https[^"]+)".*/\1/' || true)
+fetch_release() { # sets TAG, TARBALL_URL and TARBALL_DIGEST
+  local json fields
+  json=$(fetch "$API_URL") || die "could not query $API_URL"
+  # the tag, then the .tar.gz asset's URL and digest ("sha256:<hex>"),
+  # one per line, empty when missing
+  fields=$(bb -e '
+    (let [j (cheshire.core/parse-string (slurp *in*) true)
+          a (first (filter #(clojure.string/ends-with? (str (:name %)) ".tar.gz") (:assets j)))]
+      (println (str (:tag_name j)))
+      (println (str (:browser_download_url a)))
+      (println (str (:digest a))))' <<<"$json") \
+    || die "could not read the release from $API_URL"
+  { IFS= read -r TAG; IFS= read -r TARBALL_URL; IFS= read -r TARBALL_DIGEST; } <<<"$fields" || true
   [ -n "$TAG" ] && [ -n "$TARBALL_URL" ] \
     || die "no .tar.gz asset found in the latest release"
+}
+
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | cut -d' ' -f1
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | cut -d' ' -f1
+  else
+    die "sha256sum or shasum is required to verify the download"
+  fi
+}
+
+# fails closed: no digest, a malformed one or a mismatch stops the
+# install before anything is extracted
+verify_tarball() { # verify_tarball <file> <digest: sha256:<hex>>
+  local want="${2:-}" have
+  [[ "$want" =~ ^sha256:[0-9a-f]{64}$ ]] \
+    || die "release ${TAG:-?} lists no SHA-256 digest for its tarball (got '$want') — refusing to install an unverified download"
+  have=$(sha256_of "$1")
+  [ "sha256:$have" = "$want" ] \
+    || die "checksum mismatch for ${TARBALL_URL:-$1}: the release lists ${want#sha256:}, the download is $have — refusing to install"
 }
 
 install_files() {
@@ -62,7 +97,8 @@ install_files() {
   tmp=$(mktemp -d)
   trap 'rm -rf "$tmp"' EXIT
   echo "downloading $TARBALL_URL"
-  curl -fsSL "$TARBALL_URL" -o "$tmp/bundle.tar.gz"
+  fetch "$TARBALL_URL" -o "$tmp/bundle.tar.gz"
+  verify_tarball "$tmp/bundle.tar.gz" "${TARBALL_DIGEST:-}"
   tar xzf "$tmp/bundle.tar.gz" -C "$tmp"
   dir=$(find "$tmp" -mindepth 1 -maxdepth 1 -type d | head -n1)
   [ -n "$dir" ] || die "unexpected tarball layout (no top-level directory)"
@@ -202,7 +238,7 @@ update() {
       *) die "update takes only +ai (the Claude Code, Codex and Grok plugins too), not: $arg" ;;
     esac
   done
-  latest=$(curl -fsSL "$API_URL" | grep -m1 '"tag_name"' \
+  latest=$(curl --proto '=https' --proto-redir '=https' -fsSL "$API_URL" | grep -m1 '"tag_name"' \
            | sed -E 's/.*: *"([^"]+)".*/\1/') \
     || die "could not query the latest release"
   [ -n "$latest" ] || die "could not read the latest release tag"
@@ -212,9 +248,12 @@ update() {
     echo "updating $(version) -> $latest"
     # run the new release's installer, never a stored copy: an installer
     # writes the launcher embedded in itself, so an old one would keep
-    # reinstalling its old launcher next to the new files
+    # reinstalling its old launcher next to the new files. It comes over
+    # HTTPS only, from the release's tag, and checks the release tarball's
+    # SHA-256 before it installs anything
     installer=$(mktemp)
-    curl -fsSL "https://raw.githubusercontent.com/sstoehrm/simpleviz/$latest/install.sh" \
+    curl --proto '=https' --proto-redir '=https' -fsSL \
+      "https://raw.githubusercontent.com/sstoehrm/simpleviz/$latest/install.sh" \
       -o "$installer" || { rm -f "$installer"; die "could not download the $latest installer"; }
     SIMPLEVIZ_HOME="$SIMPLEVIZ_HOME" bash "$installer"
     rm -f "$installer"

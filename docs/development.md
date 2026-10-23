@@ -101,16 +101,20 @@ the tag together. Claude Code updates a plugin only when that version
 changes, so the skill reaches users together with the release it
 documents; skill changes merged in between wait for the next release.
 
-The tag runs `.github/workflows/release.yml`: it first checks that the
-manifests carry the tag's version (`bb release:check vX.Y.Z` — a tag
-pushed by hand without `bb release` fails here), then runs `bb bundle` and
-`bb jar:smoke` and publishes the tarball and `simpleviz.jar` as a GitHub
-release. The tarball contains the precompiled
+The tag runs `.github/workflows/release.yml`: its `build` job (read-only
+token, no restored caches) first checks that the manifests carry the
+tag's version (`bb release:check vX.Y.Z` — a tag pushed by hand without
+`bb release` fails here), installs `package-lock.json` with
+`npm ci --ignore-scripts`, then runs `bb test`, `bb bundle` and
+`bb jar:smoke`; its `publish` job, which alone can write, runs no project
+code: it attests the tarball and `simpleviz.jar` (build provenance) and
+publishes them as a GitHub release. The tarball contains the precompiled
 frontend, the server, the examples, `VERSION` and a serve-only `bb.edn`;
 the jar holds the same plus the server's dependencies (listed in
 `THIRD-PARTY-NOTICES.md`; `bb jar` fails when one is missing). End users
 need only babashka. Renovate keeps the GitHub Actions pins, the npm
-devDependencies and the bb.edn deps current (weekly, `renovate.json`).
+devDependencies and the bb.edn deps current (weekly, `renovate.json`;
+npm and Maven/Clojars releases only once they are 3 days old).
 
 The vulnerability gate (`.github/workflows/vulns.yml`) builds an SBOM of
 the npm packages, the vendored elkjs and the bb.edn deps, scans it with

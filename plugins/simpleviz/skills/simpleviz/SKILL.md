@@ -85,7 +85,8 @@ under `dir`; that file's lock `path` is its realpath relative to `dir`.
  :edges {[:web :api]                 ; key = the two endpoints; order defines left/right
          {:direction :->             ; :-> | :<- | :<-> | :- (default :-)
           :name "REST"               ; edge label
-          :type "http"}}             ; free-form; appended to the label: REST (http)
+          :type "http"               ; free-form; appended to the label: REST (http)
+          :text "POST /orders"}}     ; shown under the label
  :boxes {:backend                    ; key is the box id
          {:name "Backend"            ; display name (defaults to the key)
           :type "zone"               ; free-form; colors the box (separate palette)
@@ -125,7 +126,8 @@ Attributes simpleviz reads:
   outside the one drawn (and outside its boxes), `"queue"` for a broker or
   topic that deserves its own node — or name the edge instead
   (`:name "order events (Kafka)"`).
-- `:text` on a node or box shows inside it, wrapped at about 220 px; `\n`
+- `:text` on a node or box shows inside it, on an edge under its label (or
+  as the label, without a name or type); wrapped at about 220 px; `\n`
   or a vector of strings for more lines. Use it for the line or two a
   reader needs at a glance; whole specs belong in an md file (`:md-ref`).
 - `:state` on a node (`:new`, `:in-progress`, `:blocked`, `:done`) draws a

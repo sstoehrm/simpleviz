@@ -47,6 +47,32 @@ Licensed under the MIT License:
     CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
     SOFTWARE.
 
+## CodeMirror and its modules (`public/js/vendor/@codemirror/`, `public/js/vendor/@lezer/`, `public/js/vendor/@marijn/`, `public/js/vendor/style-mod/`, `public/js/vendor/w3c-keyname/`, `public/js/vendor/crelt/`)
+
+The doc text editor. Each package ships one ES module, with its
+`LICENSE` beside it.
+
+| Package | Version | Copyright |
+|---|---|---|
+| @codemirror/state | 6.7.6 | (C) 2018-2021 Marijn Haverbeke and others |
+| @codemirror/view | 6.43.15 | (C) 2018-2021 Marijn Haverbeke and others |
+| @codemirror/commands | 6.11.1 | (C) 2018-2021 Marijn Haverbeke and others |
+| @codemirror/language | 6.13.1 | (C) 2018-2021 Marijn Haverbeke and others |
+| @codemirror/streamparser | 6.0.0 | (C) 2018-2021 Marijn Haverbeke and others |
+| @lezer/common | 1.5.4 | (C) 2018 Marijn Haverbeke and others |
+| @lezer/highlight | 1.2.5 | (C) 2018 Marijn Haverbeke and others |
+| @lezer/markdown | 1.8.1 | (C) 2020 Marijn Haverbeke and others |
+| @marijn/find-cluster-break | 1.0.4 | (C) 2024 Marijn Haverbeke |
+| style-mod | 4.1.4 | (C) 2018 Marijn Haverbeke and others |
+| w3c-keyname | 2.2.8 | (C) 2016 Marijn Haverbeke and others |
+| crelt | 1.0.7 | (C) 2020 Marijn Haverbeke |
+
+All are licensed under the MIT License (the text under reagami above).
+Source code: https://github.com/codemirror (CodeMirror),
+https://github.com/lezer-parser (Lezer) and
+https://github.com/marijnh (style-mod, w3c-keyname, crelt,
+find-cluster-break).
+
 ## Server dependencies
 
 The tarball declares metosin/malli and juji/editscript as dependencies;

@@ -622,6 +622,44 @@
                  " const end = sc.scrollTop > 0 && ed.textContent.endsWith('line 299') && lr.bottom <= sr.top + sc.clientHeight && lr.top >= sr.top;"
                  " key(ed, 'g'); key(ed, 'g'); await frame(); await frame(); ok({end, top: sc.scrollTop}); }, 50); })"))))))
 
+(deftest vi-escape-in-normal-mode-keeps-the-block
+  ;; Esc with nothing pending leaves the block where it is: x after it
+  ;; still deletes the char under it
+  (with-real-browser
+    (is (= {:block [0 1] :text "bc\n"}
+           (eval-on-served-page
+            path "notes.md" "abc\n"
+            (str "new Promise(ok => { let step = 0; const t = setInterval(async () => {"
+                 " const key = (el, k) => el.dispatchEvent(new KeyboardEvent('keydown', {key: k, bubbles: true, cancelable: true}));"
+                 " if (step === 0) { const b = document.querySelector('.md-mode'); if (!b) return; b.click(); step = 1; return; }"
+                 " if (step === 1) { const v = document.querySelector('.md-vi'); if (!v) return; v.click(); step = 2; return; }"
+                 " if (step !== 2) return; step = 3; clearInterval(t);"
+                 " const ed = document.querySelector('#md-text .cm-content');"
+                 " const view = (await import('@codemirror/view')).EditorView.findFromDOM(document.querySelector('#md-text .cm-editor'));"
+                 " key(ed, 'Escape'); const m = view.state.selection.main;"
+                 " const block = [m.from, m.to]; key(ed, 'x');"
+                 " ok({block, text: view.state.doc.toString()}); }, 50); })"))))))
+
+(deftest undo-does-not-bring-back-the-text-before-a-reload
+  ;; the text taken from disk replaces what the editor's undo knows of:
+  ;; Ctrl+Z after it doesn't put the old text back
+  (with-real-browser
+    (is (= {:took "new\n" :after-undo "new\n"}
+           (eval-on-served-page
+            path "notes.md" "old\n"
+            (str "new Promise(ok => { let step = 0; const t = setInterval(async () => {"
+                 " if (step === 0) { const b = document.querySelector('.md-mode'); if (!b) return; b.click(); step = 1; return; }"
+                 " if (step !== 1 || !document.querySelector('#md-text .cm-content')) return; step = 2; clearInterval(t);"
+                 " const ed = document.querySelector('#md-text .cm-content');"
+                 " const view = (await import('@codemirror/view')).EditorView.findFromDOM(document.querySelector('#md-text .cm-editor'));"
+                 " const d = await (await fetch('/api/text?path=notes.md')).json();"
+                 " await fetch('/api/text/save', {method: 'POST', headers: {'Content-Type': 'application/json'},"
+                 "  body: JSON.stringify({path: 'notes.md', text: 'new\\n', base: d.version})});"
+                 " for (let i = 0; i < 50 && view.state.doc.toString() !== 'new\\n'; i++) await new Promise(r => setTimeout(r, 100));"
+                 " const took = view.state.doc.toString(); view.focus();"
+                 " ed.dispatchEvent(new KeyboardEvent('keydown', {key: 'z', ctrlKey: true, bubbles: true, cancelable: true}));"
+                 " ok({took, 'after-undo': view.state.doc.toString()}); }, 50); })"))))))
+
 (deftest the-layouting-indicator-shows-while-elk-runs
   ;; the page lays out in its ELK worker — it holds no engine of its
   ;; own; a re-layout shows the indicator until the new layout is there

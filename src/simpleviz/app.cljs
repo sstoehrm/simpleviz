@@ -2680,14 +2680,20 @@
           text (cm/text view)]
       (when (some? k)
         (let [r (vim/press (:vim @state) {:text text :pos (cm/caret view)} k)]
-          (when (:handled r)
-            (.preventDefault e)
-            (.stopPropagation e)
-            (swap! state (fn [st] (cond-> (assoc st :vim (:vs r))
-                                    (not= (:text r) text) (assoc-in [:md :text] (:text r)))))
-            (vim-select! view (:pos r))
-            (when-let [fx (:effect r)] (vim-effect! fx))
-            true))))))
+          (cond
+            (:handled r)
+            (do (.preventDefault e)
+                (.stopPropagation e)
+                (swap! state (fn [st] (cond-> (assoc st :vim (:vs r))
+                                        (not= (:text r) text) (assoc-in [:md :text] (:text r)))))
+                (vim-select! view (:pos r))
+                (when-let [fx (:effect r)] (vim-effect! fx))
+                true)
+            ;; a bare Esc outside insert mode: the editor's own would
+            ;; collapse the block onto the next char; the page still
+            ;; hears it (fullscreen, menus)
+            (and (= k "Escape") (not= "insert" (:mode (:vim @state))))
+            (do (.preventDefault e) true)))))))
 
 (defn- may-edit?
   "Outside vi's insert mode only vi keys change the text: a paste, a
@@ -2732,6 +2738,8 @@
           p (markdown/tidy-caret t t2 c)]
       (when (not= t t2)
         (cm/focus! v)
+        ;; into the editor first, as an undo step; the state then agrees
+        (cm/set-text! v t2 {:history true})
         (swap! state (fn [st] (cond-> (assoc-in st [:md :text] t2)
                                 (:vi-pref st) (update :vim vim/replaced t c))))
         (vim-select! v p)))))
@@ -3061,9 +3069,12 @@
                                           :title (if one (editor/link-title (:path md) (first ls))
                                                      (str (count ls) " links"))))))
                              ms))]
-        ;; the gutter sits in the text's right padding, left of its scrollbar
-        (swap! state assoc :md-marks {:marks marks :height (.-scrollHeight scroller)
-                                      :scrollbar (- (.-offsetWidth scroller) (.-clientWidth scroller))})
+        ;; the gutter sits in the text's right padding, left of its
+        ;; scrollbar; marks that didn't move cost no render
+        (let [mm {:marks marks :height (.-scrollHeight scroller)
+                  :scrollbar (- (.-offsetWidth scroller) (.-clientWidth scroller))}]
+          (when-not (= (js/JSON.stringify mm) (js/JSON.stringify (:md-marks @state)))
+            (swap! state assoc :md-marks mm)))
         (sync-gutter-scroll!)))))
 
 (defn- queue-measure!
@@ -3111,7 +3122,8 @@
 
       :else
       (let [v (:view e)]
-        ;; a host rendered anew (Read → Edit) gets the editor back
+        ;; a host the render made anew gets the editor back (Read → Edit
+        ;; has none in between, so it starts a new editor instead)
         (when-not (identical? (.. v -dom -parentNode) host)
           (.appendChild host (.-dom v))
           (.requestMeasure v)

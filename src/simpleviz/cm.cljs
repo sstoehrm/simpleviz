@@ -4,9 +4,9 @@
   link targets, URLs, HTML and table formulas are left out. The page's
   state holds the text: every typed change goes to `on-change`, and
   set-text! takes a change made elsewhere (disk, Format, vi keys)."
-  (:require ["@codemirror/state" :refer [EditorState EditorSelection Annotation RangeSetBuilder Prec]]
+  (:require ["@codemirror/state" :refer [EditorState EditorSelection Annotation RangeSetBuilder Prec Transaction]]
             ["@codemirror/view" :refer [EditorView ViewPlugin Decoration keymap]]
-            ["@codemirror/commands" :refer [history defaultKeymap historyKeymap]]
+            ["@codemirror/commands" :refer [history defaultKeymap historyKeymap isolateHistory]]
             ["@codemirror/language" :refer [Language defineLanguageFacet syntaxTree]]
             [simpleviz.spell :as spell]))
 
@@ -77,8 +77,10 @@
 
 (defn set-text!
   "Make the editor hold `t`, changing only the part between the common
-  start and end, so the selection and undo stay sensible."
-  [view t]
+  start and end, so the selection stays. Undo doesn't take it back (a
+  text from disk, vi's own edits) unless `:history`, which makes it an
+  undo step of its own (Format)."
+  [view t & [{:keys [history]}]]
   (let [old (text view)]
     (when (not= old t)
       (let [n (min (count old) (count t))
@@ -87,7 +89,10 @@
                                      (= (.charCodeAt old (- (count old) 1 i)) (.charCodeAt t (- (count t) 1 i))))
                               (recur (inc i)) i))]
         (.dispatch view {:changes {:from pre :to (- (count old) suf) :insert (subs t pre (- (count t) suf))}
-                         :annotations (.of own true)})))))
+                         :annotations [(.of own true)
+                                       (if history
+                                         (.of isolateHistory "full")
+                                         (.of (.-addToHistory Transaction) false))]})))))
 
 (defn caret
   "The selection's start — the char vi's block sits on."

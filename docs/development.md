@@ -12,6 +12,13 @@ The frontend is written in [Squint](https://github.com/squint-cljs/squint)
 ClojureScript rendered with [reagami](https://github.com/borkdude/reagami),
 compiled to plain ES modules (no bundler).
 
+The doc text editor is [CodeMirror 6](https://codemirror.net)
+(`src/simpleviz/cm.cljs`) on `@lezer/markdown`; `src/simpleviz/spell.cljs`
+finds the code, link targets and formulas the browser's spell check
+skips. `bb build` copies each npm package's one ES module into
+`public/js/vendor/`, and the import map in `public/index.html` names
+them; a new package needs both, and a line in THIRD-PARTY-NOTICES.md.
+
     bb dev [graph.edn [suffix]]      # compile, watch sources, serve (default: examples/demo.edn)
     bb build                         # one-shot compile to public/js/ (git-ignored)
     bb test                          # compile + Clojure server tests + JS unit tests

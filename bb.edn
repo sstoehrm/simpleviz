@@ -20,7 +20,25 @@
                       (fs/copy-tree "node_modules/reagami" "public/js/vendor/reagami"
                                     {:replace-existing true})
                       (fs/copy-tree "node_modules/squint-cljs" "public/js/vendor/squint-cljs"
-                                    {:replace-existing true}))}
+                                    {:replace-existing true})
+                      ;; the doc editor's modules: each package's one ES module
+                      ;; (index.html maps it), with its licence
+                      (doseq [[pkg entry] [["@codemirror/state" "dist/index.js"]
+                                           ["@codemirror/view" "dist/index.js"]
+                                           ["@codemirror/commands" "dist/index.js"]
+                                           ["@codemirror/language" "dist/index.js"]
+                                           ["@codemirror/streamparser" "dist/index.js"]
+                                           ["@lezer/common" "dist/index.js"]
+                                           ["@lezer/highlight" "dist/index.js"]
+                                           ["@lezer/markdown" "dist/index.js"]
+                                           ["@marijn/find-cluster-break" "src/index.js"]
+                                           ["style-mod" "src/style-mod.js"]
+                                           ["w3c-keyname" "index.js"]
+                                           ["crelt" "index.js"]]
+                              f [entry "LICENSE" "package.json"]]
+                        (let [to (fs/path "public/js/vendor" pkg f)]
+                          (fs/create-dirs (fs/parent to))
+                          (fs/copy (fs/path "node_modules" pkg f) to {:replace-existing true}))))}
   serve    {:doc "Serve an EDN graph file, an exported PNG/SVG or an md file: bb serve graph.edn|.png|.svg|doc.md [suffix] [--port N] (suffix = compare against graph-<suffix>.edn)"
             :requires ([serve])
             :task (apply serve/-main *command-line-args*)}

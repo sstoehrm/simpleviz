@@ -10,6 +10,7 @@
             [simpleviz.canvas :as canvas]
             [simpleviz.png :as png]
             [simpleviz.editor :as editor]
+            [simpleviz.cm :as cm]
             [simpleviz.markdown :as markdown]
             [simpleviz.slides :as slides]
             [simpleviz.vim :as vim]
@@ -237,7 +238,7 @@
 
 (declare relayout! json-of post-json post-edit! delete! current-edit-target-editable? follow-ref! navigate! run-chord-action!
          open-md! save-md! close-md! open-page! root-path! load-nav!
-         save-if-dirty! save-before-leaving! follow-link! sync-gutter-scroll!
+         save-if-dirty! save-before-leaving! follow-link! sync-gutter-scroll! sync-editor! md-editor
          follow-to! close-side! start-side! focus-md-start! show-slide! leave-present! pick! submit!
          enter-select! select-all! copy-selected! delete-selected! paste!)
 
@@ -1587,13 +1588,8 @@
      (if reading
        [:div {:class "md-body"} (md-view st)]
        [:div {:class "md-body"}
-        [:textarea {:id "md-text" :spellcheck "false" :value (:text md)
-                    :on-scroll (fn [_] (sync-gutter-scroll!) (when (some? (:link-menu @state))
-                                                                (swap! state assoc :link-menu nil)))
-                    :on-input (fn [e] (swap! state assoc-in [:md :text] (.. e -target -value)))
-                    :on-keydown vim-key!
-                    :on-beforeinput vim-before-input!
-                    :on-mouseup vim-mouse!}]
+        ;; simpleviz.cm's editor lives inside, put there by sync-editor!
+        [:div {:id "md-text" :on-mouseup vim-mouse!}]
         (gutter-view st)
         (link-menu-view st)])
      (when (and (:vi-pref st) (not reading))
@@ -2092,6 +2088,7 @@
 (defn- rerender! []
   (.clear calc-shown)
   (render app-el (app-view @state))
+  (sync-editor!)
   (sync-split!)
   (canvas/request-paint!))
 
@@ -2630,29 +2627,26 @@
       (swap! state assoc :disconnected true))))
 
 (defn- focus-md! []
-  (when-let [el (js/document.getElementById "md-text")] (.focus el)))
+  (some-> (md-editor) cm/focus!))
 
 (defn- focus-md-start!
-  "Focus a doc just opened at its start: the swap that adopted it has
-  rendered the textarea, whose value — set as a property — left the
-  caret at the end, where focusing would scroll. Vi mode starts over in
-  normal mode."
+  "Focus a doc just opened, at its start; vi mode starts over in normal
+  mode."
   []
   (swap! state update :vim vim/fresh)
-  (when-let [el (js/document.getElementById "md-text")]
-    (vim-select! el 0)
-    (.focus el {:preventScroll true})
-    (set! (.-scrollTop el) 0)))
+  (when-let [v (md-editor)]
+    (cm/focus! v)
+    (vim-select! v 0)))
 
 ;; ---- vi mode in the doc's text (simpleviz.vim) ----
 
 (defn- vim-select!
-  "Put the textarea's selection where vi mode shows caret p: a block on
-  its char in normal mode, the range in visual mode — a plain caret with
-  vi mode off."
-  [el p]
-  (let [[a b] (if (:vi-pref @state) (vim/selection (:vim @state) (.-value el) p) [p p])]
-    (.setSelectionRange el a b)))
+  "Put the editor's selection where vi mode shows caret p, scrolled into
+  view: a block on its char in normal mode, the range in visual mode — a
+  plain caret with vi mode off."
+  [view p]
+  (let [[a b] (if (:vi-pref @state) (vim/selection (:vim @state) (cm/text view) p) [p p])]
+    (cm/select! view a b)))
 
 (defn- vim-effect!
   "A vi command line's effect: :w saves; :q closes the doc panel, or
@@ -2673,9 +2667,9 @@
 
 (defn- vim-key!
   "The doc text's keydown with vi mode on: vim/press takes the key or
-  leaves it to the textarea. Ctrl, Cmd and Alt keys stay the page's
-  (Ctrl+S saves), but Ctrl+R, which redoes."
-  [e]
+  leaves it to the editor; true when it took it. Ctrl, Cmd and Alt keys
+  stay the page's (Ctrl+S saves), but Ctrl+R, which redoes."
+  [e view]
   (when (:vi-pref @state)
     (let [k (cond (and (.-ctrlKey e) (not (or (.-metaKey e) (.-altKey e))) (= "r" (.-key e))) "C-r"
                   (or (.-metaKey e) (.-isComposing e)) nil
@@ -2683,34 +2677,39 @@
                   (and (.-altKey e) (= 1 (.-length (.-key e)))) (.-key e)
                   (or (.-ctrlKey e) (.-altKey e)) nil
                   :else (.-key e))
-          el (.-currentTarget e)]
+          text (cm/text view)]
       (when (some? k)
-        (let [r (vim/press (:vim @state) {:text (.-value el) :pos (.-selectionStart el)} k)]
+        (let [r (vim/press (:vim @state) {:text text :pos (cm/caret view)} k)]
           (when (:handled r)
             (.preventDefault e)
             (.stopPropagation e)
             (swap! state (fn [st] (cond-> (assoc st :vim (:vs r))
-                                    (not= (:text r) (.-value el)) (assoc-in [:md :text] (:text r)))))
-            (vim-select! el (:pos r))
-            (scroll-to-caret! el (:pos r))
-            (when-let [fx (:effect r)] (vim-effect! fx))))))))
+                                    (not= (:text r) text) (assoc-in [:md :text] (:text r)))))
+            (vim-select! view (:pos r))
+            (when-let [fx (:effect r)] (vim-effect! fx))
+            true))))))
 
-(defn- vim-before-input!
-  "Outside insert mode only vi keys change the text: a paste, a dropped
-  text or the browser's own undo would replace the block caret's char."
-  [e]
-  (when (and (:vi-pref @state) (not= "insert" (:mode (:vim @state))))
-    (.preventDefault e)))
+(defn- may-edit?
+  "Outside vi's insert mode only vi keys change the text: a paste, a
+  dropped text or the editor's own undo would replace the block caret's
+  char."
+  []
+  (or (not (:vi-pref @state)) (= "insert" (:mode (:vim @state)))))
 
 (defn- vim-mouse!
   "A click in the doc text leaves visual mode and puts the block where it
-  landed; a drag keeps its selection, insert mode its caret."
-  [e]
-  (let [el (.-currentTarget e)]
-    (when (:vi-pref @state)
-      (swap! state update :vim vim/interrupt)
-      (when (= (.-selectionStart el) (.-selectionEnd el))
-        (vim-select! el (.-selectionStart el))))))
+  landed; a drag keeps its selection, insert mode its caret. The editor
+  takes the click's selection after this event, so this looks a tick
+  later."
+  [_]
+  (when (:vi-pref @state)
+    (js/setTimeout
+     (fn []
+       (when-let [v (md-editor)]
+         (swap! state update :vim vim/interrupt)
+         (let [[a b] (cm/selection v)]
+           (when (= a b) (vim-select! v a)))))
+     0)))
 
 (defn- toggle-vi!
   "Turn vi mode on or off for every doc, kept with your choices."
@@ -2718,31 +2717,24 @@
   (let [on (not (:vi-pref @state))]
     (save-pref! {:vi (if on "on" "")})
     (swap! state assoc :vi-pref on :vim (vim/fresh (:vim @state)))
-    (when-let [el (js/document.getElementById "md-text")]
-      (.focus el {:preventScroll true})
-      (vim-select! el (.-selectionStart el)))))
+    (when-let [v (md-editor)]
+      (cm/focus! v)
+      (vim-select! v (cm/caret v)))))
 
 (defn- format-md!
   "Tidy the doc's text (markdown/tidy), undoable: in vi mode by u, else
-  by the browser's own undo, as the text goes in like typed."
+  by the editor's undo."
   []
-  (when-let [el (js/document.getElementById "md-text")]
-    (let [t (.-value el)
+  (when-let [v (md-editor)]
+    (let [t (cm/text v)
           t2 (markdown/tidy t)
-          p (markdown/tidy-caret t t2 (.-selectionStart el))
-          top (.-scrollTop el)]
+          c (cm/caret v)
+          p (markdown/tidy-caret t t2 c)]
       (when (not= t t2)
-        (.focus el {:preventScroll true})
-        (if (:vi-pref @state)
-          (swap! state (fn [st] (-> st
-                                    (update :vim vim/replaced t (.-selectionStart el))
-                                    (assoc-in [:md :text] t2))))
-          (do (.setSelectionRange el 0 (count t))
-              ;; fires input, which takes the text into the state
-              (when-not (js/document.execCommand "insertText" false t2)
-                (swap! state assoc-in [:md :text] t2))))
-        (vim-select! el p)
-        (set! (.-scrollTop el) top)))))
+        (cm/focus! v)
+        (swap! state (fn [st] (cond-> (assoc-in st [:md :text] t2)
+                                (:vi-pref st) (update :vim vim/replaced t c))))
+        (vim-select! v p)))))
 
 (defn- ^:async save-md!
   "Write the open doc; `overwrite?` saves over the version the conflict
@@ -2813,14 +2805,14 @@
 (defn- take-disk!
   "Show the fetched doc, keeping the caret at its offset (clamped)."
   [fetched]
-  (let [el (js/document.getElementById "md-text")
-        focused? (and (some? el) (= el (.-activeElement js/document)))
-        pos (when focused? (.-selectionStart el))]
+  (let [v (md-editor)
+        focused? (and (some? v) (cm/focused? v))
+        pos (when focused? (cm/caret v))]
     (swap! state update :md editor/adopt-doc fetched)
     (let [t (:text (:md @state))
           p (min (or pos 0) (.-length t))]
       (swap! state update :vim vim/reloaded t p)
-      (when focused? (vim-select! el p)))))
+      (when focused? (vim-select! v p)))))
 
 (defn- ^:async poll-md!
   "The 1 s check of the open doc: take a changed disk text when nothing
@@ -3038,127 +3030,96 @@
 (def ^:private md-links (atom {:path nil :text nil :links []}))
 (def ^:private parse-timer (atom nil))
 (def ^:private measure-queued (atom false))
-(def ^:private observed-ta (atom nil))
-;; the text the gutter last measured, and each of its lines' top by the
-;; line's start offset — nil while a measure is queued, as the layout
-;; it was measured in may be gone
-(def ^:private line-tops (atom nil))
-
-(defn- mirror-el
-  "The hidden div that lays doc text out the way the textarea wraps it —
-  outside the app root, so rendering never touches its children."
-  []
-  (or (js/document.getElementById "md-mirror")
-      (let [d (js/document.createElement "div")]
-        (set! (.-id d) "md-mirror")
-        (.setAttribute d "aria-hidden" "true")
-        (.appendChild js/document.body d)
-        d)))
-
-(defn- style-mirror!
-  "The mirror, emptied and styled and sized like textarea ta."
-  [ta]
-  (let [mirror (mirror-el)
-        cs (js/getComputedStyle ta)]
-    (doseq [p ["fontFamily" "fontSize" "fontWeight" "lineHeight" "letterSpacing" "tabSize"
-               "paddingTop" "paddingRight" "paddingBottom" "paddingLeft"]]
-      (aset (.-style mirror) p (aget cs p)))
-    (set! (.. mirror -style -width) (str (.-clientWidth ta) "px"))
-    (set! (.-textContent mirror) "")
-    mirror))
-
-(defn- scroll-to-caret!
-  "Scroll textarea ta so caret p shows — setting the selection doesn't:
-  p's top, laid out in the mirror, and a line below it inside the view.
-  When the gutter measured this very text, only p's own line is laid
-  out, below its measured top, not all the text before it."
-  [ta p]
-  (let [text (.-value ta)
-        start (vim/line-start text p)
-        lt @line-tops
-        line-top (when (= text (:text lt)) (.get (:tops lt) start))
-        from (if (some? line-top) start 0)
-        mirror (style-mirror! ta)
-        mark (js/document.createElement "span")
-        cs (js/getComputedStyle ta)]
-    (.appendChild mirror (js/document.createTextNode (subs text from p)))
-    (set! (.-textContent mark) "\u200b")
-    (.appendChild mirror mark)
-    (let [pad-top (js/parseFloat (.-paddingTop cs))
-          pad-bottom (js/parseFloat (.-paddingBottom cs))
-          top (if (some? line-top) (+ line-top (- (.-offsetTop mark) pad-top)) (.-offsetTop mark))
-          h (.-offsetHeight mark)
-          view (.-scrollTop ta)]
-      ;; near the top the span's half-leading would leave a sliver
-      (cond (< (- top pad-top) view) (set! (.-scrollTop ta) (if (< top (* 2 pad-top)) 0 (- top pad-top)))
-            (> (+ top h pad-bottom) (+ view (.-clientHeight ta)))
-            (set! (.-scrollTop ta) (- (+ top h pad-bottom) (.-clientHeight ta)))))))
 
 (defn- sync-gutter-scroll!
-  "Scroll the gutter with the textarea."
+  "Scroll the gutter with the text."
   []
-  (let [ta (js/document.getElementById "md-text")
+  (let [v (md-editor)
         g (js/document.getElementById "md-gutter")]
-    (when (and (some? ta) (some? g))
-      (set! (.-scrollTop g) (.-scrollTop ta)))))
-
-(declare queue-measure!)
-
-(def ^:private resize-observer
-  (js/ResizeObserver. (fn [_] (queue-measure!))))
+    (when (and (some? v) (some? g))
+      (set! (.-scrollTop g) (.. v -scrollDOM -scrollTop)))))
 
 (defn- measure-gutter!
-  "Place the » markers: each logical line of the text is a block in the
-  mirror, styled and sized like the textarea, and a marker sits at its
-  line's block top. Each mark also carries its tooltip and whether its
-  one link leaves the served folder, so rendering doesn't resolve links."
+  "Place the » markers at their lines' tops in the editor. Each mark
+  also carries its tooltip and whether its one link leaves the served
+  folder, so rendering doesn't resolve links."
   []
   (reset! measure-queued false)
-  (let [ta (js/document.getElementById "md-text")
+  (let [v (md-editor)
         md (:md @state)]
-    (when (and (some? ta) (some? md))
-      (when-not (identical? ta @observed-ta)
-        (.disconnect resize-observer)
-        (.observe resize-observer ta)
-        (reset! observed-ta ta))
-      (let [mirror (style-mirror! ta)
-            lines (.split (:text md) "\n")]
-        (doseq [ln lines]
-          (let [d (js/document.createElement "div")]
-            (set! (.-textContent d) (if (= ln "") "​" ln))
-            (.appendChild mirror d)))
-        (let [kids (.-children mirror)
-              n (.-length kids)
-              tops (let [m (js/Map.)]
-                     (loop [i 0 start 0]
-                       (if (< i n)
-                         (do (.set m start (.-offsetTop (aget kids i)))
-                             (recur (inc i) (+ start (.-length (aget lines i)) 1)))
-                         m)))
-              marks (vec (keep (fn [m]
-                                 (when (<= (:line m) n)
-                                   (let [ls (:links m)
-                                         one (= 1 (count ls))]
-                                     (assoc m
-                                            :top (.-offsetTop (aget kids (dec (:line m))))
-                                            :bad (and one (some? (:error (editor/link-target (:path md) (:dest (first ls))))))
-                                            :title (if one (editor/link-title (:path md) (first ls))
-                                                       (str (count ls) " links"))))))
-                               (editor/line-markers (:links @md-links))))
-              height (max (.-scrollHeight mirror) (.-scrollHeight ta))]
-          (reset! line-tops {:text (:text md) :tops tops})
-          ;; the gutter sits in the text's right padding, left of its scrollbar
-          (swap! state assoc :md-marks {:marks marks :height height
-                                        :scrollbar (- (.-offsetWidth ta) (.-clientWidth ta))})
-          (sync-gutter-scroll!))))))
+    (when (and (some? v) (some? md))
+      (let [ms (editor/line-markers (:links @md-links))
+            tops (cm/line-tops v (map :line ms))
+            scroller (.-scrollDOM v)
+            marks (vec (keep (fn [m]
+                               (when-let [top (get tops (:line m))]
+                                 (let [ls (:links m)
+                                       one (= 1 (count ls))]
+                                   (assoc m
+                                          :top top
+                                          :bad (and one (some? (:error (editor/link-target (:path md) (:dest (first ls))))))
+                                          :title (if one (editor/link-title (:path md) (first ls))
+                                                     (str (count ls) " links"))))))
+                             ms))]
+        ;; the gutter sits in the text's right padding, left of its scrollbar
+        (swap! state assoc :md-marks {:marks marks :height (.-scrollHeight scroller)
+                                      :scrollbar (- (.-offsetWidth scroller) (.-clientWidth scroller))})
+        (sync-gutter-scroll!)))))
 
 (defn- queue-measure!
   "Measure the gutter on the next frame, once however often asked."
   []
-  (reset! line-tops nil)
   (when-not @measure-queued
     (reset! measure-queued true)
     (js/requestAnimationFrame (fn [_] (measure-gutter!)))))
+
+;; ---- the doc's text editor (simpleviz.cm) ----
+
+;; the editor of the open doc's text, {:path p :view v}; rendering
+;; leaves its DOM alone, sync-editor! puts it in #md-text
+(def ^:private md-edit (atom nil))
+
+(defn- md-editor
+  "The editor showing the open doc's text, or nil."
+  []
+  (some-> @md-edit :view))
+
+(defn- new-editor [host md]
+  (cm/create! host (:text md)
+              {:on-change (fn [t] (when (some? (:md @state)) (swap! state assoc-in [:md :text] t)))
+               :on-key vim-key!
+               :may-edit? may-edit?
+               :on-scroll (fn [] (sync-gutter-scroll!)
+                            (when (some? (:link-menu @state)) (swap! state assoc :link-menu nil)))
+               :on-geometry queue-measure!}))
+
+(defn- sync-editor!
+  "After a render: an editor in #md-text while it's there — a new one
+  for another doc, so undo stays the doc's — holding the doc's text."
+  []
+  (let [host (js/document.getElementById "md-text")
+        md (:md @state)
+        e @md-edit]
+    (cond
+      (or (nil? host) (nil? md))
+      (when (some? e) (.destroy (:view e)) (reset! md-edit nil))
+
+      (or (nil? e) (not= (:path e) (:path md)))
+      (do (some-> e :view .destroy)
+          (reset! md-edit {:path (:path md) :text (:text md) :view (new-editor host md)})
+          (queue-measure!))
+
+      :else
+      (let [v (:view e)]
+        ;; a host rendered anew (Read → Edit) gets the editor back
+        (when-not (identical? (.. v -dom -parentNode) host)
+          (.appendChild host (.-dom v))
+          (.requestMeasure v)
+          (queue-measure!))
+        ;; the text it was last given is mostly the very string in state
+        (when-not (identical? (:text md) (:text e))
+          (cm/set-text! v (:text md))
+          (swap! md-edit assoc :text (:text md)))))))
 
 (defn- reparse-links!
   "Scan the open doc's links: now when `now?` (another doc), else 150 ms
@@ -3427,9 +3388,9 @@
     (apply-theme! (effective-theme (:graph @state) theme (:theme @state)))
     (swap! state assoc :theme-pref theme :vi-pref (= "on" (:vi p)))
     ;; a doc focused before the prefs came shows vi mode's block now
-    (when-let [el (js/document.getElementById "md-text")]
-      (when (identical? el (.-activeElement js/document))
-        (vim-select! el (.-selectionStart el))))))
+    (when-let [v (md-editor)]
+      (when (cm/focused? v)
+        (vim-select! v (cm/caret v))))))
 
 (defn- ^:async fetch-source
   "Raw EDN text from /api/source (which = \"old\"|\"new\"|nil), or nil on
@@ -3617,7 +3578,8 @@
   then (a focused menu jumps between options as letters are typed)."
   []
   (let [tag (.-tagName (.-activeElement js/document))]
-    (or (= tag "INPUT") (= tag "TEXTAREA") (= tag "SELECT"))))
+    (or (= tag "INPUT") (= tag "TEXTAREA") (= tag "SELECT")
+        (.-isContentEditable (.-activeElement js/document)))))
 
 (defn- run-chord-action!
   "Do what the toolbar button for `action` would do for selection sel."

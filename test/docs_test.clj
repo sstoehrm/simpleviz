@@ -50,7 +50,7 @@
                            (map (fn [f] (.getName f)) fs)
                            ;; before a build the copied packages are absent;
                            ;; pin the known ones so the check still bites
-                           ["reagami" "squint-cljs"]))]
+                           ["reagami" "squint-cljs" "@codemirror" "@lezer" "@marijn" "style-mod" "w3c-keyname" "crelt"]))]
     (doseq [v vendored]
       (is (str/includes? notices v)
           (str "THIRD-PARTY-NOTICES.md must mention vendored component " v)))

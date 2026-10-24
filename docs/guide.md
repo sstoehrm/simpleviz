@@ -292,6 +292,8 @@ plain-text panel on the right, wider than the inspector; ⤢ makes it fill
 the window and Esc docks it again. The panel stays open while you select
 other elements or follow refs.
 
+- The browser checks the spelling of the prose. Code, link targets, URLs,
+  HTML and table formulas aren't checked.
 - Ctrl+S (Cmd+S) or Save writes the file, and so do closing the panel and
   opening another doc. ● marks unsaved changes; closing the browser tab
   with unsaved changes asks first.

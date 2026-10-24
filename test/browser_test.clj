@@ -173,7 +173,7 @@
 
 (deftest the-doc-panel-scrolls-and-the-canvas-does-not-zoom
   ;; the panel sits inside #canvas-wrap; its wheel must stay the doc's,
-  ;; rendered and, after Edit, the textarea's
+  ;; rendered and, after Edit, the editor's
   (with-real-browser
     (is (= {:view {:prevented false :overflows true} :text {:prevented false :overflows true}}
            (eval-on-served-page
@@ -184,9 +184,23 @@
                  " const view = document.getElementById('md-view');"
                  " if (!r.view) { if (!view || !view.textContent) return;"
                  "  r.view = wheel(view); document.querySelector('.md-mode').click(); return; }"
-                 " const ta = document.getElementById('md-text');"
-                 " if (!ta || !ta.value) return; clearInterval(t);"
-                 " r.text = wheel(ta); ok(r); }, 50); })"))))))
+                 " const sc = document.querySelector('#md-text .cm-scroller');"
+                 " if (!sc || !sc.textContent) return; clearInterval(t);"
+                 " r.text = wheel(sc); ok(r); }, 50); })"))))))
+
+(deftest the-doc-text-checks-the-spelling-of-prose-only
+  ;; the browser checks the editor's text, but not its code or link
+  ;; targets: those carry spellcheck=false
+  (with-real-browser
+    (is (= {:content "true"
+            :skipped ["`inline cde`" "sub/grph.edn" "```clojure" "(defn f [x])" "```"]}
+           (eval-on-served-page
+            path "notes.md" "# Title\n\nSome prose, `inline cde` and [a link](sub/grph.edn).\n\n```clojure\n(defn f [x])\n```\n"
+            (str "new Promise(ok => { let step = 0; const t = setInterval(() => {"
+                 " if (step === 0) { const b = document.querySelector('.md-mode'); if (!b) return; b.click(); step = 1; return; }"
+                 " const cm = document.querySelector('#md-text .cm-content'); if (!cm) return; clearInterval(t);"
+                 " ok({content: cm.getAttribute('spellcheck'),"
+                 "     skipped: [...cm.querySelectorAll('[spellcheck=false]')].map(e => e.textContent)}); }, 50); })"))))))
 
 (deftest a-graph-link-opens-beside-the-md-page
   ;; a link of the rendered md page shows the graph to the right of the
@@ -543,25 +557,29 @@
                  " const status = () => document.querySelector('.md-vim').textContent;"
                  " if (step === 0) { const b = document.querySelector('.md-mode'); if (!b) return; b.click(); step = 1; return; }"
                  " if (step === 1) { const v = document.querySelector('.md-vi'); if (!v) return; v.click(); step = 2; return; }"
-                 " clearInterval(t);"
-                 " const ta = document.getElementById('md-text');"
-                 " r.block = [ta.selectionStart, ta.selectionEnd];"
-                 " key(ta, 'd'); r.pending = status();"
-                 " key(ta, 'w'); r.text = ta.value;"
-                 " const paste = () => ta.dispatchEvent(new InputEvent('beforeinput', {inputType: 'insertFromPaste', data: 'x', bubbles: true, cancelable: true}));"
-                 " key(ta, 'i'); r.insert = status(); r['paste-in-insert'] = paste();"
-                 " key(ta, 'Escape'); r.normal = status(); r['paste-in-normal'] = paste();"
-                 " for (const k of [':', 'w', 'Enter']) key(ta, k);"
+                 " if (step !== 2) return; step = 3; clearInterval(t);"
+                 " const ed = document.querySelector('#md-text .cm-content');"
+                 " const view = (await import('@codemirror/view')).EditorView.findFromDOM(document.querySelector('#md-text .cm-editor'));"
+                 " const text = () => view.state.doc.toString();"
+                 " r.block = [view.state.selection.main.from, view.state.selection.main.to];"
+                 " key(ed, 'd'); r.pending = status();"
+                 " key(ed, 'w'); r.text = text();"
+                 " const paste = () => { const before = text(), dt = new DataTransfer(); dt.setData('text/plain', 'x');"
+                 "  ed.dispatchEvent(new ClipboardEvent('paste', {clipboardData: dt, bubbles: true, cancelable: true}));"
+                 "  return text() !== before; };"
+                 " key(ed, 'i'); r.insert = status(); r['paste-in-insert'] = paste();"
+                 " key(ed, 'Escape'); r.normal = status(); r['paste-in-normal'] = paste();"
+                 " for (const k of [':', 'w', 'Enter']) key(ed, k);"
                  " r.saved = false;"
                  " for (let i = 0; i < 50 && !r.saved; i++) {"
                  "  const d = await (await fetch('/api/text?path=notes.md')).json();"
-                 "  r.saved = d.text === 'bar baz\\n';"
+                 "  r.saved = d.text === 'xbar baz\\n';"
                  "  if (!r.saved) await new Promise(res => setTimeout(res, 100)); }"
                  " r.pref = (await (await fetch('/api/prefs')).json()).vi;"
                  " ok(r); }, 50); })"))))))
 
 (deftest format-tidies-the-text-and-undoes
-  ;; Format, in edit mode only, tidies the text; the browser's undo takes
+  ;; Format, in edit mode only, tidies the text; the editor's undo takes
   ;; it back, and in vi mode u does
   (with-real-browser
     (let [raw "#  Title\ntext   \n* a\n* b"
@@ -569,31 +587,40 @@
       (is (= {:read-has false :formatted tidy :dirty true :undone raw :vi tidy :vi-undone raw}
              (eval-on-served-page
               path "notes.md" raw
-              (str "new Promise(ok => { let step = 0; const r = {}; const t = setInterval(() => {"
-                   " const key = (el, k) => el.dispatchEvent(new KeyboardEvent('keydown', {key: k, bubbles: true, cancelable: true}));"
+              (str "new Promise(ok => { let step = 0; const r = {}; const t = setInterval(async () => {"
+                   " const key = (el, k, ctrlKey) => el.dispatchEvent(new KeyboardEvent('keydown', {key: k, ctrlKey: !!ctrlKey, bubbles: true, cancelable: true}));"
                    " const fmt = () => document.querySelector('.md-format');"
                    " if (step === 0) { const b = document.querySelector('.md-mode'); if (!b) return;"
                    "  r['read-has'] = !!fmt(); b.click(); step = 1; return; }"
-                   " clearInterval(t); const ta = document.getElementById('md-text');"
-                   " fmt().click(); r.formatted = ta.value; r.dirty = !!document.querySelector('.md-dirty');"
-                   " ta.focus(); document.execCommand('undo'); r.undone = ta.value;"
+                   " if (step !== 1) return; step = 2; clearInterval(t);"
+                   " const ed = document.querySelector('#md-text .cm-content');"
+                   " const view = (await import('@codemirror/view')).EditorView.findFromDOM(document.querySelector('#md-text .cm-editor'));"
+                   " const text = () => view.state.doc.toString();"
+                   " fmt().click(); r.formatted = text(); r.dirty = !!document.querySelector('.md-dirty');"
+                   " key(ed, 'z', true); r.undone = text();"
                    " document.querySelector('.md-vi').click();"
-                   " fmt().click(); r.vi = ta.value;"
-                   " key(ta, 'u'); r['vi-undone'] = ta.value; ok(r); }, 50); })")))))))
+                   " fmt().click(); r.vi = text();"
+                   " key(ed, 'u'); r['vi-undone'] = text(); ok(r); }, 50); })")))))))
 
 (deftest vi-moves-scroll-the-text
-  ;; setting the textarea's selection doesn't scroll it: G must, gg back
+  ;; G scrolls the last line into view, gg back to the top (the editor
+  ;; scrolls on its next frame)
   (with-real-browser
     (is (= {:end true :top 0}
            (eval-on-served-page
             path "notes.md" (str/join "\n" (map #(str "line " %) (range 300)))
-            (str "new Promise(ok => { let step = 0; const t = setInterval(() => {"
+            (str "new Promise(ok => { let step = 0; const t = setInterval(async () => {"
                  " const key = (el, k) => el.dispatchEvent(new KeyboardEvent('keydown', {key: k, bubbles: true, cancelable: true}));"
+                 " const frame = () => new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));"
                  " if (step === 0) { const b = document.querySelector('.md-mode'); if (!b) return; b.click(); step = 1; return; }"
                  " if (step === 1) { const v = document.querySelector('.md-vi'); if (!v) return; v.click(); step = 2; return; }"
-                 " clearInterval(t); const ta = document.getElementById('md-text');"
-                 " key(ta, 'G'); const end = ta.scrollTop >= ta.scrollHeight - ta.clientHeight - 2;"
-                 " key(ta, 'g'); key(ta, 'g'); ok({end, top: ta.scrollTop}); }, 50); })"))))))
+                 " if (step !== 2) return; step = 3; clearInterval(t);"
+                 " const ed = document.querySelector('#md-text .cm-content');"
+                 " const sc = document.querySelector('#md-text .cm-scroller');"
+                 " key(ed, 'G'); await frame(); await frame();"
+                 " const lr = [...ed.querySelectorAll('.cm-line')].pop().getBoundingClientRect(), sr = sc.getBoundingClientRect();"
+                 " const end = sc.scrollTop > 0 && ed.textContent.endsWith('line 299') && lr.bottom <= sr.top + sc.clientHeight && lr.top >= sr.top;"
+                 " key(ed, 'g'); key(ed, 'g'); await frame(); await frame(); ok({end, top: sc.scrollTop}); }, 50); })"))))))
 
 (deftest the-layouting-indicator-shows-while-elk-runs
   ;; the page lays out in its ELK worker — it holds no engine of its
@@ -616,11 +643,11 @@
                  "})()"))))))
 
 (deftest vi-line-moves-keep-the-caret-line-at-the-edge-of-the-view
-  ;; once the gutter has measured the text, k and j lay out only the
-  ;; caret's line: scrolling up puts that line at the view's top edge,
-  ;; scrolling down at its bottom edge; each move goes a view and more
+  ;; k and j scroll no more than they must: scrolling up puts the caret's
+  ;; line at the view's top edge, scrolling down at its bottom edge; each
+  ;; move goes a view and more
   (with-real-browser
-    (is (= {:fast true :up true :down true}
+    (is (= {:up true :down true}
            (eval-on-served-page
             path "notes.md" (str/join "\n" (map #(str "line " %) (range 300)))
             (str "new Promise(ok => { let step = 0; const t = setInterval(async () => {"
@@ -629,18 +656,21 @@
                  " if (step === 0) { const b = document.querySelector('.md-mode'); if (!b) return; b.click(); step = 1; return; }"
                  " if (step === 1) { const v = document.querySelector('.md-vi'); if (!v) return; v.click(); step = 2; return; }"
                  " if (step !== 2) return; step = 3; clearInterval(t);"
-                 " const ta = document.getElementById('md-text'); const cs = getComputedStyle(ta);"
-                 " const lh = parseFloat(cs.lineHeight), pad = parseFloat(cs.paddingTop);"
-                 " const n = Math.ceil(ta.clientHeight / lh) + 5;"
-                 " await frame(); await frame(); key(ta, 'G');"
-                 " const line = () => ta.value.slice(0, ta.selectionStart).split('\\n').length - 1;"
-                 " for (let i = 0; i < 2 * n; i++) key(ta, 'k');"
-                 " const fast = document.getElementById('md-mirror').textContent.length < 20;"
-                 " const top = pad + line() * lh - ta.scrollTop;"
-                 " const up = line() === 299 - 2 * n && top >= 0 && top < lh;"
-                 " for (let i = 0; i < n; i++) key(ta, 'j');"
-                 " const below = ta.scrollTop + ta.clientHeight - (pad + (line() + 1) * lh);"
-                 " ok({fast, up, down: line() === 299 - n && below >= 0 && below < lh}); }, 50); })"))))))
+                 " const ed = document.querySelector('#md-text .cm-content');"
+                 " const view = (await import('@codemirror/view')).EditorView.findFromDOM(document.querySelector('#md-text .cm-editor'));"
+                 " const text = () => view.state.doc.toString();"
+                 " const sc = view.scrollDOM, lh = view.defaultLineHeight;"
+                 " const n = Math.ceil(sc.clientHeight / lh) + 5;"
+                 " const line = () => view.state.doc.lineAt(view.state.selection.main.head).number - 1;"
+                 " const edges = () => { const c = view.coordsAtPos(view.state.selection.main.head), b = sc.getBoundingClientRect();"
+                 "  return {top: c.top - b.top, below: b.top + sc.clientHeight - c.bottom}; };"
+                 " await frame(); key(ed, 'G'); await frame();"
+                 " for (let i = 0; i < 2 * n; i++) key(ed, 'k');"
+                 " await frame(); const e1 = edges();"
+                 " const up = line() === 299 - 2 * n && e1.top >= 0 && e1.top < lh;"
+                 " for (let i = 0; i < n; i++) key(ed, 'j');"
+                 " await frame(); const e2 = edges();"
+                 " ok({up, down: line() === 299 - n && e2.below >= 0 && e2.below < lh}); }, 50); })"))))))
 
 (deftest manual-layout-places-and-drags
   ;; ✥ gives every top-level element a :pos; dragging one moves it by

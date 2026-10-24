@@ -7,8 +7,9 @@ column:
 
 Edit (top right) switches to the plain text, Read back. Format tidies
 the markdown, and the **vi** button turns on vi keys — modes, motions,
-operators, text objects, `.`, `:w`. Edit the file anywhere else and the
-page follows.
+operators, text objects, `.`, `:w`. The browser checks the spelling of
+the prose, not of code, links or formulas. Edit the file anywhere else
+and the page follows.
 
 ## Links
 

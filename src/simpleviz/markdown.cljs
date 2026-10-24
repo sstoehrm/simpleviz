@@ -6,42 +6,14 @@
   footnotes, fenced and indented code blocks and code spans, fenced code
   highlighted by its language (simpleviz.highlight). Anything else shows
   as the text it is. Links and images render through the caller's
-  link-fn, so what a click does stays the page's business."
-  (:require [mdlinks :as mdlinks]
+  link-fn, so what a click does stays the page's business. The parsing
+  is mdparse.js's; this turns its tree into hiccup."
+  (:require ["./mdparse.js" :as mp]
+            [mdlinks :as mdlinks]
             [simpleviz.chart :as chart]
             [simpleviz.highlight :as highlight]))
 
-(def ^:private punct "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~")
-
-(def ^:private fence-re #"^( {0,3})(`{3,}|~{3,})(.*)$")
-(def ^:private heading-re #"^ {0,3}(#{1,6})(?:[ \t]+(.*?))?(?:[ \t]+#+)?[ \t]*$")
-(def ^:private item-re #"^( {0,3})([-*+]|\d{1,9}[.)])(?:([ \t]+)(.*))?$")
-(def ^:private sep-re #"^ {0,3}\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)*\|?[ \t]*$")
-(def ^:private def-re
-  #"^ {0,3}\[((?:[^\]\\]|\\.)+)\]:[ \t]*(<[^>]*>|\S+)(?:[ \t]+(?:\"[^\"]*\"|'[^']*'|\([^)]*\)))?[ \t]*$")
-(def ^:private autolink-re #"^<((?:https?|mailto):[^\s<>]+)>")
 (def ^:private scheme-re #"^[a-zA-Z][a-zA-Z0-9+.-]*:")
-(def ^:private hr-re #"^ {0,3}(?:(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,})$")
-(def ^:private quote-re #"^ {0,3}> ?")
-(def ^:private setext-re #"^ {0,3}=+[ \t]*$")
-(def ^:private note-def-re #"^ {0,3}\[\^([^\]\s]+)\]:[ \t]*(.*)$")
-(def ^:private note-ref-re #"^\[\^([^\]\s]+)\]")
-(def ^:private task-re #"^\[([ xX])\][ \t]+")
-(def ^:private space-re (js/RegExp. "\\s" "u"))
-(def ^:private punct-re (js/RegExp. "[\\p{P}\\p{S}]" "u"))
-
-(defn- blank? [l] (= "" (.trim l)))
-
-(defn- indent [l] (- (count l) (count (.trimStart l))))
-
-(defn- label-key
-  "A reference label as definitions match it: whitespace runs collapsed,
-  lower case."
-  [s]
-  (.toLowerCase (.replace (.trim s) (js/RegExp. "\\s+" "g") " ")))
-
-(defn- strip-angles [d]
-  (if (and (.startsWith d "<") (.endsWith d ">")) (subs d 1 (dec (count d))) d))
 
 (defn- link-dest
   "A raw destination as followed: a URL with a scheme kept whole (escapes
@@ -51,151 +23,33 @@
     (.replace raw (js/RegExp. "\\\\([!-/:-@[-`{-~])" "g") "$1")
     (mdlinks/clean-dest raw)))
 
-;; ---------------------------------------------------------------- inline
+;; ---------------------------------------------------------------- parses
+;; A parse depends on the text alone, so the last few are kept: showing
+;; a text asks calc-tables and render of it, a deck its slides' texts.
 
-(defn- run-len [s i c]
-  (loop [k i] (if (= (.charAt s k) c) (recur (inc k)) (- k i))))
+(def ^:private parses (js/Map.))
 
-(defn- code-close
-  "Where the code span opened by `n` backticks closes, searching from
-  `from`: the next run of exactly `n`, or nil."
-  [s from n]
-  (loop [k (.indexOf s "`" from)]
-    (when (>= k 0)
-      (let [r (run-len s k "`")]
-        (if (= r n) k (recur (.indexOf s "`" (+ k r))))))))
+(defn- parsed [text]
+  (let [doc (or (.get parses text) (mp/parse text))]
+    ;; most recently used last
+    (.delete parses text)
+    (.set parses text doc)
+    (when (> (.-size parses) 4) (.delete parses (.-value (.next (.keys parses)))))
+    doc))
 
-(defn- code-text
-  "A code span's text: line ends as spaces, one space stripped from both
-  ends when both have one (so a span can start or end with a backtick)."
-  [s]
-  (let [t (.replaceAll s "\n" " ")]
-    (if (and (.startsWith t " ") (.endsWith t " ") (not (blank? t)))
-      (subs t 1 (dec (count t)))
-      t)))
+;; ---------------------------------------------------------------- hiccup
 
-(defn- bracket-end
-  "The ] closing the [ at i — nested brackets, escapes and code spans
-  skipped — or nil."
-  [s i]
-  (let [n (count s)]
-    (loop [k (inc i) depth 0]
-      (when (< k n)
-        (let [c (.charAt s k)]
-          (cond (= c "\\") (recur (+ k 2) depth)
-                (= c "`") (let [r (run-len s k "`")
-                                e (code-close s (+ k r) r)]
-                            (recur (if (some? e) (+ e r) (+ k r)) depth))
-                (= c "[") (recur (inc k) (inc depth))
-                (= c "]") (if (zero? depth) k (recur (inc k) (dec depth)))
-                :else (recur (inc k) depth)))))))
+(declare node)
 
-(defn- link-tail
-  "The ( destination \"title\" ) after a link's text, its ( at p:
-  [raw-destination end], or nil when it isn't one."
-  [s p]
-  (let [n (count s)
-        skip (fn [k] (loop [k k]
-                       (if (and (< k n) (>= (.indexOf " \t\n" (.charAt s k)) 0)) (recur (inc k)) k)))
-        k (skip (inc p))
-        [dest k] (if (= (.charAt s k) "<")
-                   (let [e (.indexOf s ">" k)]
-                     (if (and (> e k) (not (.includes (subs s k e) "\n")))
-                       [(subs s (inc k) e) (inc e)]
-                       [nil k]))
-                   (loop [j k depth 0]
-                     (let [c (.charAt s j)]
-                       (cond (or (= c "") (= c " ") (= c "\t") (= c "\n")) [(subs s k j) j]
-                             (= c "\\") (recur (min n (+ j 2)) depth)
-                             (= c "(") (recur (inc j) (inc depth))
-                             (= c ")") (if (zero? depth) [(subs s k j) j] (recur (inc j) (dec depth)))
-                             :else (recur (inc j) depth)))))]
-    (when (some? dest)
-      (let [k2 (skip k)
-            closer (get {"\"" "\"" "'" "'" "(" ")"} (.charAt s k2))
-            k3 (if (and (> k2 k) (some? closer))
-                 (let [e (.indexOf s closer (inc k2))] (if (>= e 0) (skip (inc e)) k2))
-                 k2)]
-        (when (= (.charAt s k3) ")") [dest (inc k3)])))))
-
-(declare inline)
-
-(defn- delim?
-  "Is token x a run of emphasis delimiters, not yet matched?"
-  [x]
-  (and (map? x) (some? (:delim x))))
-
-(defn- delim-run
-  "The run of `c` (* _ ~) at i of s as a delimiter token: its length and
-  whether it can open and close emphasis — CommonMark's flanking rules,
-  _ never inside a word."
-  [s i c r]
-  (let [ws? (fn [ch] (.test space-re ch))
-        pn? (fn [ch] (.test punct-re ch))
-        before (if (zero? i) " " (.charAt s (dec i)))
-        after (if (>= (+ i r) (count s)) " " (.charAt s (+ i r)))
-        left (and (not (ws? after)) (or (not (pn? after)) (ws? before) (pn? before)))
-        right (and (not (ws? before)) (or (not (pn? before)) (ws? after) (pn? after)))]
-    {:delim c :n r :orig r
-     :open (if (= c "_") (and left (or (not right) (pn? before))) left)
-     :close (if (= c "_") (and right (or (not left) (pn? after))) right)}))
-
-(defn- as-text
-  "Tokens with the delimiters left over as the text they are, adjacent
-  texts joined."
-  [ts]
-  (let [acc []]
-    (doseq [t ts]
-      (let [t (if (delim? t) (.repeat (:delim t) (:n t)) t)
-            k (dec (count acc))]
-        (if (and (string? t) (>= k 0) (string? (aget acc k)))
-          (aset acc k (str (aget acc k) t))
-          (conj! acc t))))
-    acc))
-
-(defn- closes?
-  "Can delimiter run d close opener o: same character, ~~ only with ~~,
-  and not a pair the rule of three forbids (one side can do both and the
-  lengths add up to a multiple of 3 that isn't one on each side)?"
-  [o d]
-  (and (= (:delim o) (:delim d))
-       (if (= "~" (:delim d))
-         (= (:n o) (:n d))
-         (not (and (or (:close o) (:open d))
-                   (zero? (mod (+ (:orig o) (:orig d)) 3))
-                   (not (and (zero? (mod (:orig o) 3)) (zero? (mod (:orig d) 3)))))))))
-
-(defn- emphasize!
-  "Take delimiter run d into `out`, the tokens so far: while it closes
-  the nearest open run it may, wrap what lies between in em, strong or
-  del (runs inside that never closed become text); what is left of it
-  opens, or is text. `openers` holds the open runs, `bottom` per kind of
-  run how far down a search already failed — so nothing is searched twice."
-  [out openers bottom d]
-  (let [k (str (:delim d) (:open d) (mod (:orig d) 3))]
-    (loop []
-      (let [p (when (:close d)
-                (loop [i (dec (count openers))]
-                  (when (>= i (or (aget bottom k) 0))
-                    (if (closes? (aget openers i) d) i (recur (dec i))))))]
-        (if (nil? p)
-          (do (when (:close d) (aset bottom k (count openers)))
-              (if (:open d)
-                (do (aset d "pos" (count out)) (conj! out d) (conj! openers d))
-                (conj! out d)))
-          (let [o (aget openers p)
-                use (if (or (= "~" (:delim d)) (and (>= (:n o) 2) (>= (:n d) 2))) 2 1)
-                tag (cond (= "~" (:delim d)) :del (= use 2) :strong :else :em)
-                node (into [tag] (as-text (.splice out (inc (:pos o)))))]
-            (set! (.-length openers) (inc p))
-            (aset o "n" (- (:n o) use))
-            (aset d "n" (- (:n d) use))
-            (when (zero? (:n o)) (.pop out) (.pop openers))
-            ;; no failed search reaches above the stack as it now is
-            (doseq [bk (js/Object.keys bottom)]
-              (aset bottom bk (min (aget bottom bk) (count openers))))
-            (conj! out node)
-            (when (pos? (:n d)) (recur))))))))
+(defn- into-nodes
+  "Vector v, pushed onto, with the hiccup of the nodes in array a from
+  index i on."
+  [v a i ctx]
+  (loop [i i]
+    (when (< i (.-length a))
+      (.push v (node (aget a i) ctx))
+      (recur (inc i))))
+  v)
 
 (defn- note-ref
   "The superscript number of footnote `label`, numbered by first use;
@@ -208,309 +62,25 @@
                 first? (assoc :id (str "fnref-" label)))
            (str (.get order label))]]))
 
-(defn- link-at
-  "The link (or image, `img?`) whose text's [ is at b: {:node :end}, or
-  nil when none starts there."
-  [s b img? ctx]
-  (when-let [e (bracket-end s b)]
-    (let [label (subs s (inc b) e)
-          defs (:defs ctx)
-          nxt (.charAt s (inc e))
-          tail (when (= nxt "(") (link-tail s (inc e)))
-          [raw kind end]
-          (or (cond (some? tail) [(first tail) (if img? "image" "inline") (second tail)]
-                    (= nxt "[") (let [e2 (.indexOf s "]" (+ e 2))
-                                      id (when (>= e2 0) (subs s (+ e 2) e2))
-                                      d (when (some? id) (.get defs (label-key (if (= id "") label id))))]
-                                  (when (some? d) [d "ref" (inc e2)]))
-                    :else (when-let [d (.get defs (label-key label))] [d "ref" (inc e)]))
-              [])]
-      (when (some? raw)
-        {:end end
-         :node ((:link-fn ctx) (let [c (when-not (.test scheme-re raw) (mdlinks/dest-compare raw))]
-                                 (cond-> {:dest (link-dest raw) :label label :kind kind}
-                                   (some? c) (assoc :compare c)))
-                (if img? [(if (= label "") raw label)] (inline label ctx)))}))))
+(defn- link-node
+  "A link or image node [\"link\" raw label kind kids] by the link-fn;
+  an image's children are its text, or its destination without one."
+  [x ctx]
+  (let [raw (aget x 1)
+        label (aget x 2)
+        kids (aget x 4)
+        c (when-not (.test scheme-re raw) (mdlinks/dest-compare raw))]
+    ((:link-fn ctx) (cond-> {:dest (link-dest raw) :label label :kind (aget x 3)}
+                      (some? c) (assoc :compare c))
+     (if (nil? kids) [(if (= label "") raw label)] (into-nodes [] kids 0 ctx)))))
 
-(defn- inline
-  "Hiccup children for inline text s."
-  [s ctx]
-  (let [n (count s)
-        out []
-        openers []
-        bottom {}
-        put! (fn [text x] (when-not (= text "") (conj! out text)) (conj! out x))]
-    (loop [i 0 text ""]
-      (if (>= i n)
-        (as-text (if (= text "") out (conj! out text)))
-        (let [c (.charAt s i)]
-          (cond
-            (and (= c "\\") (= (.charAt s (inc i)) "\n"))
-            (do (put! text [:br]) (recur (+ i 2) ""))
-
-            (and (= c "\\") (>= (.indexOf punct (.charAt s (inc i))) 0) (< (inc i) n))
-            (recur (+ i 2) (str text (.charAt s (inc i))))
-
-            ;; a line end: soft, or hard after two spaces; spaces before it go
-            (= c "\n")
-            ;; (the text is flushed at every line end, so it never grows)
-            (let [t (.trimEnd text)]
-              (if (.endsWith text "  ")
-                (do (put! t [:br]) (recur (inc i) ""))
-                (do (conj! out (str t "\n")) (recur (inc i) ""))))
-
-            (or (= c "*") (= c "_") (= c "~"))
-            (let [r (run-len s i c)]
-              (if (and (= c "~") (not= r 2))
-                (recur (+ i r) (str text (subs s i (+ i r))))
-                (do (when-not (= text "") (conj! out text))
-                    (emphasize! out openers bottom (delim-run s i c r))
-                    (recur (+ i r) ""))))
-
-            (and (= c "[") (= (.charAt s (inc i)) "^")
-                 (some-> (.exec note-ref-re (subs s i)) (aget 1) label-key (->> (.has (:notes ctx)))))
-            (let [m (.exec note-ref-re (subs s i))]
-              (put! text (note-ref (label-key (aget m 1)) ctx))
-              (recur (+ i (count (aget m 0))) ""))
-
-            (= c "`")
-            (let [r (run-len s i "`")
-                  e (code-close s (+ i r) r)]
-              (if (some? e)
-                (do (put! text [:code (code-text (subs s (+ i r) e))]) (recur (+ e r) ""))
-                (recur (+ i r) (str text (subs s i (+ i r))))))
-
-            (or (= c "[") (and (= c "!") (= (.charAt s (inc i)) "[")))
-            (let [img? (= c "!")
-                  b (if img? (inc i) i)
-                  hit (link-at s b img? ctx)]
-              (if (some? hit)
-                (do (put! text (:node hit)) (recur (:end hit) ""))
-                (recur (inc b) (str text (subs s i (inc b))))))
-
-            (and (= c "<") (some? (.exec autolink-re (subs s i))))
-            (let [m (.exec autolink-re (subs s i))
-                  u (aget m 1)]
-              (put! text ((:link-fn ctx) {:dest u :label u :kind "inline"} [u]))
-              (recur (+ i (count (aget m 0))) ""))
-
-            :else (recur (inc i) (str text c))))))))
-
-;; ---------------------------------------------------------------- blocks
-
-(defn- fence-open [l]
-  (when-let [m (.exec fence-re l)]
-    (let [mark (aget m 2)]
-      (when-not (and (= "`" (.charAt mark 0)) (.includes (aget m 3) "`"))
-        (let [info (.trim (aget m 3))]
-          {:indent (count (aget m 1)) :mark mark :info info
-           :lang (.toLowerCase (aget (.split info #"\s") 0))})))))
-
-(defn- fence-close? [l mark]
-  (let [t (.trim l)]
-    (and (< (indent l) 4) (>= (count t) (count mark))
-         (= t (.repeat (.charAt mark 0) (count t))))))
-
-(defn- cells
-  "A table row's cells, trimmed; \\| is a pipe inside a cell."
-  [l]
-  (let [t (.trim l)
-        t (if (.startsWith t "|") (subs t 1) t)
-        t (if (and (.endsWith t "|") (not (.endsWith t "\\|"))) (subs t 0 (dec (count t))) t)]
-    (loop [k 0 cur "" acc []]
-      (if (>= k (count t))
-        (conj acc (.trim cur))
-        (let [c (.charAt t k)]
-          (cond (and (= c "\\") (= (.charAt t (inc k)) "|")) (recur (+ k 2) (str cur "|") acc)
-                (= c "|") (recur (inc k) "" (conj acc (.trim cur)))
-                :else (recur (inc k) (str cur c) acc)))))))
-
-(defn- table-start? [lines i]
-  (and (< (inc i) (count lines))
-       (.includes (nth lines i) "|")
-       (.test sep-re (nth lines (inc i)))
-       (= (count (cells (nth lines i))) (count (cells (nth lines (inc i)))))))
-
-(defn- item-of
-  "The list item line l starts, or nil: its marker, the column its
-  content starts at and its first line."
-  [l]
-  (when-let [m (.exec item-re l)]
-    (let [ind (count (aget m 1))
-          mark (aget m 2)
-          ws (or (aget m 3) "")
-          body (or (aget m 4) "")
-          ;; 5+ blanks after the marker: the content starts after one,
-          ;; the rest is the content's own indentation
-          [ws body] (if (> (count ws) 4) [" " (str (subs ws 1) body)] [ws body])
-          empty? (blank? body)]
-      {:ordered (not (js/isNaN (js/parseInt mark 10)))
-       :delim (.charAt mark (dec (count mark)))
-       :start (js/parseInt mark 10)
-       :content (+ ind (count mark) (if empty? 1 (count ws)))
-       :first (if empty? "" body)})))
-
-(defn- hr? [l] (.test hr-re l))
-
-(defn- quote? [l] (.test quote-re l))
-
-(defn- interrupts?
-  "Does line i end the paragraph before it?"
-  [lines i]
-  (let [l (nth lines i)]
-    (or (blank? l) (.test heading-re l) (some? (fence-open l)) (hr? l) (quote? l)
-        (.test note-def-re l) (some? (item-of l)) (table-start? lines i))))
-
-(defn- para-line?
-  "Could line l be paragraph text, which a lazy line may continue?"
-  [l]
-  (and (some? l) (not (blank? l)) (< (indent l) 4) (not (.test heading-re l))
-       (not (hr? l)) (nil? (fence-open l))))
-
-(defn- code-lines
-  "Per line: is it inside a fenced code block, its fences included?"
-  [lines]
-  (let [acc []]
-    (loop [i 0 fence nil]
-      (if (>= i (count lines))
-        acc
-        (let [l (nth lines i)]
-          (cond (some? fence) (do (conj! acc true)
-                                  (recur (inc i) (when-not (fence-close? l (:mark fence)) fence)))
-                (some? (fence-open l)) (do (conj! acc true) (recur (inc i) (fence-open l)))
-                :else (do (conj! acc false) (recur (inc i) nil))))))))
-
-(defn- note-end
-  "The line after footnote definition i: its own line, then indented
-  lines and lazy text lines, blank lines between indented ones."
-  [lines i]
-  (let [n (count lines)]
-    (loop [j (inc i) blank-seen false]
-      (if (>= j n)
-        j
-        (let [l (nth lines j)]
-          (cond (blank? l) (recur (inc j) true)
-                (>= (indent l) 4) (recur (inc j) false)
-                (and (not blank-seen) (not (interrupts? lines j))) (recur (inc j) false)
-                :else j))))))
-
-(defn- drop-blank-tail [ls]
-  (loop [ls ls] (if (and (seq ls) (blank? (last ls))) (recur (.slice ls 0 -1)) ls)))
-
-(defn- list-items
-  "The items of the list starting at line i: [items loose? end], each
-  item its lines with the content's indentation removed. A blank line
-  followed by more of the list makes it loose."
-  [lines i]
-  (let [n (count lines)
-        it0 (item-of (nth lines i))]
-    (loop [j (inc i) c (:content it0) cur [(:first it0)] items [] blank-seen false loose false]
-      (let [done #(conj items (drop-blank-tail cur))]
-        (if (>= j n)
-          [(done) loose j]
-          (let [l (nth lines j)
-                it (item-of l)]
-            (cond
-              (blank? l) (recur (inc j) c (conj cur "") items true loose)
-              (>= (indent l) c) (recur (inc j) c (conj cur (subs l c)) items false (or loose blank-seen))
-              (hr? l) [(done) loose j]
-              (some? it) (if (and (= (:ordered it) (:ordered it0)) (= (:delim it) (:delim it0)))
-                           (recur (inc j) (:content it) [(:first it)] (done) false (or loose blank-seen))
-                           [(done) loose j])
-              ;; a lazy line goes on with the item's text
-              (and (not blank-seen) (not (interrupts? lines j)) (not (.test setext-re l)))
-              (recur (inc j) c (conj cur (.trim l)) items false loose)
-              :else [(done) loose j])))))))
-
-(declare blocks)
-
-(defn- task-blocks
-  "The blocks of task item lines `ls` — [ ] or [x] first — with the
-  checkbox first in its first paragraph; nil when it is no task item."
-  [ls ctx]
-  (when-let [m (.exec task-re (or (first ls) ""))]
-    (let [cb [:input {:type "checkbox" :checked (not= " " (aget m 1)) :disabled true}]
-          bs (blocks (into [(subs (first ls) (count (aget m 0)))] (rest ls)) ctx)
-          b0 (first bs)]
-      (if (= "p" (first b0))
-        (into [(into [:p cb] (rest b0))] (rest bs))
-        (into [cb] bs)))))
-
-(defn- list-block [lines i ctx]
-  (let [it0 (item-of (nth lines i))
-        [items loose end] (list-items lines i)
-        lis (mapv (fn [ls]
-                    (let [task (task-blocks ls ctx)
-                          bs (or task (blocks ls ctx))]
-                      (into (if (some? task) [:li {:class "task"}] [:li])
-                            (if loose
-                              bs
-                              (mapcat (fn [b] (if (= "p" (first b)) (rest b) [b])) bs)))))
-                  items)
-        tag (cond (not (:ordered it0)) [:ul]
-                  (= 1 (:start it0)) [:ol]
-                  :else [:ol {:start (:start it0)}])]
-    [(into tag lis) end]))
-
-(defn- table-end
-  "The line after the table starting at line i."
-  [lines i]
-  (let [n (count lines)]
-    (loop [j (+ i 2)]
-      (if (and (< j n) (let [l (nth lines j)]
-                         (not (or (blank? l) (.test heading-re l) (some? (fence-open l))
-                                  (hr? l) (quote? l) (.test note-def-re l) (some? (item-of l))))))
-        (recur (inc j))
-        j))))
-
-(defn- aligns-of
-  "The table's column alignments from its separator line: \"left\",
-  \"center\", \"right\" or nil."
-  [sep]
-  (mapv (fn [c] (let [l (.startsWith c ":") r (.endsWith c ":")]
-                  (cond (and l r) "center" r "right" l "left" :else nil)))
-        (cells sep)))
-
-(defn- fence-body
-  "The lines of the fenced block opening at line i, unindented as far as
-  its fence, and the line closing it — nil when none does."
-  [lines i fence]
-  (let [n (count lines)
-        close (loop [k (inc i)]
-                (cond (>= k n) nil
-                      (fence-close? (nth lines k) (:mark fence)) k
-                      :else (recur (inc k))))]
-    [(mapv (fn [ln] (subs ln (min (indent ln) (:indent fence)))) (.slice lines (inc i) (or close n)))
-     close]))
-
-(defn- def-block
-  "For the ```simpleviz-table fence opening at line i: its text and the
-  line of the table right below it, blank lines between allowed; nil
-  when it never closes or no table follows."
-  [lines i fence]
-  (let [n (count lines)
-        [body close] (fence-body lines i fence)
-        t (when (some? close)
-            (loop [j (inc close)] (if (and (< j n) (blank? (nth lines j))) (recur (inc j)) j)))]
-    (when (and (some? t) (< t n)
-               (let [l (nth lines t)]
-                 (and (< (indent l) 4) (not (.test heading-re l)) (not (quote? l)) (not (hr? l))
-                      (table-start? lines t))))
-      [(.join body "\n") t])))
+(defn- fence-node [lang code ctx]
+  (let [hl (when (:highlight ctx) (highlight/highlight lang code))]
+    [:pre (if (some? hl)
+            (into [:code {:class (str "language-" lang)}] hl)
+            [:code code])]))
 
 (defn- formula? [c] (.startsWith c "=("))
-
-(defn- chart-after
-  "The ```simpleviz-chart-table fence right below the table ending at
-  line `end`, blank lines between allowed: [its text, the line after
-  it], or nil when there is none or it never closes."
-  [lines end]
-  (let [n (count lines)
-        j (loop [j end] (if (and (< j n) (blank? (nth lines j))) (recur (inc j)) j))
-        fence (when (< j n) (fence-open (nth lines j)))]
-    (when (= "simpleviz-chart-table" (:info fence))
-      (let [[body close] (fence-body lines j fence)]
-        (when (some? close) [(.join body "\n") (inc close)])))))
 
 (def ^:private tables-shown
   "The chart tables whose table shows instead of their chart, so a
@@ -566,16 +136,16 @@
     (some? (:border style)) (assoc :border-color (:border style))))
 
 (defn- result-cell
-  "A body cell with something from the server — or, a formula, waiting
-  for it: its error, else its value or the cell as written (a style
-  alone keeps it), styled; … while a formula runs. A formula is marked
-  calc and has itself as its title, a formatted value the cell as
-  written."
-  [c res al f? ctx]
+  "A body cell `c` with something from the server — or, a formula,
+  waiting for it: its error, else its value or the cell as written (a
+  style alone keeps it; `inl` its parsed text), styled; … while a
+  formula runs. A formula is marked calc and has itself as its title, a
+  formatted value the cell as written."
+  [c inl res al f? ctx]
   (let [[cls kids] (cond (some? (:error res)) ["calc error" [(:error res)]]
                          (some? (:value res)) [(when f? "calc") [(:value res)]]
                          f? ["calc pending" ["…"]]
-                         :else [nil (inline c ctx)])
+                         :else [nil (into-nodes [] inl 0 ctx)])
         cls (if (and (some? al) (some? cls)) (str al " " cls) (or al cls))]
     (into [:td (cond-> {}
                  (some? cls) (assoc :class cls)
@@ -583,23 +153,33 @@
                  (some? (:style res)) (assoc :style (style-of (:style res))))]
           kids)))
 
-(defn- table-block
-  "The table starting at line i and the line after it, its body rows
-  also collected in (:tables ctx) with the def block `defs` for the
-  server to calculate; its cells show the results (:calc ctx) holds for
-  it — {:failed msg} fails every formula, the other cells as written —
-  and its own :error is its caption. With `chart`, the text of the
-  chart block below it, it shows as that chart, a button turning it to
-  the table and back."
-  [lines i defs chart ctx]
-  (let [end (table-end lines i)
-        aligns (aligns-of (nth lines (inc i)))
-        grid (fn [l] (let [cs (cells l)] (mapv (fn [k] (or (get cs k) "")) (range (count aligns)))))
-        body (mapv (fn [j] (grid (nth lines j))) (range (+ i 2) end))
+
+(defn- calc-table
+  "Table or solo chart node x as the server calculates it."
+  [x]
+  (if (= "solo" (aget x 0))
+    {:cells [] :defs (aget x 1) :chart (aget x 2) :solo true}
+    (cond-> {:cells (mapv vec (aget x 4)) :defs (aget x 6)}
+      (some? (aget x 7)) (assoc :chart (aget x 7)))))
+
+(defn- table-node
+  "Table node x [\"table\" aligns header header-inline body body-inline
+  defs chart], counted in (:tables ctx): its place among the text's
+  tables (calc-tables) is where (:calc ctx) holds the server's results
+  for it. Its cells show them — {:failed msg} fails every
+  formula, the other cells as written — and its own :error is its
+  caption. With `chart`, the text of the chart block below it, it shows
+  as that chart, a button turning it to the table and back."
+  [x ctx]
+  (let [aligns (aget x 1)
+        header (aget x 2)
+        body (aget x 4)
+        body-inl (aget x 5)
+        chart (aget x 7)
         failed (:failed (:calc ctx))
         at (count (:tables ctx))
         mine (when (nil? failed) (get (:calc ctx) at))
-        row (fn [tag cs r]
+        row (fn [tag cs inl r]
               (into [:tr] (map-indexed (fn [k a]
                                          (let [c (nth cs k)
                                                al (when (some? a) (str "al-" a))
@@ -607,155 +187,44 @@
                                                res (when (= tag :td)
                                                      (if (and f? (some? failed)) {:error failed} (get-in mine [:results r k])))]
                                            (if (or f? (some? res))
-                                             (result-cell c res al f? ctx)
-                                             (into (if (some? al) [tag {:class al}] [tag]) (inline c ctx)))))
+                                             (result-cell c (aget inl k) res al f? ctx)
+                                             (into-nodes (if (some? al) [tag {:class al}] [tag]) (aget inl k) 0 ctx))))
                                        aligns)))]
-    (conj! (:tables ctx) (cond-> {:cells body :defs defs} (some? chart) (assoc :chart chart)))
-    (let [header (grid (nth lines i))
-          tbl (-> (cond-> [:table] (some? (:error mine)) (conj [:caption {:class "calc-error"} (:error mine)]))
-                  (conj [:thead (row :th header nil)]
-                        (into [:tbody] (map-indexed (fn [r cs] (row :td cs r)) body))))]
-      [(if (nil? chart) tbl (chart-figure tbl at chart header body mine failed)) end])))
-
-(defn- table-and-chart
-  "The table starting at line i, its def block `defs` above it, and the
-  chart block right below it, if any: [its hiccup, the line after]."
-  [lines i defs ctx]
-  (let [[chart after] (chart-after lines (table-end lines i))
-        [tbl end] (table-block lines i defs chart ctx)]
-    [tbl (or after end)]))
+    (.push (:tables ctx) x)
+    (let [tbl (-> (cond-> [:table] (some? (:error mine)) (conj [:caption {:class "calc-error"} (:error mine)]))
+                  (conj [:thead (row :th header (aget x 3) nil)]
+                        (into [:tbody] (map-indexed (fn [r cs] (row :td cs (aget body-inl r) r)) body))))]
+      (if (nil? chart) tbl (chart-figure tbl at chart header body mine failed)))))
 
 (defn- solo-chart
-  "The ```simpleviz-chart block of lines `body`: its >> lines name the
-  data and its fields, the rest is the chart. Collected in (:tables
-  ctx) for the server to read the data; shows as the chart of it."
-  [body ctx]
-  (let [head (vec (take-while (fn [l] (.startsWith (.trim l) ">>")) body))
-        spec (.join (.slice body (count head)) "\n")
-        failed (:failed (:calc ctx))
+  "Solo chart node x [\"solo\" head spec], a ```simpleviz-chart block
+  whose >> lines `head` name the data and its fields, the rest `spec`
+  being the chart, counted in (:tables ctx) like a table: shows as the
+  chart of the data the server read."
+  [x ctx]
+  (let [failed (:failed (:calc ctx))
         mine (when (nil? failed) (get (:calc ctx) (count (:tables ctx))))
         rows (mapv (fn [rec] (mapv (fn [v] {:num (when (number? v) v) :label (if (nil? v) "" (str v))}) rec))
                    (or (:data mine) []))]
-    (conj! (:tables ctx) {:cells [] :defs (.join head "\n") :chart spec :solo true})
+    (.push (:tables ctx) x)
     [:figure {:class "chart-solo"} (chart-part mine failed (or (:fields mine) []) rows)]))
 
-(defn- blocks
-  "Hiccup for the block-level lines."
-  [lines ctx]
-  (let [n (count lines)]
-    (loop [i 0 out []]
-      (if (>= i n)
-        out
-        (let [l (nth lines i)
-              fence (fence-open l)
-              table-def (when (= "simpleviz-table" (:info fence)) (def-block lines i fence))
-              solo (when (= "simpleviz-chart" (:info fence))
-                     (let [[body close] (fence-body lines i fence)] (when (some? close) [body close])))
-              heading (.exec heading-re l)]
-          (cond
-            (blank? l) (recur (inc i) out)
-
-            (some? table-def)
-            (let [[defs t] table-def
-                  [tbl end] (table-and-chart lines t defs ctx)]
-              (recur end (conj out tbl)))
-
-            (some? solo)
-            (let [[body close] solo]
-              (recur (inc close) (conj out (solo-chart body ctx))))
-
-            (some? fence)
-            (let [[body close] (fence-body lines i fence)
-                  code (.join body "\n")
-                  lang (:lang fence)
-                  hl (when (:highlight ctx) (highlight/highlight lang code))]
-              (recur (inc (or close n))
-                     (conj out [:pre (if (some? hl)
-                                       (into [:code {:class (str "language-" lang)}] hl)
-                                       [:code code])])))
-
-            (some? heading)
-            (recur (inc i) (conj out (into [(str "h" (count (aget heading 1)))]
-                                           (inline (or (aget heading 2) "") ctx))))
-
-            (>= (indent l) 4)
-            (let [end (loop [j i]
-                        (if (and (< j n) (or (blank? (nth lines j)) (>= (indent (nth lines j)) 4)))
-                          (recur (inc j))
-                          j))
-                  body (drop-blank-tail (mapv (fn [ln] (if (blank? ln) "" (subs ln 4)))
-                                              (.slice lines i end)))]
-              (recur end (conj out [:pre [:code (.join body "\n")]])))
-
-            (.test note-def-re l) (recur (note-end lines i) out)
-
-            (.test def-re l) (recur (inc i) out)
-
-            (hr? l) (recur (inc i) (conj out [:hr]))
-
-            (quote? l)
-            (let [[inner end]
-                  (loop [j i acc [] fence nil]
-                    (if (>= j n)
-                      [acc j]
-                      (let [ln (nth lines j)]
-                        (cond (quote? ln)
-                              (let [q (.replace ln quote-re "")]
-                                (recur (inc j) (conj acc q)
-                                       (if (some? fence)
-                                         (when-not (fence-close? q (:mark fence)) fence)
-                                         (fence-open q))))
-                              ;; a lazy line goes on with the quote's paragraph
-                              (and (nil? fence) (para-line? (last acc))
-                                   (not (interrupts? lines j)) (not (.test setext-re ln)))
-                              (recur (inc j) (conj acc ln) fence)
-                              :else [acc j]))))]
-              (recur end (conj out (into [:blockquote] (blocks inner ctx)))))
-
-            (table-start? lines i)
-            (let [[tbl end] (table-and-chart lines i nil ctx)] (recur end (conj out tbl)))
-
-            (some? (item-of l))
-            (let [[t end] (list-block lines i ctx)] (recur end (conj out t)))
-
-            :else
-            (let [end (loop [j (inc i)]
-                        (if (and (< j n) (not (interrupts? lines j)) (not (.test setext-re (nth lines j))))
-                          (recur (inc j))
-                          j))
-                  text (.trimEnd (.join (mapv (fn [ln] (.trimStart ln)) (.slice lines i end)) "\n"))
-                  h1? (and (< end n) (.test setext-re (nth lines end)))]
-              (if h1?
-                (recur (inc end) (conj out (into [:h1] (inline text ctx))))
-                (recur end (conj out (into [:p] (inline text ctx))))))))))))
-
-(defn- defs-of
-  "The link reference definitions in lines (not in code, no footnotes):
-  label key → raw destination, the first definition of a label winning."
-  [lines code]
-  (let [m (js/Map.)]
-    (doseq [i (range (count lines))]
-      (let [l (nth lines i)]
-        (when-not (or (nth code i) (.test note-def-re l))
-          (when-let [r (.exec def-re l)]
-            (let [k (label-key (aget r 1))]
-              (when-not (.has m k) (.set m k (strip-angles (aget r 2)))))))))
-    m))
-
-(defn- notes-of
-  "The footnote definitions in lines (not in code): label key → their
-  lines, indentation of the continuation lines removed; the first
-  definition of a label wins."
-  [lines code]
-  (let [m (js/Map.)]
-    (doseq [i (range (count lines))]
-      (when-let [r (when-not (nth code i) (.exec note-def-re (nth lines i)))]
-        (when-not (.has m (label-key (aget r 1)))
-          (.set m (label-key (aget r 1))
-                (into [(aget r 2)]
-                      (map (fn [l] (if (>= (indent l) 4) (subs l 4) (.trimStart l)))
-                           (.slice lines (inc i) (note-end lines i))))))))
-    m))
+(defn- node
+  "Hiccup for parsed node x (mdparse.js names them)."
+  [x ctx]
+  (if (string? x)
+    x
+    (case (aget x 0)
+      "link" (link-node x ctx)
+      "autolink" (let [u (aget x 1)] ((:link-fn ctx) {:dest u :label u :kind "inline"} [u]))
+      "note" (note-ref (aget x 1) ctx)
+      "fence" (fence-node (aget x 1) (aget x 2) ctx)
+      "checkbox" [:input {:type "checkbox" :checked (aget x 1) :disabled true}]
+      "li-task" (into-nodes [:li {:class "task"}] x 1 ctx)
+      "ol-start" (into-nodes [:ol {:start (aget x 1)}] x 2 ctx)
+      "table" (table-node x ctx)
+      "solo" (solo-chart x ctx)
+      (into-nodes [(aget x 0)] x 1 ctx))))
 
 (defn- with-backref
   "Footnote `label`'s blocks with the link back to its first use at the
@@ -780,24 +249,16 @@
           (let [label (nth (js/Array.from (.keys order)) k)]
             (recur (inc k)
                    (conj lis (into [:li {:id (str "fn-" label)}]
-                                   (with-backref (blocks (.get (:notes ctx) label) ctx) label))))))))))
-
-(defn- untab
-  "Line l with tabs in its indentation as four spaces."
-  [l]
-  (.replace l #"^[ \t]+" (fn [ws] (.replaceAll ws "\t" "    "))))
+                                   (with-backref (into-nodes [] (mp/noteBlocks (:doc ctx) label) 0 ctx) label))))))))))
 
 (defn- rendered
   "[blocks ctx] for markdown text, as render describes them, by opts
   {:link-fn :calc :highlight}; code is highlighted only with :highlight,
   which no structural comparison needs."
   [text opts]
-  (let [lines (mapv untab (.split (.replaceAll (str text) "\r\n" "\n") "\n"))
-        code (code-lines lines)
-        ctx (merge {:defs (defs-of lines code) :notes (notes-of lines code) :order (js/Map.)
-                    :tables []}
-                   opts)
-        bs (blocks lines ctx)
+  (let [doc (parsed (str text))
+        ctx (merge {:doc doc :order (js/Map.) :tables []} opts)
+        bs (into-nodes [] (mp/docBlocks doc) 0 ctx)
         notes (footnotes ctx)]
     [(if (some? notes) (conj bs notes) bs) ctx]))
 
@@ -817,7 +278,7 @@
   calculates them: {:cells (body rows, as wide as the header) :defs
   (the def block's text, or nil)}."
   [text]
-  (:tables (second (rendered text {:link-fn (fn [_ kids] kids)}))))
+  (mapv calc-table (mp/tables (parsed (str text)))))
 
 (defn may-calc?
   "Can md `text` hold anything the server calculates — a formula, or a
@@ -856,16 +317,16 @@
     (loop [i 0 fence nil]
       (if (>= i (count lines))
         acc
-        (let [l (untab (nth lines i))]
+        (let [l (mp/untab (nth lines i))]
           (if (some? fence)
             (let [s (if (:quoted fence) (.replace l quote-prefix-re "") l)
-                  close (fence-close? (subs s (min (:col fence) (indent s))) (:mark fence))]
+                  close (mp/fenceClose (subs s (min (:col fence) (mp/indent s))) (:mark fence))]
               (conj! acc (if close "close" fence))
               (recur (inc i) (when-not close fence)))
             (let [q (aget (.match l quote-prefix-re) 0)
                   rest (subs l (count q))
                   col (count (aget (.match rest lead-re) 0))
-                  f (some-> (fence-open (subs rest col)) (assoc :col col :quoted (not= "" q)))]
+                  f (when-let [m (mp/fenceMark (subs rest col))] {:mark m :col col :quoted (not= "" q)})]
               (conj! acc (if (some? f) f false))
               (recur (inc i) f))))))))
 
@@ -889,13 +350,13 @@
   (let [out []]
     (doseq [i (range (count lines))]
       (let [l (nth lines i)
-            m (when-not (nth fenced i) (.exec heading-re l))]
+            m (when-not (nth fenced i) (.exec mp/headingRe l))]
         (if (nil? m)
           (conj! out l)
           (let [margin (not (.startsWith l " "))]
-            (when (and margin (pos? i) (not (blank? (last out)))) (conj! out ""))
+            (when (and margin (pos? i) (not (mp/blank (last out)))) (conj! out ""))
             (conj! out (tidy-heading l m))
-            (when (and margin (some-> (nth lines (inc i) nil) blank? not)) (conj! out ""))))))
+            (when (and margin (some-> (nth lines (inc i) nil) mp/blank not)) (conj! out ""))))))
     (.join out "\n")))
 
 (defn- cell-width [s] (.-length (js/Array.from s)))
@@ -910,10 +371,10 @@
   to one width and every row framed by pipes, indented by `ind`. Cells
   past the header's stay, unpadded."
   [rows ind]
-  (let [aligns (aligns-of (nth rows 1))
+  (let [aligns (mp/alignsOf (nth rows 1))
         n (count aligns)
         body (mapv (fn [l]
-                     (let [cs (mapv (fn [c] (.replaceAll c "|" "\\|")) (cells l))]
+                     (let [cs (mapv (fn [c] (.replaceAll c "|" "\\|")) (mp/cells l))]
                        (into cs (repeat (max 0 (- n (count cs))) ""))))
                    (into [(first rows)] (drop 2 rows)))
         widths (mapv (fn [k] (apply max 3 (map (fn [cs] (cell-width (nth cs k))) body))) (range n))
@@ -933,15 +394,15 @@
   when no table starts there that a tidy can keep whole."
   [lines fenced i]
   (let [l (nth lines i)]
-    (when (and (not (nth fenced i)) (< (indent (untab l)) 4)
-               (not (or (.test heading-re l) (quote? l) (hr? l) (.test def-re l)
-                        (.test note-def-re l) (some? (item-of l))))
-               (table-start? lines i))
-      (let [end (table-end lines i)
+    (when (and (not (nth fenced i)) (< (mp/indent (mp/untab l)) 4)
+               (not (or (.test mp/headingRe l) (mp/isQuote l) (mp/isHr l) (.test mp/defRe l)
+                        (.test mp/noteDefRe l) (mp/isItem l)))
+               (mp/tableStart lines i))
+      (let [end (mp/tableEnd lines i)
             rows (.slice lines i end)
             ind (aget (.match l #"^[ \t]*") 0)]
         (when (every? (fn [r] (and (.startsWith r ind) (not (.test #"^[ \t]" (subs r (count ind))))
-                                   (not (.test def-re r))))
+                                   (not (.test mp/defRe r))))
                       rows)
           [(tidy-table rows ind) end])))))
 
@@ -974,7 +435,7 @@
   (let [t (.trimEnd l)]
     (cond (= t l) l
           (.endsWith t "\\") l
-          (and (.endsWith l "  ") (some? nxt) (not (blank? nxt))) (str t "  ")
+          (and (.endsWith l "  ") (some? nxt) (not (mp/blank nxt))) (str t "  ")
           :else t)))
 
 (defn- line-ends
@@ -982,7 +443,7 @@
   indented, quoted, or with a backtick."
   [lines fenced]
   (.join (vec (map-indexed (fn [i l]
-                             (if (or (nth fenced i) (>= (indent (untab l)) 4) (quote? l) (.includes l "`"))
+                             (if (or (nth fenced i) (>= (mp/indent (mp/untab l)) 4) (mp/isQuote l) (.includes l "`"))
                                l
                                (tidy-end l (nth lines (inc i) nil))))
                            lines))
@@ -994,8 +455,8 @@
   the end, unless the text ends in an open fence, whose end is code."
   [lines fenced]
   (let [n (count lines)
-        blank-at? (fn [i] (and (not (nth fenced i)) (blank? (nth lines i))))
-        code-at? (fn [i] (and (not (nth fenced i)) (>= (indent (untab (nth lines i))) 4)))
+        blank-at? (fn [i] (and (not (nth fenced i)) (mp/blank (nth lines i))))
+        code-at? (fn [i] (and (not (nth fenced i)) (>= (mp/indent (mp/untab (nth lines i))) 4)))
         ;; per line, the next line that is no blank
         nxt (let [a (js/Array. (inc n))]
               (aset a n nil)
@@ -1022,7 +483,7 @@
   "* and + bullets as -."
   [lines fenced]
   (.join (vec (map-indexed (fn [i l]
-                             (if (or (nth fenced i) (hr? (.trimStart l))) l (.replace l bullet-re "$1-$2")))
+                             (if (or (nth fenced i) (mp/isHr (.trimStart l))) l (.replace l bullet-re "$1-$2")))
                            lines))
          "\n"))
 

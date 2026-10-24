@@ -208,6 +208,12 @@
   "A PDF page, in CSS px: the page lays a slide out at this size, 16:9."
   {:width 1280 :height 720})
 
+(defn set-viewport!
+  "Lay the page out at `size` ({:width :height}, CSS px)."
+  [page size]
+  (call page "Emulation.setDeviceMetricsOverride"
+        (assoc size :deviceScaleFactor 1 :mobile false) page-timeout-ms "the page"))
+
 (defn export-page!
   "Navigate to page-url and return window.simplevizExport's reply: its
   :data base64 for \"png\", SVG text for \"svg\"; for \"pdf\" the page
@@ -217,8 +223,7 @@
   (let [page (open-page ws-url)]
     (try
       (when (= format "pdf")
-        (call page "Emulation.setDeviceMetricsOverride"
-              (assoc slide-size :deviceScaleFactor 1 :mobile false) page-timeout-ms "the page"))
+        (set-viewport! page slide-size))
       (navigate! page page-url)
       (let [r (evaluate page (str "window.simplevizExport("
                                   (json/generate-string {:format format :theme theme}) ")")

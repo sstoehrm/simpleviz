@@ -361,3 +361,21 @@
       (assert/equal (get opts "elk.nodeSize.minimum") (str "(" (+ (measure "box text" nil) 24) ", 72)"))
       (assert/equal (get (:layoutOptions (by-id "b:h")) "elk.padding") "[top=40,left=14,bottom=14,right=14]")
       (assert/ok (nil? (get (:layoutOptions (by-id "b:h")) "elk.nodeSize.minimum"))))))
+
+(test ":text on an edge grows its label by a line each, alone when the edge has no name"
+  (fn []
+    (let [e (fn [i nm attrs] {:id (str "e" i) :source "a" :target "b"
+                              :arrows {:source false :target true}
+                              :name nm :type "" :attrs attrs})
+          g (graph {:nodes {"a" (node "a") "b" (node "b")}
+                    :edges [(e 0 "calls" {"text" "one\na rather long line of text"})
+                            (e 1 "" {"text" "only text"})
+                            (e 2 "" {"text" "  "})]})
+          [l0 l1 l2] (mapv (fn [x] (first (or (:labels x) [nil]))) (:edges (to-elk g measure)))]
+      (assert/equal (:text l0) "calls" "the name line stays the label's text")
+      (assert/equal (:height l0) (* 3 14))
+      (assert/equal (:width l0) (+ (measure "a rather long line of text" nil) 4))
+      (assert/equal (:text l1) " " "ELK places no label with empty text")
+      (assert/equal (:height l1) 14)
+      (assert/equal (:width l1) (+ (measure "only text" nil) 4))
+      (assert/equal l2 nil "blank text adds no label"))))

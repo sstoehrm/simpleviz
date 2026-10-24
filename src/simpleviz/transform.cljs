@@ -104,13 +104,20 @@
                                             (str "(" (:type e) ")")
                                             "")])
                           label (.join parts " ")
+                          named? (pos? (.-length (.trim label)))
+                          ;; :text shows under the name, a line each
+                          lines (scene/text-lines (:text (:attrs e)) measure)
                           base {:id (:id e)
                                 :sources [(or (:source-id e) (str "n:" (:source e)))]
                                 :targets [(or (:target-id e) (str "n:" (:target e)))]}]
-                      (if (pos? (.-length label))
-                        (assoc base :labels [{:text label
-                                              :width (+ (js/Math.ceil (measure label SUB-FONT)) 4)
-                                              :height 14}])
+                      (if (or named? (seq lines))
+                        ;; ELK leaves a label with empty text unplaced: a
+                        ;; nameless one goes as " ", the scene trims it
+                        (assoc base :labels [{:text (if named? label " ")
+                                              :width (+ (js/Math.ceil (max (if named? (measure label SUB-FONT) 0)
+                                                                           (scene/text-width lines measure)))
+                                                        4)
+                                              :height (* scene/LINE-H (+ (if named? 1 0) (count lines)))}])
                         base)))
                   edges)}))
 

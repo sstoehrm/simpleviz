@@ -489,16 +489,24 @@
       (when (and detail? (:source (:arrows item)))
         (draw-arrowhead ctx (nth first-sec 1) (nth first-sec 0) arrow-color)))))
 
-(defn- draw-edge-label [ctx item]
+(defn- draw-edge-label
+  "The label's name line, then its :text lines, LINE-H apart; each on a
+  halo, for an edge that runs through the label (manual layout)."
+  [ctx item]
   (set! (.-textAlign ctx) "center")
-  (set! (.-font ctx) SUB-FONT)
+  (set! (.-lineWidth ctx) 3)
+  (set! (.-strokeStyle ctx) (:bg @palette))
   (let [x (+ (:x item) (/ (:w item) 2))
-        y (+ (:y item) (:h item) -3)]
-    (set! (.-lineWidth ctx) 3)
-    (set! (.-strokeStyle ctx) (:bg @palette))
-    (.strokeText ctx (:text item) x y)
-    (set! (.-fillStyle ctx) (:label @palette))
-    (.fillText ctx (:text item) x y)))
+        named? (pos? (.-length (:text item)))
+        line! (fn [s i font color]
+                (let [y (+ (:y item) (* i scene/LINE-H) 11)]
+                  (set! (.-font ctx) font)
+                  (.strokeText ctx s x y)
+                  (set! (.-fillStyle ctx) color)
+                  (.fillText ctx s x y)))]
+    (when named? (line! (:text item) 0 SUB-FONT (:label @palette)))
+    (doseq [[i l] (map-indexed (fn [i l] [i l]) (or (:text-lines item) []))]
+      (line! l (+ i (if named? 1 0)) scene/TEXT-FONT (:text @palette)))))
 
 (defn- paint-items!
   "Draw every scene item visible in the graph-space rect vr; a removed

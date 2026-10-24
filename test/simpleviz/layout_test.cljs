@@ -212,3 +212,14 @@
                (assert/ok (column? p0) "the fresh layout stacks them in one column")
                (assert/ok (column? p1) "they still share one column after the edit")
                (assert/deepEqual (vec (order p1)) (vec (order p0)) "in the same order"))))))
+
+(test "ELK places the label of an edge with only :text beside the edge"
+  (fn []
+    (let [g (graph {:nodes {"a" (node "a" "") "b" (node "b" "")}
+                    :edges [(assoc (edge 0 "a" "b" {:source false :target true})
+                                   :attrs {"text" "writes orders"})]})]
+      (-> (.layout (new-elk) (to-elk g measure))
+          (.then (fn [layout]
+                   (let [lbl (first (:labels (first (:edges layout))))
+                         a (first (filterv (fn [c] (= (:id c) "n:a")) (:children layout)))]
+                     (assert/ok (> (:x lbl) (:x a)) "right of the source, not at the origin"))))))))

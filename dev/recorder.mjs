@@ -3,7 +3,8 @@
 // protocol, a pointer and keys that drive the page as a viewer would,
 // the screencast and its encoding to an .mp4 and a .gif.
 //   const r = recorder("simpleviz-rec-", { hover: true });
-//   r.start("bb", ["serve", file, "--port", PORT]); await r.waitFor(url);
+//   const server = r.start("bb", ["serve", file, "--port", PORT]);
+//   const url = await r.serverUrl(server);
 //   await r.launch(CDP_PORT, OVERLAY); const shots = r.capture(); …
 //   r.encode(shots, { out, name });
 // Needs Node >= 22 (global WebSocket), chromium (or $CHROMIUM), ffmpeg.
@@ -44,6 +45,16 @@ export function recorder(prefix, { hover = false } = {}) {
     for (const t0 = Date.now(); Date.now() - t0 < ms; await sleep(200))
       try { const r = await fetch(url); if (r.ok) return r; } catch {}
     throw new Error(`timed out waiting for ${url}`);
+  }
+  // The port alone grants no access: use this server's printed session
+  // URL, which bb serve includes after "serving … at".
+  async function serverUrl(proc, ms = 20000) {
+    for (const t0 = Date.now(); Date.now() - t0 < ms; await sleep(200)) {
+      const url = proc.log().match(/http:\/\/localhost:\d+\/[A-Za-z0-9_-]{43}(?=\s|$)/)?.[0];
+      if (url) { await waitFor(url, ms); return url; }
+      if (proc.exitCode !== null || proc.signalCode !== null) throw new Error("server exited before printing its URL");
+    }
+    throw new Error("server did not print its session URL");
   }
   function cleanup() {
     for (const p of procs) try { process.kill(-p.pid); } catch {}
@@ -124,7 +135,7 @@ export function recorder(prefix, { hover = false } = {}) {
   const caption = html => js(`__rec.caption(${JSON.stringify(html)})`);
   // the graph shown is laid out
   const settled = () => js(`(async () => {
-    const app = await import("/js/simpleviz/app.mjs");
+    const app = await import("./js/simpleviz/app.mjs");
     for (let i = 0; i < 200; i++) {
       const st = app.state.val;
       if (st.scene && !st.layouting) return true;
@@ -185,6 +196,6 @@ export function recorder(prefix, { hover = false } = {}) {
     cleanup();
   }
 
-  return { tmp, ws, frames, env, start, waitFor, send, on, js, launch, moveTo, click, elAt, key, caption, settled,
+  return { tmp, ws, frames, env, start, waitFor, serverUrl, send, on, js, launch, moveTo, click, elAt, key, caption, settled,
            capture, encode, report, close };
 }

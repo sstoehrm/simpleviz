@@ -7,8 +7,8 @@
             [babashka.process :as p]
             [clojure.string :as str]))
 
-(def ^:private entry-src "/js/simpleviz/app.mjs")
-(def ^:private bundle-src "/js/app.min.mjs")
+(def ^:private entry-src "js/simpleviz/app.mjs")
+(def ^:private bundle-src "js/app.min.mjs")
 
 (def ^:private importmap-re #"(?s)<script type=\"importmap\">.*?</script>\n?")
 
@@ -24,7 +24,7 @@
     (let [out (-> html
                   (str/replace importmap-re "")
                   (str/replace entry (str "src=\"" bundle-src "\"")))]
-      (when-let [other (seq (remove #{bundle-src} (re-seq #"/js/[^\"'\s>]*" out)))]
+      (when-let [other (seq (remove #{bundle-src} (re-seq #"(?:/|\./)?js/[^\"'\s>]*" out)))]
         (throw (ex-info (str "index.html references " (str/join ", " other) ", which the bundle replaces") {})))
       out)))
 
@@ -41,10 +41,10 @@
   brings its own older one, which dev's import map never loads."
   [dir]
   (let [js (fs/path dir "js")
-        bundle (fs/path dir (subs bundle-src 1))
+        bundle (fs/path dir bundle-src)
         index (str (fs/path dir "index.html"))]
     (p/shell {:extra-env {"NODE_PATH" (str (fs/absolutize "node_modules"))}}
-             "npx" "--no-install" "esbuild" (str (fs/path dir (subs entry-src 1)))
+             "npx" "--no-install" "esbuild" (str (fs/path dir entry-src))
              "--bundle" "--minify" "--format=esm" "--log-level=warning"
              (str "--alias:squint-cljs=" (fs/absolutize "node_modules/squint-cljs"))
              (str "--outfile=" bundle))

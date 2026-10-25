@@ -394,8 +394,9 @@ table as a chart; the page hides the table behind a Table button. A
     # `ok` (exit 0), or `error: ..` / one `warning: ..` line per problem (exit 1)
 
 No server or browser needed. While a server runs, `/api/errors` gives the
-same report (`$URL` is the address it printed, or the one the user gave
-you; `file` is relative to the served folder):
+same report (`$URL` is the full address it printed, or the one the user
+gave you, including its private session path and without a trailing slash;
+`file` is relative to the served folder):
 
     curl -s $URL/api/errors                      # {"error":null,"warnings":[]} means clean
     curl -s "$URL/api/errors?file=sub/api.edn"   # a file reached through a :ref or md link
@@ -431,8 +432,12 @@ the file behind an extra `}`) is a parse error too.
     simpleviz --version
 
 As an agent, always pass `--no-open` and run the server in the background:
-it prints `simpleviz: http://localhost:<port>` (that is `$URL`) and runs
-until its process is stopped. Leave it running while the user needs the
+it prints `simpleviz: http://localhost:<port>/<session>` (that is `$URL`)
+and runs until its process is stopped. Keep the full private URL: every
+page, asset and API request requires its random session path. Do not
+construct a URL from the port or reuse one after restarting the server.
+Share it only with the user and tools that should access the served files.
+Leave it running while the user needs the
 link; stop a server you started once they don't, and never stop one you
 didn't start. To hand someone an image, run `simpleviz export` rather than
 asking them to click ⇩.

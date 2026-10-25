@@ -9,13 +9,17 @@ sent to.
 - **The server and the page** (`simpleviz <file>`) run on your machine.
   The server listens on 127.0.0.1 only and serves the files of the
   folder you started it in; the page loads its scripts and styles from
-  it, nothing from elsewhere.
+  it, nothing from elsewhere. Its printed URL contains a private random
+  session path required for every request. Each server has its own URL,
+  and authentication uses no cookies. The page sends no referrer when
+  following links or loading web images.
 - **Your choices** (theme, vi mode) are kept in `~/.simpleviz/prefs.edn`
   (or `$SIMPLEVIZ_HOME`). With `--debug`, edits and errors are logged to
   `~/.simpleviz/logs`; a crash writes a report there. None of it leaves
-  your machine.
+  your machine. Debug and crash logs omit the private session path.
 - **`simpleviz export`** starts your own Chrome or Chromium, headless,
-  and talks to it over 127.0.0.1.
+  and controls it through private process pipes, without a debugging
+  network port.
 
 ## When it goes online
 

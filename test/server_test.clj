@@ -10,7 +10,11 @@
             [org.httpkit.server]
             [log]
             [proc-util]
+            [steps]
             [serve]))
+
+(defn- handler [request]
+  (serve/handler (update request :uri #(str "/" @serve/session-token %))))
 
 (defn- serve!
   "Point the server at `path` (single-file, or compare against its
@@ -165,7 +169,7 @@
 
 (deftest api-source-serves-raw-text
   (serve! "examples/demo.edn")
-  (let [resp (serve/handler {:uri "/api/source"})]
+  (let [resp (handler {:uri "/api/source"})]
     (is (= 200 (:status resp)))
     (is (= (slurp "examples/demo.edn") (:body resp)))
     (is (clojure.string/starts-with?
@@ -174,11 +178,11 @@
 (deftest api-source-compare-selects-files
   (serve! "examples/demo.edn" "next")
   (is (= (slurp "examples/demo.edn")
-         (:body (serve/handler {:uri "/api/source" :query-string "which=old"}))))
+         (:body (handler {:uri "/api/source" :query-string "which=old"}))))
   (is (= (slurp "examples/demo-next.edn")
-         (:body (serve/handler {:uri "/api/source" :query-string "which=new"}))))
+         (:body (handler {:uri "/api/source" :query-string "which=new"}))))
   (is (= (slurp "examples/demo-next.edn")
-         (:body (serve/handler {:uri "/api/source"})))))
+         (:body (handler {:uri "/api/source"})))))
 
 ;; --- Serving PNGs with embedded EDN (issue #46) ----------------------
 ;;
@@ -250,7 +254,7 @@
       (let [p (write! dir "x.png" (png-bytes* [(itxt* "simpleviz-edn-new" "{:nodes {:a {}}}")]))]
         (write! dir "x-next.png" (png-bytes* [(itxt* "simpleviz-edn" "{:nodes {:a {} :b {}}}")]))
         (serve! p "next")
-        (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph"})))]
+        (let [out (json/parse-string (:body (handler {:uri "/api/graph"})))]
           (is (contains? out "compare"))
           (is (= "added" (get-in out ["nodes" "b" "diff"])))
           (is (false? (get out "editable")))
@@ -262,7 +266,7 @@
       (let [p (write! dir "g.edn" "{:nodes {:a nil}}")]
         (write! dir "g-next.edn" "{:nodes {:a nil :b nil}}")
         (serve! p "next")
-        (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph"})))]
+        (let [out (json/parse-string (:body (handler {:uri "/api/graph"})))]
           (is (true? (get out "editable")))
           (is (true? (get out "editable-old")))
           (is (= "g.edn" (get out "path")))
@@ -275,29 +279,29 @@
         (write! dir "x-next.png" (png-bytes* [(itxt* "simpleviz-edn" "{:nodes {:a {}}}")]))
         (serve! p "next")
         (is (= "PNG and SVG sources are read-only"
-               (get (json/parse-string (:body (serve/handler (edit-req {:file "old" :ops []})))) "error")))))))
+               (get (json/parse-string (:body (handler (edit-req {:file "old" :ops []})))) "error")))))))
 
 (deftest api-graph-file-param-refused-in-embedded-compare
   (let [f (temp-png* [(itxt* "simpleviz-edn-old" "{:nodes {:a {}}}")
                       (itxt* "simpleviz-edn-new" "{:nodes {:a {} :b {}}}")])]
     (serve! f)
-    (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "file=x.edn"})))]
+    (let [out (json/parse-string (:body (handler {:uri "/api/graph" :query-string "file=x.edn"})))]
       (is (= "refs are not available in an embedded compare" (get out "error"))))
-    (is (= 0 (get (json/parse-string (:body (serve/handler {:uri "/api/version" :query-string "file=x.edn"}))) "mtime")))
-    (is (= 404 (:status (serve/handler {:uri "/api/source" :query-string "file=x.edn"}))))
+    (is (= 0 (get (json/parse-string (:body (handler {:uri "/api/version" :query-string "file=x.edn"}))) "mtime")))
+    (is (= 404 (:status (handler {:uri "/api/source" :query-string "file=x.edn"}))))
     (is (= "refs are not available in an embedded compare"
-           (get (json/parse-string (:body (serve/handler (edit-req {:file "new" :path "x.edn" :ops []})))) "error")))))
+           (get (json/parse-string (:body (handler (edit-req {:file "new" :path "x.edn" :ops []})))) "error")))))
 
 (deftest api-source-old-without-compare-404s
   (serve! "examples/demo.edn")
-  (is (= 404 (:status (serve/handler {:uri "/api/source" :query-string "which=old"})))))
+  (is (= 404 (:status (handler {:uri "/api/source" :query-string "which=old"})))))
 
 (deftest api-source-deleted-file-404s-instead-of-500
   ;; A file that vanished between serve-startup and the request (e.g.
   ;; deleted mid-serve) must not slurp-throw a raw exception message
   ;; (incl. the absolute path) back to the client as a 500.
   (serve! "test/fixtures/does-not-exist.edn")
-  (let [resp (serve/handler {:uri "/api/source"})]
+  (let [resp (handler {:uri "/api/source"})]
     (is (= 404 (:status resp)))
     (is (= "not found" (:body resp)))))
 
@@ -306,13 +310,13 @@
   ;; which=old — it should fall through to the default (single-file
   ;; mode: :new, unaffected by :old since it's nil here).
   (serve! "examples/demo.edn")
-  (let [resp (serve/handler {:uri "/api/source" :query-string "awhich=old"})]
+  (let [resp (handler {:uri "/api/source" :query-string "awhich=old"})]
     (is (= 200 (:status resp)))
     (is (= (slurp "examples/demo.edn") (:body resp)))))
 
 (deftest api-graph-serves-png-embedded-edn
   (serve! "test/fixtures/embedded.png")
-  (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph"})))]
+  (let [out (json/parse-string (:body (handler {:uri "/api/graph"})))]
     (is (contains? (get out "nodes") "a"))
     (is (= "embedded.png" (get out "file")))
     (is (not (contains? out "compare")))))
@@ -321,18 +325,18 @@
   (let [f (temp-png* [(itxt* "simpleviz-edn-old" "{:nodes {:a {}}}")
                       (itxt* "simpleviz-edn-new" "{:nodes {:a {} :b {}}}")])]
     (serve! f)
-    (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph"})))]
+    (let [out (json/parse-string (:body (handler {:uri "/api/graph"})))]
       (is (= "added" (get-in out ["nodes" "b" "diff"])))
       (is (contains? out "compare")))))
 
 (deftest api-graph-png-without-edn-is-a-clear-error
   (serve! "test/fixtures/plain-1x1.png")
-  (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph"})))]
+  (let [out (json/parse-string (:body (handler {:uri "/api/graph"})))]
     (is (clojure.string/includes? (get out "error" "") "no embedded simpleviz EDN"))))
 
 (deftest api-source-serves-png-embedded-edn
   (serve! "test/fixtures/embedded.png")
-  (let [resp (serve/handler {:uri "/api/source"})]
+  (let [resp (handler {:uri "/api/source"})]
     (is (= 200 (:status resp)))
     (is (= "{:nodes {:a {}}}" (:body resp)))))
 
@@ -341,9 +345,9 @@
                       (itxt* "simpleviz-edn-new" "{:nodes {:new {}}}")])]
     (serve! f)
     (is (= "{:nodes {:old {}}}"
-           (:body (serve/handler {:uri "/api/source" :query-string "which=old"}))))
+           (:body (handler {:uri "/api/source" :query-string "which=old"}))))
     (is (= "{:nodes {:new {}}}"
-           (:body (serve/handler {:uri "/api/source"}))))))
+           (:body (handler {:uri "/api/source"}))))))
 
 ;; --- Serving SVG exports: the same as PNGs ----------------------------
 ;;
@@ -364,7 +368,7 @@
 
 (deftest api-graph-serves-svg-embedded-edn
   (serve! "test/fixtures/embedded.svg")
-  (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph"})))]
+  (let [out (json/parse-string (:body (handler {:uri "/api/graph"})))]
     (is (contains? (get out "nodes") "a"))
     (is (= "embedded.svg" (get out "file")))
     (is (false? (get out "editable")))
@@ -372,25 +376,25 @@
 
 (deftest api-graph-auto-compares-a-compare-export-svg
   (serve! "test/fixtures/compare.svg")
-  (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph"})))]
+  (let [out (json/parse-string (:body (handler {:uri "/api/graph"})))]
     (is (= "added" (get-in out ["nodes" "b" "diff"])))
     (is (contains? out "compare"))
     (is (false? (get out "editable")))))
 
 (deftest api-source-compare-svg-selects-sides
   (serve! "test/fixtures/compare.svg")
-  (is (= "{:nodes {:a {}}}" (:body (serve/handler {:uri "/api/source" :query-string "which=old"}))))
-  (is (= "{:nodes {:a {} :b {}}}" (:body (serve/handler {:uri "/api/source"})))))
+  (is (= "{:nodes {:a {}}}" (:body (handler {:uri "/api/source" :query-string "which=old"}))))
+  (is (= "{:nodes {:a {} :b {}}}" (:body (handler {:uri "/api/source"})))))
 
 (deftest api-graph-svg-without-edn-is-a-clear-error
   (serve! "test/fixtures/plain.svg")
-  (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph"})))]
+  (let [out (json/parse-string (:body (handler {:uri "/api/graph"})))]
     (is (clojure.string/includes? (get out "error" "") "no embedded simpleviz EDN"))))
 
 (deftest api-edit-refuses-svg
   (serve! "test/fixtures/embedded.svg")
   (is (= "PNG and SVG sources are read-only"
-         (get (json/parse-string (:body (serve/handler (edit-req {:file "new" :ops []})))) "error"))))
+         (get (json/parse-string (:body (handler (edit-req {:file "new" :ops []})))) "error"))))
 
 (deftest api-graph-suffix-compare-accepts-svg-sides
   (with-temp-dir*
@@ -398,7 +402,7 @@
       (let [p (write! dir "x.svg" (svg* [["simpleviz-edn" "{:nodes {:a {}}}"]]))]
         (write! dir "x-next.svg" (svg* [["simpleviz-edn-new" "{:nodes {:a {} :b {}}}"]]))
         (serve! p "next")
-        (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph"})))]
+        (let [out (json/parse-string (:body (handler {:uri "/api/graph"})))]
           (is (= "added" (get-in out ["nodes" "b" "diff"])))
           (is (false? (get out "editable")))
           (is (false? (get out "editable-old"))))))))
@@ -408,7 +412,7 @@
     (fn [dir]
       (serve! (write! dir "root.edn" "{:nodes {:a {:ref \"sub.svg\"}}}"))
       (write! dir "sub.svg" (svg* [["simpleviz-edn" "{:nodes {:inner {}}}"]]))
-      (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "file=sub.svg"})))]
+      (let [out (json/parse-string (:body (handler {:uri "/api/graph" :query-string "file=sub.svg"})))]
         (is (nil? (get out "error")))
         (is (contains? (get out "nodes") "inner"))
         (is (false? (get out "editable")))))))
@@ -421,7 +425,7 @@
       (write! dir "root-next.edn" "{}")
       (write! dir "x-next.svg" (svg* [["simpleviz-edn" "{:nodes {:a {}}}"]]))
       (is (= "PNG and SVG sources are read-only"
-             (get (json/parse-string (:body (serve/handler (edit-req {:file "old" :path "x.svg"
+             (get (json/parse-string (:body (handler (edit-req {:file "old" :path "x.svg"
                                                                       :ops [{:op "add-node" :id "b"}]}))))
                   "error")))
       (is (not (.exists (java.io.File. dir "x.svg")))))))
@@ -432,7 +436,7 @@
   (let [p (temp-edn "{:nodes {:a nil}}")]
     (serve! p)
     (reset! serve/undo-stacks {})
-    (let [resp (serve/handler (edit-req {:file "new" :ops [{:op "add-node" :id "b"}]}))]
+    (let [resp (handler (edit-req {:file "new" :ops [{:op "add-node" :id "b"}]}))]
       (is (= 200 (:status resp)))
       (is (true? (get (json/parse-string (:body resp)) "ok")))
       (is (clojure.string/includes? (slurp p) ":b nil")))))
@@ -441,10 +445,91 @@
   (let [p (temp-edn "{:nodes {:a nil}}")]
     (serve! p)
     (reset! serve/undo-stacks {})
-    (let [resp (serve/handler (edit-req {:file "new" :ops [{:op "add-node" :id "a"}]}))]
+    (let [resp (handler (edit-req {:file "new" :ops [{:op "add-node" :id "a"}]}))]
       (is (clojure.string/includes? (get (json/parse-string (:body resp)) "error") "already exists"))
       (is (= "{:nodes {:a nil}}" (slurp p)))
       (is (empty? (get @serve/undo-stacks p))))))
+
+(defn- overlapping-edits
+  "Pause the first request at f while the second request runs, then let
+  both finish. Only scheduling is controlled; reads, edits and writes
+  still use the real implementation."
+  [f first-body second-body]
+  (let [original @f
+        first? (atom true)
+        entered (promise)
+        release (promise)
+        request (fn [body] (json/parse-string (:body (handler (edit-req body))) true))]
+    (with-redefs-fn
+      {f (fn [& args]
+           (let [out (apply original args)]
+             (when (compare-and-set! first? true false)
+               (deliver entered true)
+               (deref release 5000 nil))
+             out))}
+      (fn []
+        (let [a (future (request first-body))]
+          (try
+            (is (= true (deref entered 3000 nil)) "the first request reached its transaction")
+            (let [b (future (request second-body))]
+              ;; Before serialization, b finishes here and a overwrites it.
+              ;; Once serialized, b waits for a to finish its transaction.
+              (deref b 1000 nil)
+              (deliver release true)
+              [(deref a 3000 ::timeout) (deref b 3000 ::timeout)])
+            (finally (deliver release true))))))))
+
+(deftest concurrent-graph-edits-preserve-both-changes
+  (let [p (temp-edn "{:nodes {:a nil}}")]
+    (serve! p)
+    (is (= [{:ok true} {:ok true}]
+           (overlapping-edits #'steps/apply-ops
+                              {:file "new" :ops [{:op "add-node" :id "b"}]}
+                              {:file "new" :ops [{:op "add-node" :id "c"}]})))
+    (is (= #{:a :b :c} (set (keys (:nodes (edn/read-string (slurp p)))))))))
+
+(deftest concurrent-undos-restore-each-snapshot-once
+  (let [p (temp-edn "{:nodes {:a nil}}")]
+    (serve! p)
+    (doseq [id ["b" "c"]]
+      (handler (edit-req {:file "new" :ops [{:op "add-node" :id id}]})))
+    (is (= [{:ok true} {:ok true}]
+           (overlapping-edits (ns-resolve 'serve 'pop-undo!)
+                              {:file "new" :ops [{:op "undo"}]}
+                              {:file "new" :ops [{:op "undo"}]})))
+    (is (= "{:nodes {:a nil}}" (slurp p)))
+    (is (empty? (get @serve/undo-stacks p)))))
+
+(deftest concurrent-first-fork-edits-read-the-created-fork
+  (with-temp-dir*
+    (fn [dir]
+      (let [p (write! dir "g.edn" "{:nodes {:a nil}}")
+            fork (str (java.io.File. dir "g-next.edn"))]
+        (serve! p)
+        (is (= [{:ok true} {:ok true}]
+               (overlapping-edits #'steps/apply-ops
+                                  {:file "new" :compare "next" :ops [{:op "add-node" :id "b"}]}
+                                  {:file "new" :compare "next" :ops [{:op "add-node" :id "c"}]})))
+        (is (= #{:a :b :c} (set (keys (:nodes (edn/read-string (slurp fork)))))))
+        (is (= "{:nodes {:a nil}}" (slurp p)))))))
+
+(deftest failed-graph-writes-preserve-the-file-and-undo-history
+  (doseq [ops [[{:op "add-node" :id "c"}] [{:op "undo"}]]]
+    (let [p (temp-edn "{:nodes {:a nil}}")
+          request (fn [ops] (json/parse-string (:body (handler (edit-req {:file "new" :ops ops}))) true))
+          fail-write (fn [& _] (throw (java.io.IOException. "disk full")))]
+      (serve! p)
+      (is (= {:ok true} (request [{:op "add-node" :id "b"}])))
+      (let [before (slurp p)
+            history @serve/undo-stacks]
+        ;; Cover the current writer and atomic replacement alike: a failed
+        ;; edit or undo must not add or consume an undo snapshot.
+        (with-redefs-fn {#'clojure.core/spit fail-write
+                        (ns-resolve 'serve 'write-atomically!) fail-write}
+          (fn []
+            (is (= {:error "disk full"} (request ops)))
+            (is (= history @serve/undo-stacks))))
+        (is (= before (slurp p)))))))
 
 ;; --- /api/copy: what y y and x x put on the clipboard ------------------
 
@@ -454,48 +539,48 @@
 (deftest api-copy-answers-the-selection-as-edn
   (let [p (temp-edn "{:nodes {:a {:name \"A\"} :b nil :c nil} :edges {[:a :b] nil [:a :c] nil}}")]
     (serve! p)
-    (let [out (json/parse-string (:body (serve/handler (copy-req {:file "new" :ids [{:section "nodes" :id "a"}
+    (let [out (json/parse-string (:body (handler (copy-req {:file "new" :ids [{:section "nodes" :id "a"}
                                                                                   {:section "nodes" :id "b"}]})))
                                  true)]
       (is (= "{:nodes {:a {:name \"A\"}\n         :b nil}\n :edges {[:a :b] nil}}\n" (:edn out)))
       (is (= [{:section "nodes" :id "a"} {:section "nodes" :id "b"}] (:ids out))))
     (is (= "unknown node \"zz\""
-           (:error (json/parse-string (:body (serve/handler (copy-req {:file "new" :ids [{:section "nodes" :id "zz"}]})))
+           (:error (json/parse-string (:body (handler (copy-req {:file "new" :ids [{:section "nodes" :id "zz"}]})))
                                       true))))
-    (is (= 405 (:status (serve/handler (assoc (copy-req {}) :request-method :get)))))))
+    (is (= 405 (:status (handler (assoc (copy-req {}) :request-method :get)))))))
 
 (deftest api-edit-undo-restores
   (let [p (temp-edn "{:nodes {:a nil}}")]
     (serve! p)
     (reset! serve/undo-stacks {})
-    (serve/handler (edit-req {:file "new" :ops [{:op "add-node" :id "b"}]}))
-    (serve/handler (edit-req {:file "new" :ops [{:op "undo"}]}))
+    (handler (edit-req {:file "new" :ops [{:op "add-node" :id "b"}]}))
+    (handler (edit-req {:file "new" :ops [{:op "undo"}]}))
     (is (= "{:nodes {:a nil}}" (slurp p)))
-    (let [resp (serve/handler (edit-req {:file "new" :ops [{:op "undo"}]}))]
+    (let [resp (handler (edit-req {:file "new" :ops [{:op "undo"}]}))]
       (is (= "nothing to undo" (get (json/parse-string (:body resp)) "error"))))))
 
 (deftest api-edit-refuses-png-and-missing-old
   (serve! "test/fixtures/embedded.png")
   (is (= "PNG and SVG sources are read-only"
-         (get (json/parse-string (:body (serve/handler (edit-req {:file "new" :ops []})))) "error")))
+         (get (json/parse-string (:body (handler (edit-req {:file "new" :ops []})))) "error")))
   (let [p (temp-edn "{:nodes {:a nil}}")]
     (serve! p)
     (is (clojure.string/includes?
-         (get (json/parse-string (:body (serve/handler (edit-req {:file "old" :ops []})))) "error")
+         (get (json/parse-string (:body (handler (edit-req {:file "old" :ops []})))) "error")
          "no old file"))))
 
 (deftest api-graph-carries-editable-flags
   (let [p (temp-edn "{:nodes {:a nil}}")]
     (serve! p)
-    (is (true? (get (json/parse-string (:body (serve/handler {:uri "/api/graph"}))) "editable"))))
+    (is (true? (get (json/parse-string (:body (handler {:uri "/api/graph"}))) "editable"))))
   (serve! "test/fixtures/embedded.png")
-  (is (false? (get (json/parse-string (:body (serve/handler {:uri "/api/graph"}))) "editable"))))
+  (is (false? (get (json/parse-string (:body (handler {:uri "/api/graph"}))) "editable"))))
 
 (deftest api-graph-embedded-compare-png-is-not-editable
   (let [f (temp-png* [(itxt* "simpleviz-edn-old" "{:nodes {:a {}}}")
                       (itxt* "simpleviz-edn-new" "{:nodes {:a {} :b {}}}")])]
     (serve! f)
-    (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph"})))]
+    (let [out (json/parse-string (:body (handler {:uri "/api/graph"})))]
       (is (false? (get out "editable")))
       (is (false? (get out "editable-old"))))))
 
@@ -505,7 +590,7 @@
   (let [p (temp-edn "{:nodes {:a nil}}")]
     (serve! p)
     (reset! serve/undo-stacks {})
-    (let [resp (serve/handler
+    (let [resp (handler
                 (edit-req {:file "new" :ops [{:op "add-node" :id "b"}]}
                           {:headers {"origin" "http://evil.example"}}))]
       (is (= 403 (:status resp)))
@@ -520,7 +605,7 @@
       (serve! p)
       (reset! serve/undo-stacks {})
       (spit p "{:nodes {:a nil}}")
-      (let [resp (serve/handler
+      (let [resp (handler
                   (edit-req {:file "new" :ops [{:op "add-node" :id "b"}]}
                             {:headers {"origin" origin}}))]
         (is (= 200 (:status resp)))
@@ -530,7 +615,7 @@
   (let [p (temp-edn "{:nodes {:a nil}}")]
     (serve! p)
     (reset! serve/undo-stacks {})
-    (let [resp (serve/handler
+    (let [resp (handler
                 (edit-req {:file "new" :ops [{:op "add-node" :id "b"}]}
                           {:headers {"content-type" nil}}))]
       (is (= 415 (:status resp)))
@@ -545,10 +630,10 @@
   (let [p (temp-edn "{:nodes {:web {:name \"Web\"}} ;; a comment\n :edges {}}")]
     (serve! p)
     (reset! serve/undo-stacks {})
-    (serve/handler (edit-req {:file "new"
+    (handler (edit-req {:file "new"
                               :ops [{:op "add-node" :id "api"}
                                     {:op "add-edge" :from "web" :to "api" :direction "->"}]}))
-    (let [g (json/parse-string (:body (serve/handler {:uri "/api/graph"})))]
+    (let [g (json/parse-string (:body (handler {:uri "/api/graph"})))]
       (is (contains? (get g "nodes") "api"))
       (is (= 1 (count (get g "edges")))))
     (is (clojure.string/includes? (slurp p) ";; a comment"))))
@@ -590,7 +675,7 @@
         (.deleteOnExit g)
         (spit g "{:nodes {:a {:name \"A\"} :b {:name \"B\"}} :edges {} :boxes {}}")
         (serve! (str g))
-        (serve/handler {:request-method :post :uri "/api/edit"
+        (handler {:request-method :post :uri "/api/edit"
                         :headers {"content-type" "application/json"}
                         :body (java.io.ByteArrayInputStream.
                                (.getBytes (json/generate-string
@@ -696,9 +781,9 @@
           (do
             (serve! (.getPath link))
             (is (= "g.edn" (.getName (:new (serve/sides nil)))))
-            (is (= "g.edn" (get (json/parse-string (:body (serve/handler {:uri "/api/graph"}))) "path")))
+            (is (= "g.edn" (get (json/parse-string (:body (handler {:uri "/api/graph"}))) "path")))
             (is (= {"path" "g.edn" "dir" (.getCanonicalPath real)}
-                   (json/parse-string (:body (serve/handler {:uri "/api/root"}))))))
+                   (json/parse-string (:body (handler {:uri "/api/root"}))))))
           ;; symlink creation unsupported on this filesystem — skip, don't fail
           (is true)))
       (finally (babashka.fs/delete-tree tmp)))))
@@ -712,8 +797,8 @@
 
 (deftest api-graph-file-param-serves-a-file-below-the-root
   (refs-mode!)
-  (let [root (json/parse-string (:body (serve/handler {:uri "/api/graph"})))
-        sub (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "file=sub%2Fapi.edn"})))]
+  (let [root (json/parse-string (:body (handler {:uri "/api/graph"})))
+        sub (json/parse-string (:body (handler {:uri "/api/graph" :query-string "file=sub%2Fapi.edn"})))]
     (is (= "root.edn" (get root "path")))
     (is (= "API" (get-in root ["nodes" "api" "name"])))
     (is (= "sub/api.edn" (get sub "path")))
@@ -723,9 +808,9 @@
 
 (deftest api-graph-file-param-refusals-are-error-payloads
   (refs-mode!)
-  (let [escape (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "file=..%2Fembedded.png"})))
-        missing (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "file=sub%2Fnope.edn"})))
-        txt (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "file=notes.txt"})))]
+  (let [escape (json/parse-string (:body (handler {:uri "/api/graph" :query-string "file=..%2Fembedded.png"})))
+        missing (json/parse-string (:body (handler {:uri "/api/graph" :query-string "file=sub%2Fnope.edn"})))
+        txt (json/parse-string (:body (handler {:uri "/api/graph" :query-string "file=notes.txt"})))]
     (is (clojure.string/includes? (get escape "error") "leaves the served folder"))
     (is (clojure.string/includes? (get missing "error") "no such file"))
     (is (clojure.string/includes? (get txt "error") "not an .edn, .png or .svg"))))
@@ -733,16 +818,16 @@
 (deftest api-version-file-param
   (refs-mode!)
   (let [sub (java.io.File. "test/fixtures/refs/sub/api.edn")
-        ok (json/parse-string (:body (serve/handler {:uri "/api/version" :query-string "file=sub%2Fapi.edn"})))
-        bad (json/parse-string (:body (serve/handler {:uri "/api/version" :query-string "file=..%2Fembedded.png"})))]
+        ok (json/parse-string (:body (handler {:uri "/api/version" :query-string "file=sub%2Fapi.edn"})))
+        bad (json/parse-string (:body (handler {:uri "/api/version" :query-string "file=..%2Fembedded.png"})))]
     (is (= (.lastModified sub) (get ok "mtime")))
     (is (= 0 (get bad "mtime")))))
 
 (deftest api-source-file-param
   (refs-mode!)
   (is (= (slurp "test/fixtures/refs/sub/deep/db.edn")
-         (:body (serve/handler {:uri "/api/source" :query-string "file=sub%2Fdeep%2Fdb.edn"}))))
-  (is (= 404 (:status (serve/handler {:uri "/api/source" :query-string "file=..%2Fembedded.png"})))))
+         (:body (handler {:uri "/api/source" :query-string "file=sub%2Fdeep%2Fdb.edn"}))))
+  (is (= 404 (:status (handler {:uri "/api/source" :query-string "file=..%2Fembedded.png"})))))
 
 (deftest api-edit-path-edits-that-file-with-its-own-undo
   ;; copy the tree so the edit does not touch the fixture
@@ -753,19 +838,19 @@
     (spit root "{:nodes {:api {:ref \"sub/api.edn\"}}}")
     (spit sub "{:nodes {:handler nil}}")
     (serve! (.getPath root))
-    (let [resp (serve/handler (edit-req {:file "new" :path "sub/api.edn" :ops [{:op "add-node" :id "b"}]}))]
+    (let [resp (handler (edit-req {:file "new" :path "sub/api.edn" :ops [{:op "add-node" :id "b"}]}))]
       (is (true? (get (json/parse-string (:body resp)) "ok")))
       (is (clojure.string/includes? (slurp sub) ":b nil"))
       (is (= "{:nodes {:api {:ref \"sub/api.edn\"}}}" (slurp root))))
     ;; undo on the sub file only
-    (serve/handler (edit-req {:file "new" :path "sub/api.edn" :ops [{:op "undo"}]}))
+    (handler (edit-req {:file "new" :path "sub/api.edn" :ops [{:op "undo"}]}))
     (is (= "{:nodes {:handler nil}}" (slurp sub)))
     ;; the root has nothing to undo
     (is (= "nothing to undo"
-           (get (json/parse-string (:body (serve/handler (edit-req {:file "new" :ops [{:op "undo"}]})))) "error")))
+           (get (json/parse-string (:body (handler (edit-req {:file "new" :ops [{:op "undo"}]})))) "error")))
     ;; an escaping path is refused before anything is written
     (is (clojure.string/includes?
-         (get (json/parse-string (:body (serve/handler (edit-req {:file "new" :path "../x.edn" :ops [{:op "add-node" :id "c"}]})))) "error")
+         (get (json/parse-string (:body (handler (edit-req {:file "new" :path "../x.edn" :ops [{:op "add-node" :id "c"}]})))) "error")
          "leaves the served folder"))))
 
 (deftest api-edit-undo-shared-between-file-and-path
@@ -783,14 +868,14 @@
     ;; edit resolves to
     (serve! (str (.getPath dir) "/./root.edn"))
     ;; edit via `file`, undo via `path` — one shared undo stack
-    (serve/handler (edit-req {:file "new" :ops [{:op "add-node" :id "b"}]}))
+    (handler (edit-req {:file "new" :ops [{:op "add-node" :id "b"}]}))
     (is (clojure.string/includes? (slurp root) ":b nil"))
-    (serve/handler (edit-req {:file "new" :path "root.edn" :ops [{:op "undo"}]}))
+    (handler (edit-req {:file "new" :path "root.edn" :ops [{:op "undo"}]}))
     (is (= original (slurp root)))
     ;; the reverse direction: edit via `path`, undo via `file`
-    (serve/handler (edit-req {:file "new" :path "root.edn" :ops [{:op "add-node" :id "c"}]}))
+    (handler (edit-req {:file "new" :path "root.edn" :ops [{:op "add-node" :id "c"}]}))
     (is (clojure.string/includes? (slurp root) ":c nil"))
-    (serve/handler (edit-req {:file "new" :ops [{:op "undo"}]}))
+    (handler (edit-req {:file "new" :ops [{:op "undo"}]}))
     (is (= original (slurp root)))))
 
 ;; --- suffix compare with refs ------------------------------------------
@@ -834,9 +919,9 @@
   (with-temp-dir*
     (fn [dir]
       (suffix-tree! dir)
-      (let [sub (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "file=sub%2Fapi.edn"})))
-            lone (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "file=lone.edn"})))
-            fresh (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "file=fresh.edn"})))]
+      (let [sub (json/parse-string (:body (handler {:uri "/api/graph" :query-string "file=sub%2Fapi.edn"})))
+            lone (json/parse-string (:body (handler {:uri "/api/graph" :query-string "file=lone.edn"})))
+            fresh (json/parse-string (:body (handler {:uri "/api/graph" :query-string "file=fresh.edn"})))]
         (is (= {"old" "sub/api.edn" "new" "sub/api-next.edn"} (get sub "compare")))
         (is (= "sub/api.edn" (get sub "path")))
         (is (= "api-next.edn" (get sub "file")))
@@ -857,17 +942,17 @@
       (let [old (java.io.File. dir "sub/api.edn")
             new (java.io.File. dir "sub/api-next.edn")]
         (is (= (str (.lastModified old) "-" (.lastModified new))
-               (get (json/parse-string (:body (serve/handler {:uri "/api/version" :query-string "file=sub%2Fapi.edn"}))) "mtime")))
+               (get (json/parse-string (:body (handler {:uri "/api/version" :query-string "file=sub%2Fapi.edn"}))) "mtime")))
         (is (= (str (.lastModified (java.io.File. dir "lone.edn")) "-0")
-               (get (json/parse-string (:body (serve/handler {:uri "/api/version" :query-string "file=lone.edn"}))) "mtime")))
-        (is (= 0 (get (json/parse-string (:body (serve/handler {:uri "/api/version" :query-string "file=nowhere.edn"}))) "mtime")))
-        (is (= (slurp old) (:body (serve/handler {:uri "/api/source" :query-string "file=sub%2Fapi.edn&which=old"}))))
-        (is (= (slurp new) (:body (serve/handler {:uri "/api/source" :query-string "file=sub%2Fapi.edn&which=new"}))))
-        (is (= (slurp new) (:body (serve/handler {:uri "/api/source" :query-string "file=sub%2Fapi.edn"}))))
+               (get (json/parse-string (:body (handler {:uri "/api/version" :query-string "file=lone.edn"}))) "mtime")))
+        (is (= 0 (get (json/parse-string (:body (handler {:uri "/api/version" :query-string "file=nowhere.edn"}))) "mtime")))
+        (is (= (slurp old) (:body (handler {:uri "/api/source" :query-string "file=sub%2Fapi.edn&which=old"}))))
+        (is (= (slurp new) (:body (handler {:uri "/api/source" :query-string "file=sub%2Fapi.edn&which=new"}))))
+        (is (= (slurp new) (:body (handler {:uri "/api/source" :query-string "file=sub%2Fapi.edn"}))))
         ;; a missing fork reads as its original, a missing original as empty
-        (is (= "{:nodes {:l nil}}" (:body (serve/handler {:uri "/api/source" :query-string "file=lone.edn"}))))
-        (is (= serve/empty-graph (:body (serve/handler {:uri "/api/source" :query-string "file=fresh.edn&which=old"}))))
-        (is (= 404 (:status (serve/handler {:uri "/api/source" :query-string "file=nowhere.edn"}))))))))
+        (is (= "{:nodes {:l nil}}" (:body (handler {:uri "/api/source" :query-string "file=lone.edn"}))))
+        (is (= serve/empty-graph (:body (handler {:uri "/api/source" :query-string "file=fresh.edn&which=old"}))))
+        (is (= 404 (:status (handler {:uri "/api/source" :query-string "file=nowhere.edn"}))))))))
 
 (deftest api-edit-path-and-file-pick-the-side-in-suffix-mode
   (with-temp-dir*
@@ -875,44 +960,44 @@
       (suffix-tree! dir)
       (let [old (java.io.File. dir "sub/api.edn")
             new (java.io.File. dir "sub/api-next.edn")]
-        (is (true? (get (json/parse-string (:body (serve/handler (edit-req {:file "old" :path "sub/api.edn" :ops [{:op "add-node" :id "o"}]})))) "ok")))
-        (is (true? (get (json/parse-string (:body (serve/handler (edit-req {:file "new" :path "sub/api.edn" :ops [{:op "add-node" :id "n"}]})))) "ok")))
+        (is (true? (get (json/parse-string (:body (handler (edit-req {:file "old" :path "sub/api.edn" :ops [{:op "add-node" :id "o"}]})))) "ok")))
+        (is (true? (get (json/parse-string (:body (handler (edit-req {:file "new" :path "sub/api.edn" :ops [{:op "add-node" :id "n"}]})))) "ok")))
         (is (clojure.string/includes? (slurp old) ":o nil"))
         (is (not (clojure.string/includes? (slurp old) ":n nil")))
         (is (clojure.string/includes? (slurp new) ":n nil"))
         ;; independent undo stacks
-        (serve/handler (edit-req {:file "old" :path "sub/api.edn" :ops [{:op "undo"}]}))
+        (handler (edit-req {:file "old" :path "sub/api.edn" :ops [{:op "undo"}]}))
         (is (= "{:nodes {:h nil}}" (slurp old)))
         (is (clojure.string/includes? (slurp new) ":n nil"))
         ;; the root keeps the strict check
         (.delete (java.io.File. dir "root-next.edn"))
         (is (= "no root-next.edn — create it with: simpleviz fork root.edn next"
-               (get (json/parse-string (:body (serve/handler (edit-req {:file "new" :ops [{:op "add-node" :id "z"}]})))) "error")))))))
+               (get (json/parse-string (:body (handler (edit-req {:file "new" :ops [{:op "add-node" :id "z"}]})))) "error")))))))
 
 (deftest api-edit-creates-the-missing-side-in-suffix-mode
   (with-temp-dir*
     (fn [dir]
       (suffix-tree! dir)
       ;; new side missing: the fork starts as a copy of the original
-      (is (true? (get (json/parse-string (:body (serve/handler (edit-req {:file "new" :path "lone.edn" :ops [{:op "add-node" :id "z"}]})))) "ok")))
+      (is (true? (get (json/parse-string (:body (handler (edit-req {:file "new" :path "lone.edn" :ops [{:op "add-node" :id "z"}]})))) "ok")))
       (is (= "{:nodes {:l nil}}" (slurp (java.io.File. dir "lone.edn"))))
       (let [fork (slurp (java.io.File. dir "lone-next.edn"))]
         (is (clojure.string/includes? fork ":l nil"))
         (is (clojure.string/includes? fork ":z nil")))
       ;; old side missing: the original starts empty
-      (is (true? (get (json/parse-string (:body (serve/handler (edit-req {:file "old" :path "fresh.edn" :ops [{:op "add-node" :id "o"}]})))) "ok")))
+      (is (true? (get (json/parse-string (:body (handler (edit-req {:file "old" :path "fresh.edn" :ops [{:op "add-node" :id "o"}]})))) "ok")))
       (is (clojure.string/includes? (slurp (java.io.File. dir "fresh.edn")) ":o nil"))
       (is (= "{:nodes {:f nil}}" (slurp (java.io.File. dir "fresh-next.edn"))))
       ;; a failed edit creates nothing
       (write! dir "solo.edn" "{:nodes {:s nil}}")
-      (is (some? (get (json/parse-string (:body (serve/handler (edit-req {:file "new" :path "solo.edn" :ops [{:op "bogus"}]})))) "error")))
+      (is (some? (get (json/parse-string (:body (handler (edit-req {:file "new" :path "solo.edn" :ops [{:op "bogus"}]})))) "error")))
       (is (not (.exists (java.io.File. dir "solo-next.edn")))))))
 
 (defn- create-req [body & [opts]]
   (assoc (edit-req body opts) :uri "/api/create"))
 
 (defn- create! [body]
-  (json/parse-string (:body (serve/handler (create-req body)))))
+  (json/parse-string (:body (handler (create-req body)))))
 
 (deftest api-create-writes-an-empty-graph-with-its-folders
   (with-temp-dir*
@@ -921,8 +1006,8 @@
       (is (= {"ok" true "created" "deep/er/new.edn"} (create! {:path "deep/er/new.edn" :file "new"})))
       (is (= serve/empty-graph (slurp (java.io.File. dir "deep/er/new.edn"))))
       ;; the new file is editable right away
-      (is (true? (get (json/parse-string (:body (serve/handler (edit-req {:file "new" :path "deep/er/new.edn" :ops [{:op "add-node" :id "n"}]})))) "ok")))
-      (is (contains? (get (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "file=deep%2Fer%2Fnew.edn"}))) "nodes") "n")))))
+      (is (true? (get (json/parse-string (:body (handler (edit-req {:file "new" :path "deep/er/new.edn" :ops [{:op "add-node" :id "n"}]})))) "ok")))
+      (is (contains? (get (json/parse-string (:body (handler {:uri "/api/graph" :query-string "file=deep%2Fer%2Fnew.edn"}))) "nodes") "n")))))
 
 (deftest api-create-never-overwrites
   (with-temp-dir*
@@ -943,10 +1028,10 @@
       (is (not (.exists (java.io.File. dir "x.svg"))))
       (is (= "path required" (get (create! {:file "new"}) "error")))
       (is (not (.exists (java.io.File. dir "x.png"))))
-      (let [resp (serve/handler (create-req {:path "y.edn" :file "new"} {:headers {"origin" "http://evil.example"}}))]
+      (let [resp (handler (create-req {:path "y.edn" :file "new"} {:headers {"origin" "http://evil.example"}}))]
         (is (= 403 (:status resp)))
         (is (not (.exists (java.io.File. dir "y.edn")))))
-      (is (= 405 (:status (serve/handler {:uri "/api/create" :request-method :get})))))))
+      (is (= 405 (:status (handler {:uri "/api/create" :request-method :get})))))))
 
 (deftest api-create-in-suffix-mode-follows-the-edit-side
   (with-temp-dir*
@@ -965,7 +1050,7 @@
       (is (= {"ok" true "created" nil} (create! {:path "fresh.edn" :file "old"})))
       (is (not (.exists (java.io.File. dir "fresh.edn"))))
       ;; both created files open as an unchanged comparison
-      (is (nil? (get (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "file=a%2Fn.edn"}))) "error"))))))
+      (is (nil? (get (json/parse-string (:body (handler {:uri "/api/graph" :query-string "file=a%2Fn.edn"}))) "error"))))))
 
 (deftest api-create-copies-from-an-existing-graph
   (with-temp-dir*
@@ -1018,7 +1103,7 @@
       (is (not (.exists (java.io.File. dir "x.svg")))))))
 
 (defn- graphs [path]
-  (json/parse-string (:body (serve/handler {:uri "/api/graphs" :request-method :get
+  (json/parse-string (:body (handler {:uri "/api/graphs" :request-method :get
                                             :query-string (str "path=" (java.net.URLEncoder/encode path "UTF-8"))}))))
 
 (deftest api-graphs-lists-the-graphs-a-new-one-can-copy
@@ -1051,7 +1136,7 @@
     (fn [dir]
       (serve! (write! dir "root.edn" "{:nodes {:a nil}}"))
       (write! dir "only-next.edn" "{}")
-      (let [g (fn [q] (json/parse-string (:body (serve/handler {:uri "/api/graphs" :request-method :get :query-string q}))))]
+      (let [g (fn [q] (json/parse-string (:body (handler {:uri "/api/graphs" :request-method :get :query-string q}))))]
         ;; a fork alone counts as there under the link's compare, not without it
         (is (true? (get (g "path=only.edn&compare=next") "exists")))
         (is (false? (get (g "path=only.edn") "exists")))
@@ -1068,10 +1153,10 @@
       (suffix-tree! dir)
       (let [root (java.io.File. dir "root.edn")
             root-next (java.io.File. dir "root-next.edn")]
-        (is (true? (get (json/parse-string (:body (serve/handler (edit-req {:file "old" :ops [{:op "add-node" :id "r"}]})))) "ok")))
+        (is (true? (get (json/parse-string (:body (handler (edit-req {:file "old" :ops [{:op "add-node" :id "r"}]})))) "ok")))
         (is (clojure.string/includes? (slurp root) ":r nil"))
         (is (not (clojure.string/includes? (slurp root-next) ":r nil")))
-        (is (true? (get (json/parse-string (:body (serve/handler (edit-req {:file "new" :ops [{:op "add-node" :id "s"}]})))) "ok")))
+        (is (true? (get (json/parse-string (:body (handler (edit-req {:file "new" :ops [{:op "add-node" :id "s"}]})))) "ok")))
         (is (clojure.string/includes? (slurp root-next) ":s nil"))
         (is (not (clojure.string/includes? (slurp root) ":s nil")))))))
 
@@ -1083,7 +1168,7 @@
   (assoc (edit-req body) :uri uri))
 
 (defn- lock-resp [uri body]
-  (let [resp (serve/handler (lock-req uri body))]
+  (let [resp (handler (lock-req uri body))]
     [(:status resp) (json/parse-string (:body resp))]))
 
 (deftest api-lock-grants-renews-and-refuses-a-second-owner
@@ -1124,9 +1209,9 @@
       (is (= [400 {"error" "owner must be a non-empty string"}] (lock-resp "/api/lock" {})))
       (is (= [400 {"error" "owner must be a non-empty string"}] (lock-resp "/api/lock" {:owner ""})))
       (is (= [400 {"error" "../x.edn leaves the served folder"}] (lock-resp "/api/lock" {:owner "a" :path "../x.edn"})))
-      (is (= 405 (:status (serve/handler {:uri "/api/lock" :request-method :get}))))
-      (is (= 405 (:status (serve/handler {:uri "/api/unlock" :request-method :get}))))
-      (is (= 403 (:status (serve/handler (assoc-in (lock-req "/api/lock" {:owner "a"})
+      (is (= 405 (:status (handler {:uri "/api/lock" :request-method :get}))))
+      (is (= 405 (:status (handler {:uri "/api/unlock" :request-method :get}))))
+      (is (= 403 (:status (handler (assoc-in (lock-req "/api/lock" {:owner "a"})
                                                    [:headers "origin"] "http://evil.example"))))))))
 
 (deftest api-edit-is-refused-while-the-file-is-locked
@@ -1136,12 +1221,12 @@
         (serve! p)
         (lock-resp "/api/lock" {:owner "agent"})
         (is (= "locked by agent"
-               (get (json/parse-string (:body (serve/handler (edit-req {:file "new" :ops [{:op "add-node" :id "b"}]})))) "error")))
+               (get (json/parse-string (:body (handler (edit-req {:file "new" :ops [{:op "add-node" :id "b"}]})))) "error")))
         (is (= "locked by agent"
-               (get (json/parse-string (:body (serve/handler (edit-req {:file "new" :ops [{:op "undo"}]})))) "error")))
+               (get (json/parse-string (:body (handler (edit-req {:file "new" :ops [{:op "undo"}]})))) "error")))
         (is (= "{:nodes {:a nil}}" (slurp p)))
         (lock-resp "/api/unlock" {:owner "agent"})
-        (is (true? (get (json/parse-string (:body (serve/handler (edit-req {:file "new" :ops [{:op "add-node" :id "b"}]})))) "ok")))))))
+        (is (true? (get (json/parse-string (:body (handler (edit-req {:file "new" :ops [{:op "add-node" :id "b"}]})))) "ok")))))))
 
 (deftest api-edit-lock-follows-the-compare-side
   (with-temp-dir*
@@ -1151,8 +1236,8 @@
         (serve! p "next")
         (lock-resp "/api/lock" {:owner "agent" :path "g-next.edn"})
         (is (= "locked by agent"
-               (get (json/parse-string (:body (serve/handler (edit-req {:file "new" :ops [{:op "add-node" :id "b"}]})))) "error")))
-        (is (true? (get (json/parse-string (:body (serve/handler (edit-req {:file "old" :ops [{:op "add-node" :id "b"}]})))) "ok")))))))
+               (get (json/parse-string (:body (handler (edit-req {:file "new" :ops [{:op "add-node" :id "b"}]})))) "error")))
+        (is (true? (get (json/parse-string (:body (handler (edit-req {:file "old" :ops [{:op "add-node" :id "b"}]})))) "ok")))))))
 
 (defn- symlink! [dir rel target]
   (java.nio.file.Files/createSymbolicLink
@@ -1172,7 +1257,7 @@
         (symlink! dir "lone-next.edn" "../outside/evil2.edn")
         (is (re-find #"symlink" (get (create! {:path "dang.edn" :file "old"}) "error")))
         (is (re-find #"symlink"
-                     (get (json/parse-string (:body (serve/handler (edit-req {:file "new" :path "lone.edn" :ops [{:op "add-node" :id "z"}]})))) "error")))
+                     (get (json/parse-string (:body (handler (edit-req {:file "new" :path "lone.edn" :ops [{:op "add-node" :id "z"}]})))) "error")))
         (is (empty? (.list outside)))))))
 
 (deftest a-missing-png-side-is-read-only
@@ -1180,28 +1265,28 @@
     (fn [dir]
       (suffix-tree! dir)
       (write! dir "pic-next.png" (png-bytes* [(itxt* "simpleviz-edn" "{:nodes {:p nil}}")]))
-      (let [g (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "file=pic.png"})))]
+      (let [g (json/parse-string (:body (handler {:uri "/api/graph" :query-string "file=pic.png"})))]
         (is (nil? (get g "error")))
         (is (false? (get g "editable-old"))))
       (is (= "PNG and SVG sources are read-only"
-             (get (json/parse-string (:body (serve/handler (edit-req {:file "old" :path "pic.png" :ops [{:op "add-node" :id "z"}]})))) "error")))
+             (get (json/parse-string (:body (handler (edit-req {:file "old" :path "pic.png" :ops [{:op "add-node" :id "z"}]})))) "error")))
       (is (not (.exists (java.io.File. dir "pic.png")))))))
 
 (deftest undo-does-not-bring-back-a-deleted-file
   (with-temp-dir*
     (fn [dir]
       (suffix-tree! dir)
-      (serve/handler (edit-req {:file "new" :path "lone.edn" :ops [{:op "add-node" :id "z"}]}))
+      (handler (edit-req {:file "new" :path "lone.edn" :ops [{:op "add-node" :id "z"}]}))
       (.delete (java.io.File. dir "lone-next.edn"))
       (is (= "nothing to undo"
-             (get (json/parse-string (:body (serve/handler (edit-req {:file "new" :path "lone.edn" :ops [{:op "undo"}]})))) "error")))
+             (get (json/parse-string (:body (handler (edit-req {:file "new" :path "lone.edn" :ops [{:op "undo"}]})))) "error")))
       (is (not (.exists (java.io.File. dir "lone-next.edn")))))))
 
 (deftest a-failed-edit-to-a-missing-original-creates-nothing
   (with-temp-dir*
     (fn [dir]
       (suffix-tree! dir)
-      (is (some? (get (json/parse-string (:body (serve/handler (edit-req {:file "old" :path "fresh.edn" :ops [{:op "bogus"}]})))) "error")))
+      (is (some? (get (json/parse-string (:body (handler (edit-req {:file "old" :path "fresh.edn" :ops [{:op "bogus"}]})))) "error")))
       (is (not (.exists (java.io.File. dir "fresh.edn")))))))
 
 (deftest a-ref-naming-a-fork-is-refused-in-suffix-mode
@@ -1210,12 +1295,12 @@
       (suffix-tree! dir)
       (let [msg "sub/api-next.edn is the fork of sub/api.edn — ref the original"]
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"is the fork of" (serve/sides "sub/api-next.edn")))
-        (is (= msg (get (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "file=sub%2Fapi-next.edn"}))) "error")))
+        (is (= msg (get (json/parse-string (:body (handler {:uri "/api/graph" :query-string "file=sub%2Fapi-next.edn"}))) "error")))
         (is (= msg (get (create! {:path "sub/api-next.edn" :file "new"}) "error")))
         (is (not (.exists (java.io.File. dir "sub/api-next-next.edn"))))
         ;; a name that merely ends in the suffix is fine
         (write! dir "connext.edn" "{:nodes {:c nil}}")
-        (is (nil? (get (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "file=connext.edn"}))) "error")))
+        (is (nil? (get (json/parse-string (:body (handler {:uri "/api/graph" :query-string "file=connext.edn"}))) "error")))
         ;; without a suffix nothing is a fork
         (serve! (.getPath (java.io.File. dir "root.edn")))
         (is (= "api-next.edn" (.getName (:new (serve/sides "sub/api-next.edn")))))))))
@@ -1223,7 +1308,7 @@
 (defn- api-errors
   "GET /api/errors (with an optional query string), parsed."
   ([] (api-errors nil))
-  ([qs] (json/parse-string (:body (serve/handler {:uri "/api/errors" :query-string qs})))))
+  ([qs] (json/parse-string (:body (handler {:uri "/api/errors" :query-string qs})))))
 
 (deftest api-errors-clean-file-reports-nothing
   (with-temp-dir*
@@ -1291,8 +1376,9 @@
                                (str proc-util/repo-root "/examples/demo.edn") "--port" (str port)]
                               :dir tmp)]
     (try
-      (is (some? (proc-util/await-line proc #"^simpleviz: serving " 30000)))
-      (is (str/includes? (slurp (str "http://127.0.0.1:" port "/")) "<html"))
+      (let [[_ url] (proc-util/await-line proc #"^simpleviz: serving .* at (http://localhost:\d+/[A-Za-z0-9_-]+)$" 30000)]
+        (is (some? url))
+        (is (str/includes? (slurp url) "<html")))
       (finally
         (p/destroy-tree proc)
         (babashka.fs/delete-tree tmp)))))
@@ -1318,13 +1404,13 @@
       (finally (babashka.fs/delete-tree home)))))
 
 (deftest static-files-refuse-dot-dot-and-directories
-  (is (= 200 (:status (serve/handler {:uri "/style.css"}))))
+  (is (= 200 (:status (handler {:uri "/style.css"}))))
   (is (= "text/css; charset=utf-8"
-         (get-in (serve/handler {:uri "/style.css"}) [:headers "Content-Type"])))
+         (get-in (handler {:uri "/style.css"}) [:headers "Content-Type"])))
   ;; "." is on the classpath, so public/../bb.edn would resolve without the guard
-  (is (= 404 (:status (serve/handler {:uri "/../bb.edn"}))))
-  (is (= 404 (:status (serve/handler {:uri "/vendor"}))))
-  (is (= 404 (:status (serve/handler {:uri "/vendor/"})))))
+  (is (= 404 (:status (handler {:uri "/../bb.edn"}))))
+  (is (= 404 (:status (handler {:uri "/vendor"}))))
+  (is (= 404 (:status (handler {:uri "/vendor/"})))))
 
 (deftest graph-json-carries-the-resolved-theme
   (let [out (json/parse-string (serve/graph-json "{:theme {:base :nord :accent \"#b58900\"} :nodes {:a {}}}"))]
@@ -1352,7 +1438,7 @@
   (let [dir (pair-folder!)]
     (try
       (serve! (str dir "/overview.edn"))
-      (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph"})))
+      (let [out (json/parse-string (:body (handler {:uri "/api/graph"})))
             ps (get-in out ["nodes" "api" "pairs"])]
         (is (= [{"dir" "out" "file" "views/deploy.edn" "id" "api-svc" "kind" "node"
                  "raw" "views/deploy.edn#api-svc"}]
@@ -1366,7 +1452,7 @@
   (let [dir (pair-folder!)]
     (try
       (serve! (str dir "/overview.edn"))
-      (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "file=views/deploy.edn"})))]
+      (let [out (json/parse-string (:body (handler {:uri "/api/graph" :query-string "file=views/deploy.edn"})))]
         (is (= #{{"dir" "in" "file" "overview.edn" "id" "api" "kind" "node"}
                  {"dir" "in" "file" "runtime.edn" "id" "rt" "kind" "box"}}
                (set (get-in out ["nodes" "api-svc" "pairs"])))
@@ -1377,11 +1463,11 @@
   (let [dir (pair-folder!)]
     (try
       (serve! (str dir "/overview.edn"))
-      (serve/handler {:uri "/api/graph"})
+      (handler {:uri "/api/graph"})
       (let [f (babashka.fs/file dir "views/deploy.edn")]
         (spit f "{:nodes {:renamed {}}}")
         (.setLastModified f (+ 2000 (.lastModified f))))
-      (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph"})))]
+      (let [out (json/parse-string (:body (handler {:uri "/api/graph"})))]
         (is (some #(str/includes? % "no node or box api-svc in views/deploy.edn") (get out "warnings"))))
       (finally (babashka.fs/delete-tree dir)))))
 
@@ -1391,7 +1477,7 @@
       (spit (babashka.fs/file dir "broken.edn") "{:nodes {:a {}")
       (spit (babashka.fs/file dir "overview.edn") "{:nodes {:api {:pair \"broken.edn#a\"}}}")
       (serve! (str dir "/overview.edn"))
-      (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph"})))]
+      (let [out (json/parse-string (:body (handler {:uri "/api/graph"})))]
         (is (= ["node \"api\": pair \"broken.edn#a\": broken.edn does not parse"] (get out "warnings"))))
       (finally (babashka.fs/delete-tree dir)))))
 
@@ -1400,7 +1486,7 @@
     (try
       (spit (babashka.fs/file dir "overview-next.edn") "{:nodes {:api {:pair \"views/deploy.edn#api-svc\"} :new {}}}")
       (serve! (str dir "/overview.edn") "next")
-      (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph"})))]
+      (let [out (json/parse-string (:body (handler {:uri "/api/graph"})))]
         (is (= ["views/deploy.edn"] (mapv #(get % "file") (get-in out ["nodes" "api" "pairs"]))))
         (is (some #(str/starts-with? % "overview.edn: node \"api\": pair \"views/deploy.edn#nope\"")
                   (get out "warnings"))
@@ -1416,7 +1502,7 @@
       (when (try (symlink! (str dir) "a/loop" "..") true
                  (catch Exception _ false))
         (serve! (str dir "/overview.edn"))
-        (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "file=views/deploy.edn"})))]
+        (let [out (json/parse-string (:body (handler {:uri "/api/graph" :query-string "file=views/deploy.edn"})))]
           (is (nil? (get out "error")))
           (is (= [{"dir" "in" "file" "overview.edn" "id" "api" "kind" "node"}
                   {"dir" "in" "file" "runtime.edn" "id" "rt" "kind" "box"}]
@@ -1436,7 +1522,7 @@
       (w "views/deploy.edn" "{:nodes {:api-svc {}}}")
       (w "views/deploy-next.edn" "{:nodes {:api-service {}}}")
       (serve! (str dir "/overview.edn") "next")
-      (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph"})))
+      (let [out (json/parse-string (:body (handler {:uri "/api/graph"})))
             ps (get-in out ["nodes" "api" "pairs"])]
         (is (= [{"dir" "out" "file" "views/deploy.edn" "id" "api-service" "kind" "node"
                  "raw" "views/deploy.edn#api-service"}]
@@ -1451,12 +1537,12 @@
   (let [dir (pair-folder!)]
     (try
       (serve! (str dir "/overview.edn"))
-      (serve/handler {:uri "/api/graph"})
+      (handler {:uri "/api/graph"})
       (let [f (babashka.fs/file dir "views/deploy.edn")
             mtime (.lastModified f)]
         (spit f "{:nodes {:renamed-longer {}}}")
         (.setLastModified f mtime))
-      (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph"})))]
+      (let [out (json/parse-string (:body (handler {:uri "/api/graph"})))]
         (is (some #(str/includes? % "no node or box api-svc in views/deploy.edn") (get out "warnings"))))
       (finally (babashka.fs/delete-tree dir)))))
 
@@ -1474,7 +1560,7 @@
     (try
       (spit (babashka.fs/file dir "runtime-next.edn") "{:nodes {:only-fork {:pair \"views/deploy.edn#api-svc\"}}}")
       (serve! (str dir "/overview.edn") "next")
-      (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "file=views/deploy.edn"})))]
+      (let [out (json/parse-string (:body (handler {:uri "/api/graph" :query-string "file=views/deploy.edn"})))]
         (is (not-any? #(= "runtime-next.edn" (get % "file")) (get-in out ["nodes" "api-svc" "pairs"])))
         (is (some #(= "runtime.edn" (get % "file")) (get-in out ["nodes" "api-svc" "pairs"]))))
       (finally (babashka.fs/delete-tree dir)))))
@@ -1505,11 +1591,11 @@
 
 (defn- text-get [path]
   (json/parse-string
-   (:body (serve/handler {:uri "/api/text" :request-method :get
+   (:body (handler {:uri "/api/text" :request-method :get
                           :query-string (str "path=" (java.net.URLEncoder/encode path "UTF-8"))}))))
 
 (defn- text-save [body & [opts]]
-  (let [resp (serve/handler (assoc (edit-req body opts) :uri "/api/text/save"))]
+  (let [resp (handler (assoc (edit-req body opts) :uri "/api/text/save"))]
     [(:status resp) (json/parse-string (:body resp))]))
 
 (defn- sha1 [s]
@@ -1538,7 +1624,7 @@
         (is (re-find #"leaves the served folder" (get (text-get "link.md") "error")))
         (write! dir "big.md" (apply str (repeat (inc (* 1024 1024)) "x")))
         (is (re-find #"over 1 MiB" (get (text-get "big.md") "error")))
-        (is (= "path required" (get (json/parse-string (:body (serve/handler {:uri "/api/text"}))) "error")))))))
+        (is (= "path required" (get (json/parse-string (:body (handler {:uri "/api/text"}))) "error")))))))
 
 (deftest api-text-save-creates-updates-and-keeps-crlf
   (with-temp-dir*
@@ -1586,13 +1672,13 @@
       (is (= [409 {"error" "locked by agent"}] (text-save {:path "a.md" :text "mine" :base (sha1 "disk")})))
       (is (= "disk" (slurp (java.io.File. dir "a.md"))))
       (lock-resp "/api/unlock" {:owner "agent" :path "a.md"})
-      (is (= 403 (:status (serve/handler (assoc (edit-req {:path "a.md" :text "x" :base (sha1 "disk")}
+      (is (= 403 (:status (handler (assoc (edit-req {:path "a.md" :text "x" :base (sha1 "disk")}
                                                           {:headers {"origin" "http://evil.example"}})
                                                 :uri "/api/text/save")))))
-      (is (= 415 (:status (serve/handler (assoc (edit-req {:path "a.md" :text "x" :base (sha1 "disk")}
+      (is (= 415 (:status (handler (assoc (edit-req {:path "a.md" :text "x" :base (sha1 "disk")}
                                                           {:headers {"content-type" nil}})
                                                 :uri "/api/text/save")))))
-      (is (= 405 (:status (serve/handler {:uri "/api/text/save" :request-method :get}))))
+      (is (= 405 (:status (handler {:uri "/api/text/save" :request-method :get}))))
       (is (= 400 (first (text-save {:path "../x.md" :text "x" :base nil}))))
       (is (= 400 (first (text-save {:path "x.txt" :text "x" :base nil}))))
       (is (= 400 (first (text-save {:path "a.md" :text 3 :base (sha1 "disk")}))))
@@ -1635,7 +1721,7 @@
 ;; --- md pages ---------------------------------------------------------
 
 (defn- errors-of [& [query]]
-  (json/parse-string (:body (serve/handler {:uri "/api/errors" :query-string query}))))
+  (json/parse-string (:body (handler {:uri "/api/errors" :query-string query}))))
 
 (deftest parse-args-refuses-a-suffix-with-an-md-root
   (is (clojure.string/includes? (:error (serve/parse-args ["notes.md" "next"]))
@@ -1664,7 +1750,7 @@
   (with-temp-dir*
     (fn [dir]
       (let [d (.getCanonicalPath dir)
-            root #(json/parse-string (:body (serve/handler {:uri "/api/root"})))]
+            root #(json/parse-string (:body (handler {:uri "/api/root"})))]
         (serve! (write! dir "notes.md" "# N"))
         (is (= {"path" "notes.md" "dir" d} (root)))
         (serve! (write! dir "g.edn" "{:nodes {}}"))
@@ -1675,7 +1761,7 @@
   ;; served files or /api/root's absolute folder
   (serve! (temp-edn "{:nodes {:a {}}}"))
   (doseq [uri ["/api/root" "/api/graph" "/"]]
-    (let [resp (serve/handler {:uri uri :headers {"origin" "http://evil.example"}})]
+    (let [resp (handler {:uri uri :headers {"origin" "http://evil.example"}})]
       (is (= 200 (:status resp)) uri)
       (is (not-any? #(str/starts-with? (str/lower-case (name %)) "access-control-")
                     (keys (:headers resp)))
@@ -1704,7 +1790,7 @@
       (serve! (write! dir "g.edn" "{:nodes {}}"))
       (write! dir "notes.md" "# N")
       (is (clojure.string/includes?
-           (get (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "file=notes.md"}))) "error")
+           (get (json/parse-string (:body (handler {:uri "/api/graph" :query-string "file=notes.md"}))) "error")
            "not an .edn, .png or .svg")))))
 
 (deftest api-text-reads-a-non-ascii-path
@@ -1720,11 +1806,11 @@
 
 (defn- answers-get [path]
   (json/parse-string
-   (:body (serve/handler {:uri "/api/answers" :request-method :get
+   (:body (handler {:uri "/api/answers" :request-method :get
                           :query-string (str "path=" (java.net.URLEncoder/encode path "UTF-8"))}))))
 
 (defn- answers-post [body & [opts]]
-  (let [r (serve/handler (assoc (edit-req body opts) :uri "/api/answers"))]
+  (let [r (handler (assoc (edit-req body opts) :uri "/api/answers"))]
     [(:status r) (json/parse-string (:body r))]))
 
 (deftest api-answers-writes-each-answer-beside-the-deck
@@ -1808,10 +1894,10 @@
                    {:path "talk.md" :id "q" :answer "a"}]]
         (is (= 400 (first (answers-post bad))) (pr-str bad)))
       (is (re-find #"no such file" (get (answers-get "missing.md") "error")))
-      (is (= 403 (:status (serve/handler (assoc (edit-req {:path "talk.md" :id "q" :answer "a" :num 0}
+      (is (= 403 (:status (handler (assoc (edit-req {:path "talk.md" :id "q" :answer "a" :num 0}
                                                           {:headers {"origin" "http://evil.example"}})
                                                 :uri "/api/answers")))))
-      (is (= 415 (:status (serve/handler (assoc (edit-req {:path "talk.md" :id "q" :answer "a" :num 0}
+      (is (= 415 (:status (handler (assoc (edit-req {:path "talk.md" :id "q" :answer "a" :num 0}
                                                           {:headers {"content-type" nil}})
                                                 :uri "/api/answers")))))
       (is (not (.exists (java.io.File. dir "talk.answers.edn")))))))
@@ -1826,11 +1912,11 @@
       (is (not (.exists (java.io.File. dir "talk.answers.edn")))))))
 
 (defn- prefs-post [body & [opts]]
-  (let [r (serve/handler (assoc (edit-req body opts) :uri "/api/prefs"))]
+  (let [r (handler (assoc (edit-req body opts) :uri "/api/prefs"))]
     [(:status r) (try (json/parse-string (:body r)) (catch Exception _ (:body r)))]))
 
 (defn- prefs-get []
-  (json/parse-string (:body (serve/handler {:uri "/api/prefs" :request-method :get}))))
+  (json/parse-string (:body (handler {:uri "/api/prefs" :request-method :get}))))
 
 (deftest prefs-are-kept-in-one-file-for-every-port
   (with-temp-dir*
@@ -1874,7 +1960,7 @@
     (fn [dir]
       (serve! (write! dir "deck.md" "# deck"))
       (write! dir "img/photo.jpg" (byte-array [1 2 3]))
-      (let [resp (serve/handler {:uri "/api/file" :query-string "path=img%2Fphoto.jpg"})]
+      (let [resp (handler {:uri "/api/file" :query-string "path=img%2Fphoto.jpg"})]
         (is (= 200 (:status resp)))
         (is (= "image/jpeg" (get-in resp [:headers "Content-Type"])))
         (is (= [1 2 3] (body-bytes resp)))
@@ -1891,31 +1977,31 @@
                        ["path=..%2Fsecret.jpg" "leaves the served folder"]
                        ["path=nope.png" "no such file"]
                        ["" "path required"]]]
-        (let [resp (serve/handler {:uri "/api/file" :query-string q})]
+        (let [resp (handler {:uri "/api/file" :query-string q})]
           (is (= 404 (:status resp)) q)
           (is (str/includes? (str (:body resp)) why) q))))))
 
 (deftest api-graph-says-when-a-png-is-a-plain-image
   ;; so a presentation shows it as a picture rather than an error
   (serve! "test/fixtures/plain-1x1.png")
-  (is (= true (get (json/parse-string (:body (serve/handler {:uri "/api/graph"}))) "image"))))
+  (is (= true (get (json/parse-string (:body (handler {:uri "/api/graph"}))) "image"))))
 
 (deftest api-graph-a-png-with-edn-is-no-plain-image
   (serve! "test/fixtures/embedded.png")
-  (is (not (contains? (json/parse-string (:body (serve/handler {:uri "/api/graph"}))) "image"))))
+  (is (not (contains? (json/parse-string (:body (handler {:uri "/api/graph"}))) "image"))))
 
 (deftest a-request-for-another-host-is-refused
   ;; DNS rebinding: a page whose name resolves to 127.0.0.1 reaches the
   ;; server as its own origin, and sends that name as Host
   (serve! (temp-edn "{:nodes {:a {}}}"))
   (doseq [h ["evil.example:7373" "evil.example" "127.0.0.1.evil.example:7373" "localhost.evil.example"]]
-    (is (= 403 (:status (serve/handler {:uri "/api/root" :headers {"host" h}}))) h))
-  (is (= 403 (:status (serve/handler {:uri "/" :headers {"host" "evil.example:7373"}})))
+    (is (= 403 (:status (handler {:uri "/api/root" :headers {"host" h}}))) h))
+  (is (= 403 (:status (handler {:uri "/" :headers {"host" "evil.example:7373"}})))
       "the page itself too")
   ;; this machine by any of its loopback names, on any port (a tunnel may
   ;; forward another); no Host at all is a non-browser client
   (doseq [h ["localhost:7373" "127.0.0.1:7373" "LOCALHOST:7380" "localhost" "[::1]:7373" nil]]
-    (is (= 200 (:status (serve/handler (cond-> {:uri "/api/root"} h (assoc :headers {"host" h}))))) (str h))))
+    (is (= 200 (:status (handler (cond-> {:uri "/api/root"} h (assoc :headers {"host" h}))))) (str h))))
 
 ;; ---- a request's own compare (an md link's ?compare=<suffix>) ----
 
@@ -1926,7 +2012,7 @@
   (serve! (.getPath (java.io.File. dir "root.edn"))))
 
 (defn- graph-at [qs]
-  (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string qs}))))
+  (json/parse-string (:body (handler {:uri "/api/graph" :query-string qs}))))
 
 (deftest a-request-compares-under-its-own-suffix
   (with-temp-dir*
@@ -1970,24 +2056,24 @@
       (let [old (java.io.File. dir "sub/api.edn")
             new (java.io.File. dir "sub/api-next.edn")]
         (is (= (str (.lastModified old) "-" (.lastModified new))
-               (get (json/parse-string (:body (serve/handler {:uri "/api/version" :query-string "file=sub%2Fapi.edn&compare=next"}))) "mtime")))
+               (get (json/parse-string (:body (handler {:uri "/api/version" :query-string "file=sub%2Fapi.edn&compare=next"}))) "mtime")))
         (is (= (.lastModified old)
-               (get (json/parse-string (:body (serve/handler {:uri "/api/version" :query-string "file=sub%2Fapi.edn"}))) "mtime")))
-        (is (= (slurp old) (:body (serve/handler {:uri "/api/source" :query-string "file=sub%2Fapi.edn&compare=next&which=old"}))))
-        (is (= (slurp new) (:body (serve/handler {:uri "/api/source" :query-string "file=sub%2Fapi.edn&compare=next&which=new"}))))
-        (is (= 404 (:status (serve/handler {:uri "/api/source" :query-string "file=sub%2Fapi.edn&which=old"}))))))))
+               (get (json/parse-string (:body (handler {:uri "/api/version" :query-string "file=sub%2Fapi.edn"}))) "mtime")))
+        (is (= (slurp old) (:body (handler {:uri "/api/source" :query-string "file=sub%2Fapi.edn&compare=next&which=old"}))))
+        (is (= (slurp new) (:body (handler {:uri "/api/source" :query-string "file=sub%2Fapi.edn&compare=next&which=new"}))))
+        (is (= 404 (:status (handler {:uri "/api/source" :query-string "file=sub%2Fapi.edn&which=old"}))))))))
 
 (deftest edit-and-create-follow-a-request-compare
   (with-temp-dir*
     (fn [dir]
       (compare-tree! dir)
-      (is (true? (get (json/parse-string (:body (serve/handler (edit-req {:file "new" :path "sub/api.edn" :compare "next" :ops [{:op "add-node" :id "n"}]})))) "ok")))
+      (is (true? (get (json/parse-string (:body (handler (edit-req {:file "new" :path "sub/api.edn" :compare "next" :ops [{:op "add-node" :id "n"}]})))) "ok")))
       (is (clojure.string/includes? (slurp (java.io.File. dir "sub/api-next.edn")) ":n nil"))
       (is (not (clojure.string/includes? (slurp (java.io.File. dir "sub/api.edn")) ":n nil")))
-      (is (true? (get (json/parse-string (:body (serve/handler (edit-req {:file "new" :path "sub/api.edn" :ops [{:op "add-node" :id "p"}]})))) "ok")))
+      (is (true? (get (json/parse-string (:body (handler (edit-req {:file "new" :path "sub/api.edn" :ops [{:op "add-node" :id "p"}]})))) "ok")))
       (is (clojure.string/includes? (slurp (java.io.File. dir "sub/api.edn")) ":p nil"))
       (is (= "invalid compare suffix: \"a b\""
-             (get (json/parse-string (:body (serve/handler (edit-req {:file "new" :path "lone.edn" :compare "a b" :ops [{:op "add-node" :id "x"}]})))) "error")))
+             (get (json/parse-string (:body (handler (edit-req {:file "new" :path "lone.edn" :compare "a b" :ops [{:op "add-node" :id "x"}]})))) "error")))
       (is (= {"ok" true "created" "a/n-next.edn"} (create! {:path "a/n.edn" :file "new" :compare "next"})))
       (is (not (.exists (java.io.File. dir "a/n.edn"))))
       (is (= {"ok" true "created" "a/m.edn"} (create! {:path "a/m.edn" :file "new"})))
@@ -2006,7 +2092,7 @@
     (fn [dir]
       (compare-tree! dir)
       (spit (java.io.File. dir "sub/api-next.edn") "{:nodes {:only-in-fork nil}}")
-      (let [copy! (fn [body] (json/parse-string (:body (serve/handler (copy-req body))) true))]
+      (let [copy! (fn [body] (json/parse-string (:body (handler (copy-req body))) true))]
         (is (= [{:section "nodes" :id "only-in-fork"}]
                (:ids (copy! {:file "new" :path "sub/api.edn" :compare "next" :ids [{:section "nodes" :id "only-in-fork"}]}))))
         (is (= "unknown node \"only-in-fork\""
@@ -2017,7 +2103,7 @@
   ([body opts] (assoc (edit-req body opts) :uri "/api/calc")))
 
 (deftest calc-runs-each-tables-formulas
-  (let [resp (serve/handler (calc-req {:tables [{:cells [["1"] ["2"] ["=(sum :a)"]]}
+  (let [resp (handler (calc-req {:tables [{:cells [["1"] ["2"] ["=(sum :a)"]]}
                                                 {:cells [["12"] ["=(sum :a)"]] :defs "[:a] #(str %1 \"%\")"}]}))
         out (json/parse-string (:body resp) true)]
     (is (= 200 (:status resp)))
@@ -2026,12 +2112,12 @@
     (is (= {:value "12%"} (get-in out [:tables 1 :results 1 0])))))
 
 (deftest calc-is-a-guarded-post
-  (is (= 405 (:status (serve/handler {:uri "/api/calc" :request-method :get}))))
-  (is (= 403 (:status (serve/handler (calc-req {:tables []} {:headers {"origin" "http://evil.example"}})))))
-  (let [resp (serve/handler (assoc (calc-req {:tables []}) :body (java.io.ByteArrayInputStream. (.getBytes "{" "UTF-8"))))]
+  (is (= 405 (:status (handler {:uri "/api/calc" :request-method :get}))))
+  (is (= 403 (:status (handler (calc-req {:tables []} {:headers {"origin" "http://evil.example"}})))))
+  (let [resp (handler (assoc (calc-req {:tables []}) :body (java.io.ByteArrayInputStream. (.getBytes "{" "UTF-8"))))]
     (is (= 400 (:status resp)))
     (is (some? (:error (json/parse-string (:body resp) true)))))
-  (let [resp (serve/handler (calc-req {:tables "x"}))]
+  (let [resp (handler (calc-req {:tables "x"}))]
     (is (= 400 (:status resp)))))
 
 (deftest calc-reads-a-tables-data-beside-its-md-file
@@ -2042,14 +2128,14 @@
     (spit (str (babashka.fs/path dir "notes" "data" "s.csv")) "item,qty\ntea,2\nmilk,3\n")
     (spit (str (babashka.fs/path dir "secret.csv")) "a\n1\n")
     (serve! (str (babashka.fs/path dir "root.edn")))
-    (let [ask (fn [defs] (-> (serve/handler (calc-req {:path "notes/doc.md"
+    (let [ask (fn [defs] (-> (handler (calc-req {:path "notes/doc.md"
                                                         :tables [{:cells [["=(sum :b)"]] :defs defs}]}))
                              :body (json/parse-string true) (get-in [:tables 0 :results 0 0])))]
       (is (= {:value "5"} (ask ">> [s](data/s.csv)")))
       (is (re-find #"leaves the served folder" (:error (ask ">> [s](../../secret.csv)"))))
       (is (re-find #"no such file" (:error (ask ">> [s](data/gone.csv)"))))
       (is (re-find #"is not" (:error (ask ">> [s](doc.md)")))))
-    (is (re-find #"md file" (-> (serve/handler (calc-req {:tables [{:cells [["=(sum :b)"]] :defs ">> [s](data/s.csv)"}]}))
+    (is (re-find #"md file" (-> (handler (calc-req {:tables [{:cells [["=(sum :b)"]] :defs ">> [s](data/s.csv)"}]}))
                                 :body (json/parse-string true) (get-in [:tables 0 :results 0 0 :error]))))))
 
 ;; --- :steps: states of the graph, edited at a step ----------------------
@@ -2076,23 +2162,23 @@
 (deftest a-steps-warning-is-in-api-errors
   (let [p (temp-edn steps-file)]
     (serve! p)
-    (is (= 1 (count (get (json/parse-string (:body (serve/handler {:uri "/api/errors"}))) "warnings"))))))
+    (is (= 1 (count (get (json/parse-string (:body (handler {:uri "/api/errors"}))) "warnings"))))))
 
 (deftest api-edit-at-a-step-writes-that-steps-edits
   (let [p (temp-edn steps-file)]
     (serve! p)
-    (let [resp (serve/handler (edit-req {:file "new" :step 1 :ops [{:op "add-node" :id "d"}]}))]
+    (let [resp (handler (edit-req {:file "new" :step 1 :ops [{:op "add-node" :id "d"}]}))]
       (is (true? (get (json/parse-string (:body resp)) "ok")))
       (let [g (edn/read-string (slurp p))]
         (is (= #{:a :b} (set (keys (:nodes g)))))
         (is (= [[[:nodes :c] :+ {:type "cache"}] [[:nodes :d] :+ nil]] (:edits (first (:steps g))))))
-      (serve/handler (edit-req {:file "new" :ops [{:op "undo"}]}))
+      (handler (edit-req {:file "new" :ops [{:op "undo"}]}))
       (is (= steps-file (slurp p)) "undo takes the step edit back"))))
 
 (deftest api-copy-at-a-step-copies-from-that-state
   (let [p (temp-edn steps-file)]
     (serve! p)
-    (let [out (json/parse-string (:body (serve/handler (copy-req {:file "new" :step 1 :ids [{:section "nodes" :id "c"}]})))
+    (let [out (json/parse-string (:body (handler (copy-req {:file "new" :step 1 :ids [{:section "nodes" :id "c"}]})))
                                  true)]
       (is (nil? (:error out)))
       (is (= [{:section "nodes" :id "c"}] (:ids out))))))
@@ -2106,7 +2192,7 @@
                          " :steps [{:name \"add c\" :edits [[[:nodes :c] :+ nil]]}\n"
                          "         {:name \"rename b, drop a\" :edits [[[:nodes :b :name] :r \"Bee\"] [[:nodes :a] :-] [[:edges [:a :b]] :-]]}]}"))]
     (serve! p)
-    (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "steps=0,2"})) true)]
+    (let [out (json/parse-string (:body (handler {:uri "/api/graph" :query-string "steps=0,2"})) true)]
       (is (nil? (:error out)))
       (is (= {:old "start" :new "2 rename b, drop a"} (:compare out)))
       (is (= "removed" (get-in out [:nodes :a :diff])))
@@ -2115,10 +2201,10 @@
       (is (= {:old "B" :new "Bee"} (get-in out [:nodes :b :changed :name])))
       (is (false? (:editable out)) "a comparison of steps is read-only")
       (is (nil? (:steps out))))
-    (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "steps=2,1"})) true)]
+    (let [out (json/parse-string (:body (handler {:uri "/api/graph" :query-string "steps=2,1"})) true)]
       (is (= "added" (get-in out [:nodes :a :diff])) "either way round"))
-    (is (= "no step 7" (:error (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "steps=0,7"})) true))))
-    (is (some? (:error (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "steps=x"})) true))))))
+    (is (= "no step 7" (:error (json/parse-string (:body (handler {:uri "/api/graph" :query-string "steps=0,7"})) true))))
+    (is (some? (:error (json/parse-string (:body (handler {:uri "/api/graph" :query-string "steps=x"})) true))))))
 
 (deftest a-file-nested-too-deep-to-read-breaks-no-other-graph
   ;; every graph view reads every .edn of the folder for its pairs
@@ -2128,10 +2214,10 @@
     (.mkdirs (java.io.File. dir "sub"))
     (spit (java.io.File. dir "sub/deep.edn") deep)
     (serve! (str (java.io.File. dir "g.edn")))
-    (let [resp (serve/handler {:uri "/api/graph"})]
+    (let [resp (handler {:uri "/api/graph"})]
       (is (= 200 (:status resp)))
       (is (nil? (get (json/parse-string (:body resp)) "error"))))
-    (let [out (json/parse-string (:body (serve/handler {:uri "/api/graph" :query-string "file=sub/deep.edn"})))]
+    (let [out (json/parse-string (:body (handler {:uri "/api/graph" :query-string "file=sub/deep.edn"})))]
       (is (re-find #"nests too deeply" (str (get out "error")))))))
 
 (deftest a-malformed-query-is-no-crash
@@ -2141,8 +2227,8 @@
       (serve! "examples/demo.edn")
       (with-redefs [log/default-dir (constantly (str dir))]
         (doseq [q ["path=%zz" "file=%e"]]
-          (is (not= 500 (:status ((serve/guard serve/handler) {:uri "/api/graphs" :query-string q}))) q)
-          (is (not= 500 (:status ((serve/guard serve/handler) {:uri "/api/graph" :query-string q}))) q)))
+          (is (not= 500 (:status ((serve/guard handler) {:uri "/api/graphs" :query-string q}))) q)
+          (is (not= 500 (:status ((serve/guard handler) {:uri "/api/graph" :query-string q}))) q)))
       (is (empty? (babashka.fs/list-dir dir)) "no crash report")
       (finally (babashka.fs/delete-tree dir)))))
 
@@ -2164,8 +2250,8 @@
   ;; on the upgrade is the only thing that tells a foreign page apart
   (serve! "examples/demo.edn")
   (let [up {:uri "/api/watch" :websocket? true :server-port 7373}]
-    (is (= 403 (:status (serve/handler (assoc up :headers {"origin" "http://evil.example"})))))
-    (is (= 400 (:status (serve/handler {:uri "/api/watch" :headers {}}))))))
+    (is (= 403 (:status (handler (assoc up :headers {"origin" "http://evil.example"})))))
+    (is (= 400 (:status (handler {:uri "/api/watch" :headers {}}))))))
 
 (defn- free-port []
   (with-open [s (java.net.ServerSocket. 0 0 (java.net.InetAddress/getByName "127.0.0.1"))]
@@ -2186,7 +2272,7 @@
     (serve/start-watcher!)
     (try
       (let [ws (babashka.http-client.websocket/websocket
-                 {:uri (str "ws://127.0.0.1:" port "/api/watch")
+                 {:uri (str "ws://127.0.0.1:" port "/" @serve/session-token "/api/watch")
                   :headers {"Origin" (str "http://localhost:" port)}
                   :on-message (fn [_ data _] (.put got (str data)))})]
         (try

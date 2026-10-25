@@ -21,8 +21,11 @@ gets security fixes; `simpleviz update` installs it.
 
 - The local server (`simpleviz <file>`): it listens on 127.0.0.1 only,
   reads and writes files below the served folder, and refuses writes
-  from other origins. Anything that reaches outside that folder, or
-  lets another site or user drive it, is a vulnerability.
+  from other origins. Every page, asset and API request requires the
+  random session path in the URL printed at startup. Other local users
+  and websites cannot use the server without that URL. Anything that
+  bypasses this credential, reaches outside the served folder, or lets
+  another site or user drive it is a vulnerability.
 - Table formulas in md files (`=(sum :a)`), which run in a SCI sandbox
   in a child process of the server: a formula that reads or writes
   files, reaches the network, calls Java, changes the server or
@@ -32,6 +35,18 @@ gets security fixes; `simpleviz update` installs it.
 - `simpleviz export`, which drives a headless Chrome or Chromium.
 - The agent plugin (`plugins/simpleviz`): instructions in the skill that
   would lead an assistant to do something unsafe.
+
+The printed URL is a credential for the running server. Share it only
+with people or tools that should have access to the served files. Each
+server starts with a fresh 256-bit random path; restarting invalidates
+its old URL. No authentication cookies are shared between ports.
+Responses use `Referrer-Policy: no-referrer`, and debug and crash logs
+omit the session path.
+
+Automatic browser opening uses a private redirect file so the session
+URL does not appear in the desktop opener's command arguments. Headless
+exports control Chrome through private process pipes rather than an
+unauthenticated debugging port.
 
 ## Verifying a download
 

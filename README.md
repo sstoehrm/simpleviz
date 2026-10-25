@@ -110,6 +110,10 @@ Without an installer, unpack a tarball from the
 `--no-open` prints the URL without opening a browser; `simpleviz --help`
 lists the rest. Press `?` in the page for controls and shortcuts.
 
+Open the full printed URL: its random session path grants access to the
+served files and changes on every restart. Keep that URL private; scripts
+and agents also need its full path when calling the API.
+
 `init` copies a template from `~/.simpleviz/templates` (or
 `$SIMPLEVIZ_HOME/templates`): `default.edn` without `-t`, `<name>.edn`
 with `-t <name>` — `<name>.md` for an `.md` file, where `{{name}}` becomes

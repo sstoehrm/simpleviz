@@ -54,8 +54,8 @@
                  :requires ([release])
                  :task (release/check (first *command-line-args*))}
   test:clj {:doc "Run Clojure server tests"
-            :requires ([clojure.test :as t] [server-test] [graph-test] [diff-test] [docs-test] [png-test] [svg-test] [browser-test] [export-test] [edit-test] [log-test] [fork-test] [launcher-test] [install-test] [check-test] [cli-test] [release-test] [notices-test] [paths-test] [pairs-test] [mdlinks-test] [deck-test] [calc-test] [steps-test] [stage-jars-test] [vuln-gate-test] [minify-test])
-            :task (let [{:keys [fail error]} (t/run-tests 'graph-test 'server-test 'diff-test 'docs-test 'png-test 'svg-test 'browser-test 'export-test 'edit-test 'log-test 'fork-test 'launcher-test 'install-test 'check-test 'cli-test 'release-test 'notices-test 'paths-test 'pairs-test 'mdlinks-test 'deck-test 'calc-test 'steps-test 'stage-jars-test 'vuln-gate-test 'minify-test)]
+            :requires ([clojure.test :as t] [server-test] [auth-test] [graph-test] [diff-test] [docs-test] [png-test] [svg-test] [browser-test] [export-test] [edit-test] [log-test] [fork-test] [launcher-test] [install-test] [check-test] [cli-test] [release-test] [notices-test] [paths-test] [pairs-test] [mdlinks-test] [deck-test] [calc-test] [steps-test] [stage-jars-test] [vuln-gate-test] [minify-test])
+            :task (let [{:keys [fail error]} (t/run-tests 'graph-test 'server-test 'auth-test 'diff-test 'docs-test 'png-test 'svg-test 'browser-test 'export-test 'edit-test 'log-test 'fork-test 'launcher-test 'install-test 'check-test 'cli-test 'release-test 'notices-test 'paths-test 'pairs-test 'mdlinks-test 'deck-test 'calc-test 'steps-test 'stage-jars-test 'vuln-gate-test 'minify-test)]
                     (when (pos? (+ fail error)) (System/exit 1)))}
   test:js  {:doc "Run JS unit tests (compiled squint output)"
             :requires ([babashka.fs :as fs])
@@ -215,7 +215,7 @@
                            (try
                              (reset! demo-dir (second (proc-util/await-line proc (re-pattern "^simpleviz: demo files in (.+)$") 60000)))
                              (when-not (deref demo-dir) (fail "demo printed no folder"))
-                             (let [[_ url] (proc-util/await-line proc (re-pattern "^simpleviz: (http://localhost:\\d+)$") 60000)]
+                             (let [[_ url] (proc-util/await-line proc (re-pattern "^simpleviz: (http://localhost:\\d+/[A-Za-z0-9_-]+)$") 60000)]
                                (when-not url (fail "demo printed no URL"))
                                (when-not (str/includes? (slurp url) "<html") (fail "no page at " url))
                                ;; a folder inside the jar is no file to serve

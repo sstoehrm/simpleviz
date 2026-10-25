@@ -26,7 +26,7 @@
   "Store your choices, {:theme v} or {:vi v} (\"\" forgets one); a
   failed save only means the choice doesn't outlive the page."
   [m]
-  (-> (js/fetch "/api/prefs" {:method "POST"
+  (-> (js/fetch "api/prefs" {:method "POST"
                               :headers {"Content-Type" "application/json"}
                               :body (js/JSON.stringify m)})
       (.then (fn [resp] (.text resp)))
@@ -117,7 +117,7 @@
 ;; ELK lays out in a Web Worker, so the page stays live while a big graph
 ;; does: the page holds elkjs' API only, the engine ships in the worker
 (def ^:private elk
-  (js/ELK. {:workerUrl "/vendor/elk-worker.min.js"
+  (js/ELK. {:workerUrl "vendor/elk-worker.min.js"
             ;; to-elk only ever asks for layered
             :algorithms ["layered"]
             :workerFactory
@@ -329,7 +329,7 @@
   (if (nil? c)
     (nth states k)
     (let [q (file-query)
-          url (str "/api/graph" q (if (= q "") "?" "&") "steps=" c "," k)
+          url (str "api/graph" q (if (= q "") "?" "&") "steps=" c "," k)
           raw (js-await (json-of (js/fetch url) "not connected"))]
       (if (some? (:error raw)) raw (with-boxes-by-name raw)))))
 
@@ -1391,7 +1391,7 @@
 (defn- file-url
   "Where the page loads the served folder's file at root-relative `path`."
   [path]
-  (str "/api/file?path=" (js/encodeURIComponent path)))
+  (str "api/file?path=" (js/encodeURIComponent path)))
 
 (defn- picture
   "Image link `l` of the md file at `md-path` as the picture: a web URL as
@@ -1477,7 +1477,7 @@
   (remember-calc! path text {})
   (swap! calc-in-flight inc)
   (let [[out retry]
-        (try (let [resp (js-await (post-json "/api/calc" {:path path :tables tables}))]
+        (try (let [resp (js-await (post-json "api/calc" {:path path :tables tables}))]
                (if (.-ok resp)
                  [{:tables (:tables (js-await (.json resp)))} false]
                  [{:failed (str "couldn't calculate: " (or (try (:error (js-await (.json resp))) (catch :default _ nil))
@@ -2269,7 +2269,7 @@
   (try
     (when (nil? (:scene @state))
       (swap! state assoc :load-stage "loading graph…"))
-    (let [resp (js-await (js/fetch (str "/api/graph" q)))
+    (let [resp (js-await (js/fetch (str "api/graph" q)))
           raw (js-await (.json resp))]
       (cond
         (not= q (file-query)) nil
@@ -2334,7 +2334,7 @@
   []
   (let [q (file-query)
         mtime (try
-                (let [resp (js-await (js/fetch (str "/api/version" q)))
+                (let [resp (js-await (js/fetch (str "api/version" q)))
                       v (js-await (.json resp))]
                   (:mtime v))
                 (catch :default _ nil))]
@@ -2359,7 +2359,7 @@
     (= "md" (editor/doc-kind (shown-path (:nav @state))))
     (if (some? (:side @state))
       (js-await (poll-graph!))
-      (let [ok (try (let [resp (js-await (js/fetch "/api/root"))]
+      (let [ok (try (let [resp (js-await (js/fetch "api/root"))]
                       ;; no-store responses aren't automatically drained:
                       ;; an unread heartbeat keeps a Chromium loader alive.
                       (js-await (.text resp))
@@ -2474,7 +2474,7 @@
       (swap! state assoc :following true)
       (try
         (when create?
-          (try (js-await (.text (js-await (post-json "/api/create" (editor/create-body (:edit-target st) path to)))))
+          (try (js-await (.text (js-await (post-json "api/create" (editor/create-body (:edit-target st) path to)))))
                (catch :default _ nil)))
         (js-await (navigate! (editor/follow-url (current-path st) (:trail (:nav st)) path focus
                                                 {:from (when-not (page? st) (:compare st))
@@ -2509,7 +2509,7 @@
   (let [st @state]
     (when-not (and (= path (:side st)) (editor/same-compare? compare (:compare st)))
       (when create?
-        (try (js-await (.text (js-await (post-json "/api/create" (editor/create-body "new" path compare)))))
+        (try (js-await (.text (js-await (post-json "api/create" (editor/create-body "new" path compare)))))
              (catch :default _ nil)))
       (show-side! path compare)
       (js-await (tick)))))
@@ -2528,7 +2528,7 @@
   created, as that comparison's side — no copies there."
   [path compare]
   (let [gen (swap! side-gen inc)
-        out (js-await (json-of (js/fetch (str "/api/graphs" (editor/with-compare (str "?path=" (js/encodeURIComponent path)) compare)))
+        out (js-await (json-of (js/fetch (str "api/graphs" (editor/with-compare (str "?path=" (js/encodeURIComponent path)) compare)))
                                "the server did not answer"))]
     (cond
       ;; another link was followed, or the page left, meanwhile
@@ -2548,7 +2548,7 @@
         gen @side-gen]
     (when-not busy
       (swap! state assoc-in [:side-choose :busy] true)
-      (let [out (js-await (json-of (post-json "/api/create"
+      (let [out (js-await (json-of (post-json "api/create"
                                               (cond-> (editor/create-body "new" path compare)
                                                 (some? from) (assoc :from from)))
                                    "the server did not answer"))]
@@ -2607,7 +2607,7 @@
 (def ^:private md-gen (atom 0))
 
 (defn- ^:async fetch-doc [path]
-  (let [resp (js-await (js/fetch (str "/api/text?path=" (js/encodeURIComponent path))))]
+  (let [resp (js-await (js/fetch (str "api/text?path=" (js/encodeURIComponent path))))]
     (js-await (.json resp))))
 
 (defn- ^:async root-path!
@@ -2615,7 +2615,7 @@
   can't be reached."
   []
   (or @root-path
-      (try (let [out (js-await (.json (js-await (js/fetch "/api/root"))))]
+      (try (let [out (js-await (.json (js-await (js/fetch "api/root"))))]
              (reset! root-path (:path out)))
            (catch :default _ nil))))
 
@@ -2769,7 +2769,7 @@
             base (if overwrite? (:version (:conflict md)) (:base md))]
         (swap! state assoc-in [:md :saving] true)
         (try
-          (let [resp (js-await (post-json "/api/text/save"
+          (let [resp (js-await (post-json "api/text/save"
                                           {:path (:path md)
                                            :text (editor/to-disk text (:crlf md))
                                            :base (or base nil)}))
@@ -2876,8 +2876,9 @@
   tick, a doc change poll-md!; the socket closing means the server is
   gone, and it reconnects each second until it is back."
   []
-  (let [ws (js/WebSocket. (str (if (= "https:" js/location.protocol) "wss://" "ws://")
-                               js/location.host "/api/watch"))]
+  (let [url (js/URL. "api/watch" js/location.href)
+        _ (set! (.-protocol url) (if (= "https:" js/location.protocol) "wss:" "ws:"))
+        ws (js/WebSocket. (str url))]
     (reset! watch-socket ws)
     (set! (.-onopen ws) (fn [_] (reset! sent-watch nil) (send-watch!)))
     (set! (.-onmessage ws)
@@ -2909,7 +2910,7 @@
   "\"image\" when the .png or .svg at root-relative `path` is a plain
   picture, else \"graph\" — a failure then shows as the graph's error."
   [path compare]
-  (try (let [out (js-await (.json (js-await (js/fetch (str "/api/graph" (editor/with-compare (str "?file=" (js/encodeURIComponent path)) compare))))))]
+  (try (let [out (js-await (.json (js-await (js/fetch (str "api/graph" (editor/with-compare (str "?file=" (js/encodeURIComponent path)) compare))))))]
          (if (= true (:image out)) "image" "graph"))
        (catch :default _ "graph")))
 
@@ -2953,7 +2954,7 @@
   answers file (talk.md's talk.answers.edn)."
   []
   (let [path (:path (:md @state))
-        out (js-await (json-of (js/fetch (str "/api/answers?path=" (js/encodeURIComponent path))) "not connected"))]
+        out (js-await (json-of (js/fetch (str "api/answers?path=" (js/encodeURIComponent path))) "not connected"))]
     (swap! state assoc
            :answers (if (some? (:answers out)) (:answers out) {})
            :unsaved {}
@@ -2968,7 +2969,7 @@
   answer either way — a ??? stays locked, the deck goes on — and every
   slide says which answers are not in the file yet."
   [body]
-  (let [out (js-await (json-of (post-json "/api/answers" body) "not connected"))]
+  (let [out (js-await (json-of (post-json "api/answers" body) "not connected"))]
     (swap! state update :unsaved
            (fn [m] (if (some? (:error out)) (assoc m (:id body) (:error out)) (dissoc m (:id body)))))))
 
@@ -3264,7 +3265,7 @@
 (defn- ^:async post-edit!
   "POST ops to the edit target — or to `file` (\"old\"/\"new\") when given."
   [ops & [file]]
-  (let [resp (js-await (post-json "/api/edit"
+  (let [resp (js-await (post-json "api/edit"
                                   (graph-request (editor/edit-body (or file (:edit-target @state)) ops))))
         out (js-await (.json resp))]
     (if (some? (:error out))
@@ -3379,7 +3380,7 @@
   "What /api/copy answers for scene ids `ids`: {:edn the clipboard text
   :ids the targets it took}; throws its error."
   [ids]
-  (let [out (js-await (.json (js-await (post-json "/api/copy" (graph-request {:file (:edit-target @state)
+  (let [out (js-await (.json (js-await (post-json "api/copy" (graph-request {:file (:edit-target @state)
                                                                                :ids (editor/selection-targets ids)})))))]
     (if (some? (:error out)) (throw (js/Error. (:error out))) out)))
 
@@ -3470,7 +3471,7 @@
   "Take your stored choices (/api/prefs) into state and paint the theme;
   the valid ones only, and none when the server can't say."
   []
-  (let [p (try (js-await (.json (js-await (js/fetch "/api/prefs"))))
+  (let [p (try (js-await (.json (js-await (js/fetch "api/prefs"))))
                (catch :default _ {}))
         theme (some #(when (= (:theme p) %) %) themes/NAMES)]
     (apply-theme! (effective-theme (:graph @state) theme (:theme @state)))
@@ -3486,7 +3487,7 @@
   [which]
   (try
     (let [fq (file-query)
-          resp (js-await (js/fetch (str "/api/source" fq
+          resp (js-await (js/fetch (str "api/source" fq
                                         (when (some? which)
                                           (str (if (= fq "") "?" "&") "which=" which)))))
           text (js-await (.text resp))]

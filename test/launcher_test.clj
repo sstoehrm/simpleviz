@@ -121,7 +121,7 @@
       (try
         (reset! demo-dir (second (proc-util/await-line proc #"^simpleviz: demo files in (.+)$" 30000)))
         (is (some? @demo-dir))
-        (is (some? (proc-util/await-line proc #"^simpleviz: http://localhost:\d+$" 30000)))
+        (is (some? (proc-util/await-line proc #"^simpleviz: http://localhost:\d+/[A-Za-z0-9_-]+$" 30000)))
         (let [res (run-launcher script ["clean-all"])]
           (is (= 0 (:exit res)) (:err res))
           (is (str/includes? (:out res) "killing")))

@@ -11,7 +11,7 @@ import { recorder, ROOT, W, H, sleep } from "./recorder.mjs";
 
 const OUT = path.resolve(process.argv[2] ?? path.join(ROOT, "docs/assets"));
 const CDP_PORT = 9334, PORT = 7493;
-const { ws, start, waitFor, send, on, js, launch, moveTo, click, elAt, key, caption, settled,
+const { ws, start, serverUrl, send, on, js, launch, moveTo, click, elAt, key, caption, settled,
         capture, encode, report, close } = recorder("simpleviz-feat-", { hover: true });
 
 // ---- workspace -------------------------------------------------------------
@@ -125,7 +125,7 @@ const OVERLAY = `(() => {
     },
     press(down) { document.getElementById("rec-cur").classList.toggle("down", down); },
     async at(id) {
-      const app = await import("/js/simpleviz/app.mjs"), cv = await import("/js/simpleviz/canvas.mjs");
+      const app = await import("./js/simpleviz/app.mjs"), cv = await import("./js/simpleviz/canvas.mjs");
       const st = app.state.val;
       const it = (st.scene?.items ?? []).find(i => i.id === id);
       if (!it) throw new Error("no scene item " + id);
@@ -146,7 +146,7 @@ const OVERLAY = `(() => {
 // wait until the presented slide's side has landed: its graph laid out,
 // or its md/picture shown
 const slideReady = () => js(`(async () => {
-  const app = await import("/js/simpleviz/app.mjs");
+  const app = await import("./js/simpleviz/app.mjs");
   for (let i = 0; i < 120; i++) {
     const st = app.state.val, p = st.present;
     const side = p && p.side;
@@ -171,10 +171,10 @@ async function scrollView(sel, dy, ms) {
 // ---- run -------------------------------------------------------------------
 
 try {
-  start("bb", ["serve", deck, "--port", String(PORT)]);
-  await waitFor(`http://127.0.0.1:${PORT}/`);
+  const server = start("bb", ["serve", deck, "--port", String(PORT)]);
+  const url = await serverUrl(server);
   await launch(CDP_PORT, OVERLAY);
-  await send("Page.navigate", { url: `http://127.0.0.1:${PORT}/` });
+  await send("Page.navigate", { url });
   await js(`(async () => { for (let i = 0; i < 100 && !document.getElementById("md-view"); i++) await new Promise(r => setTimeout(r, 50)); })()`);
   await sleep(500);
 
@@ -230,7 +230,7 @@ try {
   await sleep(300);
   await caption("Collapse and expand boxes as usual");
   await click(await js(`(async () => { const [x, y] = await __rec.at("b:storage");
-    const app = await import("/js/simpleviz/app.mjs"), cv = await import("/js/simpleviz/canvas.mjs");
+    const app = await import("./js/simpleviz/app.mjs"), cv = await import("./js/simpleviz/canvas.mjs");
     const it = app.state.val.scene.items.find(i => i.id === "b:storage"), v = cv.view,
           r = document.getElementById("canvas-wrap").getBoundingClientRect();
     return [r.left + v.x + (it.x + it.w - 13) * v.k, r.top + v.y + (it.y + 13) * v.k]; })()`), 600);

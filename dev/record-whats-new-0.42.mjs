@@ -12,7 +12,7 @@ import { recorder, ROOT, W, H, sleep } from "./recorder.mjs";
 
 const OUT = path.resolve(process.argv[2] ?? path.join(ROOT, "docs/assets"));
 const CDP_PORT = 9335, PORT = 7494;
-const { ws, start, waitFor, send, on, js, launch, moveTo, click, elAt, key, caption, settled,
+const { ws, start, serverUrl, send, on, js, launch, moveTo, click, elAt, key, caption, settled,
         capture, encode, report, close } = recorder("simpleviz-042-", { hover: true });
 
 // ---- workspace -------------------------------------------------------------
@@ -65,7 +65,7 @@ const OVERLAY = `(() => {
     },
     press(down) { document.getElementById("rec-cur").classList.toggle("down", down); },
     async at(id) {
-      const app = await import("/js/simpleviz/app.mjs"), cv = await import("/js/simpleviz/canvas.mjs");
+      const app = await import("./js/simpleviz/app.mjs"), cv = await import("./js/simpleviz/canvas.mjs");
       const st = app.state.val;
       const it = (st.scene?.items ?? []).find(i => i.id === id);
       if (!it) throw new Error("no scene item " + id);
@@ -85,7 +85,7 @@ const OVERLAY = `(() => {
 
 // the screen point of a scene item's middle (a box's too, not its title)
 const middleOf = id => js(`(async () => {
-  const app = await import("/js/simpleviz/app.mjs"), cv = await import("/js/simpleviz/canvas.mjs");
+  const app = await import("./js/simpleviz/app.mjs"), cv = await import("./js/simpleviz/canvas.mjs");
   const it = app.state.val.scene.items.find(i => i.id === ${JSON.stringify(id)});
   if (!it) throw new Error("no scene item ${id}");
   const v = cv.view, r = document.getElementById("canvas-wrap").getBoundingClientRect();
@@ -130,12 +130,12 @@ const mdText = () => js(`document.getElementById("md-text")?.value ?? null`);
 // ---- run -------------------------------------------------------------------
 
 try {
-  start("bb", ["serve", demo, "--port", String(PORT)]);
-  await waitFor(`http://127.0.0.1:${PORT}/`);
+  const server = start("bb", ["serve", demo, "--port", String(PORT)]);
+  const url = await serverUrl(server);
   await launch(CDP_PORT, OVERLAY);
   // auto asks before it drops the positions: yes
   on("Page.javascriptDialogOpening", () => send("Page.handleJavaScriptDialog", { accept: true }));
-  await send("Page.navigate", { url: `http://127.0.0.1:${PORT}/` });
+  await send("Page.navigate", { url });
   // the page's own scripts first: importing the app before ELK is there fails
   await sleep(1000);
   await js(`(async () => { for (let i = 0; i < 200 && !(document.readyState === "complete" && window.ELK); i++)
@@ -154,7 +154,7 @@ try {
   // 2 — ✥
   await caption("<b>✥</b> turns manual layout on: each node and box gets a <code>:pos</code> on a 20 px grid");
   await click(await elAt("#arrange-btn"), 700);
-  await js(`(async () => { const app = await import("/js/simpleviz/app.mjs");
+  await js(`(async () => { const app = await import("./js/simpleviz/app.mjs");
     for (let i = 0; i < 100 && !(app.state.val.graph?.nodes?.web?.pos); i++) await new Promise(r => setTimeout(r, 50)); })()`);
   await settled();
   await sleep(2400);

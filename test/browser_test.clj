@@ -42,11 +42,6 @@
   (is (= "/home/u/snap/chromium/common" (browser/profile-parent "chromium" "/home/u" "/tmp")))
   (is (= "/tmp" (browser/profile-parent nil "/home/u" "/tmp"))))
 
-(deftest the-devtools-line
-  (is (= "ws://127.0.0.1:42001/devtools/browser/f0dc"
-         (browser/devtools-url "DevTools listening on ws://127.0.0.1:42001/devtools/browser/f0dc")))
-  (is (nil? (browser/devtools-url "[1002/080707.580414:ERROR:ssl_client_socket_impl.cc] handshake failed"))))
-
 ;; --- a real browser: skipped without one ------------------------------
 
 (def ^:private found (browser/find-browser))
@@ -56,14 +51,34 @@
      (do ~@body)
      (println "browser-test: no browser found, real-browser tests skipped")))
 
-(deftest a-browser-starts-answers-and-is-cleaned-up
+(defn- listening-sockets
+  "TCP listeners owned by this Linux process, identified by socket inode."
+  [proc]
+  (let [pid (.pid (:proc proc))
+        sockets (into #{} (keep (fn [f] (try (str (fs/read-link f)) (catch Exception _ nil))))
+                      (fs/glob (str "/proc/" pid "/fd") "*"))]
+    (for [table ["tcp" "tcp6"]
+          line (rest (str/split-lines
+                      (:out (p/shell {:out :string} "cat" (str "/proc/" pid "/net/" table)))))
+          :let [cols (str/split (str/trim line) #"\s+")]
+          :when (and (= "0A" (nth cols 3)) (contains? sockets (str "socket:[" (nth cols 9) "]")))]
+      line)))
+
+(deftest a-browser-uses-private-pipes-and-is-cleaned-up
   (with-real-browser
-    (let [seen (atom nil)]
-      (browser/with-browser path
-        (fn [ws-url profile]
-          (reset! seen profile)
-          (is (str/starts-with? ws-url "ws://127.0.0.1:"))
-          (is (fs/directory? profile))))
+    (let [seen (atom nil)
+          started (atom nil)
+          process p/process]
+      (with-redefs [p/process (fn [& args] (let [proc (apply process args)] (reset! started proc) proc))]
+        (browser/with-browser path
+          (fn [connection profile]
+            (reset! seen profile)
+            (is (map? connection) "CDP stays in private process pipes")
+            (is (some #{"--remote-debugging-pipe"} (:cmd @started)))
+            (is (not-any? #(str/starts-with? % "--remote-debugging-port") (:cmd @started)))
+            (is (empty? (listening-sockets @started)) "Chrome exposes no TCP listener")
+            (is (not (fs/exists? (fs/path profile "DevToolsActivePort"))))
+            (is (fs/directory? profile)))))
       (is (not (fs/exists? @seen)) "profile folder deleted"))))
 
 (deftest a-failure-inside-still-cleans-up
@@ -81,6 +96,10 @@
         (let [page (browser/open-page ws-url)]
           (try
             (is (= {:data "ok"} (browser/evaluate page "Promise.resolve({data: 'ok'})" 5000)))
+            (let [value (browser/evaluate page "({text: '☕'.repeat(100000), nul: 'a\\0b'})" 5000)]
+              (is (= (apply str (repeat 100000 "☕")) (:text value))
+                  "large UTF-8 replies cross pipe read boundaries")
+              (is (= "a\u0000b" (:nul value)) "JSON escapes do not split pipe messages"))
             (is (thrown-with-msg? clojure.lang.ExceptionInfo #"^Graph error: x$"
                                   (browser/evaluate page "Promise.reject(new Error('Graph error: x'))" 5000)))
             (finally (browser/close-page page))))))))
@@ -117,7 +136,7 @@
       (finally (fs/delete fake)))))
 
 (deftest a-browser-that-never-answers-times-out-with-its-last-stderr-lines
-  ;; starts, says something, never prints the DevTools line
+  ;; starts, says something, never answers the debugging pipe
   (let [fake (str (fs/create-temp-file {:prefix "slow-browser"}))]
     (spit fake "#!/bin/sh\necho 'still warming up' >&2\nexec sleep 30\n")
     (fs/set-posix-file-permissions fake "rwx------")
@@ -164,16 +183,17 @@
                              :dir dir
                              :env {"SIMPLEVIZ_HOME" (str (or home (fs/path dir "home")))})]
     (try
-      (is (proc-util/await-line srv #"serving" 20000))
-      (browser/with-browser path
+      (let [[_ url] (proc-util/await-line srv #"serving .* at (http://localhost:\d+/[A-Za-z0-9_-]+)$" 20000)]
+        (is (some? url))
+        (browser/with-browser path
         (fn [ws-url _]
           (let [page (browser/open-page ws-url)]
             (try
               (when (some? size) (browser/set-viewport! page size))
-              (browser/navigate! page (str "http://127.0.0.1:" port "/"))
+              (browser/navigate! page url)
               (when later (future (later dir)))
               (browser/evaluate page js 10000)
-              (finally (browser/close-page page))))))
+              (finally (browser/close-page page)))))))
       (finally (p/destroy-tree srv) (fs/delete-tree dir)))))
 
 (defn- rewrite-later!
@@ -194,7 +214,7 @@
             path "g.edn" "{:nodes {:a {}}}"
             (str "(async () => {"
                  " const sleep = ms => new Promise(res => setTimeout(res, ms));"
-                 " const app = await import('/js/simpleviz/app.mjs');"
+                 " const app = await import('./js/simpleviz/app.mjs');"
                  " const ids = () => Object.keys(app.state.val.graph?.nodes ?? {}).sort();"
                  " for (let i = 0; i < 60; i++) { if (ids().length > 1) break; await sleep(100); }"
                  " await sleep(300); let n = 0; const f = window.fetch;"
@@ -226,12 +246,12 @@
             (str "(async () => {"
                  " const wait = ms => new Promise(ok => setTimeout(ok, ms));"
                  " while (!document.getElementById('md-view')) await wait(10);"
-                 " const {tick} = await import('/js/simpleviz/app.mjs');"
+                 " const {tick} = await import('./js/simpleviz/app.mjs');"
                  " performance.clearResourceTimings();"
                  " for (let i = 0; i < 3; i++) await tick();"
                  " await wait(50);"
                  " return {completed: performance.getEntriesByType('resource')"
-                 "   .filter(e => new URL(e.name).pathname === '/api/root').length >= 3,"
+                 "   .filter(e => new URL(e.name).pathname === new URL('api/root', location.href).pathname).length >= 3,"
                  "  connected: !document.querySelector('#banner')?.textContent.includes('Not connected')};"
                  "})()"))))))
 
@@ -304,7 +324,7 @@
                  "  input.value = 'queue'; input.dispatchEvent(new Event('input', {bubbles: true}));"
                  "  input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true})); step = 3; return; }"
                  " if (step === 3) { step = 4;"
-                 "  const src = async w => (await fetch('/api/source?file=g.edn&compare=next&which=' + w)).text();"
+                 "  const src = async w => (await fetch('api/source?file=g.edn&compare=next&which=' + w)).text();"
                  "  const fork = await src('new'); if (!fork.includes(':queue')) { step = 3; return; }"
                  "  r.fork = true; r.original = (await src('old')).includes(':queue');"
                  "  bar.querySelector('[aria-label=Close]').click(); step = 5; return; }"
@@ -535,7 +555,7 @@
                      " if (step === 6) { if (q('slide') !== '3') return; $$('.ask-choice')[0].click(); $$('.ask-choice')[1].click(); step = 7; return; }"
                      " if (step === 7) { if (!$('.ask-choice.chosen')) return;"
                      "  step = 9; clearInterval(t); await new Promise(go => setTimeout(go, 500));"
-                     "  r.stored = (await (await fetch('/api/answers?path=deck.md')).json()).answers;"
+                     "  r.stored = (await (await fetch('api/answers?path=deck.md')).json()).answers;"
                      "  key('Escape');"
                      "  const t2 = setInterval(() => {"
                      "   if (step === 9) { const b = $('.md-present'); if (!b) return; b.click(); step = 10; return; }"
@@ -654,7 +674,7 @@
                      " if (!s) return; clearInterval(t);"
                      " s.value = 'dark'; s.dispatchEvent(new Event('change', {bubbles: true}));"
                      " for (let i = 0; i < 50; i++) {"
-                     "  const p = await (await fetch('/api/prefs')).json();"
+                     "  const p = await (await fetch('api/prefs')).json();"
                      "  if (p.theme) return ok(p.theme);"
                      "  await new Promise(r => setTimeout(r, 100)); }"
                      " ok(null); }, 50); })")
@@ -695,10 +715,10 @@
                  " for (const k of [':', 'w', 'Enter']) key(ta, k);"
                  " r.saved = false;"
                  " for (let i = 0; i < 50 && !r.saved; i++) {"
-                 "  const d = await (await fetch('/api/text?path=notes.md')).json();"
+                 "  const d = await (await fetch('api/text?path=notes.md')).json();"
                  "  r.saved = d.text === 'bar baz\\n';"
                  "  if (!r.saved) await new Promise(res => setTimeout(res, 100)); }"
-                 " r.pref = (await (await fetch('/api/prefs')).json()).vi;"
+                 " r.pref = (await (await fetch('api/prefs')).json()).vi;"
                  " ok(r); }, 50); })"))))))
 
 (deftest format-tidies-the-text-and-undoes
@@ -745,7 +765,7 @@
             path "g.edn" "{:nodes {:a {} :b {}} :edges {[:a :b] {:direction :->}}}"
             (str "(async () => {"
                  " const sleep = ms => new Promise(res => setTimeout(res, ms));"
-                 " const app = await import('/js/simpleviz/app.mjs');"
+                 " const app = await import('./js/simpleviz/app.mjs');"
                  " for (let i = 0; i < 100 && !app.state.val.scene; i++) await sleep(100);"
                  " const seen = [];"
                  " new MutationObserver(() => { const has = !!document.getElementById('layouting');"
@@ -792,10 +812,10 @@
              (str "(async () => {"
                   " const sleep = ms => new Promise(res => setTimeout(res, ms));"
                   " const until = async f => { for (let i = 0; i < 100; i++) { const v = await f(); if (v) return v; await sleep(100); } return null; };"
-                  " const app = await import('/js/simpleviz/app.mjs'), cv = await import('/js/simpleviz/canvas.mjs');"
+                  " const app = await import('./js/simpleviz/app.mjs'), cv = await import('./js/simpleviz/canvas.mjs');"
                   " const st = () => app.state.val;"
                   " const pos = (src, id) => { const m = src.match(new RegExp(':' + id + ' \\\\{:pos \\\\[(\\\\d+) (\\\\d+)\\\\]')); return m && [+m[1], +m[2]]; };"
-                  " const source = async () => (await fetch('/api/source')).text();"
+                  " const source = async () => (await fetch('api/source')).text();"
                   " await until(() => st().scene && document.getElementById('arrange-btn'));"
                   " document.getElementById('arrange-btn').click();"
                   " const s1 = await until(async () => { const s = await source(); return pos(s, 'a') && pos(s, 'b') && s; });"
@@ -825,11 +845,11 @@
                   " let clip = '';"
                   " delete window.ClipboardItem;"
                   " Object.defineProperty(navigator, 'clipboard', {value: {writeText: async t => { clip = t; }, readText: async () => clip}});"
-                  " const app = await import('/js/simpleviz/app.mjs'), cv = await import('/js/simpleviz/canvas.mjs');"
+                  " const app = await import('./js/simpleviz/app.mjs'), cv = await import('./js/simpleviz/canvas.mjs');"
                   " const st = () => app.state.val;"
                   " const key = k => document.dispatchEvent(new KeyboardEvent('keydown', {key: k, bubbles: true}));"
                   " const keys = ks => ks.split(' ').forEach(key);"
-                  " const source = async () => (await fetch('/api/source')).text();"
+                  " const source = async () => (await fetch('api/source')).text();"
                   " const ids = () => [...st().multi.ids].sort().join(' ');"
                   " await until(() => st().scene);"
                   " keys('s s');"

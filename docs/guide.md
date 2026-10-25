@@ -203,10 +203,17 @@ one it connects to. ▦ (top right) runs a fresh layout; it's disabled while the
 layout is already fresh. Ctrl+Z or ↶ undoes the last edit, from an undo stack
 per file that all viewers share (100 entries).
 
-**Security.** The server binds to loopback only and accepts writes only from
-its own `localhost`/`127.0.0.1` origin. It answers only requests addressed
-to `localhost`, `127.0.0.1` or `[::1]`, so a web page that points its own
-name at 127.0.0.1 (DNS rebinding) can't read the served files.
+**Security.** Open the full URL printed at startup. Its private random
+session path is required for every page, asset and API request and changes
+on every restart. Anyone who has the URL can access the served files, so
+share it only with people or tools that should have access. Authentication
+uses no cookies shared between ports, and the page sends no referrer to
+other sites. Debug and crash logs omit the session path.
+
+The server binds to loopback only and accepts writes only from its own
+`localhost`/`127.0.0.1` origin. It answers only requests addressed to
+`localhost`, `127.0.0.1` or `[::1]`, so a web page that points its own name
+at 127.0.0.1 (DNS rebinding) can't read the served files.
 
 ## Manual layout
 
@@ -736,12 +743,13 @@ writes the PDF of its slides.
 ## Checking a file
 
 The page shows a file's problems in banners. To get the same report
-without a browser, for example from a script or an agent:
+without a browser, for example from a script or an agent, set `$URL` to
+the full printed URL, including its session path, without a trailing slash:
 
     simpleviz check graph.edn                           # works without a server
     simpleviz check notes.md                            # an md file's broken links, questions and charts
-    curl -s http://localhost:7373/api/errors            # the served file
-    curl -s 'http://localhost:7373/api/errors?file=sub/api.edn'
+    curl -s "$URL/api/errors"                         # the served file
+    curl -s "$URL/api/errors?file=sub/api.edn"
 
 `check` prints `error: ..` or one `warning: ..` line per warning and exits
 1, or prints `ok`. The route answers `{"error":null,"warnings":[]}` for a
@@ -758,9 +766,9 @@ Agents and scripts that write a served file directly can coordinate through
 an advisory lock per file:
 
     curl -X POST -H 'Content-Type: application/json' \
-      -d '{"owner":"agent-a","path":"sub/api.edn"}' http://localhost:7373/api/lock
+      -d '{"owner":"agent-a","path":"sub/api.edn"}' "$URL/api/lock"
     curl -X POST -H 'Content-Type: application/json' \
-      -d '{"owner":"agent-a","path":"sub/api.edn"}' http://localhost:7373/api/unlock
+      -d '{"owner":"agent-a","path":"sub/api.edn"}' "$URL/api/unlock"
 
 `path` is the file's name relative to the served folder (a fork is
 `graph-next.edn`) and defaults to the root file. `/api/lock` answers

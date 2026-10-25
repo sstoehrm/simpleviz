@@ -69,7 +69,23 @@ against the compiled output).
 Large example graphs can be generated with
 `bb dev/gen-example.clj 10000 big.edn`.
 
-The API serves one root file, alone or paired with its fork. The routes
+The server prints a private URL, `http://localhost:<port>/<session>`.
+Its 256-bit random session path is required for every page, asset and API
+request; requests without it receive 403. Opening that URL redirects to
+the same path with a trailing slash, so the page's scripts, styles, workers
+and API requests resolve relative to the session. No cookies are used.
+`auth/wrap-session` removes the path before routing and logging and adds
+`Referrer-Policy: no-referrer`; debug and crash logs omit the credential.
+Desktop opening uses a private redirect file, and production exports
+control Chrome over process pipes. The recording tools in `dev/` instead
+open debugging TCP ports for development; those ports expose the pages
+they control to other local users while running.
+For scripts, set `$URL` to the full printed URL without a trailing slash
+and call `"$URL/api/root"`, for example. Recording scripts capture the URL
+from their server process rather than constructing it from a port.
+
+The API serves one root file, alone or paired with its fork. Below that
+session path, the routes
 `/api/graph`, `/api/errors`, `/api/version` and `/api/source` take `?file=<path>`
 and `/api/edit` a `"path"` in its body, a path relative to the root file's
 folder; `serve/resolve-path` refuses anything above that folder, non

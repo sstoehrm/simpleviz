@@ -5,6 +5,7 @@
             [babashka.process :as p]
             [cheshire.core :as json]
             [cli]
+            [clojure.java.browse :as browse]
             [clojure.string :as str]
             [clojure.test :refer [deftest is]]
             [proc-util]
@@ -315,11 +316,11 @@
         (is (str/includes? (:err res) "the output must end in .png, .svg or .pdf"))))))
 
 (deftest export-failures-of-any-kind-are-one-line-messages
-  ;; a "browser" that announces DevTools on a port nobody listens on
+  ;; A browser that fails before answering the private debugging pipe.
   (with-tmp
     (fn [tmp]
       (let [fake (str (fs/path tmp "fake-browser"))]
-        (spit fake "#!/bin/sh\necho 'DevTools listening on ws://127.0.0.1:9/devtools/browser/x' >&2\nsleep 30\n")
+        (spit fake "#!/bin/sh\necho 'browser could not initialize' >&2\nexit 1\n")
         (fs/set-posix-file-permissions fake "rwx------")
         (spit (str (fs/path tmp "g.edn")) "{:nodes {:a {}}}")
         (let [res (run-cli ["export" "g.edn" "g.png"] :dir tmp :env {"SIMPLEVIZ_BROWSER" fake})]
@@ -364,7 +365,36 @@
   (proc-util/start (into ["bb" "--config" (str proc-util/repo-root "/bb.edn") "-m" "cli"] args)
                    :dir dir))
 
-(def url-line #"^simpleviz: (http://localhost:(\d+))$")
+(deftest opening-the-browser-does-not-put-the-capability-in-process-arguments
+  (with-tmp
+    (fn [tmp]
+      (let [url "http://localhost:7373/private-test-capability"
+            opened (atom nil)
+            text (atom nil)
+            permissions (atom nil)]
+        (with-redefs-fn
+          {(ns-resolve 'cli 'start!) (fn [_] [7373 {:served "g.edn" :url url}])
+           #'fs/home (constantly tmp)
+           #'clojure.core/promise (fn [] (delay :stopped))
+           #'browse/browse-url
+           (fn [uri]
+             (reset! opened uri)
+             (when (str/starts-with? uri "file:")
+               (let [file (java.io.File. (java.net.URI. uri))]
+                 (reset! text (slurp file))
+                 (reset! permissions
+                         [(java.nio.file.attribute.PosixFilePermissions/toString (fs/posix-file-permissions file))
+                          (java.nio.file.attribute.PosixFilePermissions/toString (fs/posix-file-permissions (.getParentFile file)))]))))}
+          (fn []
+            (binding [*out* (java.io.StringWriter.)]
+              ((ns-resolve 'cli 'serve!) {:file "g.edn"} false))))
+        (is (str/starts-with? @opened "file:"))
+        (is (not (str/includes? @opened "private-test-capability")))
+        (is (str/includes? (str @text) url))
+        (is (= ["rw-------" "rwx------"] @permissions))
+        (is (empty? (fs/list-dir tmp)) "the private launch file is cleaned up")))))
+
+(def url-line #"^simpleviz: (http://localhost:(\d+)/[A-Za-z0-9_-]+)$")
 
 (deftest two-file-form-is-rejected
   (let [res (run-cli [(str proc-util/repo-root "/examples/demo.edn")

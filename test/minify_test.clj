@@ -7,9 +7,9 @@
 (deftest index-html-loads-the-bundle-without-an-import-map
   (let [out (minify/index-html (slurp "public/index.html"))]
     (is (not (str/includes? out "importmap")))
-    (is (= ["<script type=\"module\" src=\"/js/app.min.mjs\"></script>"]
+    (is (= ["<script type=\"module\" src=\"js/app.min.mjs\"></script>"]
            (re-seq #"<script type=\"module\"[^>]*></script>" out)))
-    (is (str/includes? out "<script src=\"/vendor/elk-api.js\"></script>"))))
+    (is (str/includes? out "<script src=\"vendor/elk-api.js\"></script>"))))
 
 (deftest index-html-refuses-a-page-it-does-not-recognise
   ;; a changed index.html must fail the release, not ship a page that loads nothing
@@ -17,9 +17,10 @@
 
 (deftest index-html-refuses-a-page-with-other-js-references
   ;; a second module or a preload would point at a file the release deletes
-  (is (thrown? Exception
-               (minify/index-html (str (slurp "public/index.html")
-                                       "<link rel=\"modulepreload\" href=\"/js/simpleviz/canvas.mjs\">")))))
+  (doseq [prefix ["/" "./" ""]]
+    (is (thrown? Exception
+                 (minify/index-html (str (slurp "public/index.html")
+                                         "<link rel=\"modulepreload\" href=\"" prefix "js/simpleviz/canvas.mjs\">"))))))
 
 (deftest minify-public-leaves-one-bundle-and-the-licenses
   ;; needs bb build's output: bb test runs build first
@@ -35,7 +36,7 @@
                                (fs/glob dir "js/**" {:hidden true}))))))
       (is (= [] (filter #(fs/directory? % {:nofollow-links true})
                         (fs/glob dir "js/simpleviz" {:hidden true}))))
-      (is (str/includes? (slurp (str (fs/path dir "index.html"))) "/js/app.min.mjs"))
+      (is (str/includes? (slurp (str (fs/path dir "index.html"))) "src=\"js/app.min.mjs\""))
       ;; one squint runtime: reagami's own nested copy would be a second,
       ;; older one that dev (import map) and the tests never run
       (is (= 1 (count (re-seq #"squint\.core/IMap" (slurp (str (fs/path dir "js" "app.min.mjs")))))))

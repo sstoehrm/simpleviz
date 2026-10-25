@@ -3,6 +3,7 @@
   (shape checks, semantics) server-side via graph/normalize; the browser
   just renders the resulting JSON."
   (:require [babashka.cli :as cli]
+            [auth]
             [calc]
             [cheshire.core :as json]
             [clojure.edn :as edn]
@@ -24,6 +25,8 @@
            [java.io StringReader]))
 
 (def default-port 7373)
+
+(def session-token (atom (auth/new-token)))
 
 (def files (atom nil)) ; {:root <path> :suffix <s-or-nil>}
 
@@ -160,6 +163,16 @@
     (swap! undo-stacks update path pop)
     top))
 
+(def ^:private file-monitors (atom {}))
+
+(defn- file-monitor
+  "One monitor per canonical file, shared by edits and advisory locks."
+  [path]
+  (or (get @file-monitors path)
+      (get (swap! file-monitors
+                  (fn [m] (if (contains? m path) m (assoc m path (Object.)))))
+           path)))
+
 (defn- lock-holder
   "The owner of the live lock on `path` at `now`, or nil."
   [path now]
@@ -170,18 +183,20 @@
   "Take or renew the advisory write lock on `path` for `owner` at `now`
   (ms): granted when the file is free, the lock expired, or `owner`
   already holds it. One swap! decides, so two racing requests cannot
-  both win."
+  both win; an in-flight browser edit finishes before a lock is granted."
   [path owner now]
-  (let [after (swap! locks
-                     (fn [m]
-                       (let [{held :owner :keys [expires]} (get m path)]
-                         (if (and (some? held) (< now expires) (not= held owner))
-                           m
-                           (assoc m path {:owner owner :expires (+ now lock-ttl-ms)})))))
-        holder (:owner (get after path))]
-    (if (= holder owner)
-      {:ok true :ttl (quot lock-ttl-ms 1000)}
-      {:error (str "locked by " holder) :owner holder})))
+  (let [monitor (file-monitor path)]
+    (locking monitor
+      (let [after (swap! locks
+                         (fn [m]
+                           (let [{held :owner :keys [expires]} (get m path)]
+                             (if (and (some? held) (< now expires) (not= held owner))
+                               m
+                               (assoc m path {:owner owner :expires (+ now lock-ttl-ms)})))))
+            holder (:owner (get after path))]
+        (if (= holder owner)
+          {:ok true :ttl (quot lock-ttl-ms 1000)}
+          {:error (str "locked by " holder) :owner holder})))))
 
 (defn release-lock!
   "Drop `owner`'s lock on `path`; releasing a free file is fine, someone
@@ -339,36 +354,41 @@
     (refuse-embedded-compare!)
     rel))
 
+(declare write-atomically!)
+
 (defn- edit-response [{:keys [file ops path compare step]}]
   (try
     (when (some? path) (refuse-embedded-compare!))
     (let [{:keys [old new] :as pair} (sides path compare)
           target (if (= file "old") old new)
           path (some-> target .getPath)
-          ;; a side that is not there yet comes into being with its
-          ;; first successful edit
-          source (when (some? target) (side-file pair file))
-          ;; the browser owns no lock, so any live one blocks it
-          holder (some-> path (lock-holder (System/currentTimeMillis)))]
-      (cond
-        (nil? path) {:error "no old file in single-file mode"}
-        (read-only-side? pair file) {:error "PNG and SVG sources are read-only"}
-        (some? holder) {:error (str "locked by " holder)}
-        (= "undo" (:op (first ops)))
-        ;; a file deleted since (promote, by hand) stays deleted
-        (if-let [prev (when (.isFile target) (pop-undo! path))]
-          (do (spit path prev) {:ok true})
-          {:error "nothing to undo"})
-        :else
-        ;; snapshot the ORIGINAL text before applying — `before` feeds
-        ;; both the patch and the undo stack
-        (let [before (if (some? source) (slurp source) empty-graph)
-              {:keys [text error]} (steps/apply-ops before ops step)]
-          (if (some? error)
-            {:error error}
-            (do (push-undo! path before)
-                (spit path text)
-                {:ok true})))))
+          monitor (when (some? path) (file-monitor path))]
+      (if (nil? path)
+        {:error "no old file in single-file mode"}
+        (locking monitor
+          ;; Select the source after taking the monitor: the preceding
+          ;; request may have created a fork that was missing before it.
+          (let [source (side-file pair file)
+                holder (lock-holder path (System/currentTimeMillis))]
+            (cond
+              (read-only-side? pair file) {:error "PNG and SVG sources are read-only"}
+              (some? holder) {:error (str "locked by " holder)}
+              (= "undo" (:op (first ops)))
+              ;; A deleted file stays deleted. Consume its snapshot only
+              ;; once replacement succeeds, so a failed write can retry.
+              (if-let [prev (when (.isFile target) (peek (get @undo-stacks path)))]
+                (do (write-atomically! target (.getBytes ^String prev "UTF-8"))
+                    (pop-undo! path)
+                    {:ok true})
+                {:error "nothing to undo"})
+              :else
+              (let [before (if (some? source) (slurp source) empty-graph)
+                    {:keys [text error]} (steps/apply-ops before ops step)]
+                (if (some? error)
+                  {:error error}
+                  (do (write-atomically! target (.getBytes ^String text "UTF-8"))
+                      (push-undo! path before)
+                      {:ok true}))))))))
     (catch Exception e {:error (or (ex-message e) (str e))})))
 
 (defn- copy-response
@@ -1426,7 +1446,7 @@
       (h req)
       (text-response 403 "forbidden: simpleviz answers to localhost and 127.0.0.1 only"))))
 
-(def handler (guard (host-guard route)))
+(def handler (host-guard (auth/wrap-session (guard route) session-token)))
 
 (defn version
   "The release this is: the VERSION resource (the install root or the
@@ -1459,7 +1479,7 @@
   any log file is written (the CLI retries another port).
   `prefs` true serves your stored choices (/api/prefs); off, as for an
   export, the page starts from the defaults.
-  Returns {:served <description> :log-path <path or nil>}."
+  Returns {:served <description> :url <private session URL> :log-path <path or nil>}."
   [{:keys [file suffix port debug prefs]}]
   (reset! files {:root file :suffix suffix})
   (reset! prefs-on (boolean prefs))
@@ -1468,6 +1488,7 @@
   ;; embedded EDN fails at startup with a clear message instead of an
   ;; empty diagram in the browser
   (startup-check! file)
+  (reset! session-token (auth/new-token))
   (let [served (cond
                  suffix (str file " → " (fork-name file suffix) " (compare)")
                  (embedded-compare?) (str file " (embedded compare)")
@@ -1483,7 +1504,7 @@
         _ (start-watcher!)
         log-path (log/init! {:dir (log/default-dir) :debug debug :header header})]
     (log/install-crash-handler!)
-    {:served served :log-path log-path}))
+    {:served served :url (str "http://localhost:" port "/" @session-token) :log-path log-path}))
 
 (defn -main [& args]
   (let [{:keys [file suffix port debug error]} (parse-args args)]
@@ -1494,8 +1515,8 @@
       (println (str "file not found: " file))
       (System/exit 1))
     (try
-      (let [{:keys [served log-path]} (start! {:file file :suffix suffix :port port :debug debug :prefs true})]
-        (println (str "simpleviz: serving " served " at http://localhost:" port))
+      (let [{:keys [served url log-path]} (start! {:file file :suffix suffix :port port :debug debug :prefs true})]
+        (println (str "simpleviz: serving " served " at " url))
         (when log-path (println (str "simpleviz: debug log at " log-path)))
         @(promise))
       (catch java.net.BindException _

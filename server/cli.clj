@@ -6,6 +6,7 @@
   the working directory; the frontend, the examples and VERSION are
   classpath resources."
   (:require [babashka.fs :as fs]
+            [auth]
             [browser]
             [check]
             [clojure.java.browse :as browse]
@@ -228,15 +229,17 @@
   "Start on a free port, print the URL, open a browser unless `no-open`,
   and block."
   [opts no-open]
-  (let [[port {:keys [served log-path]}] (start! (assoc opts :prefs true))
-        url (str "http://localhost:" port)]
+  (let [[_ {:keys [served url log-path]}] (start! (assoc opts :prefs true))]
     (println (str "simpleviz: serving " served " at " url))
     (when log-path (println (str "simpleviz: debug log at " log-path)))
     (println (str "simpleviz: " url))
-    (when-not no-open
-      ;; like the old launcher's `xdg-open … || true`: no opener, no problem
-      (try (browse/browse-url url) (catch Exception _ nil)))
-    @(promise)))
+    (if no-open
+      @(promise)
+      (auth/with-launch-file url
+        (fn [launch-uri]
+          ;; No opener is harmless; the printed URL remains available.
+          (try (browse/browse-url launch-uri) (catch Exception _ nil))
+          @(promise))))))
 
 (defn- check-input!
   "The checks `simpleviz <file> [<suffix>]` runs before serving; dies
@@ -301,12 +304,12 @@
     (check-input! in suffix)
     (when (and (.exists (io/file out)) (not force))
       (die out " already exists (--force overwrites)"))
-    (let [[port] (start! {:file in :suffix suffix :debug false})
+    (let [[_ {:keys [url]}] (start! {:file in :suffix suffix :debug false})
           {:keys [path] :as found} (browser/find-browser)
           _ (when-not path (die (:error found)))
           data (try (browser/with-browser path
                       (fn [ws-url _]
-                        (browser/export-page! ws-url (str "http://localhost:" port)
+                        (browser/export-page! ws-url url
                                               {:format format :theme theme
                                                :timeout-ms export-timeout-ms})))
                     (catch clojure.lang.ExceptionInfo e (die (ex-message e)))

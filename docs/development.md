@@ -79,6 +79,17 @@ the trail of followed refs in its query string (`?file=..&trail=..`, see
 with its fork per request, so every route works in compare mode; a
 compare export (PNG or SVG) refuses the parameter. `/api/root` names the root file, so the page can tell an md root from a graph before it loads anything, and the canonical served folder (`dir`), so an agent can tell which files a server serves; md pages read and save through `/api/text`, and `/api/errors` reports an md file's broken links, malformed questions and broken charts (`serve/md-warnings`: links scanned by `server/mdlinks.cljc`, slides parsed by `server/deck.cljc`, both of which the page shares, and chart blocks by `calc/chart-warnings`).
 
+Live reload is pushed: the page opens a websocket on `/api/watch` and sends
+what it shows, `{"graph": <its query string>, "md": <its doc's path>}`. A
+server thread (`serve/start-watcher!`) stats those files every 200 ms
+(babashka has no `WatchService`) and sends `{"kind": "graph"|"md"}` when one
+changes, and the current state when a watch set arrives, so a page that
+reconnects catches up. The page then fetches as before (`/api/version`,
+`/api/text`). The socket closing is the "not connected" banner, and the page
+reconnects each second. Any page may open a websocket to localhost, so the
+upgrade checks the Origin like a write does. That check wants the server's
+own port, so live reload doesn't work through a tunnel on another port. This is deliberate.
+
 ## CI and releases
 
 CI (`bb test`, then `bb jar:smoke`) runs on every push to main and every

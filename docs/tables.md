@@ -24,7 +24,7 @@ cells, and the page hides it:
 - Each pair in the block is a range and a fn. A string or number it
   returns is what the cell shows; a map colours the cell.
 - Formulas run in a sandbox, in a process of their own, with a second
-  each.
+  each and 4 MiB of results for the page.
 - In Edit, Format aligns the columns, so the plain text reads as a
   table too.
 

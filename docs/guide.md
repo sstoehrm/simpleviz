@@ -503,7 +503,8 @@ cells:
   no files, no network, no Java interop — in a bb process of their own
   that the server starts for each page and that is gone after it, so
   nothing a formula does outlives it. A formula has a second; the
-  process is killed when its formulas run past their time.
+  process is killed when its formulas run past their time or their
+  results pass 4 MiB, and has 2 GiB of memory.
 
 ### Charts
 

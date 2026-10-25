@@ -260,3 +260,23 @@
   (let [{:keys [exit err]} (run-gate {} (fixture "osv.json") "--epss-min" "0.5")]
     (is (= 2 exit))
     (is (str/includes? err "options go before the OSV-Scanner reports: --epss-min"))))
+
+;; the workflow's report names
+
+(defn- report-names
+  "The workflow's report() of each [kind path] — path relative to the
+  artifact's folder, as the scan step calls it with the file's path
+  less its extension."
+  [& kind-paths]
+  (let [def-line (some #(when (re-find #"^\s*report\(\)" %) (str/trim %))
+                       (str/split-lines (slurp ".github/workflows/vuln-gate.yml")))
+        calls (map (fn [[kind path]] (str "report " kind " '/r/" kind "/" path "' /r/" kind)) kind-paths)]
+    (str/split-lines (:out (p/shell {:out :string} "bash" "-c" (str/join "\n" (cons def-line calls)))))))
+
+(deftest report-names-keep-every-path-apart
+  (doseq [kind ["sbom" "image"]]
+    (let [paths ["a/b" "a_b" "a%2Fb" "a/_b" "a_/b" "a__b" "b"]
+          names (apply report-names (map #(vector kind %) paths))]
+      (is (= (count paths) (count (set names))) (str kind ": " (pr-str names)))
+      (is (every? #(str/starts-with? % (str "vuln-gate-report/" kind "-")) names))
+      (is (not-any? #(str/includes? (subs % (count "vuln-gate-report/")) "/") names)))))

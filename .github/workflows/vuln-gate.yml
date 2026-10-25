@@ -95,6 +95,10 @@ jobs:
           mkdir -p vuln-gate-report
           scan() { # scan source|image <report> <args>
             local code=0
+            if [ -e "$2" ]; then
+              echo "::error::two scans would write $2"
+              exit 1
+            fi
             osv-scanner scan "$1" --verbosity error --format json --output-file "$2" "${@:3}" || code=$?
             if [ "$code" -gt 1 ]; then
               echo "::error::osv-scanner scan $* exited $code"
@@ -105,9 +109,9 @@ jobs:
               exit 1
             fi
           }
-          # the report's name: the file's path in the artifact, so a.cdx.json
-          # in two folders makes two reports
-          report() { local rel="${2#"$3"/}"; echo "vuln-gate-report/$1-${rel//\//_}"; }
+          # the report's name: the file's path in the artifact, % and / escaped
+          # as %25 and %2F, so no two paths share a report
+          report() { local rel="${2#"$3"/}"; rel="${rel//%/%25}"; echo "vuln-gate-report/$1-${rel//\//%2F}"; }
           sboms=("$RUNNER_TEMP"/sbom/**/*.cdx.json)
           if [ ${#sboms[@]} -eq 0 ]; then
             echo "::error::no *.cdx.json SBOM in the artifact"

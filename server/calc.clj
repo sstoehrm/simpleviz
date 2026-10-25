@@ -30,6 +30,20 @@
   "How long the child may run; nil for evaluate-tables' estimate."
   nil)
 
+(def ^:dynamic *child-heap-mb*
+  "The child's heap, in MiB: past it an allocation fails. A 50 MiB data
+  file, the most the server reads, needs about 1.5 GiB."
+  2048)
+
+(def ^:private max-reply-bytes
+  "The most the child may answer: past it the child is killed. A chart
+  alone's data is the parent's own read, never sent back."
+  (* 4 1024 1024))
+
+(def ^:private max-err-bytes
+  "The most of the child's stderr kept for the failure message."
+  (* 64 1024))
+
 (defn col-index
   "Column keyword :a → 0, :z → 25, :aa → 26; nil for anything else."
   [k]
@@ -459,7 +473,7 @@
   (let [stdout *out*
         tables (:tables (json/parse-string (slurp *in*) true))
         out (binding [*out* (java.io.StringWriter.)]
-              (try (json/generate-string {:tables (mapv evaluate tables)})
+              (try (json/generate-string {:tables (mapv #(dissoc (evaluate %) :data :fields) tables)})
                    (catch Throwable e (json/generate-string {:error (message e)}))))]
     (.write ^java.io.Writer stdout (str out "\n"))
     (.flush ^java.io.Writer stdout)
@@ -516,20 +530,42 @@
       (string? (:title c)) (assoc :title (:title c))
       true (merge (flags-of c)))))
 
-(defn- checked [tables]
-  (mapv (fn [t] (cond-> {:results (mapv (fn [row] (mapv checked-cell row)) (:results t))}
-                  (string? (:error t)) (assoc :error (:error t))
-                  (some? (checked-chart (:chart t))) (assoc :chart (checked-chart (:chart t)))
-                  (string? (:chart-error t)) (assoc :chart-error (:chart-error t))
-                  (and (sequential? (:data t)) (every? #(and (sequential? %) (every? plain? %)) (:data t)))
-                  (assoc :data (:data t))
-                  (and (sequential? (:fields t)) (every? string? (:fields t))) (assoc :fields (:fields t))))
-        tables))
+(defn- checked
+  "The child's results `out` for `tables` as the page may get them; a
+  chart alone takes its data and field names from its table."
+  [tables out]
+  (mapv (fn [t o] (let [chart (checked-chart (:chart o))]
+                    (cond-> {:results (mapv (fn [row] (mapv checked-cell row)) (:results o))}
+                      (string? (:error o)) (assoc :error (:error o))
+                      (some? chart) (assoc :chart chart)
+                      (string? (:chart-error o)) (assoc :chart-error (:chart-error o))
+                      (and (:solo t) (some? chart) (sequential? (:data t))
+                           (every? #(and (sequential? %) (every? plain? %)) (:data t)))
+                      (assoc :data (:data t) :fields (mapv field-name (:fields t))))))
+        tables out))
+
+(defn- read-capped
+  "Reads stream `in` to its end in a future: {:text its first `limit`
+  bytes, :over? whether there were more}; (over) runs once when there
+  are."
+  [^java.io.InputStream in limit over]
+  (future
+    (let [buf (java.io.ByteArrayOutputStream.)
+          chunk (byte-array 8192)]
+      (loop [over? false]
+        (let [n (.read in chunk)]
+          (if (neg? n)
+            {:text (.toString buf "UTF-8") :over? over?}
+            (let [room (- limit (.size buf))]
+              (.write buf chunk 0 (int (max 0 (min n room))))
+              (when (and (not over?) (> n room)) (over))
+              (recur (or over? (> n room))))))))))
 
 (defn evaluate-tables
   "calc/evaluate of each table, run in a child bb that is gone after —
   killed past *child-ms*, by default a second for each formula, each
-  def block and each cell one may format, plus two. A table without
+  def block and each cell one may format, plus two, or once its reply
+  passes max-reply-bytes; its heap is *child-heap-mb*. A table without
   formulas or def block needs no child."
   [tables]
   (let [defs? (fn [t] (not (str/blank? (:defs t))))
@@ -540,15 +576,21 @@
       (mapv evaluate tables)
       (let [ms (or *child-ms* (min 60000 (+ 2000 (* units *timeout-ms*))))
             proc (p/process {:in (json/generate-string {:tables tables})
-                             :out :string :err :string
                              :dir (System/getProperty "java.io.tmpdir")}
-                            (bb-path) "-cp" (classpath) "-e" "(require 'calc) (calc/child)")
+                            (bb-path) (str "-Xmx" *child-heap-mb* "m")
+                            "-cp" (classpath) "-e" "(require 'calc) (calc/child)")
+            reply (read-capped (:out proc) max-reply-bytes #(p/destroy-tree proc))
+            err (read-capped (:err proc) max-err-bytes (constantly nil))
             done (deref proc ms ::late)]
-        (if (= ::late done)
+        (cond
+          (= ::late done)
           (do (p/destroy-tree proc)
               (failed tables (str "took too long (over " ms " ms)")))
-          (let [out (try (json/parse-string (:out done) true) (catch Exception _ nil))]
+          (:over? @reply)
+          (failed tables (str "the results are over " (quot max-reply-bytes (* 1024 1024)) " MiB"))
+          :else
+          (let [out (try (json/parse-string (:text @reply) true) (catch Exception _ nil))]
             (cond
-              (sequential? (:tables out)) (checked (:tables out))
+              (sequential? (:tables out)) (checked tables (:tables out))
               (some? (:error out)) (failed tables (:error out))
-              :else (failed tables (str "the calculation failed" (some->> (:err done) str/trim not-empty (str ": ")))))))))))
+              :else (failed tables (str "the calculation failed" (some->> (:text @err) str/trim not-empty (str ": ")))))))))))

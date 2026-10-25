@@ -177,6 +177,43 @@
       (is (re-find #"too long" (get-in out [0 :results 0 1 :error])))
       (is (nil? (get-in out [0 :results 0 2]))))))
 
+(deftest a-reply-past-its-budget-is-cut-off
+  (let [t0 (System/currentTimeMillis)
+        out (calc/evaluate-tables [{:cells [["1" "=(apply str (repeat 8388608 \"x\"))" "=(sum :a)"]]}])]
+    (is (< (- (System/currentTimeMillis) t0) 2500) "killed on overflow, not at the deadline")
+    (is (re-find #"over \d+ MiB" (str (get-in out [0 :results 0 1 :error]))))
+    (is (some? (get-in out [0 :results 0 2 :error])) "the whole reply is lost, every formula fails")))
+
+(deftest a-child-past-its-heap-fails
+  (binding [calc/*child-heap-mb* 64]
+    (let [out (calc/evaluate-tables [{:cells [["=(alength (byte-array 300000000))"]]}])]
+      (is (some? (get-in out [0 :results 0 0 :error])))
+      (is (nil? (get-in out [0 :results 0 0 :value]))))))
+
+(deftest a-chart-alone-gets-its-data-past-the-reply-budget
+  ;; the parent read the data: the child need not send it back. The
+  ;; formula table makes it go through the child, as a page's would.
+  (let [rows 20000
+        label (apply str (repeat 300 "y"))
+        read (fn [_] ["csv" (apply str "units,label\n" (repeat rows (str "1200000," label "\n")))])
+        [out sums] (calc/evaluate-tables
+                    (calc/with-data [{:cells [] :defs ">> [s](s.csv)\n>> [\"label\" \"units\"]"
+                                      :chart "{:kind :bar :x :a :y [:b]}" :solo true}
+                                     {:cells [["1" "=(sum :a)"]]}]
+                                    read))]
+    (is (= {:value "1"} (get-in sums [:results 0 1])))
+    (is (= {:kind "bar" :x 0 :y [1]} (:chart out)))
+    (is (= rows (count (:data out))))
+    (is (= [label 1200000] (first (:data out))))
+    (is (= ["label" "units"] (:fields out)))))
+
+(deftest a-chart-alone-sends-only-plain-data
+  ;; a request may carry its own :data: only rows of plain values go back
+  (let [[out] (calc/evaluate-tables [{:cells [] :defs "[:a] str" :solo true :fields ["a" "b"]
+                                      :data [[{:x 1} 2]] :chart "{:kind :bar :x :a :y [:b]}"}])]
+    (is (= {:kind "bar" :x 0 :y [1]} (:chart out)))
+    (is (nil? (:data out)))))
+
 (deftest a-formula-that-prints-breaks-nothing
   (is (= [{:results [[nil {:value "5"} {:value "1"}]]}]
          (calc/evaluate-tables [{:cells [["1" "=(do (println \"hi\") 5)" "=(sum :a)"]]}]))))

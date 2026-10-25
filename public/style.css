@@ -331,6 +331,17 @@ body:has(#print) :is(#canvas-wrap, #app) { position: static; }
 #root.split.inspecting #selection-toolbar, #root.split.inspecting #pick-hint {
   left: calc(var(--md-w) + (100vw - var(--md-w) - var(--inspector-w)) / 2);
   max-width: calc(100vw - var(--md-w) - var(--inspector-w) - 24px); }
+/* the graph's room beside the md page is small: the steps bar takes at
+   most half of it and the toolbar centres in the rest, so neither — nor
+   the name prompt widening the toolbar — lies over the other. The width
+   is max-content, else a box at that left shrinks to the room right of it */
+#root.split { --graph-w: calc(100vw - var(--md-w));
+              --steps-w: min(260px, var(--graph-w) / 2 - 18px); }
+#root.split.inspecting { --graph-w: calc(100vw - var(--md-w) - var(--inspector-w)); }
+#root.split:has(#steps-bar .sb-edits) { --steps-w: min(480px, 46vw, var(--graph-w) / 2 - 18px); }
+#root.split:has(#steps-bar) #selection-toolbar {
+  left: calc(var(--md-w) + 24px + var(--steps-w) + (var(--graph-w) - 36px - var(--steps-w)) / 2);
+  max-width: calc(var(--graph-w) - 36px - var(--steps-w)); width: max-content; }
 #md-panel .md-head { display: flex; align-items: center; gap: 6px; padding: 8px 10px 8px 14px;
                      border-bottom: 1px solid var(--panel-divider); font-size: 13px; }
 #md-panel .md-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -666,7 +677,7 @@ body:has(#print) :is(#canvas-wrap, #app) { position: static; }
              font: 12px system-ui, sans-serif; color: var(--text); }
 #steps-bar:has(.sb-edits) { width: min(480px, 46vw); }
 #collapsed-panel ~ #steps-bar { left: 228px; }
-#root.split #steps-bar { left: calc(var(--md-w) + 12px); }
+#root.split #steps-bar { left: calc(var(--md-w) + 12px); width: var(--steps-w); }
 #steps-bar .sb-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
 #steps-bar .sb-title { font-weight: 600; font-size: 10.5px; letter-spacing: .07em;
                        text-transform: uppercase; color: var(--text-muted); flex: 1; }

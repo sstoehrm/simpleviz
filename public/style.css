@@ -128,7 +128,7 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
 #md-panel.page .md-head, #md-panel.page .md-error { font-family: system-ui, sans-serif; }
 #md-panel.page .md-head { padding: 12px 14px 12px max(40px, var(--md-pad)); }
 #md-panel.page .md-path { font-size: 16px; font-weight: 600; }
-#md-panel.page #md-text { padding: 16px max(60px, var(--md-pad)) 16px max(40px, var(--md-pad)); }
+#md-panel.page :is(#md-text, #md-hl) { padding: 16px max(60px, var(--md-pad)) 16px max(40px, var(--md-pad)); }
 /* the md page rendered (until Edit) */
 #md-view { flex: 1 1 auto; min-width: 0; overflow: auto; background: var(--panel); color: var(--text);
            padding: 18px max(40px, var(--md-pad)) 48px; font: 15px/1.6 system-ui, sans-serif;
@@ -366,10 +366,23 @@ body:has(#print) :is(#canvas-wrap, #app) { position: static; }
 /* the toolbar centres on the canvas left of the panel, not under it */
 #root.md-open #selection-toolbar { left: calc((100vw - var(--inspector-w)) / 2);
                                    max-width: calc(100vw - var(--inspector-w) - 24px); }
-#md-text { flex: 1 1 auto; min-width: 0; border: none; outline: none; resize: none;
-           padding: 12px 50px 12px 14px;
-           background: var(--panel); color: var(--text);
-           font: 13px/1.5 ui-monospace, "Cascadia Mono", monospace; }
+/* the doc's text: the textarea's own text is transparent, over #md-hl,
+   which shows it colored and lays it out alike (as #md-mirror does) —
+   colors only, so no character moves; the selection lets it show through */
+#md-text, #md-hl { padding: 12px 50px 12px 14px;
+                   font: 13px/1.5 ui-monospace, "Cascadia Mono", monospace; }
+#md-text { position: relative; flex: 1 1 auto; min-width: 0; border: none; outline: none; resize: none;
+           background: transparent; color: transparent; caret-color: var(--text); }
+#md-text::selection { background: color-mix(in srgb, var(--accent) 30%, transparent); color: transparent; }
+#md-hl { position: absolute; top: 0; bottom: 0; left: 0; right: 0; overflow: hidden; pointer-events: none;
+         box-sizing: border-box; white-space: pre-wrap; overflow-wrap: break-word;
+         background: var(--panel); color: var(--text); }
+#md-hl :is(.hl-mark, .hl-comment, .hl-meta) { color: var(--syntax-comment); }
+#md-hl :is(.hl-heading, .hl-attr) { color: var(--syntax-attr); }
+#md-hl :is(.hl-code, .hl-string, .hl-added) { color: var(--syntax-string); }
+#md-hl :is(.hl-keyword, .hl-tag, .hl-removed) { color: var(--syntax-keyword); }
+#md-hl :is(.hl-link, .hl-number, .hl-literal) { color: var(--syntax-number); }
+#md-hl .hl-url { color: var(--text-muted); }
 /* the doc's text, its » gutter laid over the text's right padding, left
    of the scrollbar (the right offset is the scrollbar's width); clicks
    between the marks reach the text */

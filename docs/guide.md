@@ -289,9 +289,9 @@ remove (no value) or `:r` replace. `simpleviz demo` brings `steps.edn`.
 ## Editing docs
 
 "Open md" (`f m`) opens the `.md` file an element's `:md-ref` names in a
-plain-text panel on the right, wider than the inspector; ⤢ makes it fill
-the window and Esc docks it again. The panel stays open while you select
-other elements or follow refs.
+plain-text panel on the right, wider than the inspector — spellchecked,
+its markdown colored; ⤢ makes it fill the window and Esc docks it again.
+The panel stays open while you select other elements or follow refs.
 
 - Ctrl+S (Cmd+S) or Save writes the file, and so do closing the panel and
   opening another doc. ● marks unsaved changes; closing the browser tab

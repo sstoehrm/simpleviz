@@ -11,6 +11,7 @@
             [simpleviz.png :as png]
             [simpleviz.editor :as editor]
             [simpleviz.markdown :as markdown]
+            [simpleviz.mdsource :as mdsource]
             [simpleviz.slides :as slides]
             [simpleviz.vim :as vim]
             [simpleviz.manual :as manual]
@@ -1346,6 +1347,22 @@
      (item "SVG" "vector" export-svg!)
      [:div {:class "em-note"} "Both embed the source EDN."]]))
 
+;; the open doc's text and its colored lines, built once per text
+(def ^:private source-lines (atom {:text nil :lines nil}))
+
+(defn- source-view
+  "The doc's text colored, under the textarea, whose own text is
+  transparent: a block per line, as the gutter's mirror lays it out."
+  [md]
+  (let [text (:text md)
+        ls (if (= text (:text @source-lines))
+             (:lines @source-lines)
+             (:lines (reset! source-lines
+                             {:text text
+                              :lines (mapv (fn [l] (into [:div] (if (seq l) l ["\u200b"])))
+                                           (mdsource/lines text))})))]
+    (into [:div {:id "md-hl" :aria-hidden "true" :on-render (fn [_] (sync-gutter-scroll!))}] ls)))
+
 (defn- gutter-view [st]
   (let [{:keys [marks height scrollbar]} (:md-marks st)
         menu (:link-menu st)
@@ -1588,7 +1605,8 @@
      (if reading
        [:div {:class "md-body"} (md-view st)]
        [:div {:class "md-body"}
-        [:textarea {:id "md-text" :spellcheck "false" :value (:text md)
+        (source-view md)
+        [:textarea {:id "md-text" :spellcheck "true" :value (:text md)
                     :on-scroll (fn [_] (sync-gutter-scroll!) (when (some? (:link-menu @state))
                                                                 (swap! state assoc :link-menu nil)))
                     :on-input (fn [e] (swap! state assoc-in [:md :text] (.. e -target -value)))
@@ -3144,12 +3162,15 @@
             (set! (.-scrollTop ta) (- (+ top h pad-bottom) (.-clientHeight ta)))))))
 
 (defn- sync-gutter-scroll!
-  "Scroll the gutter with the textarea."
+  "Scroll the gutter and the colored text with the textarea; the colored
+  text ends where the textarea's scrollbar starts, so both wrap alike."
   []
-  (let [ta (js/document.getElementById "md-text")
-        g (js/document.getElementById "md-gutter")]
-    (when (and (some? ta) (some? g))
-      (set! (.-scrollTop g) (.-scrollTop ta)))))
+  (when-let [ta (js/document.getElementById "md-text")]
+    (when-let [g (js/document.getElementById "md-gutter")]
+      (set! (.-scrollTop g) (.-scrollTop ta)))
+    (when-let [h (js/document.getElementById "md-hl")]
+      (set! (.. h -style -right) (str (- (.-offsetWidth ta) (.-clientWidth ta)) "px"))
+      (set! (.-scrollTop h) (.-scrollTop ta)))))
 
 (declare queue-measure!)
 

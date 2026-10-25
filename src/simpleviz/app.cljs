@@ -29,6 +29,7 @@
   (-> (js/fetch "/api/prefs" {:method "POST"
                               :headers {"Content-Type" "application/json"}
                               :body (js/JSON.stringify m)})
+      (.then (fn [resp] (.text resp)))
       (.catch (fn [_] nil))))
 
 (def ^:private per-file
@@ -2356,7 +2357,12 @@
     (= "md" (editor/doc-kind (shown-path (:nav @state))))
     (if (some? (:side @state))
       (js-await (poll-graph!))
-      (let [ok (try (.-ok (js-await (js/fetch "/api/root"))) (catch :default _ false))
+      (let [ok (try (let [resp (js-await (js/fetch "/api/root"))]
+                      ;; no-store responses aren't automatically drained:
+                      ;; an unread heartbeat keeps a Chromium loader alive.
+                      (js-await (.text resp))
+                      (.-ok resp))
+                    (catch :default _ false))
             st @state]
         (when (not= (not ok) (:disconnected st))
           (swap! state assoc :disconnected (not ok)))
@@ -2466,7 +2472,7 @@
       (swap! state assoc :following true)
       (try
         (when create?
-          (try (js-await (post-json "/api/create" (editor/create-body (:edit-target st) path to)))
+          (try (js-await (.text (js-await (post-json "/api/create" (editor/create-body (:edit-target st) path to)))))
                (catch :default _ nil)))
         (js-await (navigate! (editor/follow-url (current-path st) (:trail (:nav st)) path focus
                                                 {:from (when-not (page? st) (:compare st))
@@ -2501,7 +2507,7 @@
   (let [st @state]
     (when-not (and (= path (:side st)) (editor/same-compare? compare (:compare st)))
       (when create?
-        (try (js-await (post-json "/api/create" (editor/create-body "new" path compare)))
+        (try (js-await (.text (js-await (post-json "/api/create" (editor/create-body "new" path compare)))))
              (catch :default _ nil)))
       (show-side! path compare)
       (js-await (tick)))))
@@ -3439,8 +3445,9 @@
     (let [fq (file-query)
           resp (js-await (js/fetch (str "/api/source" fq
                                         (when (some? which)
-                                          (str (if (= fq "") "?" "&") "which=" which)))))]
-      (if (.-ok resp) (js-await (.text resp)) nil))
+                                          (str (if (= fq "") "?" "&") "which=" which)))))
+          text (js-await (.text resp))]
+      (when (.-ok resp) text))
     (catch :default _ nil)))
 
 (defn- ^:async export-sources

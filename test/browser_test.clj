@@ -213,6 +213,26 @@
                  " return text(); })()")
             :later (rewrite-later! "notes.md" "after\n"))))))
 
+(deftest markdown-heartbeats-finish-their-responses
+  ;; An unread no-store response stays an active Chromium resource even
+  ;; after its JS Response is collected. Completed resource timings catch
+  ;; this without waiting hours for the heartbeat to exhaust loaders.
+  (with-real-browser
+    (is (= {:completed true :connected true}
+           (eval-on-served-page
+            path "notes.md" "# Notes\n"
+            (str "(async () => {"
+                 " const wait = ms => new Promise(ok => setTimeout(ok, ms));"
+                 " while (!document.getElementById('md-view')) await wait(10);"
+                 " const {tick} = await import('/js/simpleviz/app.mjs');"
+                 " performance.clearResourceTimings();"
+                 " for (let i = 0; i < 3; i++) await tick();"
+                 " await wait(50);"
+                 " return {completed: performance.getEntriesByType('resource')"
+                 "   .filter(e => new URL(e.name).pathname === '/api/root').length >= 3,"
+                 "  connected: !document.querySelector('#banner')?.textContent.includes('Not connected')};"
+                 "})()"))))))
+
 (deftest the-doc-panel-scrolls-and-the-canvas-does-not-zoom
   ;; the panel sits inside #canvas-wrap; its wheel must stay the doc's,
   ;; rendered and, after Edit, the textarea's

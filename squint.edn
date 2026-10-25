@@ -1,2 +1,4 @@
 {:paths ["src" "test" "server"]
- :output-dir "public/js"}
+ :output-dir "public/js"
+ ;; the md parser is plain JS, next to the module that imports it
+ :copy-resources #{:js}}

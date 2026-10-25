@@ -6,6 +6,8 @@
             [clojure.string :as str]
             [babashka.cli]
             [babashka.fs]
+            [babashka.http-client.websocket]
+            [org.httpkit.server]
             [log]
             [proc-util]
             [serve]))
@@ -2156,3 +2158,51 @@
       (is (not (re-find #"secret doc" (pr-str @logged))))
       (is (re-find #"changed on disk" (pr-str @logged)))
       (finally (babashka.fs/delete-tree dir)))))
+
+(deftest the-watch-socket-answers-only-a-local-page
+  ;; a browser lets any page open a websocket to localhost: the Origin
+  ;; on the upgrade is the only thing that tells a foreign page apart
+  (serve! "examples/demo.edn")
+  (let [up {:uri "/api/watch" :websocket? true :server-port 7373}]
+    (is (= 403 (:status (serve/handler (assoc up :headers {"origin" "http://evil.example"})))))
+    (is (= 400 (:status (serve/handler {:uri "/api/watch" :headers {}}))))))
+
+(defn- free-port []
+  (with-open [s (java.net.ServerSocket. 0 0 (java.net.InetAddress/getByName "127.0.0.1"))]
+    (.getLocalPort s)))
+
+(deftest the-watch-socket-pushes-what-changed-on-disk
+  (let [dir (babashka.fs/create-temp-dir {:prefix "serve-watch"})
+        g (babashka.fs/file dir "g.edn")
+        d (babashka.fs/file dir "notes.md")
+        port (free-port)
+        stop (do (spit g "{:nodes {:a {}}}")
+                 (spit d "# Notes\n")
+                 (serve! (str g))
+                 (org.httpkit.server/run-server serve/handler {:port port :ip "127.0.0.1"}))
+        got (java.util.concurrent.LinkedBlockingQueue.)
+        next! #(some-> (.poll got 3 java.util.concurrent.TimeUnit/SECONDS) json/parse-string)
+        touch! (fn [f text] (spit f text) (.setLastModified f (+ (.lastModified f) 2000)))]
+    (serve/start-watcher!)
+    (try
+      (let [ws (babashka.http-client.websocket/websocket
+                 {:uri (str "ws://127.0.0.1:" port "/api/watch")
+                  :headers {"Origin" (str "http://localhost:" port)}
+                  :on-message (fn [_ data _] (.put got (str data)))})]
+        (try
+          (babashka.http-client.websocket/send! ws (json/generate-string {:graph "" :md "notes.md"}))
+          ;; the current state first, so a page that just (re)connected catches up
+          (is (= #{{"kind" "graph"} {"kind" "md"}} (set [(next!) (next!)])))
+          (touch! g "{:nodes {:a {} :b {}}}")
+          (is (= {"kind" "graph"} (next!)))
+          (touch! d "# Notes\nmore\n")
+          (is (= {"kind" "md"} (next!)))
+          ;; a new watch set replaces the old one
+          (babashka.http-client.websocket/send! ws (json/generate-string {:graph "" :md nil}))
+          (is (= {"kind" "graph"} (next!)))
+          (touch! d "# Notes\neven more\n")
+          (is (nil? (.poll got 600 java.util.concurrent.TimeUnit/MILLISECONDS)))
+          (finally (babashka.http-client.websocket/close! ws))))
+      (finally
+        (stop)
+        (babashka.fs/delete-tree dir)))))

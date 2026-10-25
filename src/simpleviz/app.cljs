@@ -2289,9 +2289,10 @@
               g (if (some? sc) cmp (nth states step))
               first-load? (nil? (:graph @state))]
           (if (not= view0 (view-key (:step @state) (:step-compare @state)))
-            ;; another step showed while the comparison loaded: the next
-            ;; tick loads the file again, for that one
-            (reset! last-mtime nil)
+            ;; another step showed while the comparison loaded: load the
+            ;; file again, for that one
+            (do (reset! last-mtime nil)
+                (tick))
             (do
               (swap! graph-gen inc)
               (demote-layout-cache!)
@@ -2327,7 +2328,8 @@
 
 (defn- ^:async poll-graph!
   "Reload the graph shown when its file changed since the last look —
-  unless the page went on to another file while the server answered."
+  unless the page went on to another file while the server answered.
+  Runs when the server says the graph changed (connect-watch!)."
   []
   (let [q (file-query)
         mtime (try
@@ -2335,8 +2337,8 @@
                       v (js-await (.json resp))]
                   (:mtime v))
                 (catch :default _ nil))]
-    ;; a failed poll means the server is gone (or restarting); the flag
-    ;; clears on the next successful poll, so reconnection needs no action
+    ;; a failed look means the server is gone (or restarting); the flag
+    ;; clears on the next successful one, so reconnection needs no action
     (when (not= (nil? mtime) (:disconnected @state))
       (swap! state assoc :disconnected (nil? mtime)))
     (when (and (some? mtime) (not= mtime @last-mtime) (= q (file-query)))
@@ -2350,9 +2352,9 @@
     (when (some? (js-await (root-path!))) (js-await (load-nav!)))
 
     ;; an md page (decided by the URL, so a failed open stays one): the
-    ;; doc polls itself (poll-md!); this notices the server going away and
-    ;; coming back, and retries an open that failed for want of a server;
-    ;; the graph beside it polls like any graph
+    ;; doc has its own push (poll-md!); this notices the server coming
+    ;; back, and retries an open that failed for want of a server; the
+    ;; graph beside it reloads like any graph
     (= "md" (editor/doc-kind (shown-path (:nav @state))))
     (if (some? (:side @state))
       (js-await (poll-graph!))
@@ -2823,7 +2825,8 @@
       (when focused? (vim-select! el p)))))
 
 (defn- ^:async poll-md!
-  "The 1 s check of the open doc: take a changed disk text when nothing
+  "The check of the open doc when the server says it changed on disk
+  (connect-watch!): take a changed disk text when nothing
   is unsaved, flag a conflict when something is. Skipped while a save
   runs; a result that a save or open overtook is dropped."
   []
@@ -2843,6 +2846,46 @@
                                 :conflict {:text (:text out) :version (:version out)
                                            :exists (:exists out)})
               nil)))))))
+
+;; ---- live reload: the server pushes what changed on disk ----
+
+(def ^:private watch-socket (atom nil))
+
+;; the watch set the server last heard on this socket, as sent
+(def ^:private sent-watch (atom nil))
+
+(defn- send-watch!
+  "Tell the server what this page shows that can change on disk — its
+  graph, its doc — when that is not what it last heard. It answers with
+  the current state of each, then with every change."
+  []
+  (let [ws @watch-socket
+        w (js/JSON.stringify {:graph (file-query) :md (:path (:md @state))})]
+    (when (and (some? ws) (= 1 (.-readyState ws)) (not= w @sent-watch))
+      (reset! sent-watch w)
+      (.send ws w))))
+
+(defn- connect-watch!
+  "Open the socket the server pushes changes on. A graph change runs
+  tick, a doc change poll-md!; the socket closing means the server is
+  gone, and it reconnects each second until it is back."
+  []
+  (let [ws (js/WebSocket. (str (if (= "https:" js/location.protocol) "wss://" "ws://")
+                               js/location.host "/api/watch"))]
+    (reset! watch-socket ws)
+    (set! (.-onopen ws) (fn [_] (reset! sent-watch nil) (send-watch!)))
+    (set! (.-onmessage ws)
+          (fn [e]
+            (case (.-kind (js/JSON.parse (.-data e)))
+              "graph" (tick)
+              "md" (poll-md!)
+              nil)))
+    (set! (.-onclose ws)
+          (fn [_]
+            (reset! watch-socket nil)
+            (when-not (:disconnected @state)
+              (swap! state assoc :disconnected true))
+            (js/setTimeout connect-watch! 1000)))))
 
 ;; ---- presenting the md page ----
 
@@ -3717,9 +3760,16 @@
         (canvas/set-grid! (when on manual/GRID))))))
 (rerender!)
 ;; your theme must be in before the first graph paints
-(.then (load-prefs!) (fn [_] (load-nav!)))
-(js/setInterval tick 1000)
-(js/setInterval poll-md! 1000)
+;; the server hears what to watch once the page knows what it shows:
+;; the first answer runs tick, which would load-nav! again before then
+(.then (load-prefs!) (fn [_] (.finally (load-nav!) connect-watch!)))
+(add-watch state :watch (fn [_ _ _ _] (send-watch!)))
+;; poll-md! skips a doc change pushed while a save runs: look once more
+;; when the save is through
+(add-watch state :md-saved
+  (fn [_ _ old new]
+    (when (and (:saving (:md old)) (not (:saving (:md new))))
+      (poll-md!))))
 (js/window.addEventListener "resize" (fn [_] (queue-measure!) (sync-split!)))
 (.then (.-ready js/document.fonts) (fn [_] (queue-measure!)))
 ;; unsaved doc edits: the browser asks before the tab closes or reloads

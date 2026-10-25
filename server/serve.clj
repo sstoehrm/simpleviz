@@ -1231,6 +1231,109 @@
     (or (edit-guard req) (f))
     {:status 405 :headers {"Content-Type" "text/plain"} :body "POST only"}))
 
+;; ---- /api/watch: changes on disk, pushed to the page ----
+
+(defn- graph-version
+  "What the graph the query string names is at on disk: its file's mtime
+  (\"<old>-<new>\" for a compared pair). A refused file reports a
+  constant: the page reloads once and shows the graph route's error."
+  [query-string]
+  (try
+    (let [{:keys [old new]} (sides (nav-rel query-string)
+                                   (query-param query-string "compare"))]
+      (if (some? old)
+        (str (.lastModified old) "-" (.lastModified new))
+        (.lastModified new)))
+    (catch Exception _ 0)))
+
+(defn- doc-version
+  "What md file `path` is at on disk: mtime and size, nil when missing,
+  0 when refused."
+  [path]
+  (try
+    (let [f (doc-file path)]
+      (when (.isFile f) [(.lastModified f) (.length f)]))
+    (catch Exception _ 0)))
+
+(def ^:private watch-period-ms 200)
+
+(def ^:private max-watch-chars 8192)
+
+(def watches (atom {})) ; channel -> {:graph <query string> :md <path> :seen {kind version}}
+
+(defn- parse-watch
+  "What a page asks to watch — {:graph <its graph's query string> :md
+  <its doc's root-relative path>}, each a string or nil — or nil when the
+  message is not that."
+  [text]
+  (let [m (when (and (string? text) (<= (count text) max-watch-chars))
+            (try (json/parse-string text true) (catch Exception _ nil)))
+        ok? (fn [v] (or (nil? v) (string? v)))]
+    (when (and (map? m) (ok? (:graph m)) (ok? (:md m)))
+      (select-keys m [:graph :md]))))
+
+(defn- watch-versions [{:keys [graph md]}]
+  (cond-> {}
+    (some? graph) (assoc "graph" (graph-version (str/replace-first graph #"^\?" "")))
+    (some? md) (assoc "md" (doc-version md))))
+
+(defn- push-changes!
+  "Tell channel `ch` {kind: \"graph\"|\"md\"} for each watched file whose
+  version moved since it last heard — everything on its first look, so
+  a page that just (re)connected catches up. The page fetches the rest."
+  [ch]
+  (when-let [w (get @watches ch)]
+    (let [now (watch-versions w)
+          ;; one look wins: the watcher thread and a new watch set may
+          ;; both get here with w, and only the first to record it sends;
+          ;; a watch set that arrived meanwhile keeps its own (empty) :seen
+          [before] (swap-vals! watches (fn [m] (cond-> m (= (get m ch) w) (assoc-in [ch :seen] now))))]
+      (when (= (get before ch) w)
+        (doseq [[kind v] now :when (not= v (get (:seen w) kind ::unseen))]
+          (srv/send! ch (json/generate-string {:kind kind})))))))
+
+(defonce ^:private watcher (atom nil))
+
+(defn start-watcher!
+  "Start the thread that looks at every watched file each
+  watch-period-ms — once per process; a daemon, so it never keeps an
+  export alive."
+  []
+  (when (compare-and-set! watcher nil true)
+    (doto (Thread. ^Runnable
+           (fn []
+             (loop []
+               (Thread/sleep watch-period-ms)
+               (doseq [ch (keys @watches)]
+                 (try (push-changes! ch)
+                      (catch Throwable e
+                        ;; dropped, so a broken watch can't flood the log,
+                        ;; and closed, so the page reconnects
+                        (swap! watches dissoc ch)
+                        (srv/close ch)
+                        (log/event! "error" {:watch (or (ex-message e) (.getName (class e)))}))))
+               (recur))))
+      (.setDaemon true)
+      (.start))))
+
+(defn- watch-response
+  "Upgrade to the websocket that pushes what changed on disk. Any page
+  may open a websocket to localhost — no same-origin rule stops it — so
+  the Origin is checked here as for a write."
+  [{:keys [headers server-port] :as req}]
+  (cond
+    (not (:websocket? req)) (text-response 400 "websocket only")
+    (not (local-origin? (get headers "origin") server-port)) (text-response 403 "forbidden")
+    ;; a watch set that comes in after the close (http-kit runs the two
+    ;; on different threads) finds the channel gone and is dropped
+    :else (srv/as-channel req {:on-open (fn [ch] (swap! watches assoc ch {}))
+                               :on-receive (fn [ch text]
+                                             (when-let [w (parse-watch text)]
+                                               (when (contains? (swap! watches (fn [m] (cond-> m (contains? m ch) (assoc ch w))))
+                                                                ch)
+                                                 (push-changes! ch))))
+                               :on-close (fn [ch _] (swap! watches dissoc ch))})))
+
 (defn- route [{:keys [uri query-string body] :as req}]
   (case uri
     "/api/graph"   (json-response (graph-response-body query-string "/api/graph"))
@@ -1253,17 +1356,8 @@
     "/api/prefs"     (if (= :post (:request-method req))
                        (post-only req #(prefs-save-response body))
                        (json-response (json/generate-string (read-prefs))))
-    "/api/version" (json-response
-                    (json/generate-string
-                     {:mtime (try
-                               (let [{:keys [old new]} (sides (nav-rel query-string)
-                                                              (query-param query-string "compare"))]
-                                 (if (some? old)
-                                   (str (.lastModified old) "-" (.lastModified new))
-                                   (.lastModified new)))
-                               ;; a refused file reports a constant: the page
-                               ;; reloads once and shows the graph route's error
-                               (catch Exception _ 0))}))
+    "/api/version" (json-response (json/generate-string {:mtime (graph-version query-string)}))
+    "/api/watch"   (watch-response req)
     "/api/source"
     (let [which (query-param query-string "which")
           body (try
@@ -1386,6 +1480,7 @@
         ;; loopback only — /api/edit can write to disk, so the server must
         ;; never be reachable from other hosts on the network
         _ (srv/run-server handler {:port port :ip "127.0.0.1"})
+        _ (start-watcher!)
         log-path (log/init! {:dir (log/default-dir) :debug debug :header header})]
     (log/install-crash-handler!)
     {:served served :log-path log-path}))

@@ -150,8 +150,10 @@
   "Serve `file` (holding `text`) from a fresh folder, open it in the
   browser at `path` and evaluate `js` there; its value. The server keeps
   your choices in `home` (default: a fresh one), never in ~/.simpleviz.
-  `extra` maps more file names in the folder to their text."
-  [path file text js & {:keys [home extra]}]
+  `extra` maps more file names in the folder to their text; `later`,
+  when given, is called with the folder once the page is open, on
+  another thread, so it can change files while `js` waits."
+  [path file text js & {:keys [home extra later]}]
   (let [dir (fs/create-temp-dir {:prefix "served-page"})
         port (proc-util/free-port)
         _ (spit (str (fs/path dir file)) text)
@@ -167,9 +169,49 @@
           (let [page (browser/open-page ws-url)]
             (try
               (browser/navigate! page (str "http://127.0.0.1:" port "/"))
+              (when later (future (later dir)))
               (browser/evaluate page js 10000)
               (finally (browser/close-page page))))))
       (finally (p/destroy-tree srv) (fs/delete-tree dir)))))
+
+(defn- rewrite-later!
+  "A `later` for eval-on-served-page: after a second, `file` in the
+  folder holds `text` — its mtime moved on, as a save in an editor does."
+  [file text]
+  (fn [dir]
+    (Thread/sleep 1000)
+    (let [f (fs/file dir file)]
+      (spit f text)
+      (.setLastModified f (+ (.lastModified f) 2000)))))
+
+(deftest a-graph-changed-on-disk-shows-without-a-reload
+  (with-real-browser
+    ;; and, nothing changing, the page asks the server nothing
+    (is (= {:nodes ["a" "b"] :idle-fetches 0}
+           (eval-on-served-page
+            path "g.edn" "{:nodes {:a {}}}"
+            (str "(async () => {"
+                 " const sleep = ms => new Promise(res => setTimeout(res, ms));"
+                 " const app = await import('/js/simpleviz/app.mjs');"
+                 " const ids = () => Object.keys(app.state.val.graph?.nodes ?? {}).sort();"
+                 " for (let i = 0; i < 60; i++) { if (ids().length > 1) break; await sleep(100); }"
+                 " await sleep(300); let n = 0; const f = window.fetch;"
+                 " window.fetch = (...a) => { n++; return f(...a); };"
+                 " await sleep(2500);"
+                 " return {nodes: ids(), 'idle-fetches': n}; })()")
+            :later (rewrite-later! "g.edn" "{:nodes {:a {} :b {}}}"))))))
+
+(deftest an-md-page-changed-on-disk-shows-without-a-reload
+  (with-real-browser
+    (is (= "after"
+           (eval-on-served-page
+            path "notes.md" "before\n"
+            (str "(async () => {"
+                 " const sleep = ms => new Promise(res => setTimeout(res, ms));"
+                 " const text = () => document.getElementById('md-view')?.textContent.trim();"
+                 " for (let i = 0; i < 80; i++) { if (text() === 'after') break; await sleep(100); }"
+                 " return text(); })()")
+            :later (rewrite-later! "notes.md" "after\n"))))))
 
 (deftest the-doc-panel-scrolls-and-the-canvas-does-not-zoom
   ;; the panel sits inside #canvas-wrap; its wheel must stay the doc's,

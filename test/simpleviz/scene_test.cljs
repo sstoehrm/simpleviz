@@ -349,3 +349,19 @@
       (assert/equal (:highlight (by-id "n:b")) false)
       (assert/equal (:highlight (by-id "b:grp")) true)
       (assert/equal (:highlight (by-id "e0")) true))))
+
+(test "an edge's :text lines ride on its label and on the edge"
+  (fn []
+    (let [g (assoc-in graph [:edges 0 :attrs] {"text" "hello\nworld"})
+          items (:items (build-scene {:layout layout :graph g :colors colors}))
+          of (fn [kind] (some (fn [it] (when (= (:kind it) kind) it)) items))]
+      (assert/deepEqual (:text-lines (of "edge-label")) ["hello" "world"])
+      (assert/deepEqual (:text-lines (of "edge")) ["hello" "world"])
+      (assert/deepEqual (:text-lines (first (items-of "edge-label"))) []))))
+
+(test "a nameless edge label, sent to ELK as \" \", has no name line"
+  (fn []
+    (let [l (assoc-in layout [:edges 0 :labels 0 :text] " ")
+          [lbl] (filterv (fn [it] (= (:kind it) "edge-label"))
+                         (:items (build-scene {:layout l :graph graph :colors colors})))]
+      (assert/equal (:text lbl) ""))))

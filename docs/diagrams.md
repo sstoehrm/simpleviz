@@ -16,7 +16,7 @@ file in place and keeps its comments.
     ;; optional, on a top-level node or box: :pos [col row] — placed by hand on a 20 px grid (✥ in the page writes it)
     {:nodes {:api {:name "API"           ; display name (defaults to the key)
                    :type "service"       ; free-form; colors the name, shown as (type)
-                   :text "Order intake"  ; shown inside the node (boxes too); "\n" or a vector for more lines
+                   :text "Order intake"  ; shown inside the node (boxes too, edges under the label); "\n" or a vector for more lines
                    :lang "clojure"       ; any other attr: inspector panel only
                    :ref "sub/api.edn"    ; another graph file, relative to this one — "follow ref" opens it;
                                          ; the node gets a double border
@@ -30,7 +30,8 @@ file in place and keeps its comments.
                                          ; the same edge cannot appear twice
              {:direction :->             ; :-> | :<- | :<-> | :- (default :-)
               :name "REST"
-              :type "http"}}
+              :type "http"
+              :text "POST /orders"}}     ; shown under the label
      :boxes {:backend                    ; key is the box id
              {:name "Backend"            ; display name (defaults to the key)
               :type "zone"               ; colors the box (separate palette)

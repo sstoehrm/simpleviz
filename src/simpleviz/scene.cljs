@@ -23,9 +23,10 @@
 
 (def ^:private BBOX-PAD 10)
 
-;; :text on a node or box shows inside it: lines of TEXT-FONT, broken at
-;; "\n" and wrapped past TEXT-W, LINE-H apart. The layout sizes elements
-;; for them and the painter draws them, both from text-lines.
+;; :text on a node or box shows inside it, on an edge under its label:
+;; lines of TEXT-FONT, broken at "\n" and wrapped past TEXT-W, LINE-H
+;; apart. The layout sizes elements for them and the painter draws them,
+;; both from text-lines.
 (def TEXT-FONT "11px system-ui, sans-serif")
 (def TEXT-W 220)
 (def LINE-H 14)
@@ -209,7 +210,8 @@
         (let [e (.get edges-by-id (:id elk-edge))
               origin (origin-of elk-edge)
               sections (mapv (fn [sec] (offset-pts (section-points sec) origin))
-                             (or (:sections elk-edge) []))]
+                             (or (:sections elk-edge) []))
+              lines (if (some? e) (text-lines (:text (:attrs e)) (or measure naive-measure)) [])]
           (when (and (some? e) (pos? (.-length sections)))
             (let [points (vec (apply concat sections))]
               (.push edge-items {:kind "edge" :id (:id elk-edge)
@@ -222,6 +224,7 @@
                                  :source-id (:source-id e)
                                  :target-id (:target-id e)
                                  :name (:name e) :type (:type e) :attrs (:attrs e)
+                                 :text-lines lines
                                  :highlight (highlight? e)
                                  :diff (:diff e) :changed (:changed e)})))
           (when-let [lbl (first (or (:labels elk-edge) []))]
@@ -232,7 +235,10 @@
                                   :x lx :y ly
                                   :w (:width lbl) :h (:height lbl)
                                   :bbox (rect-bbox lx ly (:width lbl) (:height lbl))
-                                  :text (:text lbl)
+                                  ;; a nameless label reached ELK as " "
+                                  :text (.trim (:text lbl))
+                                  ;; :text, under the name
+                                  :text-lines lines
                                   :diff (when (some? e) (:diff e))})))))
       {:items (.concat boxes edge-items label-items nodes)
        :width (or (:width layout) 0)

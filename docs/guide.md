@@ -13,7 +13,8 @@ The [Diagrams](diagrams.md#data-format) example shows every attribute simpleviz 
 - A node of `:type "database"` (in any case) is drawn as the database
   symbol, a cylinder.
 - `:text` on a node or box shows inside it: under a node's name and type,
-  under a box's header (not while the box is collapsed). A string breaks at
+  under a box's header (not while the box is collapsed). On an edge it shows
+  under the label, or as the label when the edge has no name or type. A string breaks at
   `\n`; a vector of strings gives one line each. Lines wrap at about 220 px,
   and the element grows to fit.
 - `:highlight true` on a node, box or edge draws a thin ring round it in the

@@ -415,7 +415,7 @@
               (is (str/includes? (slurp url) "<html"))
               (is (= {"error" nil "warnings" []}
                      (json/parse-string (slurp (str url "/api/errors")))))))
-          (finally (p/destroy-tree proc)))))))
+          (finally (proc-util/stop proc)))))))
 
 (defn- status-of
   "The HTTP status `url` answers a GET with, following no redirect."
@@ -440,7 +440,7 @@
               (is (= 200 (status-of (str url "/api/root"))))
               (is (= 200 (status-of (str url "/style.css"))))
               (is (= 302 (status-of url)) "the bare URL redirects to the page")))
-          (finally (p/destroy-tree proc)))))))
+          (finally (proc-util/stop proc)))))))
 
 (deftest servers-lists-the-running-servers-of-this-home
   (with-tmp
@@ -453,7 +453,7 @@
           (let [[_ url] (proc-util/await-line proc url-line 30000)]
             (is (some? url))
             (is (= (str url " " (fs/canonicalize (fs/path tmp "demo.edn")) "\n") (listed))))
-          (finally (p/destroy-tree proc) (deref proc 10000 nil)))
+          (finally (proc-util/stop proc)))
         (is (= "" (listed)) "a stopped server is no longer listed")))))
 
 (deftest a-folder-named-like-the-suffix-does-not-hijack-it
@@ -466,7 +466,7 @@
       (let [proc (serve-cli ["demo.edn" "next" "--no-open"] tmp)]
         (try
           (is (some? (proc-util/await-line proc url-line 30000)))
-          (finally (p/destroy-tree proc)))))))
+          (finally (proc-util/stop proc)))))))
 
 (deftest example-files-match-the-examples-folder
   ;; the files git knows under examples/ (tracked or new, not ignored): a
@@ -492,7 +492,7 @@
               (is (= {"error" nil "warnings" []}
                      (json/parse-string (slurp (str url "/api/errors"))))))
             (when dir (fs/delete-tree dir)))
-          (finally (p/destroy-tree proc)))))))
+          (finally (proc-util/stop proc)))))))
 
 (deftest a-non-startup-check-failure-writes-a-crash-report
   (with-tmp
@@ -536,7 +536,7 @@
             (when url
               (is (not= taken port))
               (is (str/includes? (slurp url) "<html"))))
-          (finally (p/destroy-tree proc)))))))
+          (finally (proc-util/stop proc)))))))
 
 (deftest a-suffix-that-looks-like-a-flag-is-an-unknown-option
   ;; `--noopen` used to become a suffix: "g---noopen.edn not found" (#98)
@@ -607,4 +607,16 @@
                    (json/parse-string (slurp (str url "/api/root")))))
             (is (= {"error" nil "warnings" ["line 1: g.edn not found"]}
                    (json/parse-string (slurp (str url "/api/errors"))))))
-          (finally (p/destroy-tree proc)))))))
+          (finally (proc-util/stop proc)))))))
+
+(deftest stopping-a-server-waits-for-its-shutdown-hooks
+  ;; a server's hook deletes its servers/ entry: a test that deletes the
+  ;; home before the hook ran hit NoSuchFileException mid delete-tree
+  (with-tmp
+    (fn [tmp]
+      (let [marker (str (fs/path tmp "hook-ran"))
+            proc (proc-util/start ["bb" "-e" (str "(.addShutdownHook (Runtime/getRuntime) (Thread. (fn [] (Thread/sleep 500) (spit " (pr-str marker) " \"x\"))))"
+                                                 " (println :up) (flush) @(promise)")])]
+        (is (some? (proc-util/await-line proc #":up" 10000)))
+        (proc-util/stop proc)
+        (is (fs/exists? marker) "the hook had run when stop returned")))))

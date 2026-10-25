@@ -1391,10 +1391,11 @@
         port (proc-util/free-port)
         proc (proc-util/start ["bb" "--config" (str proc-util/repo-root "/bb.edn") "-m" "serve"
                                (str proc-util/repo-root "/examples/demo.edn") "--port" (str port)]
-                              :dir tmp)]
+                              :dir tmp :env {"SIMPLEVIZ_HOME" (str (babashka.fs/path tmp "home"))})]
     (try
-      (is (some? (proc-util/await-line proc #"^simpleviz: serving " 30000)))
-      (is (str/includes? (slurp (str "http://127.0.0.1:" port "/")) "<html"))
+      (let [[_ url] (proc-util/await-line proc #"^simpleviz: serving .* at (http://localhost:\d+/\S+)$" 30000)]
+        (is (some? url))
+        (is (str/includes? (slurp (str url "/")) "<html")))
       (finally
         (p/destroy-tree proc)
         (babashka.fs/delete-tree tmp)))))

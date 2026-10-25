@@ -107,7 +107,9 @@ Without an installer, unpack a tarball from the
     simpleviz export my-arch.edn my-arch.png   # the ⇩ export from the terminal (needs Chrome or Chromium)
     simpleviz export talk.md talk.pdf          # a deck as a PDF, a page per slide
 
-`--no-open` prints the URL without opening a browser; `simpleviz --help`
+`--no-open` prints the URL without opening a browser. The URL carries a
+secret token, new on each start, which keeps other users of the machine
+out; `simpleviz servers` lists your running servers. `simpleviz --help`
 lists the rest. Press `?` in the page for controls and shortcuts.
 
 `init` copies a template from `~/.simpleviz/templates` (or

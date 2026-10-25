@@ -11,7 +11,7 @@ import { recorder, ROOT, W, H, sleep } from "./recorder.mjs";
 
 const OUT = path.resolve(process.argv[2] ?? path.join(ROOT, "docs/assets"));
 const CDP_PORT = 9333, PORT = 7491, CMP_PORT = 7492;
-const { ws, env, start, waitFor, send, on, js, launch, moveTo, click, elAt, key, caption, settled,
+const { ws, env, start, serve, waitFor, send, on, js, launch, moveTo, click, elAt, key, caption, settled,
         capture, encode, report, close } = recorder("simpleviz-rec-");
 
 // ---- workspace -------------------------------------------------------------
@@ -100,7 +100,7 @@ const OVERLAY = `(() => {
     // screen point of a scene item: "n:api", "b:storage" (title bar), or an
     // edge by name
     async at(id) {
-      const app = await import("/js/simpleviz/app.mjs"), cv = await import("/js/simpleviz/canvas.mjs");
+      const app = await import("./js/simpleviz/app.mjs"), cv = await import("./js/simpleviz/canvas.mjs");
       const st = app.state.val;
       const it = (st.scene?.items ?? []).find(i => i.id === id || (i.kind === "edge" && i.name === id));
       if (!it) throw new Error("no scene item " + id + " in " + (st.scene?.items ?? []).map(i => i.id).join(" "));
@@ -123,7 +123,7 @@ const OVERLAY = `(() => {
 
 // wait until the page shows the graph file whose path ends with name
 const shows = name => js(`(async () => {
-  const app = await import("/js/simpleviz/app.mjs");
+  const app = await import("./js/simpleviz/app.mjs");
   for (let i = 0; i < 100; i++) {
     const st = app.state.val;
     if (String(st.graph?.path ?? "").endsWith(${JSON.stringify(name)}) && st.scene && !st.layouting) return true;
@@ -143,18 +143,17 @@ async function pick(select, name) {
   await js(`(() => { const s = document.getElementById(${JSON.stringify(select)});
     s.value = ${JSON.stringify(name)}; s.dispatchEvent(new Event("change", { bubbles: true })); })()`);
 }
-const refit = () => js(`(async () => { const app = await import("/js/simpleviz/app.mjs"), cv = await import("/js/simpleviz/canvas.mjs");
+const refit = () => js(`(async () => { const app = await import("./js/simpleviz/app.mjs"), cv = await import("./js/simpleviz/canvas.mjs");
   cv.refit_next_BANG_(); cv.fit_view_once_BANG_(app.state.val.scene); cv.request_paint_BANG_(); })()`);
 const theme = name => pick("theme-select", name);
 
 // ---- run -------------------------------------------------------------------
 
 try {
-  start("bb", ["serve", demo, "--port", String(PORT)]);
-  await waitFor(`http://127.0.0.1:${PORT}/`);
+  const url = await serve([demo, "--port", String(PORT)]);
   await launch(CDP_PORT, OVERLAY);
 
-  await navigate(`http://127.0.0.1:${PORT}/`);
+  await navigate(url);
   const size = await js("[innerWidth, innerHeight]");
   if (size[0] !== W || size[1] !== H) throw new Error(`viewport is ${size}, wanted ${W}x${H}`);
 
@@ -278,9 +277,8 @@ try {
   edit(next, `:version "16"`, `:version "17"`);
   edit(next, `:auth "bearer"`, `:auth "mtls"`);
   edit(next, `:storage :worker :queue :search}`, `:storage :worker :queue :search :metrics}`);
-  start("bb", ["serve", demo, "next", "--port", String(CMP_PORT)]);
-  await waitFor(`http://127.0.0.1:${CMP_PORT}/`);
-  await navigate(`http://127.0.0.1:${CMP_PORT}/`);
+  const cmpUrl = await serve([demo, "next", "--port", String(CMP_PORT)]);
+  await navigate(cmpUrl);
   await js(`__rec.jump(${W / 2}, ${H / 2 + 40})`);
   await send("Page.startScreencast", { format: "png", everyNthFrame: 1, maxWidth: W, maxHeight: H });
   await caption("Fork, edit, compare: <code>simpleviz demo.edn next</code>");

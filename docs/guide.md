@@ -206,7 +206,15 @@ per file that all viewers share (100 entries).
 **Security.** The server binds to loopback only and accepts writes only from
 its own `localhost`/`127.0.0.1` origin. It answers only requests addressed
 to `localhost`, `127.0.0.1` or `[::1]`, so a web page that points its own
-name at 127.0.0.1 (DNS rebinding) can't read the served files.
+name at 127.0.0.1 (DNS rebinding) can't read the served files. Loopback is
+open to every user of the machine (and to containers on its network), so
+each server also makes a random token at start and answers only below it:
+the URL it prints, `http://localhost:<port>/<token>`, is the key to the
+served files, so share it as you would them. It changes on every start.
+The browser gets it through a file only you can read, not through the
+opener's command line, which `ps` shows to everyone, and no page sends it
+on as a referrer. `simpleviz servers` lists your running servers, the URL
+and the file each serves, a line each.
 
 ## Manual layout
 
@@ -737,12 +745,13 @@ writes the PDF of its slides.
 ## Checking a file
 
 The page shows a file's problems in banners. To get the same report
-without a browser, for example from a script or an agent:
+without a browser, for example from a script or an agent (`$URL` is the
+URL the server printed, or one `simpleviz servers` lists):
 
     simpleviz check graph.edn                           # works without a server
     simpleviz check notes.md                            # an md file's broken links, questions and charts
-    curl -s http://localhost:7373/api/errors            # the served file
-    curl -s 'http://localhost:7373/api/errors?file=sub/api.edn'
+    curl -s $URL/api/errors                             # the served file
+    curl -s "$URL/api/errors?file=sub/api.edn"
 
 `check` prints `error: ..` or one `warning: ..` line per warning and exits
 1, or prints `ok`. The route answers `{"error":null,"warnings":[]}` for a
@@ -759,9 +768,9 @@ Agents and scripts that write a served file directly can coordinate through
 an advisory lock per file:
 
     curl -X POST -H 'Content-Type: application/json' \
-      -d '{"owner":"agent-a","path":"sub/api.edn"}' http://localhost:7373/api/lock
+      -d '{"owner":"agent-a","path":"sub/api.edn"}' $URL/api/lock
     curl -X POST -H 'Content-Type: application/json' \
-      -d '{"owner":"agent-a","path":"sub/api.edn"}' http://localhost:7373/api/unlock
+      -d '{"owner":"agent-a","path":"sub/api.edn"}' $URL/api/unlock
 
 `path` is the file's name relative to the served folder (a fork is
 `graph-next.edn`) and defaults to the root file. `/api/lock` answers

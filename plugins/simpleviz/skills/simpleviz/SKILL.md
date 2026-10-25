@@ -58,7 +58,7 @@ Nothing fails loudly, so checking is the only way to know a file is right.
 Copy this checklist and work through it:
 
 ```
-- [ ] 1. A server serves the file (the user's, another agent's or yours)? Take its lock and re-read the file (see Concurrent writes). None does? Skip this and step 5
+- [ ] 1. A server serves the file (the user's, another agent's or yours; simpleviz servers lists them)? Take its lock and re-read the file (see Concurrent writes). None does? Skip this and step 5
 - [ ] 2. Write the file (a graph in map form, see Data format)
 - [ ] 3. Check every file you wrote, :ref targets and forks included: simpleviz check <file>, or $URL/api/errors while served (see Checking)
 - [ ] 4. Fix each warning, check again; repeat until clean
@@ -66,10 +66,14 @@ Copy this checklist and work through it:
 - [ ] 6. To show it: a server already serves it? Give the user that URL; the page reloads by itself. Else start one: simpleviz <file> --no-open in the background
 ```
 
-`curl -s $URL/api/root` names the file a running server was started with
-and the folder it serves (`{"path":"arch.edn","dir":"/abs/served/folder"}`,
-symlinks resolved). It serves your file when `realpath <your-file>` lies
-under `dir`; that file's lock `path` is its realpath relative to `dir`.
+`simpleviz servers` lists the user's running servers, a line each: its
+`$URL` and the absolute path of the file it was started with. A server
+answers only below the secret token in its URL, so take `$URL` from there,
+from the server's own output, or from the user — probing ports finds
+nothing. `curl -s $URL/api/root` names that file and the folder it serves
+(`{"path":"arch.edn","dir":"/abs/served/folder"}`, symlinks resolved). It
+serves your file when `realpath <your-file>` lies under `dir`; that file's
+lock `path` is its realpath relative to `dir`.
 
 ## Data format (canonical map forms)
 
@@ -394,8 +398,9 @@ table as a chart; the page hides the table behind a Table button. A
     # `ok` (exit 0), or `error: ..` / one `warning: ..` line per problem (exit 1)
 
 No server or browser needed. While a server runs, `/api/errors` gives the
-same report (`$URL` is the address it printed, or the one the user gave
-you; `file` is relative to the served folder):
+same report (`$URL` is the address it printed, one `simpleviz servers`
+lists, or the one the user gave you; `file` is relative to the served
+folder):
 
     curl -s $URL/api/errors                      # {"error":null,"warnings":[]} means clean
     curl -s "$URL/api/errors?file=sub/api.edn"   # a file reached through a :ref or md link
@@ -415,6 +420,7 @@ the file behind an extra `}`) is a parse error too.
     simpleviz diagram.png --no-open  # exported PNGs/SVGs serve like EDN (embedded source;
                                      # a compare export re-opens as the comparison)
     simpleviz demo                   # copy the bundled examples to a temp folder, serve them
+    simpleviz servers                # the user's running servers: URL and served file, a line each
     simpleviz init graph.edn         # starter file (refuses to overwrite)
     simpleviz init graph.edn -t web  # ...from ~/.simpleviz/templates/web.edn (or
                                      # $SIMPLEVIZ_HOME/templates); add your own there,
@@ -431,8 +437,10 @@ the file behind an extra `}`) is a parse error too.
     simpleviz --version
 
 As an agent, always pass `--no-open` and run the server in the background:
-it prints `simpleviz: http://localhost:<port>` (that is `$URL`) and runs
-until its process is stopped. Leave it running while the user needs the
+it prints `simpleviz: http://localhost:<port>/<token>` (that is `$URL`;
+the token is new on each start and keeps other users of the machine out,
+so the URL is as private as the files) and runs until its process is
+stopped. Leave it running while the user needs the
 link; stop a server you started once they don't, and never stop one you
 didn't start. To hand someone an image, run `simpleviz export` rather than
 asking them to click ⇩.

@@ -18,6 +18,7 @@
             [mdlinks]
             [pairs]
             [paths]
+            [session]
             [steps]
             [themes])
   (:import [clojure.lang LineNumberingPushbackReader]
@@ -1479,9 +1480,11 @@
   java.net.BindException passes through when the port is taken, before
   any log file is written (the CLI retries another port).
   `prefs` true serves your stored choices (/api/prefs); off, as for an
-  export, the page starts from the defaults.
-  Returns {:served <description> :log-path <path or nil>}."
-  [{:keys [file suffix port debug prefs]}]
+  export, the page starts from the defaults. Everything is served below
+  a fresh secret token (session/wrap): `url`, with no trailing slash, is
+  the only way in. `on-page` is called on each load of the page.
+  Returns {:served <description> :url <url> :log-path <path or nil>}."
+  [{:keys [file suffix port debug prefs on-page]}]
   (reset! files {:root file :suffix suffix})
   (reset! prefs-on (boolean prefs))
   (reset! root-dir (.getParentFile (.getCanonicalFile (io/file file))))
@@ -1498,13 +1501,26 @@
                     ") serving " served " on port " port)
         ;; the header only, so a crash report from the bind carries it
         _ (log/init! {:dir (log/default-dir) :debug false :header header})
+        token (session/new-token)
         ;; loopback only — /api/edit can write to disk, so the server must
-        ;; never be reachable from other hosts on the network
-        _ (srv/run-server handler {:port port :ip "127.0.0.1"})
+        ;; never be reachable from other hosts on the network; and the
+        ;; token, since loopback can't tell this machine's users apart
+        _ (srv/run-server (session/wrap handler token {:on-page on-page}) {:port port :ip "127.0.0.1"})
         _ (start-watcher!)
         log-path (log/init! {:dir (log/default-dir) :debug debug :header header})]
     (log/install-crash-handler!)
-    {:served served :log-path log-path}))
+    {:served served :url (str "http://localhost:" port "/" token) :log-path log-path}))
+
+(defn register!
+  "List this server in the registry (session/register!) until the process
+  exits, so an agent of yours finds it with `simpleviz servers`. A
+  registry that can't be written costs only that."
+  [port url]
+  (try (let [unregister! (session/register! port {:url url :file (.getPath (.getCanonicalFile (io/file (:root @files))))} {})]
+         (.addShutdownHook (Runtime/getRuntime) (Thread. ^Runnable (fn [] (unregister!)))))
+       (catch Exception e
+         (binding [*out* *err*]
+           (println (str "simpleviz: not listed for simpleviz servers: " (or (ex-message e) (.getName (class e)))))))))
 
 (defn -main [& args]
   (let [{:keys [file suffix port debug error]} (parse-args args)]
@@ -1515,8 +1531,9 @@
       (println (str "file not found: " file))
       (System/exit 1))
     (try
-      (let [{:keys [served log-path]} (start! {:file file :suffix suffix :port port :debug debug :prefs true})]
-        (println (str "simpleviz: serving " served " at http://localhost:" port))
+      (let [{:keys [served url log-path]} (start! {:file file :suffix suffix :port port :debug debug :prefs true})]
+        (register! port url)
+        (println (str "simpleviz: serving " served " at " url))
         (when log-path (println (str "simpleviz: debug log at " log-path)))
         @(promise))
       (catch java.net.BindException _

@@ -3,7 +3,7 @@
 // protocol, a pointer and keys that drive the page as a viewer would,
 // the screencast and its encoding to an .mp4 and a .gif.
 //   const r = recorder("simpleviz-rec-", { hover: true });
-//   r.start("bb", ["serve", file, "--port", PORT]); await r.waitFor(url);
+//   const url = await r.serve([file, "--port", PORT]);
 //   await r.launch(CDP_PORT, OVERLAY); const shots = r.capture(); …
 //   r.encode(shots, { out, name });
 // Needs Node >= 22 (global WebSocket), chromium (or $CHROMIUM), ffmpeg.
@@ -44,6 +44,16 @@ export function recorder(prefix, { hover = false } = {}) {
     for (const t0 = Date.now(); Date.now() - t0 < ms; await sleep(200))
       try { const r = await fetch(url); if (r.ok) return r; } catch {}
     throw new Error(`timed out waiting for ${url}`);
+  }
+  // `bb serve` with args; resolves with the page's URL, secret token and
+  // all, once it answers
+  async function serve(args, ms = 20000) {
+    const p = start("bb", ["serve", ...args]);
+    for (const t0 = Date.now(); Date.now() - t0 < ms; await sleep(100)) {
+      const m = p.log().match(/serving .* at (http:\/\/\S+)/);
+      if (m) { await waitFor(m[1] + "/"); return m[1] + "/"; }
+    }
+    throw new Error(`bb serve ${args.join(" ")} printed no URL`);
   }
   function cleanup() {
     for (const p of procs) try { process.kill(-p.pid); } catch {}
@@ -124,7 +134,7 @@ export function recorder(prefix, { hover = false } = {}) {
   const caption = html => js(`__rec.caption(${JSON.stringify(html)})`);
   // the graph shown is laid out
   const settled = () => js(`(async () => {
-    const app = await import("/js/simpleviz/app.mjs");
+    const app = await import("./js/simpleviz/app.mjs");
     for (let i = 0; i < 200; i++) {
       const st = app.state.val;
       if (st.scene && !st.layouting) return true;
@@ -185,6 +195,6 @@ export function recorder(prefix, { hover = false } = {}) {
     cleanup();
   }
 
-  return { tmp, ws, frames, env, start, waitFor, send, on, js, launch, moveTo, click, elAt, key, caption, settled,
+  return { tmp, ws, frames, env, start, serve, waitFor, send, on, js, launch, moveTo, click, elAt, key, caption, settled,
            capture, encode, report, close };
 }

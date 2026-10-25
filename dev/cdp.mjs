@@ -1,7 +1,7 @@
 // Drive a headless Chromium over the DevTools protocol (Node >= 22, global
 // WebSocket). Start Chromium first:
 //   chromium --headless=new --remote-debugging-port=9222 --window-size=1400,900 about:blank &
-// then: node dev/cdp.mjs '[{"navigate":"http://127.0.0.1:7465/","wait":3000},{"screenshot":"/tmp/s.png"}]'
+// then: node dev/cdp.mjs '[{"navigate":"<the URL bb serve printed>/","wait":3000},{"screenshot":"/tmp/s.png"}]'
 // Actions: navigate/wait, wait, click [x y], eval "js" (with
 // "awaitPromise": true, prints what the promise resolves to), type "text",
 // key "Enter"|"f"|..., screenshot "path".

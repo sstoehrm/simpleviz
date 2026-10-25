@@ -17,6 +17,7 @@
             [mdlinks]
             [paths]
             [serve]
+            [session]
             [themes]))
 
 (def latest-jar-url
@@ -41,6 +42,8 @@
     "                                         --no-open prints the URL without opening a browser"
     "       simpleviz demo [--debug] [--no-open]   copy the examples to a temp folder and serve"
     "                                         demo.edn compared with demo-next.edn"
+    "       simpleviz servers                 list your running servers, a line each: the URL"
+    "                                         and the file it serves"
     "       simpleviz fork <graph.edn> <suffix>     copy the graph and every file it refs to"
     "                                               <name>-<suffix>.edn siblings"
     "       simpleviz promote <graph.edn> <suffix>  move each fork over its original file"
@@ -66,7 +69,7 @@
     "       simpleviz clean-all               kill every running simpleviz server"
     "                                         (install.sh launcher on Linux only)"
     "       simpleviz --version               print the installed version"
-    "Serves on a random free port between 7370 and 7469."]))
+    "Serves on a random free port between 7370 and 7469, below a secret token in the URL."]))
 
 (defn- die
   "Print `simpleviz: <parts>` to stderr and exit 1."
@@ -224,19 +227,42 @@
          (log/crash! {:phase "startup"} e)
          (System/exit 1))))
 
+(defn- open-browser!
+  "Open `url` in the desktop browser through a launch file (its token
+  stays out of the opener's arguments), deleted once the page loads —
+  `loaded` is delivered — or the process exits."
+  [url loaded]
+  (try
+    (let [{:keys [uri delete!]} (session/launch-file! url {})]
+      (.addShutdownHook (Runtime/getRuntime) (Thread. ^Runnable delete!))
+      (future @loaded (delete!))
+      ;; like the old launcher's `xdg-open … || true`: no opener, no problem
+      (try (browse/browse-url uri) (catch Exception _ nil)))
+    (catch Exception e
+      (binding [*out* *err*]
+        (println (str "simpleviz: could not open a browser (" (or (ex-message e) (.getName (class e)))
+                      ") — open the URL above"))))))
+
 (defn- serve!
-  "Start on a free port, print the URL, open a browser unless `no-open`,
-  and block."
+  "Start on a free port, list it for `simpleviz servers`, print the URL,
+  open a browser unless `no-open`, and block."
   [opts no-open]
-  (let [[port {:keys [served log-path]}] (start! (assoc opts :prefs true))
-        url (str "http://localhost:" port)]
+  (let [loaded (promise)
+        [port {:keys [served url log-path]}] (start! (assoc opts :prefs true :on-page #(deliver loaded true)))]
+    (serve/register! port url)
     (println (str "simpleviz: serving " served " at " url))
     (when log-path (println (str "simpleviz: debug log at " log-path)))
     (println (str "simpleviz: " url))
-    (when-not no-open
-      ;; like the old launcher's `xdg-open … || true`: no opener, no problem
-      (try (browse/browse-url url) (catch Exception _ nil)))
+    (when-not no-open (open-browser! url loaded))
     @(promise)))
+
+(defn- servers-cmd
+  "Print each running server of yours, a line each: its URL and the file
+  it serves."
+  [args]
+  (when (seq args) (usage-error))
+  (doseq [{:keys [url file]} (session/servers {})]
+    (println (str url " " file))))
 
 (defn- check-input!
   "The checks `simpleviz <file> [<suffix>]` runs before serving; dies
@@ -301,12 +327,12 @@
     (check-input! in suffix)
     (when (and (.exists (io/file out)) (not force))
       (die out " already exists (--force overwrites)"))
-    (let [[port] (start! {:file in :suffix suffix :debug false})
+    (let [[_ {:keys [url]}] (start! {:file in :suffix suffix :debug false})
           {:keys [path] :as found} (browser/find-browser)
           _ (when-not path (die (:error found)))
           data (try (browser/with-browser path
-                      (fn [ws-url _]
-                        (browser/export-page! ws-url (str "http://localhost:" port)
+                      (fn [conn _]
+                        (browser/export-page! conn url
                                               {:format format :theme theme
                                                :timeout-ms export-timeout-ms})))
                     (catch clojure.lang.ExceptionInfo e (die (ex-message e)))
@@ -362,6 +388,7 @@
       "check" (do (when-not (= 1 (count more)) (usage-error))
                   (check/-main (first more)))
       "demo" (demo-cmd more)
+      "servers" (servers-cmd more)
       (if (and (str/starts-with? cmd "-") (not (flag? cmd)))
         (usage-error)
         (serve-cmd args)))))

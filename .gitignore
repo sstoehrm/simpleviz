@@ -32,5 +32,8 @@ examples/mps-architecture.edn
 # what presenting an example deck answered
 examples/*.answers.edn
 
+# the running-server registry of a test that uses the repo as its home
+/servers/
+
 # blend build plan, local
 .blend/plan.*

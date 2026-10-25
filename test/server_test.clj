@@ -10,7 +10,8 @@
             [org.httpkit.server]
             [log]
             [proc-util]
-            [serve]))
+            [serve]
+            [steps]))
 
 (defn- serve!
   "Point the server at `path` (single-file, or compare against its
@@ -445,6 +446,107 @@
       (is (clojure.string/includes? (get (json/parse-string (:body resp)) "error") "already exists"))
       (is (= "{:nodes {:a nil}}" (slurp p)))
       (is (empty? (get @serve/undo-stacks p))))))
+
+(defn- overlapping
+  "Pause the first call of var `f` (after it ran) while `second-call`
+  runs, then let both finish. Only scheduling is controlled; reads,
+  edits and writes still use the real implementation. Returns
+  [first-result second-result]; `second-call` gets 1s on its own,
+  which it needs only while nothing serializes the two."
+  [f first-call second-call]
+  (let [original @f
+        first? (atom true)
+        entered (promise)
+        release (promise)]
+    (with-redefs-fn
+      {f (fn [& args]
+           (let [out (apply original args)]
+             (when (compare-and-set! first? true false)
+               (deliver entered true)
+               (deref release 5000 nil))
+             out))}
+      (fn []
+        (let [a (future (first-call))]
+          (try
+            (is (= true (deref entered 3000 nil)) "the first call reached its transaction")
+            (let [b (future (second-call))]
+              (deref b 1000 nil)
+              (deliver release true)
+              [(deref a 3000 ::timeout) (deref b 3000 ::timeout)])
+            (finally (deliver release true))))))))
+
+(defn- edit! [body]
+  (json/parse-string (:body (serve/handler (edit-req body))) true))
+
+(defn- overlapping-edits [f first-body second-body]
+  (overlapping f #(edit! first-body) #(edit! second-body)))
+
+(deftest concurrent-graph-edits-preserve-both-changes
+  (let [p (temp-edn "{:nodes {:a nil}}")]
+    (serve! p)
+    (is (= [{:ok true} {:ok true}]
+           (overlapping-edits #'steps/apply-ops
+                              {:file "new" :ops [{:op "add-node" :id "b"}]}
+                              {:file "new" :ops [{:op "add-node" :id "c"}]})))
+    (is (= #{:a :b :c} (set (keys (:nodes (edn/read-string (slurp p)))))))))
+
+(deftest concurrent-undos-restore-each-snapshot-once
+  (let [p (temp-edn "{:nodes {:a nil}}")]
+    (serve! p)
+    (doseq [id ["b" "c"]]
+      (edit! {:file "new" :ops [{:op "add-node" :id id}]}))
+    (is (= [{:ok true} {:ok true}]
+           (overlapping-edits (ns-resolve 'serve 'pop-undo!)
+                              {:file "new" :ops [{:op "undo"}]}
+                              {:file "new" :ops [{:op "undo"}]})))
+    (is (= "{:nodes {:a nil}}" (slurp p)))
+    (is (empty? (get @serve/undo-stacks p)))))
+
+(deftest concurrent-first-fork-edits-read-the-created-fork
+  (with-temp-dir*
+    (fn [dir]
+      (let [p (write! dir "g.edn" "{:nodes {:a nil}}")
+            fork (str (java.io.File. dir "g-next.edn"))]
+        (serve! p)
+        (is (= [{:ok true} {:ok true}]
+               (overlapping-edits #'steps/apply-ops
+                                  {:file "new" :compare "next" :ops [{:op "add-node" :id "b"}]}
+                                  {:file "new" :compare "next" :ops [{:op "add-node" :id "c"}]})))
+        (is (= #{:a :b :c} (set (keys (:nodes (edn/read-string (slurp fork)))))))
+        (is (= "{:nodes {:a nil}}" (slurp p)))))))
+
+(deftest a-lock-waits-for-the-edit-in-flight
+  ;; the edit found the file free; a lock granted before it writes would
+  ;; let the browser write under an agent's lock
+  (let [p (temp-edn "{:nodes {:a nil}}")
+        path (.getPath (.getCanonicalFile (java.io.File. p)))
+        seen (promise)]
+    (serve! p)
+    (let [[edited locked] (overlapping #'steps/apply-ops
+                                       #(edit! {:file "new" :ops [{:op "add-node" :id "b"}]})
+                                       #(let [out (serve/acquire-lock! path "agent" (System/currentTimeMillis))]
+                                          (deliver seen (slurp p))
+                                          out))]
+      (is (= {:ok true} edited))
+      (is (true? (:ok locked)))
+      (is (str/includes? @seen ":b nil") "the lock came after the edit's write"))))
+
+(deftest failed-graph-writes-preserve-the-file-and-undo-history
+  (doseq [ops [[{:op "add-node" :id "c"}] [{:op "undo"}]]]
+    (let [p (temp-edn "{:nodes {:a nil}}")
+          fail-write (fn [& _] (throw (java.io.IOException. "disk full")))]
+      (serve! p)
+      (is (= {:ok true} (edit! {:file "new" :ops [{:op "add-node" :id "b"}]})))
+      (let [before (slurp p)
+            history @serve/undo-stacks]
+        ;; the old writer and atomic replacement alike: a failed edit or
+        ;; undo adds or consumes no undo snapshot
+        (with-redefs-fn {#'clojure.core/spit fail-write
+                         (ns-resolve 'serve 'write-atomically!) fail-write}
+          (fn []
+            (is (= {:error "disk full"} (edit! {:file "new" :ops ops})))
+            (is (= history @serve/undo-stacks))))
+        (is (= before (slurp p)))))))
 
 ;; --- /api/copy: what y y and x x put on the clipboard ------------------
 

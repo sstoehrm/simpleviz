@@ -32,3 +32,11 @@
                     (when-let [line (.readLine rdr)]
                       (or (re-find re line) (recur)))))]
     (deref f timeout-ms nil)))
+
+(defn stop
+  "Stop `proc` and its children (SIGTERM) and wait until it has exited,
+  its shutdown hooks run — a server's removes its servers/ entry, so
+  deleting its home any sooner races that hook."
+  [proc]
+  (p/destroy-tree proc)
+  (deref proc 20000 nil))

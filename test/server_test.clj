@@ -1397,7 +1397,8 @@
         (is (some? url))
         (is (str/includes? (slurp (str url "/")) "<html")))
       (finally
-        (p/destroy-tree proc)
+        ;; its home is in tmp: let its shutdown hook finish first
+        (proc-util/stop proc)
         (babashka.fs/delete-tree tmp)))))
 
 (deftest version-comes-from-the-classpath

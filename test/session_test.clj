@@ -154,7 +154,7 @@
       (is (= ":ok" (.readLine (io/reader (:out proc)))))
       (is (= [{:url "http://localhost:7411/x" :file "/w/a.edn"}] (session/servers {:home home}))
           "listed without asking its port anything")
-      (finally (p/destroy-tree proc) (deref proc 10000 nil) (fs/delete-tree home)))))
+      (finally (proc-util/stop proc) (fs/delete-tree home)))))
 
 (defn- leave-entry!
   "An entry as a server killed with SIGKILL leaves it: no lock held."

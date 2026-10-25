@@ -186,7 +186,7 @@
                 (when later (future (later dir)))
                 (browser/evaluate page js 10000)
                 (finally (browser/close-page page)))))))
-      (finally (p/destroy-tree srv) (fs/delete-tree dir) (fs/delete-tree own-home)))))
+      (finally (proc-util/stop srv) (fs/delete-tree dir) (fs/delete-tree own-home)))))
 
 (deftest the-launch-file-opens-the-page
   ;; what the desktop browser gets in place of the URL itself
@@ -217,7 +217,7 @@
                                              15000)))
                     (finally (browser/close-page page))))))
             (finally (delete!))))
-        (finally (p/destroy-tree srv) (fs/delete-tree dir) (fs/delete-tree home))))))
+        (finally (proc-util/stop srv) (fs/delete-tree dir) (fs/delete-tree home))))))
 
 (defn- rewrite-later!
   "A `later` for eval-on-served-page: after a second, `file` in the

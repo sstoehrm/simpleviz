@@ -793,6 +793,34 @@
                  " key(ta, 'G'); const end = ta.scrollTop >= ta.scrollHeight - ta.clientHeight - 2;"
                  " key(ta, 'g'); key(ta, 'g'); ok({end, top: ta.scrollTop}); }, 50); })"))))))
 
+(deftest the-doc-text-is-spellchecked-and-colored-underneath
+  ;; the textarea's text is transparent over #md-hl, the same text
+  ;; colored: line for line, wrapped alike, scrolled with it, retyped
+  (with-real-browser
+    (let [long-line (str/join " " (repeat 40 "wrapping\twords"))
+          text (str "# Title\n\nSome `code` and [a link](g.edn).\n" long-line "\n"
+                    (str/join "\n" (map #(str "line " %) (range 200))) "\n")]
+      (is (= {:spellcheck true :color "rgba(0, 0, 0, 0)" :same true :heading "# Title"
+              :wraps true :scrolled true :retyped "## New"}
+             (eval-on-served-page
+              path "notes.md" text
+              (str "new Promise(ok => { let step = 0; const t = setInterval(async () => {"
+                   " const frame = () => new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));"
+                   " if (step === 0) { const b = document.querySelector('.md-mode'); if (!b) return; b.click(); step = 1; return; }"
+                   " if (step !== 1) return; step = 2; clearInterval(t);"
+                   " const ta = document.getElementById('md-text'), hl = () => document.getElementById('md-hl');"
+                   " const r = {spellcheck: ta.spellcheck, color: getComputedStyle(ta).color};"
+                   " r.same = [...hl().children].map(d => d.textContent.replace(/\\u200b/g, '')).join('\\n') === ta.value;"
+                   " r.heading = hl().querySelector('.hl-heading').textContent;"
+                   " await frame();"
+                   " r.wraps = hl().scrollHeight === ta.scrollHeight && hl().clientWidth === ta.clientWidth;"
+                   " ta.scrollTop = 500; ta.dispatchEvent(new Event('scroll'));"
+                   " r.scrolled = ta.scrollTop > 0 && hl().scrollTop === ta.scrollTop;"
+                   " ta.value = '## New\\n' + ta.value; ta.dispatchEvent(new Event('input', {bubbles: true}));"
+                   " await frame();"
+                   " r.retyped = hl().querySelector('.hl-heading').textContent;"
+                   " ok(r); }, 50); })")))))))
+
 (deftest the-layouting-indicator-shows-while-elk-runs
   ;; the page lays out in its ELK worker — it holds no engine of its
   ;; own; a re-layout shows the indicator until the new layout is there

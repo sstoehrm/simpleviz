@@ -5,7 +5,9 @@ column:
 
     simpleviz notes.md
 
-Edit (top right) switches to the plain text, Read back. Format tidies
+Edit (top right) switches to the plain text, Read back. The text is
+spellchecked by the browser and its markdown colored — headings, marks,
+code, links, and a fence's code by its language. Format tidies
 the markdown, and the **vi** button turns on vi keys — modes, motions,
 operators, text objects, `.`, `:w`. Edit the file anywhere else and the
 page follows.

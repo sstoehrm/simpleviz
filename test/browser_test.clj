@@ -314,6 +314,34 @@
                  " ok(r); }, 50); })")
             :extra {"g.edn" "{:nodes {:a {}}}" "g-next.edn" "{:nodes {:a {} :b {}}}"})))))
 
+(deftest a-compared-node-shows-its-changed-non-string-values
+  ;; selected in a comparison, :a lists its changed :n, a number, and
+  ;; :tags, a vector, as old → new
+  (with-real-browser
+    (is (= {:changes ["n" "1 → 2" "tags" "[\"x\"] → —"] :errors []}
+           (eval-on-served-page
+            path "notes.md" "[the change](g.edn?compare=next)\n"
+            (str "new Promise(ok => { const errors = [];"
+                 " window.addEventListener('error', e => errors.push(String(e.message)));"
+                 " let step = 0, tries = 0; const t = setInterval(() => {"
+                 " const done = changes => { clearInterval(t); ok({changes, errors}); };"
+                 " if (++tries > 150) return done(null);"
+                 " if (step === 0) { const link = document.querySelector('#md-view a.md-link'); if (!link) return;"
+                 "  link.click(); step = 1; return; }"
+                 " if (step === 1) { const c = document.getElementById('canvas');"
+                 "  if (!c || !document.getElementById('diff-legend')) return;"
+                 "  const r = c.getBoundingClientRect();"
+                 "  for (let x = r.left; x < r.right; x += 8) for (let y = r.top; y < r.bottom; y += 8) {"
+                 "   const at = {clientX: x, clientY: y, bubbles: true};"
+                 "   c.dispatchEvent(new PointerEvent('pointermove', at));"
+                 "   if (getComputedStyle(c).cursor === 'pointer') { c.dispatchEvent(new MouseEvent('click', at)); step = 2; return; } }"
+                 "  return; }"
+                 " if (errors.length) return done(null);"
+                 " const box = document.querySelector('#details .details-changes dl'); if (!box) return;"
+                 " done([...box.children].map(e => e.textContent)); }, 50); })")
+            :extra {"g.edn" "{:nodes {:a {:n 1 :tags [\"x\"]}}}"
+                    "g-next.edn" "{:nodes {:a {:n 2}}}"})))))
+
 (deftest the-name-prompt-beside-the-md-page-clears-the-steps-bar
   ;; the graph beside the md page has little room: the toolbar, its name
   ;; prompt open, keeps clear of the steps bar and inside the window

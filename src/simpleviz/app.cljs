@@ -458,10 +458,10 @@
                         [:span {:class "cp-plus"} "+"]]))
                    (vec (sort (js/Array.from collapsed)))))])))
 
-(defn- fmt-val [k v]
+(defn- fmt-val [v]
   (cond (nil? v) "—"
         (string? v) v
-        :else (or (format/attr->text k v) (js/JSON.stringify v))))
+        :else (js/JSON.stringify v)))
 
 (defn- autosize!
   "Grow a textarea to fit its content (and shrink back), so a value
@@ -836,7 +836,7 @@
               (mapcat (fn [[k v]]
                         [[:dt {:key (str "ct" k)} k]
                          [:dd {:key (str "cd" k)}
-                          (str (fmt-val k (:old v)) " → " (fmt-val k (:new v)))]])
+                          (str (fmt-val (:old v)) " → " (fmt-val (:new v)))]])
                       (js/Object.entries (:changed sel))))])
      (pairs-view sel (not (presenting? st)))
      (into [:dl]

@@ -20,16 +20,19 @@ gets security fixes; `simpleviz update` installs it.
 ## In scope
 
 - The local server (`simpleviz <file>`): it listens on 127.0.0.1 only,
-  reads and writes files below the served folder, and refuses writes
-  from other origins. Anything that reaches outside that folder, or
-  lets another site or user drive it, is a vulnerability.
+  answers only below the random token in the URL it prints (loopback
+  doesn't tell this machine's users apart), reads and writes files below
+  the served folder, and refuses writes from other origins. Anything
+  that reaches outside that folder, or lets another site or user drive
+  it without that URL, is a vulnerability.
 - Table formulas in md files (`=(sum :a)`), which run in a SCI sandbox
   in a child process of the server: a formula that reads or writes
   files, reaches the network, calls Java, changes the server or
   outlives its child process is a vulnerability.
 - `install.sh` and `simpleviz update`, which download and install
   releases.
-- `simpleviz export`, which drives a headless Chrome or Chromium.
+- `simpleviz export`, which drives a headless Chrome or Chromium over
+  private pipes, with no debugging port another user could connect to.
 - The agent plugin (`plugins/simpleviz`): instructions in the skill that
   would lead an assistant to do something unsafe.
 

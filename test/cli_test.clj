@@ -2,6 +2,7 @@
   "The simpleviz CLI run as a real process (`bb --config <repo>/bb.edn -m
   cli ...`) from a temp folder, as the launcher and the jar run it."
   (:require [babashka.fs :as fs]
+            [babashka.http-client :as http]
             [babashka.process :as p]
             [cheshire.core :as json]
             [cli]
@@ -22,9 +23,15 @@
        [:out :err :exit])
       (finally (when-not dir (fs/delete-tree tmp))))))
 
+(defn- home-beside
+  "The home serve-cli gives a server in `dir`: beside it, not in it,
+  where the servers registry would show among the served files."
+  [dir]
+  (str dir "-home"))
+
 (defn- with-tmp [f]
   (let [tmp (fs/create-temp-dir {:prefix "cli-test"})]
-    (try (f tmp) (finally (fs/delete-tree tmp)))))
+    (try (f tmp) (finally (fs/delete-tree tmp) (fs/delete-tree (home-beside tmp))))))
 
 (deftest main-finds-the-jar-behind-a-resource-url
   ;; bb's resource URLs keep the path as is; the JVM's are percent-encoded
@@ -359,12 +366,15 @@
       (is (str/starts-with? (:err res) "usage: simpleviz") (:err res)))))
 
 (defn- serve-cli
-  "Start the CLI with `args` in `dir` as a background process."
-  [args dir]
+  "Start the CLI with `args` in `dir` as a background process, its
+  home (registry, logs) `home` or (home-beside dir), which with-tmp
+  deletes — never ~/.simpleviz."
+  [args dir & {:keys [home]}]
   (proc-util/start (into ["bb" "--config" (str proc-util/repo-root "/bb.edn") "-m" "cli"] args)
-                   :dir dir))
+                   :dir dir
+                   :env {"SIMPLEVIZ_HOME" (or home (home-beside dir))}))
 
-(def url-line #"^simpleviz: (http://localhost:(\d+))$")
+(def url-line #"^simpleviz: (http://localhost:(\d+)/[A-Za-z0-9_-]{43})$")
 
 (deftest two-file-form-is-rejected
   (let [res (run-cli [(str proc-util/repo-root "/examples/demo.edn")
@@ -399,13 +409,52 @@
       (let [proc (serve-cli ["demo.edn" "--no-open"] tmp)]
         (try
           (let [[_ url port] (proc-util/await-line proc url-line 30000)]
-            (is (some? url) "printed simpleviz: http://localhost:<port>")
+            (is (some? url) "printed simpleviz: http://localhost:<port>/<token>")
             (when url
               (is (<= 7370 (parse-long port) 7469))
               (is (str/includes? (slurp url) "<html"))
               (is (= {"error" nil "warnings" []}
                      (json/parse-string (slurp (str url "/api/errors")))))))
           (finally (p/destroy-tree proc)))))))
+
+(defn- status-of
+  "The HTTP status `url` answers a GET with, following no redirect."
+  [url]
+  (:status (http/get url {:throw false :client (http/client {:follow-redirects :never})})))
+
+(deftest serve-answers-only-below-its-token
+  ;; loopback can't tell this machine's users apart: the token in the
+  ;; printed URL is what keeps another user's program out
+  (with-tmp
+    (fn [tmp]
+      (fs/copy (str proc-util/repo-root "/examples/demo.edn") (fs/path tmp "demo.edn"))
+      (let [proc (serve-cli ["demo.edn" "--no-open"] tmp)]
+        (try
+          (let [[_ url port] (proc-util/await-line proc url-line 30000)
+                bare (str "http://localhost:" port)]
+            (is (some? url))
+            (when url
+              (doseq [path ["/" "/api/root" "/api/errors" "/index.html" "/style.css"]]
+                (is (= 403 (status-of (str bare path))) path))
+              (is (= 403 (status-of (str bare "/" (apply str (repeat 43 "A")) "/api/root"))) "a wrong token")
+              (is (= 200 (status-of (str url "/api/root"))))
+              (is (= 200 (status-of (str url "/style.css"))))
+              (is (= 302 (status-of url)) "the bare URL redirects to the page")))
+          (finally (p/destroy-tree proc)))))))
+
+(deftest servers-lists-the-running-servers-of-this-home
+  (with-tmp
+    (fn [tmp]
+      (fs/copy (str proc-util/repo-root "/examples/demo.edn") (fs/path tmp "demo.edn"))
+      (let [home (str (fs/path tmp "home"))
+            listed (fn [] (:out (run-cli ["servers"] :env {"SIMPLEVIZ_HOME" home})))
+            proc (serve-cli ["demo.edn" "--no-open"] tmp :home home)]
+        (try
+          (let [[_ url] (proc-util/await-line proc url-line 30000)]
+            (is (some? url))
+            (is (= (str url " " (fs/canonicalize (fs/path tmp "demo.edn")) "\n") (listed))))
+          (finally (p/destroy-tree proc) (deref proc 10000 nil)))
+        (is (= "" (listed)) "a stopped server is no longer listed")))))
 
 (deftest a-folder-named-like-the-suffix-does-not-hijack-it
   (with-tmp
@@ -483,7 +532,7 @@
           (let [[_ taken] (proc-util/await-line proc #"^taken (\d+)$" 30000)
                 [_ url port] (proc-util/await-line proc url-line 30000)]
             (is (some? taken) "the first serve/start! was refused")
-            (is (some? url) "still printed simpleviz: http://localhost:<port>")
+            (is (some? url) "still printed simpleviz: http://localhost:<port>/<token>")
             (when url
               (is (not= taken port))
               (is (str/includes? (slurp url) "<html"))))

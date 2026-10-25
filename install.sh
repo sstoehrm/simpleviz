@@ -113,9 +113,9 @@ install_files() {
   # everything else in SIMPLEVIZ_HOME goes below: refuse a folder that is
   # no install (SIMPLEVIZ_HOME=$HOME, a typo). An install has the VERSION
   # it writes; without one, it may hold only what simpleviz keeps there
-  # (a bbin install, a run: templates, prefs, logs)
+  # (a bbin install, a run: templates, prefs, logs, the servers registry)
   if [ -d "$SIMPLEVIZ_HOME" ] && [ ! -f "$SIMPLEVIZ_HOME/VERSION" ] \
-     && [ -n "$(find -H "$SIMPLEVIZ_HOME" -mindepth 1 -maxdepth 1 ! -name templates ! -name prefs.edn ! -name logs)" ]; then
+     && [ -n "$(find -H "$SIMPLEVIZ_HOME" -mindepth 1 -maxdepth 1 ! -name templates ! -name prefs.edn ! -name logs ! -name servers)" ]; then
     die "$SIMPLEVIZ_HOME holds files that aren't simpleviz's — set SIMPLEVIZ_HOME to an empty or new folder"
   fi
   [ ! -e "$templates" ] && [ ! -L "$templates" ] || [ -d "$templates" ] \
@@ -123,8 +123,9 @@ install_files() {
   mkdir -p "$templates"
   # its logs hold paths and doc text: yours alone
   chmod 700 "$SIMPLEVIZ_HOME"
-  # prefs.edn (your page choices: theme, vi) is the user's too
-  find -H "$SIMPLEVIZ_HOME" -mindepth 1 -maxdepth 1 ! -name templates ! -name prefs.edn -exec rm -rf {} +
+  # prefs.edn (your page choices: theme, vi) is the user's too; servers/
+  # lists the servers still running, which an update doesn't stop
+  find -H "$SIMPLEVIZ_HOME" -mindepth 1 -maxdepth 1 ! -name templates ! -name prefs.edn ! -name servers -exec rm -rf {} +
   if [ -d "$dir/templates" ]; then
     for f in "$dir"/templates/*; do
       [ -e "$f" ] || continue

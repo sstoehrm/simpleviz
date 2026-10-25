@@ -12,7 +12,7 @@ import { recorder, ROOT, W, H, sleep } from "./recorder.mjs";
 
 const OUT = path.resolve(process.argv[2] ?? path.join(ROOT, "docs/assets"));
 const CDP_PORT = 9336, PORT = 7495;
-const { ws, start, waitFor, send, js, launch, click, elAt, caption, capture, encode, report, close } =
+const { ws, start, serve, waitFor, send, js, launch, click, elAt, caption, capture, encode, report, close } =
   recorder("simpleviz-047-", { hover: true });
 
 // ---- workspace -------------------------------------------------------------
@@ -106,10 +106,9 @@ const firstChart = `document.querySelector("figure.chart-table")`;
 // ---- run -------------------------------------------------------------------
 
 try {
-  start("bb", ["serve", doc, "--port", String(PORT)]);
-  await waitFor(`http://127.0.0.1:${PORT}/`);
+  const url = await serve([doc, "--port", String(PORT)]);
   await launch(CDP_PORT, OVERLAY);
-  await send("Page.navigate", { url: `http://127.0.0.1:${PORT}/` });
+  await send("Page.navigate", { url });
   await until(`document.querySelectorAll("svg.chart-svg").length === 2`, "both charts");
   await sleep(600);
 

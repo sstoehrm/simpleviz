@@ -13,7 +13,7 @@ import { recorder, ROOT, W, H, sleep } from "./recorder.mjs";
 
 const OUT = path.resolve(process.argv[2] ?? path.join(ROOT, "docs/assets"));
 const CDP_PORT = 9336, PORT = 7495;
-const { ws, start, waitFor, send, js, launch, moveTo, click, elAt, key, caption, settled,
+const { ws, start, serve, waitFor, send, js, launch, moveTo, click, elAt, key, caption, settled,
         capture, encode, report, close } = recorder("simpleviz-overview-", { hover: true });
 
 // ---- workspace -------------------------------------------------------------
@@ -65,7 +65,7 @@ const OVERLAY = `(() => {
     },
     press(down) { document.getElementById("rec-cur").classList.toggle("down", down); },
     async at(id) {
-      const app = await import("/js/simpleviz/app.mjs"), cv = await import("/js/simpleviz/canvas.mjs");
+      const app = await import("./js/simpleviz/app.mjs"), cv = await import("./js/simpleviz/canvas.mjs");
       const st = app.state.val;
       const it = (st.scene?.items ?? []).find(i => i.id === id);
       if (!it) throw new Error("no scene item " + id);
@@ -102,7 +102,7 @@ async function reveal(sel, text, ms = 1100) {
       requestAnimationFrame(step); }); })()`);
 }
 const link = text => elAt("#md-view a.md-link", text);
-const mdPage = name => until(`(await import("/js/simpleviz/app.mjs")).state.val.md?.path?.endsWith(${JSON.stringify(name)})
+const mdPage = name => until(`(await import("./js/simpleviz/app.mjs")).state.val.md?.path?.endsWith(${JSON.stringify(name)})
   && document.getElementById("md-view")`, `the md page ${name}`);
 // the presented slide's side has landed: its graph laid out, or none
 const slideReady = () => until(`(() => { const st = window.__app.state.val, p = st.present;
@@ -112,14 +112,13 @@ async function next() { await key("ArrowRight"); await sleep(250); await slideRe
 // ---- run -------------------------------------------------------------------
 
 try {
-  start("bb", ["serve", path.join(ws, "intro.md"), "--port", String(PORT)]);
-  await waitFor(`http://127.0.0.1:${PORT}/`);
+  const url = await serve([path.join(ws, "intro.md"), "--port", String(PORT)]);
   await launch(CDP_PORT, OVERLAY);
-  await send("Page.navigate", { url: `http://127.0.0.1:${PORT}/` });
+  await send("Page.navigate", { url });
   await sleep(1000);
   await js(`(async () => { for (let i = 0; i < 200 && !(document.readyState === "complete" && window.ELK); i++)
     await new Promise(r => setTimeout(r, 50)); })()`);
-  await js(`(async () => { window.__app = await import("/js/simpleviz/app.mjs"); })()`);
+  await js(`(async () => { window.__app = await import("./js/simpleviz/app.mjs"); })()`);
   await mdPage("intro.md");
   await sleep(500);
 

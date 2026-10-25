@@ -288,15 +288,20 @@
       (finally (fs/delete-tree tmp)))))
 
 (deftest install-takes-a-home-with-only-what-simpleviz-keeps-there
-  ;; a bbin install or a run leaves templates, prefs and logs, no VERSION
+  ;; a bbin install or a run leaves templates, prefs, logs and the
+  ;; servers registry, no VERSION
   (let [tmp (fs/create-temp-dir {:prefix "simpleviz-install"})
         home (fs/path tmp "home")]
     (try
       (fs/create-dirs (fs/path home "templates"))
       (fs/create-dirs (fs/path home "logs"))
+      (fs/create-dirs (fs/path home "servers"))
       (spit (str (fs/path home "prefs.edn")) "{:theme \"nord\"}")
+      (spit (str (fs/path home "servers" "7400.edn")) "{:url \"u\"}")
       (let [res (install-files tmp (tarball! tmp {"server/cli.clj" "(ns cli)\n"}))]
         (is (= 0 (:exit res)) (:err res)))
       (is (= "{:theme \"nord\"}" (slurp (str (fs/path home "prefs.edn")))))
+      (is (= "{:url \"u\"}" (slurp (str (fs/path home "servers" "7400.edn"))))
+          "an update keeps the servers still running listed")
       (is (= "rwx------" (fs/posix->str (fs/posix-file-permissions home))) "yours alone")
       (finally (fs/delete-tree tmp)))))

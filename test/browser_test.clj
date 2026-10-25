@@ -6,7 +6,8 @@
             [clojure.java.io :as io]
             [clojure.test :refer [deftest is]]
             [org.httpkit.server :as srv]
-            [proc-util]))
+            [proc-util]
+            [session]))
 
 (defn- finder [{:keys [env on-path files]}]
   (browser/find-browser {:env #(get env %) :which #(get on-path %) :exists? #(contains? (set files) %)}))
@@ -42,11 +43,6 @@
   (is (= "/home/u/snap/chromium/common" (browser/profile-parent "chromium" "/home/u" "/tmp")))
   (is (= "/tmp" (browser/profile-parent nil "/home/u" "/tmp"))))
 
-(deftest the-devtools-line
-  (is (= "ws://127.0.0.1:42001/devtools/browser/f0dc"
-         (browser/devtools-url "DevTools listening on ws://127.0.0.1:42001/devtools/browser/f0dc")))
-  (is (nil? (browser/devtools-url "[1002/080707.580414:ERROR:ssl_client_socket_impl.cc] handshake failed"))))
-
 ;; --- a real browser: skipped without one ------------------------------
 
 (def ^:private found (browser/find-browser))
@@ -60,11 +56,23 @@
   (with-real-browser
     (let [seen (atom nil)]
       (browser/with-browser path
-        (fn [ws-url profile]
+        (fn [conn profile]
           (reset! seen profile)
-          (is (str/starts-with? ws-url "ws://127.0.0.1:"))
+          (let [page (browser/open-page conn)]
+            (try (is (= 2 (browser/evaluate page "Promise.resolve(1 + 1)" 5000)))
+                 (finally (browser/close-page page))))
           (is (fs/directory? profile))))
       (is (not (fs/exists? @seen)) "profile folder deleted"))))
+
+(deftest the-browser-opens-no-debugging-port
+  ;; another user of the machine could drive a browser through one
+  (with-real-browser
+    (browser/with-browser path
+      (fn [_ profile]
+        (is (not (fs/exists? (fs/path profile "DevToolsActivePort"))))
+        (let [cmd (:out (p/shell {:out :string :err :string :continue true} "pgrep" "-af" profile))]
+          (is (str/includes? cmd "--remote-debugging-pipe"))
+          (is (not (str/includes? cmd "--remote-debugging-port"))))))))
 
 (deftest a-failure-inside-still-cleans-up
   (with-real-browser
@@ -77,8 +85,8 @@
 (deftest evaluate-returns-values-and-page-errors
   (with-real-browser
     (browser/with-browser path
-      (fn [ws-url _]
-        (let [page (browser/open-page ws-url)]
+      (fn [conn _]
+        (let [page (browser/open-page conn)]
           (try
             (is (= {:data "ok"} (browser/evaluate page "Promise.resolve({data: 'ok'})" 5000)))
             (is (thrown-with-msg? clojure.lang.ExceptionInfo #"^Graph error: x$"
@@ -95,8 +103,8 @@
                                {:port 0 :ip "127.0.0.1" :legacy-return-value? false})]
       (try
         (browser/with-browser path
-          (fn [ws-url _]
-            (is (= {:data "svg:nord"} (browser/export-page! ws-url (str "http://127.0.0.1:" (srv/server-port stop))
+          (fn [conn _]
+            (is (= {:data "svg:nord"} (browser/export-page! conn (str "http://127.0.0.1:" (srv/server-port stop))
                                                               {:format "svg" :theme "nord" :timeout-ms 10000})))))
         (finally (srv/server-stop! stop))))))
 
@@ -117,7 +125,7 @@
       (finally (fs/delete fake)))))
 
 (deftest a-browser-that-never-answers-times-out-with-its-last-stderr-lines
-  ;; starts, says something, never prints the DevTools line
+  ;; starts, says something, never answers on its debugging pipe
   (let [fake (str (fs/create-temp-file {:prefix "slow-browser"}))]
     (spit fake "#!/bin/sh\necho 'still warming up' >&2\nexec sleep 30\n")
     (fs/set-posix-file-permissions fake "rwx------")
@@ -153,28 +161,63 @@
   `extra` maps more file names in the folder to their text; `size`
   ({:width :height}) sets the window's, else the browser's default;
   `later`, when given, is called with the folder once the page is open,
-  on another thread, so it can change files while `js` waits."
-  [path file text js & {:keys [home extra size later]}]
+  on another thread, so it can change files while `js` waits; `at`
+  opens that path below the server's URL instead of the folder itself."
+  [path file text js & {:keys [home extra size later at]}]
   (let [dir (fs/create-temp-dir {:prefix "served-page"})
+        ;; beside the folder, not in it: its servers/ registry holds .edn files
+        own-home (fs/create-temp-dir {:prefix "served-home"})
         port (proc-util/free-port)
         _ (spit (str (fs/path dir file)) text)
         _ (doseq [[f t] extra] (spit (str (fs/path dir f)) t))
         srv (proc-util/start ["bb" "--config" (str proc-util/repo-root "/bb.edn") "serve" file
                               "--port" (str port)]
                              :dir dir
-                             :env {"SIMPLEVIZ_HOME" (str (or home (fs/path dir "home")))})]
+                             :env {"SIMPLEVIZ_HOME" (str (or home own-home))})]
     (try
-      (is (proc-util/await-line srv #"serving" 20000))
-      (browser/with-browser path
-        (fn [ws-url _]
-          (let [page (browser/open-page ws-url)]
-            (try
-              (when (some? size) (browser/set-viewport! page size))
-              (browser/navigate! page (str "http://127.0.0.1:" port "/"))
-              (when later (future (later dir)))
-              (browser/evaluate page js 10000)
-              (finally (browser/close-page page))))))
-      (finally (p/destroy-tree srv) (fs/delete-tree dir)))))
+      (let [[_ url] (proc-util/await-line srv #"serving .* at (http://localhost:\d+/\S+)$" 20000)]
+        (is (some? url))
+        (browser/with-browser path
+          (fn [conn _]
+            (let [page (browser/open-page conn)]
+              (try
+                (when (some? size) (browser/set-viewport! page size))
+                (browser/navigate! page (str url "/" at))
+                (when later (future (later dir)))
+                (browser/evaluate page js 10000)
+                (finally (browser/close-page page)))))))
+      (finally (p/destroy-tree srv) (fs/delete-tree dir) (fs/delete-tree own-home)))))
+
+(deftest the-launch-file-opens-the-page
+  ;; what the desktop browser gets in place of the URL itself
+  (with-real-browser
+    (let [dir (fs/create-temp-dir {:prefix "served-page"})
+          home (fs/create-temp-dir {:prefix "served-home"})
+          _ (spit (str (fs/path dir "g.edn")) "{:nodes {:a {}}}")
+          srv (proc-util/start ["bb" "--config" (str proc-util/repo-root "/bb.edn") "serve" "g.edn"
+                                "--port" (str (proc-util/free-port))]
+                               :dir dir :env {"SIMPLEVIZ_HOME" (str home)})]
+      (try
+        (let [[_ url] (proc-util/await-line srv #"serving .* at (http://localhost:\d+/\S+)$" 20000)
+              ;; in your home, as for real: a snap browser cannot read /tmp
+              {:keys [uri delete!]} (session/launch-file! url {})]
+          (try
+            (browser/with-browser path
+              (fn [conn _]
+                (let [page (browser/open-page conn)]
+                  (try
+                    (browser/navigate! page uri)
+                    (is (= {:href (str url "/") :root "g.edn"}
+                           (browser/evaluate page (str "(async () => {"
+                                                       " const sleep = ms => new Promise(r => setTimeout(r, ms));"
+                                                       " for (let i = 0; i < 100 && !location.href.startsWith('http'); i++) await sleep(100);"
+                                                       " const root = await (await fetch('api/root')).json();"
+                                                       " return {href: location.href, root: root.path};"
+                                                       "})()")
+                                             15000)))
+                    (finally (browser/close-page page))))))
+            (finally (delete!))))
+        (finally (p/destroy-tree srv) (fs/delete-tree dir) (fs/delete-tree home))))))
 
 (defn- rewrite-later!
   "A `later` for eval-on-served-page: after a second, `file` in the
@@ -194,13 +237,27 @@
             path "g.edn" "{:nodes {:a {}}}"
             (str "(async () => {"
                  " const sleep = ms => new Promise(res => setTimeout(res, ms));"
-                 " const app = await import('/js/simpleviz/app.mjs');"
+                 " const app = await import('./js/simpleviz/app.mjs');"
                  " const ids = () => Object.keys(app.state.val.graph?.nodes ?? {}).sort();"
                  " for (let i = 0; i < 60; i++) { if (ids().length > 1) break; await sleep(100); }"
                  " await sleep(300); let n = 0; const f = window.fetch;"
                  " window.fetch = (...a) => { n++; return f(...a); };"
                  " await sleep(2500);"
                  " return {nodes: ids(), 'idle-fetches': n}; })()")
+            :later (rewrite-later! "g.edn" "{:nodes {:a {} :b {}}}"))))))
+
+(deftest live-reload-works-on-the-page-opened-by-its-file-name
+  (with-real-browser
+    (is (= ["a" "b"]
+           (eval-on-served-page
+            path "g.edn" "{:nodes {:a {}}}"
+            (str "(async () => {"
+                 " const sleep = ms => new Promise(res => setTimeout(res, ms));"
+                 " const app = await import('./js/simpleviz/app.mjs');"
+                 " const ids = () => Object.keys(app.state.val.graph?.nodes ?? {}).sort();"
+                 " for (let i = 0; i < 60; i++) { if (ids().length > 1) break; await sleep(100); }"
+                 " return ids(); })()")
+            :at "index.html"
             :later (rewrite-later! "g.edn" "{:nodes {:a {} :b {}}}"))))))
 
 (deftest an-md-page-changed-on-disk-shows-without-a-reload
@@ -226,12 +283,12 @@
             (str "(async () => {"
                  " const wait = ms => new Promise(ok => setTimeout(ok, ms));"
                  " while (!document.getElementById('md-view')) await wait(10);"
-                 " const {tick} = await import('/js/simpleviz/app.mjs');"
+                 " const {tick} = await import('./js/simpleviz/app.mjs');"
                  " performance.clearResourceTimings();"
                  " for (let i = 0; i < 3; i++) await tick();"
                  " await wait(50);"
                  " return {completed: performance.getEntriesByType('resource')"
-                 "   .filter(e => new URL(e.name).pathname === '/api/root').length >= 3,"
+                 "   .filter(e => new URL(e.name).pathname.endsWith('/api/root')).length >= 3,"
                  "  connected: !document.querySelector('#banner')?.textContent.includes('Not connected')};"
                  "})()"))))))
 
@@ -304,7 +361,7 @@
                  "  input.value = 'queue'; input.dispatchEvent(new Event('input', {bubbles: true}));"
                  "  input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true})); step = 3; return; }"
                  " if (step === 3) { step = 4;"
-                 "  const src = async w => (await fetch('/api/source?file=g.edn&compare=next&which=' + w)).text();"
+                 "  const src = async w => (await fetch('api/source?file=g.edn&compare=next&which=' + w)).text();"
                  "  const fork = await src('new'); if (!fork.includes(':queue')) { step = 3; return; }"
                  "  r.fork = true; r.original = (await src('old')).includes(':queue');"
                  "  bar.querySelector('[aria-label=Close]').click(); step = 5; return; }"
@@ -535,7 +592,7 @@
                      " if (step === 6) { if (q('slide') !== '3') return; $$('.ask-choice')[0].click(); $$('.ask-choice')[1].click(); step = 7; return; }"
                      " if (step === 7) { if (!$('.ask-choice.chosen')) return;"
                      "  step = 9; clearInterval(t); await new Promise(go => setTimeout(go, 500));"
-                     "  r.stored = (await (await fetch('/api/answers?path=deck.md')).json()).answers;"
+                     "  r.stored = (await (await fetch('api/answers?path=deck.md')).json()).answers;"
                      "  key('Escape');"
                      "  const t2 = setInterval(() => {"
                      "   if (step === 9) { const b = $('.md-present'); if (!b) return; b.click(); step = 10; return; }"
@@ -654,7 +711,7 @@
                      " if (!s) return; clearInterval(t);"
                      " s.value = 'dark'; s.dispatchEvent(new Event('change', {bubbles: true}));"
                      " for (let i = 0; i < 50; i++) {"
-                     "  const p = await (await fetch('/api/prefs')).json();"
+                     "  const p = await (await fetch('api/prefs')).json();"
                      "  if (p.theme) return ok(p.theme);"
                      "  await new Promise(r => setTimeout(r, 100)); }"
                      " ok(null); }, 50); })")
@@ -695,10 +752,10 @@
                  " for (const k of [':', 'w', 'Enter']) key(ta, k);"
                  " r.saved = false;"
                  " for (let i = 0; i < 50 && !r.saved; i++) {"
-                 "  const d = await (await fetch('/api/text?path=notes.md')).json();"
+                 "  const d = await (await fetch('api/text?path=notes.md')).json();"
                  "  r.saved = d.text === 'bar baz\\n';"
                  "  if (!r.saved) await new Promise(res => setTimeout(res, 100)); }"
-                 " r.pref = (await (await fetch('/api/prefs')).json()).vi;"
+                 " r.pref = (await (await fetch('api/prefs')).json()).vi;"
                  " ok(r); }, 50); })"))))))
 
 (deftest format-tidies-the-text-and-undoes
@@ -745,7 +802,7 @@
             path "g.edn" "{:nodes {:a {} :b {}} :edges {[:a :b] {:direction :->}}}"
             (str "(async () => {"
                  " const sleep = ms => new Promise(res => setTimeout(res, ms));"
-                 " const app = await import('/js/simpleviz/app.mjs');"
+                 " const app = await import('./js/simpleviz/app.mjs');"
                  " for (let i = 0; i < 100 && !app.state.val.scene; i++) await sleep(100);"
                  " const seen = [];"
                  " new MutationObserver(() => { const has = !!document.getElementById('layouting');"
@@ -792,10 +849,10 @@
              (str "(async () => {"
                   " const sleep = ms => new Promise(res => setTimeout(res, ms));"
                   " const until = async f => { for (let i = 0; i < 100; i++) { const v = await f(); if (v) return v; await sleep(100); } return null; };"
-                  " const app = await import('/js/simpleviz/app.mjs'), cv = await import('/js/simpleviz/canvas.mjs');"
+                  " const app = await import('./js/simpleviz/app.mjs'), cv = await import('./js/simpleviz/canvas.mjs');"
                   " const st = () => app.state.val;"
                   " const pos = (src, id) => { const m = src.match(new RegExp(':' + id + ' \\\\{:pos \\\\[(\\\\d+) (\\\\d+)\\\\]')); return m && [+m[1], +m[2]]; };"
-                  " const source = async () => (await fetch('/api/source')).text();"
+                  " const source = async () => (await fetch('api/source')).text();"
                   " await until(() => st().scene && document.getElementById('arrange-btn'));"
                   " document.getElementById('arrange-btn').click();"
                   " const s1 = await until(async () => { const s = await source(); return pos(s, 'a') && pos(s, 'b') && s; });"
@@ -825,11 +882,11 @@
                   " let clip = '';"
                   " delete window.ClipboardItem;"
                   " Object.defineProperty(navigator, 'clipboard', {value: {writeText: async t => { clip = t; }, readText: async () => clip}});"
-                  " const app = await import('/js/simpleviz/app.mjs'), cv = await import('/js/simpleviz/canvas.mjs');"
+                  " const app = await import('./js/simpleviz/app.mjs'), cv = await import('./js/simpleviz/canvas.mjs');"
                   " const st = () => app.state.val;"
                   " const key = k => document.dispatchEvent(new KeyboardEvent('keydown', {key: k, bubbles: true}));"
                   " const keys = ks => ks.split(' ').forEach(key);"
-                  " const source = async () => (await fetch('/api/source')).text();"
+                  " const source = async () => (await fetch('api/source')).text();"
                   " const ids = () => [...st().multi.ids].sort().join(' ');"
                   " await until(() => st().scene);"
                   " keys('s s');"

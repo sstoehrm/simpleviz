@@ -11,11 +11,13 @@ sent to.
   folder you started it in; the page loads its scripts and styles from
   it, nothing from elsewhere.
 - **Your choices** (theme, vi mode) are kept in `~/.simpleviz/prefs.edn`
-  (or `$SIMPLEVIZ_HOME`). With `--debug`, edits and errors are logged to
+  (or `$SIMPLEVIZ_HOME`). While a server runs, its URL and the file it
+  serves are listed in `~/.simpleviz/servers`, readable by you only, for
+  `simpleviz servers`. With `--debug`, edits and errors are logged to
   `~/.simpleviz/logs`; a crash writes a report there. None of it leaves
   your machine.
 - **`simpleviz export`** starts your own Chrome or Chromium, headless,
-  and talks to it over 127.0.0.1.
+  and talks to it over private pipes.
 
 ## When it goes online
 

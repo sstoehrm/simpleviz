@@ -69,6 +69,18 @@ against the compiled output).
 Large example graphs can be generated with
 `bb dev/gen-example.clj 10000 big.edn`.
 
+Every request goes through `session/wrap` first: the server answers only
+below `/<token>/`, a random 256-bit token made at start, and strips that
+prefix before routing, so routes, logs and tests see plain `/api/...`
+paths (`serve/handler` itself is unauthenticated; tests call it
+directly). The page therefore names every file relative to itself
+(`api/root`, `js/...`, never `/api/root`); `session-test` and
+`minify-test` keep it so. `cli` opens the browser through a launch file
+(`session/launch-file!`) and lists each server in `~/.simpleviz/servers/`
+(`session/register!`, read by `simpleviz servers`). `simpleviz export`
+talks to headless Chrome over `--remote-debugging-pipe` (fd 3 and 4,
+NUL-separated JSON), so no DevTools port opens.
+
 The API serves one root file, alone or paired with its fork. The routes
 `/api/graph`, `/api/errors`, `/api/version` and `/api/source` take `?file=<path>`
 and `/api/edit` a `"path"` in its body, a path relative to the root file's

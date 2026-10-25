@@ -1,6 +1,6 @@
 {
   "name": "simpleviz",
-  "version": "0.48.1",
+  "version": "0.49.0",
   "description": "Diagrams, docs and slides from plain markdown and EDN files, with simpleviz",
   "author": {
     "name": "Sören Stöhrmann",

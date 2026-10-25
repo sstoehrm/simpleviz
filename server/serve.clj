@@ -160,6 +160,16 @@
     (swap! undo-stacks update path pop)
     top))
 
+(def ^:private file-monitors (atom {})) ; canonical path -> Object
+
+(defn- file-monitor
+  "One monitor per canonical file, shared by edits and advisory locks."
+  [path]
+  (or (get @file-monitors path)
+      (get (swap! file-monitors
+                  (fn [m] (if (contains? m path) m (assoc m path (Object.)))))
+           path)))
+
 (defn- lock-holder
   "The owner of the live lock on `path` at `now`, or nil."
   [path now]
@@ -170,18 +180,19 @@
   "Take or renew the advisory write lock on `path` for `owner` at `now`
   (ms): granted when the file is free, the lock expired, or `owner`
   already holds it. One swap! decides, so two racing requests cannot
-  both win."
+  both win; a browser edit in flight finishes before a lock is granted."
   [path owner now]
-  (let [after (swap! locks
-                     (fn [m]
-                       (let [{held :owner :keys [expires]} (get m path)]
-                         (if (and (some? held) (< now expires) (not= held owner))
-                           m
-                           (assoc m path {:owner owner :expires (+ now lock-ttl-ms)})))))
-        holder (:owner (get after path))]
-    (if (= holder owner)
-      {:ok true :ttl (quot lock-ttl-ms 1000)}
-      {:error (str "locked by " holder) :owner holder})))
+  (locking (file-monitor path)
+    (let [after (swap! locks
+                       (fn [m]
+                         (let [{held :owner :keys [expires]} (get m path)]
+                           (if (and (some? held) (< now expires) (not= held owner))
+                             m
+                             (assoc m path {:owner owner :expires (+ now lock-ttl-ms)})))))
+          holder (:owner (get after path))]
+      (if (= holder owner)
+        {:ok true :ttl (quot lock-ttl-ms 1000)}
+        {:error (str "locked by " holder) :owner holder}))))
 
 (defn release-lock!
   "Drop `owner`'s lock on `path`; releasing a free file is fine, someone
@@ -339,36 +350,46 @@
     (refuse-embedded-compare!)
     rel))
 
+(declare write-atomically!)
+
 (defn- edit-response [{:keys [file ops path compare step]}]
   (try
     (when (some? path) (refuse-embedded-compare!))
     (let [{:keys [old new] :as pair} (sides path compare)
           target (if (= file "old") old new)
-          path (some-> target .getPath)
+          path (some-> target .getPath)]
+      (if (nil? path)
+        {:error "no old file in single-file mode"}
+        ;; read, apply, write and undo as one step per file: two edits
+        ;; in flight would both read the same text and the later write
+        ;; would drop the earlier change
+        (locking (file-monitor path)
           ;; a side that is not there yet comes into being with its
-          ;; first successful edit
-          source (when (some? target) (side-file pair file))
-          ;; the browser owns no lock, so any live one blocks it
-          holder (some-> path (lock-holder (System/currentTimeMillis)))]
-      (cond
-        (nil? path) {:error "no old file in single-file mode"}
-        (read-only-side? pair file) {:error "PNG and SVG sources are read-only"}
-        (some? holder) {:error (str "locked by " holder)}
-        (= "undo" (:op (first ops)))
-        ;; a file deleted since (promote, by hand) stays deleted
-        (if-let [prev (when (.isFile target) (pop-undo! path))]
-          (do (spit path prev) {:ok true})
-          {:error "nothing to undo"})
-        :else
-        ;; snapshot the ORIGINAL text before applying — `before` feeds
-        ;; both the patch and the undo stack
-        (let [before (if (some? source) (slurp source) empty-graph)
-              {:keys [text error]} (steps/apply-ops before ops step)]
-          (if (some? error)
-            {:error error}
-            (do (push-undo! path before)
-                (spit path text)
-                {:ok true})))))
+          ;; first successful edit — maybe the one this waited for
+          (let [source (side-file pair file)
+                ;; the browser owns no lock, so any live one blocks it
+                holder (lock-holder path (System/currentTimeMillis))]
+            (cond
+              (read-only-side? pair file) {:error "PNG and SVG sources are read-only"}
+              (some? holder) {:error (str "locked by " holder)}
+              (= "undo" (:op (first ops)))
+              ;; a file deleted since (promote, by hand) stays deleted;
+              ;; the snapshot is used up only once it is written back
+              (if-let [prev (when (.isFile target) (peek (get @undo-stacks path)))]
+                (do (write-atomically! target (.getBytes ^String prev "UTF-8"))
+                    (pop-undo! path)
+                    {:ok true})
+                {:error "nothing to undo"})
+              :else
+              ;; snapshot the ORIGINAL text before applying — `before`
+              ;; feeds both the patch and the undo stack
+              (let [before (if (some? source) (slurp source) empty-graph)
+                    {:keys [text error]} (steps/apply-ops before ops step)]
+                (if (some? error)
+                  {:error error}
+                  (do (write-atomically! target (.getBytes ^String text "UTF-8"))
+                      (push-undo! path before)
+                      {:ok true}))))))))
     (catch Exception e {:error (or (ex-message e) (str e))})))
 
 (defn- copy-response

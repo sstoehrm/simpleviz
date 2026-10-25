@@ -55,8 +55,9 @@ jobs:
           path: ~/.m2/repository
           key: bb-deps-${{ hashFiles('bb.edn') }}
 
-      # exactly package-lock.json, no install scripts (none of its packages
-      # has one); bb build then finds node_modules and installs nothing
+      # exactly package-lock.json, no install scripts (esbuild's only checks
+      # the binary its @esbuild/<platform> package brings); bb build then
+      # finds every locked version installed and installs nothing
       - name: Install npm packages
         run: npm ci --ignore-scripts
 

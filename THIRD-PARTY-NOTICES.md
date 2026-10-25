@@ -15,14 +15,14 @@ Version: 0.12.0 (recorded in `public/vendor/package.json`).
 Source code: https://github.com/kieler/elkjs/releases/tag/0.12.0 (JavaScript
 build) and https://github.com/eclipse-elk/elk (the underlying Java sources).
 
-## squint-cljs runtime (`public/js/vendor/squint-cljs/`)
+## squint-cljs runtime (bundled into `public/js/app.min.mjs`)
 
 Copyright (c) Michiel Borkent.
 Licensed under the Eclipse Public License 1.0 — the full text ships in
 this bundle at `public/js/vendor/squint-cljs/LICENSE`.
 Source code: https://github.com/squint-cljs/squint
 
-## reagami (`public/js/vendor/reagami/`)
+## reagami (bundled into `public/js/app.min.mjs`)
 
 Copyright (c) Michiel Borkent.
 Licensed under the MIT License:

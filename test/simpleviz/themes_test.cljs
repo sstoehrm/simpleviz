@@ -58,14 +58,14 @@
 
 (test "NAMES lists each built-in theme once"
   (fn []
-    (assert/equal (count themes/NAMES) 14)
+    (assert/equal (count themes/NAMES) 15)
     (assert/deepEqual (sorted (js/Object.keys themes/THEMES)) (sorted themes/NAMES))))
 
 (test "KEYS and KEY-KINDS agree; CSS-KEYS are theme keys"
   (fn []
-    (assert/equal (count themes/KEYS) 39)
+    (assert/equal (count themes/KEYS) 40)
     (assert/deepEqual (sorted (js/Object.keys themes/KEY-KINDS)) (sorted themes/KEYS))
-    (assert/equal (count themes/CSS-KEYS) 21)
+    (assert/equal (count themes/CSS-KEYS) 22)
     (doseq [k themes/CSS-KEYS]
       (assert/ok (contains? themes/KEY-KINDS k) k))))
 
@@ -89,7 +89,9 @@
                    (str n ": box titles on :bg"))
         (assert/ok (>= (contrast (rgb :text) (rgb :panel)) 4.5) (str n ": :text on :panel"))
         (assert/ok (>= (contrast (rgb :label) (rgb :bg)) 4.5) (str n ": :label on :bg"))
-        (assert/ok (>= (contrast (rgb :on-accent) (rgb :accent)) 2.5) (str n ": :on-accent on :accent"))))))
+        (assert/ok (>= (contrast (rgb :on-accent) (rgb :accent)) 2.5) (str n ": :on-accent on :accent"))
+        ;; the signature button runs from :accent to :accent-2 under :on-accent
+        (assert/ok (>= (contrast (rgb :on-accent) (rgb :accent-2)) 2.5) (str n ": :on-accent on :accent-2"))))))
 
 ;; squint keywords are strings
 (def SYNTAX-KEYS (vec (filter #(.startsWith % "syntax-") themes/KEYS)))

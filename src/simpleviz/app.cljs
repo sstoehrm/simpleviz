@@ -93,10 +93,8 @@
                   ;; vi mode in the doc's text (toggle-vi!), and its state
                   :vi-pref false
                   :vim (vim/init)
-                  ;; light or dark as the OS has it, when you chose none
-                  :theme (if (.-matches (js/window.matchMedia "(prefers-color-scheme: dark)"))
-                           "dark"
-                           "light")})))
+                  ;; the default, when you chose none
+                  :theme "abyss"})))
 
 (defn- render-error [st msg]
   (assoc st (if (some? (:scene st)) :notice :error) (str "Render error: " msg)))
@@ -1194,7 +1192,7 @@
       "✥ (top right) places nodes and boxes by hand: the first time, every top-level node and box gets a :pos [col row] on a grid of 20 px cells, where the layout had it (Ctrl+Z takes that back). While ✥ is on, drag a top-level node or box — a box by any part of it, its contents along — and it snaps cell by cell; letting go writes its :pos. ✥ or Esc ends arranging. Boxes still lay out their insides; edges between top-level elements run straight. auto drops every :pos, after asking.")
      (help-section
       "Theme"
-      "The theme menu at the top picks your theme, one of the twelve built-ins, for every graph without :theme; it's kept in ~/.simpleviz, and default follows your system's light or dark. A graph file can set its own theme instead — :theme :nord, or overrides on one such as {:base :nord :accent \"#b58900\"} — which wins: the menu then shows it, marked (file), and you change it in the file.")]))
+      "The theme menu at the top picks your theme, one of the built-ins, for every graph without :theme; it's kept in ~/.simpleviz, and default is abyss. A graph file can set its own theme instead — :theme :nord, or overrides on one such as {:base :nord :accent \"#b58900\"} — which wins: the menu then shows it, marked (file), and you change it in the file.")]))
 
 ;; ---- manual layout (simpleviz.manual) ----
 
@@ -1321,7 +1319,7 @@
                                    (swap! state assoc :theme-pref (if (seq v) v nil))
                                    ;; hand the keys back to the chords
                                    (.blur el)))}
-           (opt "" "default (follow the OS)")]
+           (opt "" "default (abyss)")]
           (cond-> (mapv (fn [n] (opt n n)) themes/NAMES)
             (= value "custom") (conj (opt "custom" "custom" true))))))
 
@@ -3472,10 +3470,22 @@
 
 (defn- effective-theme
   "The theme to show for graph g: the file's :theme (resolved by the
-  server), else your theme `pref`, else light or dark as the OS has it."
-  [g pref os-theme]
-  (or (:theme g) (get themes/THEMES pref) (get themes/THEMES os-theme)
-      (get themes/THEMES :light)))
+  server), else your theme `pref`, else the default theme `default`."
+  [g pref default]
+  (or (:theme g) (get themes/THEMES pref) (get themes/THEMES default)
+      (get themes/THEMES :abyss)))
+
+(defn- dark-color?
+  "True when CSS color c is dark: the browser normalizes it (#rrggbb, or
+  rgba() with alpha) and its luminance decides."
+  [c]
+  (let [ctx (.getContext (js/document.createElement "canvas") "2d")
+        _ (set! (.-fillStyle ctx) c)
+        n (.-fillStyle ctx)
+        [r g b] (if (.startsWith n "#")
+                  (mapv (fn [i] (js/parseInt (.slice n i (+ i 2)) 16)) [1 3 5])
+                  (mapv js/parseFloat (.slice (.split (.slice n (inc (.indexOf n "("))) ",") 0 3)))]
+    (< (+ (* 0.299 r) (* 0.587 g) (* 0.114 b)) 128)))
 
 (defn- apply-theme!
   "Paint page and canvas in theme, a complete theme map: the chrome via
@@ -3485,7 +3495,9 @@
   [theme]
   (let [style (.. js/document -documentElement -style)]
     (doseq [[k v] (theme-vars theme)]
-      (.setProperty style k v)))
+      (.setProperty style k v))
+    ;; the native controls (the theme menu's list, scrollbars) follow
+    (set! (.-colorScheme style) (if (dark-color? (:bg theme)) "dark" "light")))
   (canvas/set-theme! theme)
   (canvas/request-paint!))
 
@@ -3678,11 +3690,13 @@
 
 (defn- headless-export
   "window.simplevizExport (simpleviz export, server/browser.clj): a
-  graph's png or svg, or the pdf of an md page's slides."
+  graph's png or svg, or the pdf of an md page's slides. Without
+  --theme a file without :theme exports light, not the page's default."
   [opts]
-  (if (= (.-format opts) "pdf")
-    (pdf-export (.-theme opts))
-    (graph-export (.-format opts) (.-theme opts))))
+  (let [theme (or (.-theme opts) "light")]
+    (if (= (.-format opts) "pdf")
+      (pdf-export theme)
+      (graph-export (.-format opts) theme))))
 
 ;; init
 (defn- typing?

@@ -70,25 +70,27 @@ new file's theme.
 The theme menu at the top of the page picks your theme for every graph
 without `:theme`. It's kept in `~/.simpleviz/prefs.edn`, not in any graph
 file, so every page and every run of `simpleviz` shows it, and
-"default" follows the operating system's light or dark setting. A file's
+"default" is `abyss`. A file's
 `:theme` wins over it: the menu then shows the file's theme, marked
 "(file)", and is disabled; change that theme in the file.
 
-Built-in themes: `light` and `dark` (the two the OS setting picks from),
-`print` (white, greys, no box fills), `high-contrast`, `blueprint`, `paper`,
+Built-in themes: `abyss` (the default: a near-black teal deep, silver
+text, teal light running to pink), `light`, `dark`, `print` (white, greys, no box fills), `high-contrast`, `blueprint`, `paper`,
 `solarized-light`, `solarized-dark`, `nord`, `dracula`, `carbonfox`,
 `one-dark`, `tabak-light` and `tabak-dark`.
 
 | Group | Keys |
 |---|---|
-| page | `:bg :panel :panel-border :panel-divider :text :text-strong :text-muted :text-dim :hover :hover-plain :accent :on-accent :shadow` |
+| page | `:bg :panel :panel-border :panel-divider :text :text-strong :text-muted :text-dim :hover :hover-plain :accent :on-accent :accent-2 :shadow` |
 | canvas | `:node-fill :node-stroke :edge :arrow :sub` (the `(type)` line) `:label` (edge labels) `:btn-fill` (box header button) |
 | compare | `:diff-added :diff-modified :diff-removed` |
 | code | `:syntax-keyword :syntax-string :syntax-number :syntax-attr :syntax-comment` (highlighted code blocks in md docs: `:syntax-keyword` also colors tags and removed diff lines, `:syntax-string` added diff lines, `:syntax-number` literals, `:syntax-comment` diff headers and doctypes) |
 | `:state` marks | `:state-new :state-in-progress :state-blocked :state-done` |
 | type colors | `:node-saturation :node-lightness :box-saturation :box-lightness :neutral-node-lightness :neutral-box-lightness` (0–100), `:box-fill-alpha` (0–1) |
 
-(`:on-accent`: text on accent-colored buttons and hints)
+(`:on-accent`: text on accent-colored buttons and hints; `:accent-2`: where
+the primary button's gradient runs to from `:accent`, and the color of
+counts)
 
 Colors are strings: `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`, or
 `rgb()`/`rgba()`/`hsl()`/`hsla()`. Named colors aren't accepted. Each `:type` keeps its hue in every theme: the type-color keys

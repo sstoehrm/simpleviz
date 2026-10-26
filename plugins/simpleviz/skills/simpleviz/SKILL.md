@@ -150,7 +150,7 @@ Attributes simpleviz reads:
   names the same element in another graph. The page marks both sides with
   ⇄ and jumps between them. A missing file or id is a warning.
 - `:theme` at the top level sets the colors for every viewer and export: a
-  built-in (`:light :dark :print :high-contrast :blueprint :paper
+  built-in (`:abyss :light :dark :print :high-contrast :blueprint :paper
   :solarized-light :solarized-dark :nord :dracula :carbonfox :one-dark
   :tabak-light :tabak-dark`) or overrides on one, `{:base :nord :accent
   "#b58900" :edge "#81a1c1"}` (`#hex`, `rgb()`, `hsl()`; the keys are in

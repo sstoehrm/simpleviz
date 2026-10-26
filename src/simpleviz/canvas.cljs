@@ -20,7 +20,7 @@
 ;; its type-color tables, swapped whole by set-theme!
 (defn- with-tables [theme] (assoc theme :tables (colors/tables theme)))
 
-(def ^:private palette (atom (with-tables (get themes/THEMES :light))))
+(def ^:private palette (atom (with-tables (get themes/THEMES :abyss))))
 
 (defn set-theme!
   "Paint with theme, a complete theme map (every themes/KEYS key)."
@@ -589,9 +589,9 @@
       (set! (.-width canvas-el) pw)
       (set! (.-height canvas-el) ph))
     (.setTransform ctx 1 0 0 1 0 0)
+    ;; left clear: the page's background (and its glow) shows through;
+    ;; the exports paint :bg themselves
     (.clearRect ctx 0 0 pw ph)
-    (set! (.-fillStyle ctx) (:bg @palette))
-    (.fillRect ctx 0 0 pw ph)
     (.setTransform ctx (* dpr (:k view)) 0 0 (* dpr (:k view))
                    (* dpr (:x view)) (* dpr (:y view)))
     ;; cull to the visible graph-space rect; below TEXT-MIN-PX of rendered

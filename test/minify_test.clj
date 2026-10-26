@@ -47,4 +47,5 @@
       ;; older one that dev (import map) and the tests never run
       (is (= 1 (count (re-seq #"squint\.core/IMap" (slurp (str (fs/path dir "js" "app.min.mjs")))))))
       (is (fs/exists? (fs/path dir "vendor" "elk-worker.min.js")))
+      (is (fs/exists? (fs/path dir "vendor" "fonts" "inter-latin-wght-normal.woff2")))
       (finally (fs/delete-tree tmp)))))

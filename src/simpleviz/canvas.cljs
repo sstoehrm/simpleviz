@@ -25,13 +25,14 @@
 
 (defn- glow-color
   "The accent as #rrggbb for the screen's glow behind the graph — only
-  on a dark background, where it reads as light rather than a tint."
+  on a near-black background, where it reads as light; on a lighter or
+  colored one it would tint the theme's own background."
   [theme]
   (let [bg (canvas-color (:bg theme))
         accent (canvas-color (:accent theme))
         ch (fn [i] (js/parseInt (.slice bg i (+ i 2)) 16))]
     (when (and (.startsWith bg "#") (.startsWith accent "#")
-               (< (+ (* 0.2126 (ch 1)) (* 0.7152 (ch 3)) (* 0.0722 (ch 5))) 60))
+               (< (+ (* 0.2126 (ch 1)) (* 0.7152 (ch 3)) (* 0.0722 (ch 5))) 30))
       accent)))
 
 ;; the painter's theme: a complete theme map (server/themes.cljc) plus

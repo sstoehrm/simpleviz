@@ -7,7 +7,7 @@
 
 (def NAMES
   "The built-in themes, in documentation order."
-  [:light :dark :print :high-contrast :blueprint :paper
+  [:electric :light :dark :print :high-contrast :blueprint :paper
    :solarized-light :solarized-dark :nord :dracula :carbonfox :one-dark
    :tabak-light :tabak-dark])
 
@@ -49,7 +49,21 @@
 
 (def THEMES
   "Name -> complete theme (every key in KEYS)."
-  {:light
+  {;; the default: a midnight control room — navy glass, one electric
+   ;; blue, cyan arcing only through code attrs and work in progress
+   :electric
+   {:bg "#060b1f" :panel "#0b1330" :panel-border "#1c2a55" :panel-divider "#141f45"
+    :text "#c9d3ee" :text-strong "#f4f7ff" :text-muted "#8c99c0" :text-dim "#5b6a96"
+    :hover "#0428cb40" :hover-plain "#121c40" :accent "#5c7cff" :on-accent "#ffffff" :shadow "rgba(2, 4, 16, .5)"
+    :node-fill "#0b1330" :node-stroke "#22336a" :edge "#6f7fb0" :arrow "#6f7fb0"
+    :sub "#8c99c0" :label "#d6defa" :btn-fill "#0b1330cc"
+    :diff-added "#3ee6a0" :diff-modified "#ffc65c" :diff-removed "#ff6b81"
+    :syntax-keyword "#ff7a93" :syntax-string "#5ee6a8" :syntax-number "#ffc65c" :syntax-attr "#34fcff" :syntax-comment "#8c99c0"
+    :state-new "#8c99c0" :state-in-progress "#34fcff" :state-blocked "#ff6b81" :state-done "#3ee6a0"
+    :node-saturation 75 :node-lightness 72 :box-saturation 55 :box-lightness 62
+    :box-fill-alpha 0.1 :neutral-node-lightness 78 :neutral-box-lightness 58}
+
+   :light
    {:bg "#fafafa" :panel "#fff" :panel-border "#ddd" :panel-divider "#eee"
     :text "#374151" :text-strong "#000" :text-muted "#6b7280" :text-dim "#9ca3af"
     :hover "#f1f5ff" :hover-plain "#f0f0f0" :accent "#2563eb" :on-accent "#fff" :shadow "rgba(0, 0, 0, .06)"

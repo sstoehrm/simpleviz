@@ -359,7 +359,7 @@
           os (theme-menu {:editable true} nil)
           named (theme-menu {:theme {:bg "#000"} :theme-name "dracula" :editable true} "nord")
           custom (theme-menu {:theme {:bg "#000"}} "nord")]
-      ;; no :theme in the file: the menu is yours, "" = follow the OS
+      ;; no :theme in the file: the menu is yours, "" = the default theme
       (assert/equal (:value mine) "nord")
       (assert/equal (:disabled mine) false)
       (assert/equal (:file mine) false)

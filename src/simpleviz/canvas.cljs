@@ -16,9 +16,28 @@
   (set! (.-font measure-ctx) font)
   (.-width (.measureText measure-ctx text)))
 
+(defn- canvas-color
+  "CSS color c as the canvas spells it: #rrggbb when opaque."
+  [c]
+  (set! (.-fillStyle measure-ctx) "#000")
+  (set! (.-fillStyle measure-ctx) c)
+  (.-fillStyle measure-ctx))
+
+(defn- glow-color
+  "The accent as #rrggbb for the screen's glow behind the graph — only
+  on a dark background, where it reads as light rather than a tint."
+  [theme]
+  (let [bg (canvas-color (:bg theme))
+        accent (canvas-color (:accent theme))
+        ch (fn [i] (js/parseInt (.slice bg i (+ i 2)) 16))]
+    (when (and (.startsWith bg "#") (.startsWith accent "#")
+               (< (+ (* 0.2126 (ch 1)) (* 0.7152 (ch 3)) (* 0.0722 (ch 5))) 60))
+      accent)))
+
 ;; the painter's theme: a complete theme map (server/themes.cljc) plus
-;; its type-color tables, swapped whole by set-theme!
-(defn- with-tables [theme] (assoc theme :tables (colors/tables theme)))
+;; its type-color tables and glow, swapped whole by set-theme!
+(defn- with-tables [theme]
+  (assoc theme :tables (colors/tables theme) :glow (glow-color theme)))
 
 (def ^:private palette (atom (with-tables (get themes/THEMES :light))))
 
@@ -592,6 +611,15 @@
     (.clearRect ctx 0 0 pw ph)
     (set! (.-fillStyle ctx) (:bg @palette))
     (.fillRect ctx 0 0 pw ph)
+    ;; one faint radial glow, fixed to the screen; exports stay flat
+    (when-let [g (:glow @palette)]
+      (let [cx (* pw 0.5)
+            cy (* ph 0.42)
+            grad (.createRadialGradient ctx cx cy 0 cx cy (* 0.65 (js/Math.max pw ph)))]
+        (.addColorStop grad 0 (str g "26"))
+        (.addColorStop grad 1 (str g "00"))
+        (set! (.-fillStyle ctx) grad)
+        (.fillRect ctx 0 0 pw ph)))
     (.setTransform ctx (* dpr (:k view)) 0 0 (* dpr (:k view))
                    (* dpr (:x view)) (* dpr (:y view)))
     ;; cull to the visible graph-space rect; below TEXT-MIN-PX of rendered

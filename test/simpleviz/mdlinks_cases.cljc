@@ -70,6 +70,7 @@
    [" [docs](https://example.com)" nil]
    [" [the writeup](https://example.com/notes.md)" nil]
    [" [x](/abs/g.edn)" nil]
+   [" [see](md)" nil]
    [" [a](a.edn" nil]
    ["" nil]])
 

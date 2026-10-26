@@ -61,7 +61,8 @@
     (assert/equal (side-kind "x.jpeg") "image")
     (assert/equal (side-kind "x.gif") "image")
     (assert/equal (side-kind "x.webp") "image")
-    (assert/equal (side-kind "x.txt") nil)))
+    (assert/equal (side-kind "x.txt") nil)
+    (assert/equal (side-kind "edn") nil)))
 
 (test "?? names a question: its task list becomes the choices, [x] the right one"
   (fn []

@@ -443,11 +443,14 @@
   \"export\" (.png or .svg: a graph when it carries simpleviz EDN, else a
   picture), \"image\" (.jpg .jpeg .gif .webp); nil for anything else."
   [dest]
-  (let [low (str/lower-case dest)]
-    (get {"edn" "graph" "md" "md" "png" "export" "svg" "export"
-          "jpg" "image" "jpeg" "image" "gif" "image" "webp" "image"}
-         (subs low (inc (.lastIndexOf low ".")))
-         nil)))
+  (let [low (str/lower-case dest)
+        dot (.lastIndexOf low ".")]
+    (if (>= dot 0)
+      (get {"edn" "graph" "md" "md" "png" "export" "svg" "export"
+            "jpg" "image" "jpeg" "image" "gif" "image" "webp" "image"}
+           (subs low (inc dot))
+           nil)
+      nil)))
 
 (defn quote-target
   "What the rest of a presentation's `>` line names, as side-target has

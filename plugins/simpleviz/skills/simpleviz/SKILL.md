@@ -152,7 +152,7 @@ Attributes simpleviz reads:
 - `:theme` at the top level sets the colors for every viewer and export: a
   built-in (`:light :dark :print :high-contrast :blueprint :paper
   :solarized-light :solarized-dark :nord :dracula :carbonfox :one-dark
-  :tabak-light :tabak-dark`) or overrides on one, `{:base :nord :accent
+  :tabak-light :tabak-dark :aurora`) or overrides on one, `{:base :nord :accent
   "#b58900" :edge "#81a1c1"}` (`#hex`, `rgb()`, `hsl()`; the keys are in
   the [guide's Themes section](https://github.com/sstoehrm/simpleviz/blob/main/docs/guide.md#themes)). It wins over the viewer's choice. An unknown
   name, key or value warns and is skipped.

@@ -1430,6 +1430,12 @@
   (is (= 404 (:status (serve/handler {:uri "/vendor"}))))
   (is (= 404 (:status (serve/handler {:uri "/vendor/"})))))
 
+(deftest vendored-fonts-are-served-as-woff2
+  ;; the page's typefaces ship with it (PRIVACY.md: nothing from elsewhere)
+  (let [res (serve/handler {:uri "/vendor/fonts/inter-latin-wght-normal.woff2"})]
+    (is (= 200 (:status res)))
+    (is (= "font/woff2" (get-in res [:headers "Content-Type"])))))
+
 (deftest graph-json-carries-the-resolved-theme
   (let [out (json/parse-string (serve/graph-json "{:theme {:base :nord :accent \"#b58900\"} :nodes {:a {}}}"))]
     (is (= "#2e3440" (get-in out ["theme" "bg"])))

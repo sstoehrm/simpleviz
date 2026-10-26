@@ -93,10 +93,8 @@
                   ;; vi mode in the doc's text (toggle-vi!), and its state
                   :vi-pref false
                   :vim (vim/init)
-                  ;; light or dark as the OS has it, when you chose none
-                  :theme (if (.-matches (js/window.matchMedia "(prefers-color-scheme: dark)"))
-                           "dark"
-                           "light")})))
+                  ;; the theme when you chose none: aurora, light in exports
+                  :theme themes/DEFAULT})))
 
 (defn- render-error [st msg]
   (assoc st (if (some? (:scene st)) :notice :error) (str "Render error: " msg)))
@@ -1194,7 +1192,7 @@
       "✥ (top right) places nodes and boxes by hand: the first time, every top-level node and box gets a :pos [col row] on a grid of 20 px cells, where the layout had it (Ctrl+Z takes that back). While ✥ is on, drag a top-level node or box — a box by any part of it, its contents along — and it snaps cell by cell; letting go writes its :pos. ✥ or Esc ends arranging. Boxes still lay out their insides; edges between top-level elements run straight. auto drops every :pos, after asking.")
      (help-section
       "Theme"
-      "The theme menu at the top picks your theme, one of the twelve built-ins, for every graph without :theme; it's kept in ~/.simpleviz, and default follows your system's light or dark. A graph file can set its own theme instead — :theme :nord, or overrides on one such as {:base :nord :accent \"#b58900\"} — which wins: the menu then shows it, marked (file), and you change it in the file.")]))
+      "The theme menu at the top picks your theme, one of the built-ins, for every graph without :theme; it's kept in ~/.simpleviz, and default is aurora, the midnight theme. A graph file can set its own theme instead — :theme :nord, or overrides on one such as {:base :nord :accent \"#b58900\"} — which wins: the menu then shows it, marked (file), and you change it in the file.")]))
 
 ;; ---- manual layout (simpleviz.manual) ----
 
@@ -1321,7 +1319,7 @@
                                    (swap! state assoc :theme-pref (if (seq v) v nil))
                                    ;; hand the keys back to the chords
                                    (.blur el)))}
-           (opt "" "default (follow the OS)")]
+           (opt "" (str "default (" themes/DEFAULT ")"))]
           (cond-> (mapv (fn [n] (opt n n)) themes/NAMES)
             (= value "custom") (conj (opt "custom" "custom" true))))))
 
@@ -2294,7 +2292,7 @@
         (some? (:error raw))
         (do (when (nil? (:graph @state))
               ;; no graph to show (a navigation landed on a broken file):
-              ;; back to your theme (or the OS's), which the menu shows again
+              ;; back to your theme (or the default), which the menu shows again
               (apply-theme! (effective-theme nil (:theme-pref @state) (:theme @state))))
             (swap! state assoc :error (str "Graph error: " (:error raw)) :dismissed-error nil))
         :else
@@ -3472,10 +3470,10 @@
 
 (defn- effective-theme
   "The theme to show for graph g: the file's :theme (resolved by the
-  server), else your theme `pref`, else light or dark as the OS has it."
-  [g pref os-theme]
-  (or (:theme g) (get themes/THEMES pref) (get themes/THEMES os-theme)
-      (get themes/THEMES :light)))
+  server), else your theme `pref`, else `fallback` (themes/DEFAULT)."
+  [g pref fallback]
+  (or (:theme g) (get themes/THEMES pref) (get themes/THEMES fallback)
+      (get themes/THEMES themes/DEFAULT)))
 
 (defn- apply-theme!
   "Paint page and canvas in theme, a complete theme map: the chrome via
@@ -3643,7 +3641,8 @@
   (js-await (wait-for! editor/deck-readiness))
   (when (empty? (deck @state))
     (throw (js/Error. (str (:path (:md @state)) " has no slides"))))
-  (when (some? theme) (swap! state assoc :theme-pref theme))
+  ;; no --theme: light, as the guide promises, not the page's default
+  (swap! state assoc :theme-pref (or theme "light"))
   (let [sides (js-await (print-sides 0 [] {}))]
     (leave-present!)
     (apply-theme! (effective-theme nil (:theme-pref @state) (:theme @state)))
@@ -3663,7 +3662,8 @@
   for \"png\", {:data svg-text} for \"svg\"."
   [fmt theme]
   (js-await (wait-for! editor/load-readiness))
-  (when (some? theme)
+  ;; no --theme: light, as the guide promises, not the page's default
+  (let [theme (or theme "light")]
     (apply-theme! (effective-theme (:graph @state) theme (:theme @state)))
     (swap! state assoc :theme-pref theme))
   ;; a render error notice from before must not fail this export

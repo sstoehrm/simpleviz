@@ -9,7 +9,11 @@
   "The built-in themes, in documentation order."
   [:light :dark :print :high-contrast :blueprint :paper
    :solarized-light :solarized-dark :nord :dracula :carbonfox :one-dark
-   :tabak-light :tabak-dark])
+   :tabak-light :tabak-dark :aurora])
+
+(def DEFAULT
+  "The theme a graph shows when neither its file nor you pick one."
+  :aurora)
 
 (def KEYS
   "Every theme key, in documentation order: page chrome, canvas painter,
@@ -222,7 +226,21 @@
     :syntax-keyword "#cf8b8b" :syntax-string "#86a486" :syntax-number "#ebdda9" :syntax-attr "#cf8b8b" :syntax-comment "#aaa89c"
     :state-new "#aaa89c" :state-in-progress "#8dacb5" :state-blocked "#cc8383" :state-done "#7f9f7f"
     :node-saturation 35 :node-lightness 72 :box-saturation 30 :box-lightness 62
-    :box-fill-alpha 0.1 :neutral-node-lightness 75 :neutral-box-lightness 60}})
+    :box-fill-alpha 0.1 :neutral-node-lightness 75 :neutral-box-lightness 60}
+
+   ;; midnight canvas, navy hairlines, white type; violet carries the
+   ;; accent, pink the code keywords — the page's aurora glows mix from both
+   :aurora
+   {:bg "#07080d" :panel "#0d0f17" :panel-border "#1d2235" :panel-divider "#161a29"
+    :text "#d6d9e3" :text-strong "#ffffff" :text-muted "#8d94a8" :text-dim "#5f6680"
+    :hover "#8b7cf624" :hover-plain "#151826" :accent "#8b7cf6" :on-accent "#ffffff" :shadow "rgba(0, 0, 0, .55)"
+    :node-fill "#12111d" :node-stroke "#2b2944" :edge "#6c7391" :arrow "#6c7391"
+    :sub "#8d94a8" :label "#d6d9e3" :btn-fill "#12111dcc"
+    :diff-added "#34d399" :diff-modified "#fbbf24" :diff-removed "#f87171"
+    :syntax-keyword "#f472b6" :syntax-string "#34d399" :syntax-number "#fbbf24" :syntax-attr "#a99cff" :syntax-comment "#8d94a8"
+    :state-new "#8d94a8" :state-in-progress "#8b7cf6" :state-blocked "#f87171" :state-done "#34d399"
+    :node-saturation 80 :node-lightness 74 :box-saturation 55 :box-lightness 62
+    :box-fill-alpha 0.1 :neutral-node-lightness 82 :neutral-box-lightness 55}})
 
 #?(:clj
    (do

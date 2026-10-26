@@ -46,6 +46,8 @@
 (deftest third-party-notices-cover-vendored-components
   (let [notices (slurp "THIRD-PARTY-NOTICES.md")
         vendored (concat ["elk-api.js" "elk-worker.min.js"]
+                         (map (fn [f] (.getName f))
+                              (.listFiles (java.io.File. "public/vendor/fonts")))
                          (if-let [fs (seq (.listFiles (java.io.File. "public/js/vendor")))]
                            (map (fn [f] (.getName f)) fs)
                            ;; before a build the copied packages are absent;

@@ -70,14 +70,16 @@ new file's theme.
 The theme menu at the top of the page picks your theme for every graph
 without `:theme`. It's kept in `~/.simpleviz/prefs.edn`, not in any graph
 file, so every page and every run of `simpleviz` shows it, and
-"default" follows the operating system's light or dark setting. A file's
-`:theme` wins over it: the menu then shows the file's theme, marked
-"(file)", and is disabled; change that theme in the file.
+"default" is `aurora`. A file's `:theme` wins over it: the menu then
+shows the file's theme, marked "(file)", and is disabled; change that
+theme in the file.
 
-Built-in themes: `light` and `dark` (the two the OS setting picks from),
-`print` (white, greys, no box fills), `high-contrast`, `blueprint`, `paper`,
-`solarized-light`, `solarized-dark`, `nord`, `dracula`, `carbonfox`,
-`one-dark`, `tabak-light` and `tabak-dark`.
+Built-in themes: `light`, `dark`, `print` (white, greys, no box fills),
+`high-contrast`, `blueprint`, `paper`, `solarized-light`, `solarized-dark`,
+`nord`, `dracula`, `carbonfox`, `one-dark`, `tabak-light`, `tabak-dark` and
+`aurora` (the default: a midnight canvas with a violet accent). Every
+theme's page takes the same look from its own colors: an aurora glow from
+the accent behind the canvas, call-to-action buttons in a gradient of it.
 
 | Group | Keys |
 |---|---|

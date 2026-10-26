@@ -588,10 +588,10 @@
     (when (or (not= (.-width canvas-el) pw) (not= (.-height canvas-el) ph))
       (set! (.-width canvas-el) pw)
       (set! (.-height canvas-el) ph))
+    ;; transparent: the page's backdrop (#canvas-wrap, the theme's :bg
+    ;; and its glows) shows through; exports paint :bg themselves
     (.setTransform ctx 1 0 0 1 0 0)
     (.clearRect ctx 0 0 pw ph)
-    (set! (.-fillStyle ctx) (:bg @palette))
-    (.fillRect ctx 0 0 pw ph)
     (.setTransform ctx (* dpr (:k view)) 0 0 (* dpr (:k view))
                    (* dpr (:x view)) (* dpr (:y view)))
     ;; cull to the visible graph-space rect; below TEXT-MIN-PX of rendered
@@ -606,12 +606,11 @@
       (paint-marquee! ctx k))))
 
 (defn clear!
-  "Paint the canvas blank, the theme's background: nothing is shown."
+  "Paint the canvas blank, the page's backdrop showing: nothing is shown."
   [canvas-el]
   (let [ctx (.getContext canvas-el "2d")]
     (.setTransform ctx 1 0 0 1 0 0)
-    (set! (.-fillStyle ctx) (:bg @palette))
-    (.fillRect ctx 0 0 (.-width canvas-el) (.-height canvas-el))))
+    (.clearRect ctx 0 0 (.-width canvas-el) (.-height canvas-el))))
 
 (defn export-canvas
   "Offscreen canvas with the WHOLE scene at up to 2x scale (capped so

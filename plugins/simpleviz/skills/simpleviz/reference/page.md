@@ -17,8 +17,8 @@ unnamed edge is headed by its `[from to]` key). Drag pans, wheel zooms.
 Boxes collapse and expand via the `−` button in their header.
 
 The theme menu top-right picks the viewer's own theme for every graph
-without `:theme` (saved in the browser; "default" follows the OS light/dark
-setting); it never writes the file. A file's `:theme` wins, and the menu
+without `:theme` (saved in the browser; "default" is `ember`, violet-black with an
+orange accent); it never writes the file. A file's `:theme` wins, and the menu
 shows it disabled.
 
 Saving the file reloads the page (~1 s). The tab title names the served

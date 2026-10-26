@@ -20,7 +20,7 @@
 ;; its type-color tables, swapped whole by set-theme!
 (defn- with-tables [theme] (assoc theme :tables (colors/tables theme)))
 
-(def ^:private palette (atom (with-tables (get themes/THEMES :light))))
+(def ^:private palette (atom (with-tables (get themes/THEMES :ember))))
 
 (defn set-theme!
   "Paint with theme, a complete theme map (every themes/KEYS key)."
@@ -230,6 +230,22 @@
             (.stroke ctx))))
     (set! (.-globalAlpha ctx) a0)))
 
+(defn- draw-underglow
+  "The design's backlit edge: a faint accent line just inside a node's
+  bottom border, clear of its corners. A plain stroke, so the SVG export
+  draws it the same."
+  [ctx item]
+  (let [a0 (.-globalAlpha ctx)
+        y (- (+ (:y item) (:h item)) 1.5)]
+    (set! (.-globalAlpha ctx) (* a0 0.8))
+    (.beginPath ctx)
+    (.moveTo ctx (+ (:x item) 8) y)
+    (.lineTo ctx (- (+ (:x item) (:w item)) 8) y)
+    (set! (.-strokeStyle ctx) (:accent @palette))
+    (set! (.-lineWidth ctx) 1.5)
+    (.stroke ctx)
+    (set! (.-globalAlpha ctx) a0)))
+
 (defn- stroke-border
   "Strokes the current path as the item's outer border: dotted when it
   has an :md-ref (a linked markdown doc)."
@@ -416,9 +432,10 @@
     (set! (.-strokeStyle ctx) (if sel? (:accent @palette) (:node-stroke @palette)))
     (set! (.-lineWidth ctx) (if sel? 2 1))
     (stroke-border ctx item)
-    (when db?
-      (cylinder-rim ctx (:x item) (:y item) (:w item) scene/DB-RIM)
-      (stroke-border ctx item))
+    (if db?
+      (do (cylinder-rim ctx (:x item) (:y item) (:w item) scene/DB-RIM)
+          (stroke-border ctx item))
+      (draw-underglow ctx item))
     ;; a :ref node reads as a container: a second border inside the first
     (when (:ref? item)
       (if db?

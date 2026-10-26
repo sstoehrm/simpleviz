@@ -372,7 +372,7 @@
   (let [g (graph/normalize {:theme :neon})]
     (is (not (contains? g :theme)))
     (is (= 1 (count (:warnings g))))
-    (is (str/starts-with? (first (:warnings g)) ":theme: unknown theme \"neon\" (built-in: light, dark, print,"))
+    (is (str/starts-with? (first (:warnings g)) ":theme: unknown theme \"neon\" (built-in: ember, light, dark, print,"))
     (is (str/includes? (first (:warnings g)) "tabak-dark)"))))
 
 (deftest theme-wrong-type-warns-and-is-ignored

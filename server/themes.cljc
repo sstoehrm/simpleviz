@@ -7,7 +7,7 @@
 
 (def NAMES
   "The built-in themes, in documentation order."
-  [:light :dark :print :high-contrast :blueprint :paper
+  [:ember :light :dark :print :high-contrast :blueprint :paper
    :solarized-light :solarized-dark :nord :dracula :carbonfox :one-dark
    :tabak-light :tabak-dark])
 
@@ -49,7 +49,21 @@
 
 (def THEMES
   "Name -> complete theme (every key in KEYS)."
-  {:light
+  {;; the default: a violet-black canvas lit by an orange ember accent
+   ;; and electric-blue edges, like a workflow engine running at night
+   :ember
+   {:bg "#0e0918" :panel "#160f24" :panel-border "#2f2742" :panel-divider "#221a33"
+    :text "#d8d2e6" :text-strong "#ffffff" :text-muted "#a49cba" :text-dim "#716a88"
+    :hover "#fd892521" :hover-plain "#221a33" :accent "#ff7a1f" :on-accent "#ffffff" :shadow "rgba(0, 0, 0, .55)"
+    :node-fill "#150e22" :node-stroke "#362c4c" :edge "#4f8dff" :arrow "#4f8dff"
+    :sub "#a49cba" :label "#cdc6de" :btn-fill "#150e22cc"
+    :diff-added "#3ad99a" :diff-modified "#ffb547" :diff-removed "#ff4d3d"
+    :syntax-keyword "#ff6f61" :syntax-string "#3ad99a" :syntax-number "#ffb547" :syntax-attr "#6ea8ff" :syntax-comment "#948cab"
+    :state-new "#8a83a3" :state-in-progress "#4f8dff" :state-blocked "#ff4d3d" :state-done "#3ad99a"
+    :node-saturation 80 :node-lightness 72 :box-saturation 60 :box-lightness 64
+    :box-fill-alpha 0.1 :neutral-node-lightness 82 :neutral-box-lightness 58}
+
+   :light
    {:bg "#fafafa" :panel "#fff" :panel-border "#ddd" :panel-divider "#eee"
     :text "#374151" :text-strong "#000" :text-muted "#6b7280" :text-dim "#9ca3af"
     :hover "#f1f5ff" :hover-plain "#f0f0f0" :accent "#2563eb" :on-accent "#fff" :shadow "rgba(0, 0, 0, .06)"

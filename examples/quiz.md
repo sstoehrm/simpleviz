@@ -8,7 +8,7 @@ Present, top right, asks these questions with the demo graph beside them. Your a
 
 ---
 
->> [the demo](demo.edn)
+> [the demo](demo.edn)
 ??? sessions
 
 # Where does the API keep its sessions?
@@ -24,7 +24,7 @@ Present, top right, asks these questions with the demo graph beside them. Your a
 
 ---
 
->> [the demo](demo.edn)
+> [the demo](demo.edn)
 ??? worker
 
 # Where does the Worker get its work?
@@ -42,7 +42,7 @@ Submitted, the answer is locked: the right choice is marked, and the note under 
 
 ---
 
->> [the demo](demo.edn)
+> [the demo](demo.edn)
 ??? zone
 
 # Which box holds Postgres and Redis?
@@ -56,7 +56,7 @@ A quiz question takes 2 to 4 choices.
 
 ---
 
->> [the change](demo.edn?compare=next)
+> [the change](demo.edn?compare=next)
 ?? change
 
 # Should the next version drop the Mailer?

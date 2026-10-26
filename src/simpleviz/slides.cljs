@@ -1,24 +1,18 @@
 (ns simpleviz.slides
   "A presentation of an md page: its slides, parsed by server/deck.cljc
   (which `simpleviz check` shares, so it reports the malformed questions
-  the slides show), what a `>>` target shows as, and where a step stops
+  the slides show), what a `>` or `>>` target shows as, and where a step stops
   for a `???` submit."
-  (:require [deck :as deck]))
+  (:require [deck :as deck]
+            [mdlinks :as mdlinks]))
 
 (def slides
   "The slides of md text (deck/slides)."
   deck/slides)
 
-(defn side-kind
-  "What a `>>` target shows as: \"graph\" (.edn), \"md\", \"export\" (.png
-  or .svg: a graph when it carries simpleviz EDN, else a picture),
-  \"image\" (.jpg .jpeg .gif .webp); nil for anything else."
-  [dest]
-  (let [low (.toLowerCase dest)]
-    (get {"edn" "graph" "md" "md" "png" "export" "svg" "export"
-          "jpg" "image" "jpeg" "image" "gif" "image" "webp" "image"}
-         (.slice low (inc (.lastIndexOf low ".")))
-         nil)))
+(def side-kind
+  "What a `>` or `>>` target shows as (mdlinks/side-kind)."
+  mdlinks/side-kind)
 
 (defn answer
   "The answer to question `id` in `answers`, or nil — its own entry

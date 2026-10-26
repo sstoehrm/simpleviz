@@ -11,10 +11,10 @@
             [clojure.java.browse :as browse]
             [clojure.java.io :as io]
             [clojure.string :as str]
+            [deck]
             [fork]
             [embedded]
             [log]
-            [mdlinks]
             [paths]
             [serve]
             [session]
@@ -138,11 +138,11 @@
        (catch java.io.IOException e (die "cannot write " f ": " (ex-message e)))))
 
 (defn- shown-graphs
-  "The .edn files the >> lines of md `text` name, relative to its folder
-  and staying below it: what a presentation template needs beside it."
+  "The .edn files the slides of md `text` show beside them, relative to
+  its folder and staying below it: what a presentation template needs."
   [text]
-  (->> (str/split-lines text)
-       (keep #(when (str/starts-with? % ">>") (:dest (mdlinks/side-target (subs % 2)))))
+  (->> (deck/slides text)
+       (keep :side)
        (filter #(and (str/ends-with? (str/lower-case %) ".edn")
                      (not (.isAbsolute (io/file %)))
                      (not-any? #{".."} (str/split % #"[/\\]"))))
@@ -150,7 +150,7 @@
 
 (defn- init-md!
   "Write md file `file` from template text `text`, {{name}} its own name,
-  and each graph a >> line names that isn't there yet, from the default
+  and each graph a slide shows that isn't there yet, from the default
   graph template; the files written."
   [file text]
   (let [f (io/file file)

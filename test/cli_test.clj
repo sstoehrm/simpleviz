@@ -173,7 +173,7 @@
         (is (= 0 (:exit res)) (:err res))
         (is (= "created talk.md, talk.edn — view it with: simpleviz talk.md" (str/trim (:out res)))))
       (let [md (slurp (str (fs/path tmp "talk.md")))]
-        (is (str/includes? md "\n>> [talk.edn](talk.edn)\n"))
+        (is (str/includes? md "\n> [talk.edn](talk.edn)\n"))
         (is (not (str/includes? md "{{name}}"))))
       (is (= (slurp (str proc-util/repo-root "/templates/default.edn"))
              (slurp (str (fs/path tmp "talk.edn")))))
@@ -222,6 +222,17 @@
       (is (not (fs/exists? (fs/path tmp "out.edn"))))
       (is (fs/exists? (fs/path tmp "d" "sub" "in.edn")))
       (is (not (fs/exists? (fs/path tmp "d" "pic.png")))))))
+
+(deftest init-writes-the-graph-a-quote-link-slide-shows
+  ;; > [g](g.edn) shows g.edn; a > line that is a quote names nothing
+  (with-tmp
+    (fn [tmp]
+      (fs/create-dirs (fs/path tmp "home" "templates"))
+      (spit (str (fs/path tmp "home" "templates" "deck.md"))
+            "> [g](g.edn)\n# a\n---\n> q.edn\n---\n# b\n> [h](h.edn)\n")
+      (let [res (run-cli ["init" "t.md" "-t" "deck"] :dir tmp :env (home-env tmp))]
+        (is (= 0 (:exit res)) (:err res))
+        (is (= "created t.md, g.edn — view it with: simpleviz t.md" (str/trim (:out res))))))))
 
 (deftest init-writes-the-graph-a-compare-slide-shows
   ;; >> [x](g.edn?compare=next) and >> h.edn?compare=next show g.edn and h.edn

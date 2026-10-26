@@ -1,8 +1,9 @@
 (ns deck
   "A presentation from an md page's text: lines of just --- split it into
   slides (not inside a fenced code block), and a slide whose first line
-  is `>> [text](path)` — or `>> ![alt](path)`, or `>> path` — shows that
-  file beside its text. Empty slides are dropped, so a deck may open and
+  is `> [text](path)` — or `> ![alt](path)` — shows that file beside its
+  text when it is one a slide can show; any other `>` line is a quote.
+  `>> [text](path)` and `>> path` work too. Empty slides are dropped, so a deck may open and
   close with ---.
 
   A slide whose first lines hold `?? name` asks a question: its task
@@ -115,7 +116,7 @@
      {:id id :submit (= marker "???") :error error :choices (if (some? error) [] choices)}]))
 
 (defn- slide
-  "One slide from its lines: [{:text :side} at], :side the `>>` target of
+  "One slide from its lines: [{:text :side} at], :side the `>` or `>>` target of
   its first lines (nil when there is none), plus :side-compare when that
   asks to compare; with `?? name` there too, :ask the question and `at`
   the index of its line (else nil)."
@@ -127,6 +128,10 @@
         (cond
           (and (nil? side) (some? head) (str/starts-with? head ">>"))
           (recur (skip (inc i)) {:target (mdlinks/side-target (subs head 2))} q)
+
+          (and (nil? side) (some? head) (str/starts-with? head ">")
+               (some? (mdlinks/quote-target (subs head 1))))
+          (recur (skip (inc i)) {:target (mdlinks/quote-target (subs head 1))} q)
 
           (and (nil? q) (some? head) (str/starts-with? head "??"))
           (let [marker (if (str/starts-with? head "???") "???" "??")]

@@ -115,7 +115,7 @@ lists the rest. Press `?` in the page for controls and shortcuts.
 `init` copies a template from `~/.simpleviz/templates` (or
 `$SIMPLEVIZ_HOME/templates`): `default.edn` without `-t`, `<name>.edn`
 with `-t <name>` — `<name>.md` for an `.md` file, where `{{name}}` becomes
-the file's name and each `>> [x](x.edn)` slide gets a starter graph unless
+the file's name and each `> [x](x.edn)` slide gets a starter graph unless
 `x.edn` is there. Add your own there, or edit `default.edn`; updates keep
 the folder as it is and only add templates it lacks, so delete a shipped
 one to get its newest version on the next `simpleviz update`.

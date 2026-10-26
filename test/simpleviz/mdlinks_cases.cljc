@@ -68,6 +68,8 @@
    [" [the flow](flow.edn) and more" nil]
    [" [a](notes.txt)" nil]
    [" [docs](https://example.com)" nil]
+   [" [the writeup](https://example.com/notes.md)" nil]
+   [" [x](/abs/g.edn)" nil]
    [" [a](a.edn" nil]
    ["" nil]])
 

@@ -452,13 +452,14 @@
 (defn quote-target
   "What the rest of a presentation's `>` line names, as side-target has
   it — only when that rest is one link or picture and nothing else, to
-  a file a slide can show (side-kind); nil otherwise, the line then
-  being a quote."
+  a file of the folder a slide can show (relative, side-kind); nil
+  otherwise, the line then being a quote."
   [rest]
   (let [t (str/trim rest)
         open (if (str/starts-with? t "![") 1 0)
         e (when (= (ch t open) "[") (get (bracket-pairs t) open))
         [raw end] (when (and (some? e) (= (ch t (inc e)) "(")) (inline-tail t (inc e)))
         dest (when (= end (count t)) (clean-dest raw))]
-    (when (and (some? dest) (some? (side-kind dest)))
+    (when (and (some? dest) (some? (side-kind dest))
+               (not (scheme? dest)) (not (str/starts-with? dest "/")))
       (with-compare {:dest dest} raw))))

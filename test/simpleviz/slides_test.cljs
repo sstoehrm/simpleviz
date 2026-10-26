@@ -40,9 +40,11 @@
     (doseq [deck ["> \"Simplicity is prerequisite for reliability.\"\n> — Dijkstra"
                   "> plain.edn" "> see [g](g.edn)" "> [docs](https://example.com)" "# T\n> [g](g.edn)"]]
       (assert/deepEqual (slides deck) [{:text deck :side nil}]))
-    (let [[s] (slides "> [g](g.edn)\n?? q\n# Q\n- [ ] a\n- [x] b")]
-      (assert/equal (:side s) "g.edn")
-      (assert/equal (:id (:ask s)) "q"))))
+    (doseq [deck ["> [g](g.edn)\n?? q\n# Q\n- [ ] a\n- [x] b"
+                  "?? q\n\n> [g](g.edn)\n# Q\n- [ ] a\n- [x] b"]]
+      (let [[s] (slides deck)]
+        (assert/equal (:side s) "g.edn")
+        (assert/equal (:id (:ask s)) "q")))))
 
 (test "--- inside a fenced code block is code"
   (fn []

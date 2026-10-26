@@ -55,7 +55,7 @@ body { margin: 0; font-family: var(--font); overflow: hidden; letter-spacing: -.
        background: var(--bg); color: var(--text);
        -webkit-font-smoothing: antialiased; font-feature-settings: "cv11", "ss01"; }
 ::selection { background: color-mix(in srgb, var(--accent) 32%, transparent); }
-:is(button, select, a):focus-visible { outline: none; box-shadow: var(--focus); }
+:is(button, select, a):focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
 button, select, input, textarea { font-family: inherit; }
 
 #canvas-wrap { position: fixed; inset: 0; background: var(--bg); }
@@ -597,7 +597,7 @@ body:has(#print) :is(#canvas-wrap, #app) { position: static; }
                         border: none; background: none; padding: 6px 10px;
                         border-radius: 8px; font: inherit; font-weight: 500;
                         color: var(--text); text-align: left; cursor: pointer; }
-#export-menu .em-item:hover, #export-menu .em-item:focus-visible { background: var(--key-hover); color: var(--text-strong); box-shadow: none; }
+#export-menu .em-item:hover, #export-menu .em-item:focus-visible { background: var(--key-hover); color: var(--text-strong); }
 #export-menu .em-hint { font-weight: 400; color: var(--text-muted); }
 #export-menu .em-note { margin-top: 4px; padding: 5px 10px 3px; font-size: 11px;
                         color: var(--text-dim); border-top: 1px solid var(--panel-divider); }

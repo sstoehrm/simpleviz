@@ -7,7 +7,7 @@
 
 (def NAMES
   "The built-in themes, in documentation order."
-  [:light :dark :print :high-contrast :blueprint :paper
+  [:midnight :light :dark :print :high-contrast :blueprint :paper
    :solarized-light :solarized-dark :nord :dracula :carbonfox :one-dark
    :tabak-light :tabak-dark])
 
@@ -49,7 +49,21 @@
 
 (def THEMES
   "Name -> complete theme (every key in KEYS)."
-  {:light
+  {;; the default: an almost-black canvas in barely-visible elevation
+   ;; steps, one warm coral accent, quiet white and grey type
+   :midnight
+   {:bg "#040506" :panel "#0c0d0f" :panel-border "#232427" :panel-divider "#18191c"
+    :text "#c8c9cc" :text-strong "#f4f4f5" :text-muted "#9a9ba0" :text-dim "#6b6c71"
+    :hover "#ff636314" :hover-plain "#17181b" :accent "#ff6363" :on-accent "#040506" :shadow "rgba(0, 0, 0, .6)"
+    :node-fill "#0e0f12" :node-stroke "#2a2b2f" :edge "#76777c" :arrow "#76777c"
+    :sub "#8e8f94" :label "#c8c9cc" :btn-fill "#0e0f12cc"
+    :diff-added "#59d499" :diff-modified "#f5b454" :diff-removed "#ff6363"
+    :syntax-keyword "#ff8080" :syntax-string "#6fdca6" :syntax-number "#f5c26b" :syntax-attr "#7fb2ff" :syntax-comment "#8e8f94"
+    :state-new "#6b6c71" :state-in-progress "#7fb2ff" :state-blocked "#ff6363" :state-done "#59d499"
+    :node-saturation 55 :node-lightness 74 :box-saturation 35 :box-lightness 58
+    :box-fill-alpha 0.06 :neutral-node-lightness 82 :neutral-box-lightness 55}
+
+   :light
    {:bg "#fafafa" :panel "#fff" :panel-border "#ddd" :panel-divider "#eee"
     :text "#374151" :text-strong "#000" :text-muted "#6b7280" :text-dim "#9ca3af"
     :hover "#f1f5ff" :hover-plain "#f0f0f0" :accent "#2563eb" :on-accent "#fff" :shadow "rgba(0, 0, 0, .06)"

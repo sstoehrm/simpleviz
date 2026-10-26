@@ -27,7 +27,11 @@
 ;; lines of TEXT-FONT, broken at "\n" and wrapped past TEXT-W, LINE-H
 ;; apart. The layout sizes elements for them and the painter draws them,
 ;; both from text-lines.
-(def TEXT-FONT "11px system-ui, sans-serif")
+(def SANS
+  "The one family the canvas writes in, as the page does (style.css
+  --font-sans): Neue Montreal where installed, else the bundled Inter."
+  "\"Neue Montreal\", \"PP Neue Montreal\", Inter, system-ui, sans-serif")
+(def TEXT-FONT (str "11px " SANS))
 (def TEXT-W 220)
 (def LINE-H 14)
 

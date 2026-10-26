@@ -7,9 +7,13 @@
 
 (def NAMES
   "The built-in themes, in documentation order."
-  [:light :dark :print :high-contrast :blueprint :paper
+  [:obsidian :light :dark :print :high-contrast :blueprint :paper
    :solarized-light :solarized-dark :nord :dracula :carbonfox :one-dark
    :tabak-light :tabak-dark])
+
+(def DEFAULT
+  "The page's theme while you picked none (the menu's \"default\")."
+  :obsidian)
 
 (def KEYS
   "Every theme key, in documentation order: page chrome, canvas painter,
@@ -49,7 +53,21 @@
 
 (def THEMES
   "Name -> complete theme (every key in KEYS)."
-  {:light
+  {;; near-black canvas, one warm off-white for type and chrome; the
+   ;; accent is that off-white too, color comes from the types alone
+   :obsidian
+   {:bg "#101010" :panel "#141414" :panel-border "#33393f" :panel-divider "#23272b"
+    :text "#e9e6e0" :text-strong "#fffdf9" :text-muted "#a2a8ad" :text-dim "#6b757e"
+    :hover "#fffdf912" :hover-plain "#1e2124" :accent "#fffdf9" :on-accent "#101010" :shadow "rgba(0, 0, 0, 0)"
+    :node-fill "#151515" :node-stroke "#495764" :edge "#8b949c" :arrow "#8b949c"
+    :sub "#a2a8ad" :label "#e9e6e0" :btn-fill "#101010cc"
+    :diff-added "#3fe08a" :diff-modified "#f5b94a" :diff-removed "#ff5a5f"
+    :syntax-keyword "#ff6b70" :syntax-string "#5fe39b" :syntax-number "#f5c063" :syntax-attr "#7fa8ff" :syntax-comment "#8b949c"
+    :state-new "#8b949c" :state-in-progress "#7fa8ff" :state-blocked "#ff5a5f" :state-done "#3fe08a"
+    :node-saturation 80 :node-lightness 72 :box-saturation 55 :box-lightness 62
+    :box-fill-alpha 0.07 :neutral-node-lightness 88 :neutral-box-lightness 60}
+
+   :light
    {:bg "#fafafa" :panel "#fff" :panel-border "#ddd" :panel-divider "#eee"
     :text "#374151" :text-strong "#000" :text-muted "#6b7280" :text-dim "#9ca3af"
     :hover "#f1f5ff" :hover-plain "#f0f0f0" :accent "#2563eb" :on-accent "#fff" :shadow "rgba(0, 0, 0, .06)"

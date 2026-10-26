@@ -93,10 +93,8 @@
                   ;; vi mode in the doc's text (toggle-vi!), and its state
                   :vi-pref false
                   :vim (vim/init)
-                  ;; light or dark as the OS has it, when you chose none
-                  :theme (if (.-matches (js/window.matchMedia "(prefers-color-scheme: dark)"))
-                           "dark"
-                           "light")})))
+                  ;; the page's theme when you chose none
+                  :theme themes/DEFAULT})))
 
 (defn- render-error [st msg]
   (assoc st (if (some? (:scene st)) :notice :error) (str "Render error: " msg)))
@@ -1194,7 +1192,7 @@
       "✥ (top right) places nodes and boxes by hand: the first time, every top-level node and box gets a :pos [col row] on a grid of 20 px cells, where the layout had it (Ctrl+Z takes that back). While ✥ is on, drag a top-level node or box — a box by any part of it, its contents along — and it snaps cell by cell; letting go writes its :pos. ✥ or Esc ends arranging. Boxes still lay out their insides; edges between top-level elements run straight. auto drops every :pos, after asking.")
      (help-section
       "Theme"
-      "The theme menu at the top picks your theme, one of the twelve built-ins, for every graph without :theme; it's kept in ~/.simpleviz, and default follows your system's light or dark. A graph file can set its own theme instead — :theme :nord, or overrides on one such as {:base :nord :accent \"#b58900\"} — which wins: the menu then shows it, marked (file), and you change it in the file.")]))
+      "The theme menu at the top picks your theme, one of the fifteen built-ins, for every graph without :theme; it's kept in ~/.simpleviz, and default is obsidian. A graph file can set its own theme instead — :theme :nord, or overrides on one such as {:base :nord :accent \"#b58900\"} — which wins: the menu then shows it, marked (file), and you change it in the file.")]))
 
 ;; ---- manual layout (simpleviz.manual) ----
 
@@ -1321,7 +1319,7 @@
                                    (swap! state assoc :theme-pref (if (seq v) v nil))
                                    ;; hand the keys back to the chords
                                    (.blur el)))}
-           (opt "" "default (follow the OS)")]
+           (opt "" (str "default (" themes/DEFAULT ")"))]
           (cond-> (mapv (fn [n] (opt n n)) themes/NAMES)
             (= value "custom") (conj (opt "custom" "custom" true))))))
 
@@ -3472,9 +3470,9 @@
 
 (defn- effective-theme
   "The theme to show for graph g: the file's :theme (resolved by the
-  server), else your theme `pref`, else light or dark as the OS has it."
-  [g pref os-theme]
-  (or (:theme g) (get themes/THEMES pref) (get themes/THEMES os-theme)
+  server), else your theme `pref`, else the page's default."
+  [g pref default-theme]
+  (or (:theme g) (get themes/THEMES pref) (get themes/THEMES default-theme)
       (get themes/THEMES :light)))
 
 (defn- apply-theme!
@@ -3678,11 +3676,13 @@
 
 (defn- headless-export
   "window.simplevizExport (simpleviz export, server/browser.clj): a
-  graph's png or svg, or the pdf of an md page's slides."
+  graph's png or svg, or the pdf of an md page's slides; without a
+  theme, in light — the page's default is for the screen."
   [opts]
-  (if (= (.-format opts) "pdf")
-    (pdf-export (.-theme opts))
-    (graph-export (.-format opts) (.-theme opts))))
+  (let [theme (or (.-theme opts) "light")]
+    (if (= (.-format opts) "pdf")
+      (pdf-export theme)
+      (graph-export (.-format opts) theme))))
 
 ;; init
 (defn- typing?
@@ -3792,7 +3792,14 @@
 ;; your theme must be in before the first graph paints
 ;; the server hears what to watch once the page knows what it shows:
 ;; the first answer runs tick, which would load-nav! again before then
-(.then (load-prefs!) (fn [_] (.finally (load-nav!) connect-watch!)))
+;; the canvas measures text as it lays out, so the bundled font loads
+;; before the first graph does — else nodes size to the fallback font
+(def ^:private canvas-fonts
+  (.catch (js/Promise.all (mapv (fn [f] (.load js/document.fonts f))
+                                [(str "15px " scene/SANS) scene/TEXT-FONT]))
+          (fn [_] nil)))
+(.then (js/Promise.all [(load-prefs!) canvas-fonts])
+       (fn [_] (.finally (load-nav!) connect-watch!)))
 (add-watch state :watch (fn [_ _ _ _] (send-watch!)))
 ;; poll-md! skips a doc change pushed while a save runs: look once more
 ;; when the save is through

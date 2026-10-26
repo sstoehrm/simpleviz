@@ -15,6 +15,16 @@ Version: 0.12.0 (recorded in `public/vendor/package.json`).
 Source code: https://github.com/kieler/elkjs/releases/tag/0.12.0 (JavaScript
 build) and https://github.com/eclipse-elk/elk (the underlying Java sources).
 
+## Inter (`public/vendor/fonts/`)
+
+The page's typeface where Neue Montreal isn't installed: the variable
+font's latin and latin-ext subsets, as woff2.
+Copyright 2016 The Inter Project Authors (https://github.com/rsms/inter).
+Licensed under the SIL Open Font License 1.1 — the full text ships in this
+bundle at `public/vendor/fonts/OFL.txt`.
+Version: 5.3.0 (from the npm package `@fontsource-variable/inter`).
+Source: https://github.com/rsms/inter
+
 ## squint-cljs runtime (bundled into `public/js/app.min.mjs`)
 
 Copyright (c) Michiel Borkent.

@@ -4,8 +4,9 @@
 ;; Builds the ELK JSON graph from a validated graph. Text measurement is
 ;; injected so this namespace stays DOM-free and testable.
 
-(def NODE-FONT "bold 14px system-ui, sans-serif")
-(def SUB-FONT "11px system-ui, sans-serif")
+;; no bold: a name stands out by size, not weight
+(def NODE-FONT (str "15px " scene/SANS))
+(def SUB-FONT (str "11px " scene/SANS))
 
 (defn edge-ends
   "An edge's [source target] elk ids; hand-built fixtures without ids

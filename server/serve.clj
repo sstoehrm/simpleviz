@@ -693,7 +693,8 @@
    "js"   "text/javascript; charset=utf-8"
    "mjs"  "text/javascript; charset=utf-8"
    "json" "application/json"
-   "svg"  "image/svg+xml"})
+   "svg"  "image/svg+xml"
+   "woff2" "font/woff2"})
 
 (defn- local-origin?
   "true when origin is absent (non-browser clients like curl send no

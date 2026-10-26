@@ -58,8 +58,13 @@
 
 (test "NAMES lists each built-in theme once"
   (fn []
-    (assert/equal (count themes/NAMES) 14)
+    (assert/equal (count themes/NAMES) 15)
     (assert/deepEqual (sorted (js/Object.keys themes/THEMES)) (sorted themes/NAMES))))
+
+(test "the page's default theme is obsidian, a built-in"
+  (fn []
+    (assert/equal themes/DEFAULT "obsidian")
+    (assert/ok (some #(= themes/DEFAULT %) themes/NAMES))))
 
 (test "KEYS and KEY-KINDS agree; CSS-KEYS are theme keys"
   (fn []

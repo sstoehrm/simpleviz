@@ -195,7 +195,7 @@
     (.stroke ctx)
     (.setLineDash ctx [])
     (when text?
-      (set! (.-font ctx) "bold 11px system-ui, sans-serif")
+      (set! (.-font ctx) (str "11px " scene/SANS))
       (set! (.-fillStyle ctx) c)
       (set! (.-textAlign ctx) "left")
       (.fillText ctx (get diff-glyphs d) (- (:x item) 2) (- (:y item) 6)))))
@@ -214,7 +214,7 @@
   [ctx item h]
   (let [a0 (.-globalAlpha ctx)
         edge? (= (:kind item) "edge")
-        r (if (= (:kind item) "box") 10 6)]
+        r (if (= (:kind item) "box") 4 3)]
     (set! (.-strokeStyle ctx) (:accent @palette))
     (doseq [[pad w alpha] (if edge? [[0 4 0.35]] [[4 1.5 0.85]])]
       (set! (.-globalAlpha ctx) (* a0 h alpha))
@@ -250,7 +250,7 @@
 
 (defn- draw-box [ctx item sel? text?]
   (let [c (box-color item)]
-  (rounded-rect ctx (:x item) (:y item) (:w item) (:h item) 10)
+  (rounded-rect ctx (:x item) (:y item) (:w item) (:h item) 4)
   (set! (.-fillStyle ctx) (:fill c))
   (.fill ctx)
   (set! (.-strokeStyle ctx) (if sel? (:accent @palette) (:border c)))
@@ -262,7 +262,7 @@
     ;; (empty shells have no button, so their label centers fully)
     (let [cx (+ (:x item) (/ (- (:w item) (if (:empty item) 0 18)) 2))]
       (set! (.-textAlign ctx) "center")
-      (set! (.-font ctx) "bold 13px system-ui, sans-serif")
+      (set! (.-font ctx) (str "14px " scene/SANS))
       (set! (.-fillStyle ctx) (:border c))
       (.fillText ctx (:name item) cx (+ (:y item) 18))
       (when (pos? (.-length (:type item)))
@@ -272,7 +272,7 @@
     ;; expanded: header line, name + inline (type)
     (do
       (set! (.-textAlign ctx) "left")
-      (set! (.-font ctx) "bold 13px system-ui, sans-serif")
+      (set! (.-font ctx) (str "14px " scene/SANS))
       (set! (.-fillStyle ctx) (:border c))
       (.fillText ctx (:name item) (+ (:x item) 12) (+ (:y item) 20))
       (when (pos? (.-length (:type item)))
@@ -292,7 +292,7 @@
   (let [bx (- (+ (:x item) (:w item)) scene/HIDE-BTN-RIGHT)
         by (+ (:y item) scene/HIDE-BTN-TOP)
         s scene/HIDE-BTN-SIZE]
-    (rounded-rect ctx bx by s s 3)
+    (rounded-rect ctx bx by s s 2)
     (set! (.-fillStyle ctx) (:btn-fill @palette))
     (.fill ctx)
     (set! (.-strokeStyle ctx) (:border c))
@@ -315,7 +315,7 @@
   (when (and text? (:pair? item))
     (draw-pair-mark ctx item))
   (when (some? (:diff item))
-    (draw-diff-ring ctx item 12 text?))))
+    (draw-diff-ring ctx item 7 text?))))
 
 (def ^:private STATE-R 5)
 
@@ -370,7 +370,7 @@
     (set! (.-lineWidth ctx) 1)
     (.stroke ctx)
     (set! (.-textAlign ctx) "center")
-    (set! (.-font ctx) "10px system-ui, sans-serif")
+    (set! (.-font ctx) (str "10px " scene/SANS))
     (set! (.-fillStyle ctx) c)
     (.fillText ctx "⇄" cx (+ cy 3.5))))
 
@@ -410,7 +410,7 @@
         dy (if db? (+ scene/DB-RIM 4) 0)]
     (if db?
       (cylinder-path ctx (:x item) (:y item) (:w item) (:h item) scene/DB-RIM)
-      (rounded-rect ctx (:x item) (:y item) (:w item) (:h item) 6))
+      (rounded-rect ctx (:x item) (:y item) (:w item) (:h item) 3))
     (set! (.-fillStyle ctx) (:node-fill @palette))
     (.fill ctx)
     (set! (.-strokeStyle ctx) (if sel? (:accent @palette) (:node-stroke @palette)))
@@ -423,7 +423,7 @@
     (when (:ref? item)
       (if db?
         (cylinder-path ctx (+ (:x item) 3) (+ (:y item) 3) (- (:w item) 6) (- (:h item) 6) (- scene/DB-RIM 1))
-        (rounded-rect ctx (+ (:x item) 3) (+ (:y item) 3) (- (:w item) 6) (- (:h item) 6) 4))
+        (rounded-rect ctx (+ (:x item) 3) (+ (:y item) 3) (- (:w item) 6) (- (:h item) 6) 1))
       (set! (.-strokeStyle ctx) (if sel? (:accent @palette) (:sub @palette)))
       (set! (.-lineWidth ctx) 1)
       (.stroke ctx))
@@ -446,7 +446,7 @@
       (draw-text-lines! ctx (:text-lines item) (+ (:x item) (/ (:w item) 2))
                         (+ (:y item) (if (pos? (.-length (:type item))) 44 30) dy 10) "center")))
     (when (some? (:diff item))
-      (draw-diff-ring ctx item 8 text?))))
+      (draw-diff-ring ctx item 6 text?))))
 
 (defn- draw-arrowhead [ctx from to color]
   (let [angle (js/Math.atan2 (- (:y to) (:y from)) (- (:x to) (:x from)))

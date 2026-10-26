@@ -58,7 +58,7 @@
 
 (test "NAMES lists each built-in theme once"
   (fn []
-    (assert/equal (count themes/NAMES) 14)
+    (assert/equal (count themes/NAMES) 15)
     (assert/deepEqual (sorted (js/Object.keys themes/THEMES)) (sorted themes/NAMES))))
 
 (test "KEYS and KEY-KINDS agree; CSS-KEYS are theme keys"
@@ -90,6 +90,13 @@
         (assert/ok (>= (contrast (rgb :text) (rgb :panel)) 4.5) (str n ": :text on :panel"))
         (assert/ok (>= (contrast (rgb :label) (rgb :bg)) 4.5) (str n ": :label on :bg"))
         (assert/ok (>= (contrast (rgb :on-accent) (rgb :accent)) 2.5) (str n ": :on-accent on :accent"))))))
+
+;; the page's look when you picked none: black stage, one violet accent
+(test "the default theme is velvet, a built-in"
+  (fn []
+    (assert/equal themes/DEFAULT "velvet")
+    (assert/ok (some #(= % themes/DEFAULT) themes/NAMES))
+    (assert/equal (:bg (get themes/THEMES themes/DEFAULT)) "#000000")))
 
 ;; squint keywords are strings
 (def SYNTAX-KEYS (vec (filter #(.startsWith % "syntax-") themes/KEYS)))

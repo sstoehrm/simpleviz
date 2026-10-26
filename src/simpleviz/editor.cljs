@@ -206,7 +206,7 @@
 
 (defn theme-menu
   "The theme menu's state. It is yours: `pref`, the built-in you picked
-  (kept on the server; nil or \"\" follows the OS), for every graph
+  (kept on the server; nil or \"\" is themes/DEFAULT), for every graph
   without :theme. A :theme in graph g's file wins (#115): the menu then
   shows the file's theme (\"custom\" for a :theme map), marked :file,
   and is disabled — change it in the file."

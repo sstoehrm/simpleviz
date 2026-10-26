@@ -70,11 +70,13 @@ new file's theme.
 The theme menu at the top of the page picks your theme for every graph
 without `:theme`. It's kept in `~/.simpleviz/prefs.edn`, not in any graph
 file, so every page and every run of `simpleviz` shows it, and
-"default" follows the operating system's light or dark setting. A file's
+"default" is `velvet`. That includes PNG, SVG and PDF exports of a graph
+or deck without `:theme`; pass `--theme print` for paper. A file's
 `:theme` wins over it: the menu then shows the file's theme, marked
 "(file)", and is disabled; change that theme in the file.
 
-Built-in themes: `light` and `dark` (the two the OS setting picks from),
+Built-in themes: `velvet` (the default: black, one violet accent, amber
+for changes and work in progress), `light`, `dark`,
 `print` (white, greys, no box fills), `high-contrast`, `blueprint`, `paper`,
 `solarized-light`, `solarized-dark`, `nord`, `dracula`, `carbonfox`,
 `one-dark`, `tabak-light` and `tabak-dark`.

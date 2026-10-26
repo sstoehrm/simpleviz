@@ -356,14 +356,14 @@
 (test "theme-menu shows your theme unless the file sets its own (#115)"
   (fn []
     (let [mine (theme-menu {:editable true} "nord")
-          os (theme-menu {:editable true} nil)
+          none (theme-menu {:editable true} nil)
           named (theme-menu {:theme {:bg "#000"} :theme-name "dracula" :editable true} "nord")
           custom (theme-menu {:theme {:bg "#000"}} "nord")]
-      ;; no :theme in the file: the menu is yours, "" = follow the OS
+      ;; no :theme in the file: the menu is yours, "" = the default (velvet)
       (assert/equal (:value mine) "nord")
       (assert/equal (:disabled mine) false)
       (assert/equal (:file mine) false)
-      (assert/equal (:value os) "")
+      (assert/equal (:value none) "")
       ;; the file's :theme wins, whether a built-in or a custom map
       (assert/equal (:value named) "dracula")
       (assert/equal (:disabled named) true)

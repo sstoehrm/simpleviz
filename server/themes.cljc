@@ -9,7 +9,7 @@
   "The built-in themes, in documentation order."
   [:light :dark :print :high-contrast :blueprint :paper
    :solarized-light :solarized-dark :nord :dracula :carbonfox :one-dark
-   :tabak-light :tabak-dark])
+   :tabak-light :tabak-dark :velvet])
 
 (def KEYS
   "Every theme key, in documentation order: page chrome, canvas painter,
@@ -222,7 +222,25 @@
     :syntax-keyword "#cf8b8b" :syntax-string "#86a486" :syntax-number "#ebdda9" :syntax-attr "#cf8b8b" :syntax-comment "#aaa89c"
     :state-new "#aaa89c" :state-in-progress "#8dacb5" :state-blocked "#cc8383" :state-done "#7f9f7f"
     :node-saturation 35 :node-lightness 72 :box-saturation 30 :box-lightness 62
-    :box-fill-alpha 0.1 :neutral-node-lightness 75 :neutral-box-lightness 60}})
+    :box-fill-alpha 0.1 :neutral-node-lightness 75 :neutral-box-lightness 60}
+
+   ;; the default: a black stage, one violet accent, amber sparks; borders
+   ;; fade to hairlines and shadows to nothing, so the chrome floats
+   :velvet
+   {:bg "#000000" :panel "#0b0b10" :panel-border "#ffffff14" :panel-divider "#ffffff0d"
+    :text "#c8c8d0" :text-strong "#ffffff" :text-muted "#8c8c98" :text-dim "#5c5c68"
+    :hover "#8257ff26" :hover-plain "#15151c" :accent "#8257ff" :on-accent "#ffffff" :shadow "rgba(0, 0, 0, 0)"
+    :node-fill "#0b0b10" :node-stroke "#ffffff1f" :edge "#6e6e7a" :arrow "#8c8c98"
+    :sub "#8c8c98" :label "#c8c8d0" :btn-fill "#0b0b10cc"
+    :diff-added "#4ade80" :diff-modified "#ffb547" :diff-removed "#ff5c7a"
+    :syntax-keyword "#a78bfa" :syntax-string "#86efac" :syntax-number "#ffb547" :syntax-attr "#f0abfc" :syntax-comment "#80808c"
+    :state-new "#8c8c98" :state-in-progress "#ffb547" :state-blocked "#ff5c7a" :state-done "#4ade80"
+    :node-saturation 70 :node-lightness 70 :box-saturation 55 :box-lightness 60
+    :box-fill-alpha 0.08 :neutral-node-lightness 82 :neutral-box-lightness 55}})
+
+(def DEFAULT
+  "The theme a graph shows when neither its file nor you picked one."
+  :velvet)
 
 #?(:clj
    (do

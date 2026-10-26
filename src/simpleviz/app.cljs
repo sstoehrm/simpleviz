@@ -1,6 +1,7 @@
 (ns simpleviz.app
   (:require ["reagami" :refer [render]]
             [simpleviz.colors :as colors]
+            [simpleviz.constellation :as constellation]
             [simpleviz.format :as format]
             [simpleviz.transform :refer [to-elk elk-fingerprint layout-positions seed-layout seedable?
                                          rename-layout-ids diff-glyphs]]
@@ -92,11 +93,7 @@
                   :theme-pref nil
                   ;; vi mode in the doc's text (toggle-vi!), and its state
                   :vi-pref false
-                  :vim (vim/init)
-                  ;; light or dark as the OS has it, when you chose none
-                  :theme (if (.-matches (js/window.matchMedia "(prefers-color-scheme: dark)"))
-                           "dark"
-                           "light")})))
+                  :vim (vim/init)})))
 
 (defn- render-error [st msg]
   (assoc st (if (some? (:scene st)) :notice :error) (str "Render error: " msg)))
@@ -1194,7 +1191,7 @@
       "✥ (top right) places nodes and boxes by hand: the first time, every top-level node and box gets a :pos [col row] on a grid of 20 px cells, where the layout had it (Ctrl+Z takes that back). While ✥ is on, drag a top-level node or box — a box by any part of it, its contents along — and it snaps cell by cell; letting go writes its :pos. ✥ or Esc ends arranging. Boxes still lay out their insides; edges between top-level elements run straight. auto drops every :pos, after asking.")
      (help-section
       "Theme"
-      "The theme menu at the top picks your theme, one of the twelve built-ins, for every graph without :theme; it's kept in ~/.simpleviz, and default follows your system's light or dark. A graph file can set its own theme instead — :theme :nord, or overrides on one such as {:base :nord :accent \"#b58900\"} — which wins: the menu then shows it, marked (file), and you change it in the file.")]))
+      "The theme menu at the top picks your theme, one of the built-ins, for every graph without :theme; it's kept in ~/.simpleviz, and default is velvet, black with a violet accent. A graph file can set its own theme instead — :theme :nord, or overrides on one such as {:base :nord :accent \"#b58900\"} — which wins: the menu then shows it, marked (file), and you change it in the file.")]))
 
 ;; ---- manual layout (simpleviz.manual) ----
 
@@ -1317,17 +1314,27 @@
                                        v (.-value el)]
                                    (save-pref! {:theme v})
                                    ;; paint first: the swap re-renders synchronously
-                                   (apply-theme! (effective-theme (:graph @state) v (:theme @state)))
+                                   (apply-theme! (effective-theme (:graph @state) v))
                                    (swap! state assoc :theme-pref (if (seq v) v nil))
                                    ;; hand the keys back to the chords
                                    (.blur el)))}
-           (opt "" "default (follow the OS)")]
+           (opt "" (str "default (" themes/DEFAULT ")"))]
           (cond-> (mapv (fn [n] (opt n n)) themes/NAMES)
             (= value "custom") (conj (opt "custom" "custom" true))))))
 
+(def ^:private constellation (constellation/particles 7))
+
+(defn- constellation-view []
+  (into [:svg {:class "constellation" :viewBox (str "0 0 " constellation/W " " constellation/H)
+               :aria-hidden "true"}]
+        (map (fn [{:keys [points tone twinkle]}]
+               [:polygon {:points (.join (mapv (fn [[x y]] (str x "," y)) points) " ")
+                          :class (str "cs-" tone (when (pos? twinkle) (str " tw-" twinkle)))}])
+             constellation)))
+
 (defn- load-view [st]
   [:div {:id "loadscreen"}
-   [:div {:class "load-spinner"}]
+   (constellation-view)
    [:div {:class "load-title"} "simpleviz"]
    [:div {:class "load-stage"} (or (:load-stage st) "loading…")]])
 
@@ -2294,8 +2301,8 @@
         (some? (:error raw))
         (do (when (nil? (:graph @state))
               ;; no graph to show (a navigation landed on a broken file):
-              ;; back to your theme (or the OS's), which the menu shows again
-              (apply-theme! (effective-theme nil (:theme-pref @state) (:theme @state))))
+              ;; back to your theme (or the default), which the menu shows again
+              (apply-theme! (effective-theme nil (:theme-pref @state))))
             (swap! state assoc :error (str "Graph error: " (:error raw)) :dismissed-error nil))
         :else
         (let [view0 (view-key (:step @state) (:step-compare @state))
@@ -2317,7 +2324,7 @@
               (demote-layout-cache!)
               (.clear step-caches)
               (when-not (page? @state) (set! (.-title js/document) (format/tab-title g)))
-              (apply-theme! (effective-theme g (:theme-pref @state) (:theme @state)))
+              (apply-theme! (effective-theme g (:theme-pref @state)))
               (swap! state (fn [st]
                              (assoc st :error nil :graph g :states states :step step :step-compare sc
                                     :steps (mapv (fn [s] {:name (:name s) :edits (:edits s)}) (or (:steps raw) []))
@@ -2536,7 +2543,7 @@
   "Close the graph beside the md page; the page takes back its theme."
   []
   (show-side! nil)
-  (apply-theme! (effective-theme nil (:theme-pref @state) (:theme @state))))
+  (apply-theme! (effective-theme nil (:theme-pref @state))))
 
 (defn- ^:async offer-side!
   "A link to the graph at root-relative `path`, in the md page's folder
@@ -2646,7 +2653,7 @@
       (if (some? (:error out))
         (swap! state assoc :md nil :error (str "Doc error: " (:error out)) :dismissed-error nil)
         (do (swap! md-gen inc)
-            (apply-theme! (effective-theme nil (:theme-pref @state) (:theme @state)))
+            (apply-theme! (effective-theme nil (:theme-pref @state)))
             (set! (.-title js/document) (str (format/basename path) " — simpleviz"))
             (swap! state assoc :error nil :disconnected false
                    :md (editor/adopt-doc {:path path :page true :full false :saving false
@@ -3472,10 +3479,9 @@
 
 (defn- effective-theme
   "The theme to show for graph g: the file's :theme (resolved by the
-  server), else your theme `pref`, else light or dark as the OS has it."
-  [g pref os-theme]
-  (or (:theme g) (get themes/THEMES pref) (get themes/THEMES os-theme)
-      (get themes/THEMES :light)))
+  server), else your theme `pref`, else the default (themes/DEFAULT)."
+  [g pref]
+  (or (:theme g) (get themes/THEMES pref) (get themes/THEMES themes/DEFAULT)))
 
 (defn- apply-theme!
   "Paint page and canvas in theme, a complete theme map: the chrome via
@@ -3496,7 +3502,7 @@
   (let [p (try (js-await (.json (js-await (js/fetch "api/prefs"))))
                (catch :default _ {}))
         theme (some #(when (= (:theme p) %) %) themes/NAMES)]
-    (apply-theme! (effective-theme (:graph @state) theme (:theme @state)))
+    (apply-theme! (effective-theme (:graph @state) theme))
     (swap! state assoc :theme-pref theme :vi-pref (= "on" (:vi p)))
     ;; a doc focused before the prefs came shows vi mode's block now
     (when-let [el (js/document.getElementById "md-text")]
@@ -3646,7 +3652,7 @@
   (when (some? theme) (swap! state assoc :theme-pref theme))
   (let [sides (js-await (print-sides 0 [] {}))]
     (leave-present!)
-    (apply-theme! (effective-theme nil (:theme-pref @state) (:theme @state)))
+    (apply-theme! (effective-theme nil (:theme-pref @state)))
     (swap! state assoc :print sides)
     (js-await (settled (fn [_] (when (zero? @calc-in-flight) {:ready true}))))
     (js-await (.-ready js/document.fonts))
@@ -3664,7 +3670,7 @@
   [fmt theme]
   (js-await (wait-for! editor/load-readiness))
   (when (some? theme)
-    (apply-theme! (effective-theme (:graph @state) theme (:theme @state)))
+    (apply-theme! (effective-theme (:graph @state) theme))
     (swap! state assoc :theme-pref theme))
   ;; a render error notice from before must not fail this export
   (swap! state assoc :notice nil)
@@ -3778,7 +3784,7 @@
 (canvas/set-repaint! paint-now!)
 ;; the headless export's entry point (simpleviz export, server/browser.clj)
 (set! (.-simplevizExport js/window) headless-export)
-(apply-theme! (effective-theme (:graph @state) (:theme-pref @state) (:theme @state)))
+(apply-theme! (effective-theme (:graph @state) (:theme-pref @state)))
 (add-watch state :render (fn [_ _ _ _] (rerender!)))
 (canvas/setup-pan-zoom! (js/document.getElementById "canvas-wrap"))
 (canvas/set-drag-hook! (fn [gx gy] (or (rect-drag gx gy) (arrange-drag gx gy))))

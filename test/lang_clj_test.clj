@@ -81,6 +81,14 @@
     (is (= {["a/draw" "a/render"] {:direction :<-} ["a/render" "b/helper"] {:direction :->}} (:edges g))
         "not b/render's, though it has the name")))
 
+(deftest reading-runs-nothing
+  (let [marker (java.io.File/createTempFile "read-eval" ".x")
+        _ (.delete marker)
+        [m] (lang-clj/clj-module
+             [{:path "a.clj" :text (str "(ns a) #=(spit \"" marker "\" 1) #=(System/exit 3) (defn f [] 1)")}])]
+    (is (= ["f"] (mapv :name (:defs m))))
+    (is (not (.exists marker)))))
+
 (deftest every-namespace-is-a-box
   (let [g (lang-clj/public-namespace-graph
            (lang-clj/clj-module [{:path "c.clj" :text "(ns c) (def x 1) (defn- y [] 2)"}]))]

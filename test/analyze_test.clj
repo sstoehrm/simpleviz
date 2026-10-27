@@ -129,6 +129,9 @@
     (is (= #{:app.core/run :app.util/go}
            (set (keys (:nodes (get-json "/api/graph" "file=docs%2Fx%2F..%2Fdoc.md%23analyzer-1")))))
         ">> resolves from where the md file is, however its path is spelled")
+    (is (= [] (serve/md-warnings root "docs/doc.md"
+                                 (block ">> [the code](../src/)" "\"**.clj\" identity")))
+        "a >> link to a folder is no broken link")
     (is (string? (:mtime (get-json "/api/version" q))))
     (is (str/includes? (get-body "/api/source" q) "app.core/run") "its source is the generated EDN")
     (testing "refusals"

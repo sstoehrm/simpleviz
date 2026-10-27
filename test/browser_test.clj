@@ -495,11 +495,13 @@
 (deftest a-slide-link-names-the-step-to-show-or-compare
   ;; >> [x](g.edn?step=1..2) opens the graph comparing step 1 with step 2;
   ;; the next slide's ?step=cache on the same graph moves it to that step;
-  ;; a step the graph doesn't have shows the start and says why
+  ;; a step the graph doesn't have shows the start and says why, until
+  ;; a slide shows one it has
   (with-real-browser
     (is (= {:compared {:count "3 / 3" :label "shard" :from "cache →" :slide "2"}
             :step {:count "2 / 3" :label "cache" :from nil}
-            :bad {:count "1 / 3" :banner "g.edn?step=nope — no step named \"nope\""}}
+            :bad {:count "1 / 3" :banner "g.edn?step=nope — no step named \"nope\""}
+            :back {:count "2 / 3" :banner nil}}
            (eval-on-served-page
             path "deck.md"
             "# Title\n---\n>> [c](g.edn?step=1..2)\n# Compared\n---\n>> [s](g.edn?step=cache)\n# Step\n---\n>> [b](g.edn?step=nope)\n# Bad\n"
@@ -517,8 +519,11 @@
                  "  key('ArrowRight'); step = 3; return; }"
                  " if (step === 3) { if (txt('#present-steps .ps-count') !== '2 / 3') return;"
                  "  r.step = view(); key('ArrowRight'); step = 4; return; }"
-                 " if (!$('#banner') || txt('#present-steps .ps-count') !== '1 / 3') return; clearInterval(t);"
-                 " r.bad = {count: txt('#present-steps .ps-count'), banner: txt('#banner .banner-text')}; ok(r); }, 50); })")
+                 " if (step === 4) { if (!$('#banner') || txt('#present-steps .ps-count') !== '1 / 3') return;"
+                 "  r.bad = {count: txt('#present-steps .ps-count'), banner: txt('#banner .banner-text')};"
+                 "  key('ArrowLeft'); step = 5; return; }"
+                 " if (txt('#present-steps .ps-count') !== '2 / 3') return; clearInterval(t);"
+                 " r.back = {count: txt('#present-steps .ps-count'), banner: txt('#banner .banner-text')}; ok(r); }, 50); })")
             :extra {"g.edn" (str "{:nodes {:a {}} :steps [{:name \"cache\" :edits [[[:nodes :b] :+ {}]]}"
                                  " {:name \"shard\" :edits [[[:nodes :c] :+ {}]]}]}")})))))
 

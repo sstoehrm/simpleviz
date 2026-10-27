@@ -64,7 +64,9 @@
    :step-compare nil
    ;; {:step} a slide's >> asked for (its ?step=, nil for the file as
    ;; written) while the graph loads: the load shows that step
-   :pending-step nil})
+   :pending-step nil
+   ;; why the step a slide's >> asked for can't show, nil when it can
+   :step-error nil})
 
 (def state (atom (merge per-file
                  {:colors nil :collapsed false
@@ -337,6 +339,9 @@
           raw (js-await (json-of (js/fetch url) "not connected"))]
       (if (some? (:error raw)) raw (with-boxes-by-name raw)))))
 
+;; counts the views asked for: only the last one asked lands
+(def ^:private view-gen (atom 0))
+
 (defn- ^:async show-view!
   "Show state k of the graph (0: the file as written), compared with
   state c when c is not nil, animated from what is shown. A view shown
@@ -348,12 +353,14 @@
         k (max 0 (min k (dec n)))
         c (when (some? c) (max 0 (min c (dec n))))
         from (view-key (:step st) (:step-compare st))
-        to (view-key k c)]
+        to (view-key k c)
+        gen (swap! view-gen inc)]
     (when (and (> n 1) (not= from to))
       (let [g (js-await (step-graph (:states st) k c))]
         (cond
-          ;; another step showed meanwhile
-          (not= from (view-key (:step @state) (:step-compare @state))) nil
+          ;; another step showed, or was asked for, meanwhile
+          (or (not= gen @view-gen)
+              (not= from (view-key (:step @state) (:step-compare @state)))) nil
           (some? (:error g)) (swap! state assoc :edit-error (str "comparing steps: " (:error g)))
           :else
           (let [st @state
@@ -391,8 +398,7 @@
     (if (nil? (:states st))
       (swap! state assoc :pending-step {:step step})
       (let [v (editor/step-view (mapv :name (:steps st)) step (:compare st))]
-        (when (some? (:error v))
-          (swap! state assoc :nav-error (str (graph-file st) (:error v))))
+        (swap! state assoc :step-error (when (some? (:error v)) (str (graph-file st) (:error v))))
         (js-await (show-view! (or (:step v) 0) (:compare v)))))))
 
 ;; the box being collapsed/expanded and where its top-right corner (the
@@ -904,7 +910,7 @@
   connected\" can be dismissed: an edit, navigation or notice error
   clears; the graph error and the warnings hide until their text changes
   (editor/banner-visible?)."
-  [{:keys [error graph collapsed edit-error disconnected nav-error notice
+  [{:keys [error graph collapsed edit-error disconnected nav-error step-error notice
            dismissed-error dismissed-warnings]}]
   (let [warn-text (.join (or (:warnings graph) []) "\n")]
     (cond
@@ -916,6 +922,9 @@
 
       (some? nav-error)
       (banner "error" nav-error #(swap! state assoc :nav-error nil))
+
+      (some? step-error)
+      (banner "error" step-error #(swap! state assoc :step-error nil))
 
       (some? notice)
       (banner "error" notice #(swap! state assoc :notice nil))
@@ -2350,7 +2359,9 @@
               (swap! state (fn [st]
                              (assoc st :error nil :graph g :states states :step step :step-compare sc
                                     :pending-step nil
-                                    :nav-error (if (some? (:error asked)) (str (graph-file st) (:error asked)) (:nav-error st))
+                                    :step-error (if (some? asked)
+                                                  (when (some? (:error asked)) (str (graph-file st) (:error asked)))
+                                                  (:step-error st))
                                     :steps (mapv (fn [s] {:name (:name s) :edits (:edits s)}) (or (:steps raw) []))
                                     :edit-target (resolve-edit-target g (:edit-target st)))))
               ;; big graphs open as a collapsed overview: all top-level boxes
@@ -3088,7 +3099,8 @@
     (cond
       same? nil
       ;; the graph beside the slide before, at the step this one names
-      (and same-side? (some? (:side st))) (js-await (apply-step! step))
+      (and same-side? (some? dest) (= (:side st) (:path (editor/link-target (:path (:md st)) dest))))
+      (js-await (apply-step! step))
       :else
       (let [gen (swap! present-gen inc)
             side (when (some? dest) (js-await (side-of (:path (:md st)) dest compare)))]
@@ -3659,7 +3671,7 @@
         {:keys [graph scene]} @state]
     (if (some? (:error r))
       {:kind "error" :text (:error r)}
-      {:kind "graph" :path (:side @state)
+      {:kind "graph" :path (:side @state) :problem (:step-error @state)
        :width (:width scene) :height (:height scene)
        :theme (:theme graph)
        :svg (js/URL.createObjectURL (js/Blob. [(canvas/export-svg scene [])] {:type "image/svg+xml"}))})))
@@ -3701,7 +3713,8 @@
     (js-await (js/Promise.all (mapv (fn [img] (.catch (.decode img) (fn [_] nil)))
                                     (js/Array.from (js/document.querySelectorAll "#print img")))))
     {:slides (count sides)
-     :problems (vec (keep-indexed (fn [i side] (when (= "error" (:kind side)) [(inc i) (:text side)]))
+     :problems (vec (keep-indexed (fn [i side] (cond (= "error" (:kind side)) [(inc i) (:text side)]
+                                                     (some? (:problem side)) [(inc i) (:problem side)]))
                                   sides))}))
 
 (defn- ^:async graph-export

@@ -87,6 +87,15 @@
             "simpleviz: slide 4: nope.jpg — no such picture, or not one the browser shows"]
            (str/split-lines (str/trim (:err r)))))))
 
+(e2e a-slide-step-the-graph-lacks-exports-the-start-and-says-so
+  (spit (at tmp "s.edn") "{:nodes {:a {}} :steps [{:name \"b\" :edits [[[:nodes :b] :+ {}]]}]}")
+  (spit (at tmp "talk.md") "# Talk\n---\n>> [s](s.edn?step=1)\n# A\n---\n>> [s](s.edn?step=nope)\n# B\n")
+  (let [r (export! tmp "talk.md" "talk.pdf")]
+    (is (= 0 (:exit r)) (:err r))
+    (is (= "wrote talk.pdf (3 slides)" (str/trim (:out r))))
+    (is (= ["simpleviz: slide 3: s.edn?step=nope — no step named \"nope\""]
+           (str/split-lines (str/trim (:err r)))))))
+
 (e2e a-long-deck-with-formulas-exports
   ;; more slides with formulas than the page keeps results for at once
   (let [table (fn [i] (str "| a | b |\n|---|--:|\n| x | " i " |\n| y | =(* 2 (sum :b 1)) |\n"))

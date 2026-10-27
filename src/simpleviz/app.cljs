@@ -1775,9 +1775,10 @@
 (defn- print-view
   "The deck laid out for its PDF (pdf-export): a page per slide, the
   size browser.clj prints, each with what its >> shows beside it — a
-  graph as the SVG of its scene — and its number. A page whose graph
-  has its own :theme takes it, as presenting does. A question shows its
-  choices, unanswered."
+  graph as the SVG of its scene, a page per step of a graph with steps
+  (editor/print-pages) — and its number. A page whose graph has its own
+  :theme takes it, as presenting does. A question shows its choices,
+  unanswered."
   [st]
   (let [path (:path (:md st))
         ds (deck st)
@@ -1786,9 +1787,9 @@
     (into [:div {:id "print"}
            ;; only here: printing the page itself keeps the browser's pages
            [:style "@page { size: 1280px 720px; margin: 0; }"]]
-          (map-indexed
-           (fn [i s]
-             (let [side (nth (:print st) i nil)]
+          (map
+           (fn [{i :slide side :side step :step}]
+             (let [s (nth ds i)]
                [:section {:class (str "print-page" (when (some? side) " halves"))
                           :style (when-let [t (:theme side)] (theme-vars t))}
                 [:div {:class (str "print-slide" (when (title-slide? i s) " title"))}
@@ -1803,8 +1804,11 @@
                        [:img {:src (:svg side) :alt (:path side)
                               :style {:width (str (* k width) "px") :height (str (* k height) "px")}}])
                      (side-body side))])
+                ;; where the step stands, as presenting has it
+                (when (some? step)
+                  [:div {:class "print-steps"} [:span {:class "ps-count"} (:count step)] (:label step)])
                 [:div {:class "print-counter"} (str (inc i) " / " n)]]))
-           ds))))
+           (editor/print-pages (:print st))))))
 
 (def ^:private max-choices-shown 200)
 
@@ -3662,19 +3666,36 @@
   (let [r (js-await (settled readiness))]
     (if (some? (:error r)) (throw (js/Error. (:error r))) true)))
 
+(defn- step-picture
+  "The step of the graph shown as a page of the PDF draws it: the SVG of
+  its scene (a blob URL), its size and the step's name."
+  []
+  (let [{:keys [scene] :as st} @state]
+    {:width (:width scene) :height (:height scene) :label (step-label st (:step st))
+     :svg (js/URL.createObjectURL (js/Blob. [(canvas/export-svg scene [])] {:type "image/svg+xml"}))}))
+
+(defn- ^:async step-pictures
+  "step-picture of each step of the graph shown from k on, onto `out`:
+  each shown in turn and laid out first."
+  [k out]
+  (if (>= k (count (or (:states @state) [])))
+    out
+    (do (when (pos? k)
+          (js-await (show-step! k))
+          (js-await (settled editor/side-readiness)))
+        (js-await (step-pictures (inc k) (conj out (step-picture)))))))
+
 (defn- ^:async graph-side
   "The graph beside the slide presented, once laid out, as the PDF shows
-  it: the SVG of its scene (a blob URL), its size, and its own :theme
-  when it has one — or its error."
+  it: step-picture of each of its steps — the file as written the
+  first — and its own :theme when it has one; or its error."
   []
-  (let [r (js-await (settled editor/side-readiness))
-        {:keys [graph scene]} @state]
+  (let [r (js-await (settled editor/side-readiness))]
     (if (some? (:error r))
       {:kind "error" :text (:error r)}
-      {:kind "graph" :path (:side @state) :problem (:step-error @state)
-       :width (:width scene) :height (:height scene)
-       :theme (:theme graph)
-       :svg (js/URL.createObjectURL (js/Blob. [(canvas/export-svg scene [])] {:type "image/svg+xml"}))})))
+      ;; a slide's ?step= names the one view it shows: a page of it alone
+      {:kind "graph" :path (:side @state) :theme (:theme (:graph @state)) :problem (:step-error @state)
+       :states (if (some? (:step (:present @state))) [(step-picture)] (js-await (step-pictures 0 [])))})))
 
 (defn- ^:async print-sides
   "What the deck's slides from i on show beside them, onto `out`: each
@@ -3696,8 +3717,9 @@
   "window.simplevizExport for \"pdf\": wait for the md page, present each
   slide once to take what its >> shows, then lay the deck out a page
   per slide (print-view) and wait for what the pages still load —
-  formula results and charts, pictures, fonts. {:slides n :problems
-  [[slide-number why]]}, a problem each side that can't show:
+  formula results and charts, pictures, fonts. {:slides n :pages m
+  :problems [[slide-number why]]}, a page more for each step of a graph
+  beside a slide, a problem each side that can't show:
   browser.clj prints the PDF of the page. A deck without slides fails."
   [theme]
   (js-await (wait-for! editor/deck-readiness))
@@ -3713,6 +3735,7 @@
     (js-await (js/Promise.all (mapv (fn [img] (.catch (.decode img) (fn [_] nil)))
                                     (js/Array.from (js/document.querySelectorAll "#print img")))))
     {:slides (count sides)
+     :pages (count (editor/print-pages sides))
      :problems (vec (keep-indexed (fn [i side] (cond (= "error" (:kind side)) [(inc i) (:text side)]
                                                      (some? (:problem side)) [(inc i) (:problem side)]))
                                   sides))}))

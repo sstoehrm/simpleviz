@@ -806,6 +806,24 @@
         (and (nil? (:scene st)) (some? (:error st))) {:error (:error st)}
         :else nil))
 
+(defn print-pages
+  "The PDF's pages for `sides`, what each slide of a deck shows beside
+  it (nil for nothing): {:slide i :side side :step nil} a slide — a page
+  per state of a graph, whose :states each hold its :svg, :width,
+  :height and :label, the side drawn in that state. A graph with steps
+  has a page per step, its :step {:count \"k / n\" :label}, as
+  presenting shows where you are."
+  [sides]
+  (vec (mapcat (fn [i side]
+                 (if-let [states (:states side)]
+                   (let [n (count states)]
+                     (map-indexed (fn [k s]
+                                    {:slide i :side (merge (dissoc side :states) (dissoc s :label))
+                                     :step (when (> n 1) {:count (str (inc k) " / " n) :label (:label s)})})
+                                  states))
+                   [{:slide i :side side :step nil}]))
+               (range) sides)))
+
 (defn export-readiness
   "Whether page state st can be exported whole: {:ready true} for a laid
   out scene with no box collapsed, {:error msg} when the page shows an

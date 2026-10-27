@@ -10,7 +10,7 @@
                                       add-node-in-box-ops box-remove-op
                                       name->id derived-id named-edge-ops creation-ops parse-entry
                                       parse-nav nav-query follow-url step-view crumb-url ref-of banner-visible?
-                                      theme-menu top-box-of load-readiness export-readiness deck-readiness side-readiness layout-landing
+                                      theme-menu top-box-of load-readiness export-readiness deck-readiness side-readiness print-pages layout-landing
                                       md-target from-disk to-disk md-dirty? adopt-doc gone-doc poll-outcome save-result
                                       parent-box split-parent doc-kind link-target line-markers link-title
                                       with-side with-slide mark-open? with-compare follow-compare
@@ -432,6 +432,25 @@
       (assert/ok (nil? (side-readiness (assoc base :scene nil))))
       (assert/equal (:error (side-readiness (assoc base :scene nil :error "Graph error: x")))
                     "Graph error: x"))))
+
+(test "print-pages: a page per slide, and per step of a graph with steps"
+  (fn []
+    (let [one {:kind "graph" :path "a.edn" :states [{:svg "a0" :width 10 :height 20 :label "start"}]}
+          stepped {:kind "graph" :path "s.edn" :theme {"bg" "#000"}
+                   :states [{:svg "s0" :width 1 :height 2 :label "start"}
+                            {:svg "s1" :width 3 :height 4 :label "add a cache"}]}
+          pic {:kind "image" :src "p.png"}]
+      (assert/deepEqual (print-pages [nil one pic])
+                        [{:slide 0 :side nil :step nil}
+                         {:slide 1 :side {:kind "graph" :path "a.edn" :svg "a0" :width 10 :height 20} :step nil}
+                         {:slide 2 :side pic :step nil}])
+      ;; each step is a page of its slide, the side drawn in that state
+      (assert/deepEqual (print-pages [stepped nil])
+                        [{:slide 0 :side {:kind "graph" :path "s.edn" :theme {"bg" "#000"} :svg "s0" :width 1 :height 2}
+                          :step {:count "1 / 2" :label "start"}}
+                         {:slide 0 :side {:kind "graph" :path "s.edn" :theme {"bg" "#000"} :svg "s1" :width 3 :height 4}
+                          :step {:count "2 / 2" :label "add a cache"}}
+                         {:slide 1 :side nil :step nil}]))))
 
 (test "layout-landing: the newest run shows, an overtaken one only caches"
   ;; layouts run off the page's thread, so a reload or a box toggle can

@@ -209,19 +209,32 @@
     (.push (:tables ctx) x)
     [:figure {:class "chart-solo"} (chart-part mine failed (or (:fields mine) []) rows)]))
 
+(defn- analyzer-numbers
+  "Fence line → n, for the closed ```simpleviz-analyzer blocks of `text`
+  as the server numbers them (mdlinks/fences): from 1, in text order."
+  [text]
+  (let [m (js/Map.)]
+    (when (.includes text "simpleviz-analyzer")
+      (doseq [f (mdlinks/fences text)
+              :when (and (:closed f) (= "simpleviz-analyzer" (:info f)))]
+        (.set m (:line f) (inc (.-size m)))))
+    m))
+
 (defn- analyzer-node
-  "Analyzer node x [\"analyzer\" body n], the text's nth
-  ```simpleviz-analyzer block: a link, by the link-fn, to the graph the
-  server makes of it — link {:kind \"analyzer\" :dest (its >> folder)
-  :label :n}."
+  "Analyzer node x [\"analyzer\" body line], a ```simpleviz-analyzer
+  block: a link, by the link-fn, to the graph the server makes of it —
+  link {:kind \"analyzer\" :dest (its >> folder) :label :n (the server's
+  number for it)}. One the server doesn't count shows as code."
   [x ctx]
-  (let [head (.trim (first (.split (aget x 1) "\n")))
-        folder (if (.startsWith head ">>") (.trim (subs head 2)) "")
-        l (first (filter #(= "inline" (:kind %)) (mdlinks/links folder)))
-        dest (if (some? l) (:dest l) folder)
-        label (if (some? l) (:label l) folder)]
-    [:p {:class "md-analyzer"}
-     ((:link-fn ctx) {:kind "analyzer" :dest dest :label label :n (aget x 2)} [(str label " as a graph")])]))
+  (if-let [n (.get (:analyzers ctx) (aget x 2))]
+    (let [head (.trim (first (.split (aget x 1) "\n")))
+          folder (if (.startsWith head ">>") (.trim (subs head 2)) "")
+          l (first (filter #(= "inline" (:kind %)) (mdlinks/links folder)))
+          dest (if (some? l) (:dest l) folder)
+          label (if (some? l) (:label l) folder)]
+      [:p {:class "md-analyzer"}
+       ((:link-fn ctx) {:kind "analyzer" :dest dest :label label :n n} [(str label " as a graph")])])
+    (fence-node "simpleviz-analyzer" (aget x 1) ctx)))
 
 (defn- node
   "Hiccup for parsed node x (mdparse.js names them)."
@@ -272,7 +285,7 @@
   which no structural comparison needs."
   [text opts]
   (let [doc (parsed (str text))
-        ctx (merge {:doc doc :order (js/Map.) :tables []} opts)
+        ctx (merge {:doc doc :order (js/Map.) :tables [] :analyzers (analyzer-numbers (str text))} opts)
         bs (into-nodes [] (mp/docBlocks doc) 0 ctx)
         notes (footnotes ctx)]
     [(if (some? notes) (conj bs notes) bs) ctx]))

@@ -31,13 +31,16 @@ Two tools for Clojure, `.clj`, `.cljc`, `.cljs` and `.bb` files:
 
 - `(clj-module files)` — each file as `{:ns "app.core" :file
   "app/core.clj" :defs [{:name "run" :kind "defn" :private false :line 7
-  :calls ["app.util/shout" …]}]}`, or `{:file :error}` when it doesn't
-  read. Calls are the symbols a def names, resolved through the ns
-  form's aliases and refers and the namespace's own defs. A local that
-  shadows a def still counts as a call to it.
+  :calls ["app.util/shout" …]}] :methods [{:multi "app.ui/render" :line
+  12 :calls […]}]}`, or `{:file :error}` when it doesn't read. Calls are
+  the symbols a def names, resolved through the ns form's aliases,
+  `:refer` and `:use :only`, and the namespace's own defs. A local that
+  shadows a def still counts as a call to it; what `:refer :all` brings
+  is not resolved.
 - `(public-namespace-graph modules)` — a box per namespace, a node per
   public fn, macro and multimethod in it, and an arrow where one calls
-  another, directly or through private fns.
+  another, directly or through private fns. A multimethod calls what
+  its methods call, in whichever namespace they are.
 
 Both are plain data, so a block can change what it shows before the
 graph is made:

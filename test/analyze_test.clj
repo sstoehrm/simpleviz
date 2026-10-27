@@ -79,6 +79,15 @@
     (is (re-find #"graph" (run "\"**\" (fn [_] [1 2])")) "a result that is no map")
     (testing "a fn reads no files itself"
       (is (re-find #"slurp" (run "\"**\" (fn [_] (slurp \"/etc/hostname\"))"))))
+    (testing "nor reaches the host's namespaces when it runs"
+      (let [marker (java.io.File. (.toFile (fs/create-temp-dir)) "escaped")]
+        (doseq [body [(str "((requiring-resolve 'babashka.process/shell) \"touch\" \"" marker "\")")
+                      (str "((resolve 'clojure.java.shell/sh) \"touch\" \"" marker "\")")
+                      (str "(do (require 'babashka.process) ((resolve 'babashka.process/shell) \"touch\" \"" marker "\"))")
+                      ;; a lazy result, realized when printed
+                      (str "(map (fn [_] ((requiring-resolve 'babashka.process/shell) \"touch\" \"" marker "\")) [1])")]]
+          (is (some? (run (str "\"**\" (fn [_] " body ")"))) body)
+          (is (not (.exists marker)) body))))
     (testing "a fn that runs on is stopped"
       (binding [analyze/*child-ms* 1500]
         (is (re-find #"too long" (run "\"**\" (fn [_] (loop [] (recur)))")))))))
@@ -92,7 +101,11 @@
     (.setLastModified f (+ 5000 (.lastModified f)))
     (is (= s1 (analyze/stamp root "doc.md" 1)) "a second look within *stamp-ms* is the first")
     (binding [analyze/*stamp-ms* 0]
-      (is (not= s1 (analyze/stamp root "doc.md" 1))))))
+      (let [s2 (analyze/stamp root "doc.md" 1)]
+        (is (not= s1 s2))
+        (testing "a rename moves it too, times and sizes alike"
+          (fs/move (fs/path root "src/app/util.clj") (fs/path root "src/app/other.clj"))
+          (is (not= s2 (analyze/stamp root "doc.md" 1))))))))
 
 ;; ---------------------------------------------------------------- the routes
 
@@ -111,7 +124,11 @@
     (let [out (get-json "/api/graph" q)]
       (is (nil? (:error out)))
       (is (= #{:app.core/run :app.util/go} (set (keys (:nodes out)))))
-      (is (false? (:editable out)) "a generated graph isn't edited"))
+      (is (false? (:editable out)) "a generated graph isn't edited")
+      (is (= "doc-analyzer-1.edn" (:file out)) "its download name"))
+    (is (= #{:app.core/run :app.util/go}
+           (set (keys (:nodes (get-json "/api/graph" "file=docs%2Fx%2F..%2Fdoc.md%23analyzer-1")))))
+        ">> resolves from where the md file is, however its path is spelled")
     (is (string? (:mtime (get-json "/api/version" q))))
     (is (str/includes? (get-body "/api/source" q) "app.core/run") "its source is the generated EDN")
     (testing "refusals"

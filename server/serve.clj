@@ -354,11 +354,13 @@
 
 (defn- analyzer-of
   "For `rel` naming an md file's analyzer block, <doc.md>#analyzer-<n>,
-  [md n] — the md file checked as resolve-path checks it; else nil."
+  [md n] — md with its . and .. collapsed, so its >> folder resolves
+  from where it is, and checked as resolve-path checks it; else nil."
   [rel]
-  (when-let [[_ md n] (re-matches #"(?i)(.+\.md)#analyzer-([1-9][0-9]{0,3})" (str rel))]
-    (resolve-path @root-dir md true doc-extensions)
-    [md (parse-long n)]))
+  (when-let [[_ raw n] (re-matches #"(?i)(.+\.md)#analyzer-([1-9][0-9]{0,3})" (str rel))]
+    (let [md (or (paths/resolve-ref "_" raw) (throw (ex-info (str raw " leaves the served folder") {})))]
+      (resolve-path @root-dir md true doc-extensions)
+      [md (parse-long n)])))
 
 (declare write-atomically!)
 
@@ -821,7 +823,7 @@
                    (some? (analyzer-of rel))
                    (let [[md n] (analyzer-of rel)]
                      (graph-payload (analyze/graph-text (.getCanonicalFile @root-dir) md n)
-                                    (str (str/replace md #"(?i)\.md$" "") "-analyzer-" n ".edn")
+                                    (str (str/replace (.getName (io/file md)) #"(?i)\.md$" "") "-analyzer-" n ".edn")
                                     {:editable false :path rel}
                                     identity))
 

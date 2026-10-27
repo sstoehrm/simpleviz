@@ -118,7 +118,7 @@
 (defn- slide
   "One slide from its lines: [{:text :side} at], :side the `>` or `>>` target of
   its first lines (nil when there is none), plus :side-compare when that
-  asks to compare; with `?? name` there too, :ask the question and `at`
+  asks to compare and :side-step when it names a step; with `?? name` there too, :ask the question and `at`
   the index of its line (else nil)."
   [lines]
   (let [lines (vec lines)
@@ -142,7 +142,8 @@
           (let [ls (subvec lines i)
                 target (:target side)
                 base (cond-> {:text (trim-blank-lines ls) :side (if (some? target) (:dest target) nil)}
-                       (some? (:compare target)) (assoc :side-compare (:compare target)))]
+                       (some? (:compare target)) (assoc :side-compare (:compare target))
+                       (some? (:step target)) (assoc :side-step (:step target)))]
             (if (nil? q)
               [base nil]
               (let [[text a] (ask (:marker q) (:id q) ls)]

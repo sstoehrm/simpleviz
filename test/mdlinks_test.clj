@@ -22,6 +22,10 @@
   (doseq [[raw want] cases/DEST_COMPARE]
     (testing raw (is (= want (mdlinks/dest-compare raw))))))
 
+(deftest dest-step-cases
+  (doseq [[raw want] cases/DEST_STEP]
+    (testing raw (is (= want (mdlinks/dest-step raw))))))
+
 (deftest quote-target-cases
   (doseq [[rest want] cases/QUOTE_TARGET]
     (testing rest (is (= want (mdlinks/quote-target rest))))))

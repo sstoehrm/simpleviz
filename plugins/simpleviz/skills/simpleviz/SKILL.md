@@ -174,7 +174,10 @@ Attributes simpleviz reads:
   op value]` with op `:+` add, `:-` remove (no value), `:r` replace,
   applied to the state before it; the file as written is the start. The
   page animates between the states, and a deck slide showing the graph
-  gets a Next button. Paths walk the graph like `get-in`: an edge by its
+  gets a Next button. A slide's link picks the step: `>
+  [x](flow.edn?step=2)` (a number, `start`, or a step's name) shows it,
+  `?step=1..3` compares step 1 with step 3; consecutive slides on one
+  graph animate between their steps. Not together with `?compare=`. Paths walk the graph like `get-in`: an edge by its
   key `[:edges [:api :cache]]`, a box member by its id `[:boxes :b
   :components :cache]` (sets). A step that does not apply warns and
   changes nothing. The page's "compare with" diffs two steps like a

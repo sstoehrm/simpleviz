@@ -287,6 +287,14 @@ remove (no value) or `:r` replace. `simpleviz demo` brings `steps.edn`.
 - Presenting a deck, a graph with steps shows **◂ · Next ▸** at the
   bottom right: each step animates in and the view fits the graph. The
   arrow keys still step through the slides.
+- A slide's link picks the step: `> [the cache](flow.edn?step=2)` shows
+  step 2, `?step=start` the file as written, `?step=add%20a%20cache` the
+  first step of that name (a number is always the step's number), and
+  `?step=1..3` compares step 1 with step 3 — Next then goes on comparing
+  with step 1. The next slide on the same graph animates to its own
+  step; after one with `?step=`, a slide on it without shows the start.
+  A step the graph doesn't have shows the start and the banner says
+  why; `?step=` and `?compare=` don't go together.
 - A step that does not apply — its path names something that isn't
   there, its `:edits` is no edit vector — warns and leaves the state as
   it was, and `simpleviz check` reports it. Editing a step rewrites only

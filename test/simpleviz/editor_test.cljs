@@ -9,7 +9,7 @@
                                       chord-action chord-prefix? chord-for chord-menu
                                       add-node-in-box-ops box-remove-op
                                       name->id derived-id named-edge-ops creation-ops parse-entry
-                                      parse-nav nav-query follow-url crumb-url ref-of banner-visible?
+                                      parse-nav nav-query follow-url step-view crumb-url ref-of banner-visible?
                                       theme-menu top-box-of load-readiness export-readiness deck-readiness side-readiness layout-landing
                                       md-target from-disk to-disk md-dirty? adopt-doc gone-doc poll-outcome save-result
                                       parent-box split-parent doc-kind link-target line-markers link-title
@@ -883,3 +883,32 @@
   (fn []
     (assert/deepEqual (delete-selection-op ["n:a" "b:grp"])
                       {:op "delete-selection" :ids [{:section "nodes" :id "a"} {:section "boxes" :id "grp"}]})))
+
+(test "step-view reads a link's ?step= against the graph's step names"
+  (fn []
+    (let [names ["cache" "2" "shard" "cache"]]
+      ;; no step: the file as written
+      (assert/deepEqual (step-view names nil nil) {:step 0 :compare nil})
+      (assert/deepEqual (step-view names "3" nil) {:step 3 :compare nil})
+      (assert/deepEqual (step-view names "start" nil) {:step 0 :compare nil})
+      (assert/deepEqual (step-view names "shard" nil) {:step 3 :compare nil})
+      ;; a number is the step's number, even when a step is named like one
+      (assert/deepEqual (step-view names "2" nil) {:step 2 :compare nil})
+      ;; two steps of one name: the first
+      (assert/deepEqual (step-view names "cache" nil) {:step 1 :compare nil})
+      ;; a..b compares step a (old) with step b (shown)
+      (assert/deepEqual (step-view names "1..3" nil) {:step 3 :compare 1})
+      (assert/deepEqual (step-view names "start..shard" nil) {:step 3 :compare 0})
+      (assert/deepEqual (step-view names " 1 .. 4 " nil) {:step 4 :compare 1}))))
+
+(test "step-view says why a ?step= can't show"
+  (fn []
+    (let [names ["cache"]]
+      (assert/equal (:error (step-view names "5" nil)) "?step=5 — no step 5, the last is 1")
+      (assert/equal (:error (step-view names "nope" nil)) "?step=nope — no step named \"nope\"")
+      (assert/equal (:error (step-view names "1..nope" nil)) "?step=1..nope — no step named \"nope\"")
+      (assert/equal (:error (step-view names "1..1" nil)) "?step=1..1 — compares a step with itself")
+      (assert/equal (:error (step-view [] "1" nil)) "?step=1 — the graph has no steps")
+      ;; a fork comparison shows two files, not the steps of one
+      (assert/equal (:error (step-view names "1" "next")) "?step=1 — not with ?compare=, a comparison with a fork has no steps")
+      (assert/deepEqual (step-view names nil "next") {:step 0 :compare nil}))))

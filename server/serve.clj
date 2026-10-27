@@ -2,7 +2,8 @@
   "Static file server + EDN->JSON API. Parses and normalizes the graph
   (shape checks, semantics) server-side via graph/normalize; the browser
   just renders the resulting JSON."
-  (:require [babashka.cli :as cli]
+  (:require [analyze]
+            [babashka.cli :as cli]
             [calc]
             [cheshire.core :as json]
             [clojure.edn :as edn]
@@ -350,6 +351,16 @@
   (when-let [rel (query-param query-string "file")]
     (refuse-embedded-compare!)
     rel))
+
+(defn- analyzer-of
+  "For `rel` naming an md file's analyzer block, <doc.md>#analyzer-<n>,
+  [md n] — md with its . and .. collapsed, so its >> folder resolves
+  from where it is, and checked as resolve-path checks it; else nil."
+  [rel]
+  (when-let [[_ raw n] (re-matches #"(?i)(.+\.md)#analyzer-([1-9][0-9]{0,3})" (str rel))]
+    (let [md (or (paths/resolve-ref "_" raw) (throw (ex-info (str raw " leaves the served folder") {})))]
+      (resolve-path @root-dir md true doc-extensions)
+      [md (parse-long n)])))
 
 (declare write-atomically!)
 
@@ -801,11 +812,22 @@
                      rel (nav-rel query-string)
                      compare (query-param query-string "compare")
                      suffix (request-suffix compare)]
-                 (if (embedded-compare?)
+                 (cond
+                   (embedded-compare?)
                    (let [nm (.getName (io/file root))]
                      (compare-payload (embedded-old root) (read-source root)
                                       (str nm " (old)") (str nm " (new)") nm
                                       {:editable false :editable-old false} (fn [g _] g)))
+
+                   ;; an md file's analyzer block: its graph, read-only
+                   (some? (analyzer-of rel))
+                   (let [[md n] (analyzer-of rel)]
+                     (graph-payload (analyze/graph-text (.getCanonicalFile @root-dir) md n)
+                                    (str (str/replace (.getName (io/file md)) #"(?i)\.md$" "") "-analyzer-" n ".edn")
+                                    {:editable false :path rel}
+                                    identity))
+
+                   :else
                    (let [{:keys [old new] :as pair} (sides rel compare)
                          path (or rel (root-rel))
                          new-p (.getPath new)
@@ -1267,11 +1289,13 @@
   constant: the page reloads once and shows the graph route's error."
   [query-string]
   (try
-    (let [{:keys [old new]} (sides (nav-rel query-string)
-                                   (query-param query-string "compare"))]
-      (if (some? old)
-        (str (.lastModified old) "-" (.lastModified new))
-        (.lastModified new)))
+    (if-let [[md n] (analyzer-of (nav-rel query-string))]
+      (analyze/stamp (.getCanonicalFile @root-dir) md n)
+      (let [{:keys [old new]} (sides (nav-rel query-string)
+                                     (query-param query-string "compare"))]
+        (if (some? old)
+          (str (.lastModified old) "-" (.lastModified new))
+          (.lastModified new))))
     (catch Exception _ 0)))
 
 (defn- doc-version
@@ -1389,11 +1413,19 @@
     "/api/source"
     (let [which (query-param query-string "which")
           body (try
-                 (if (embedded-compare?)
+                 (cond
+                   (embedded-compare?)
                    (do (nav-rel query-string)
                        (if (= which "old")
                          (embedded-old (:root @files))
                          (read-source (:root @files))))
+
+                   (some? (analyzer-of (nav-rel query-string)))
+                   (when-not (= which "old")
+                     (let [[md n] (analyzer-of (nav-rel query-string))]
+                       (analyze/graph-text (.getCanonicalFile @root-dir) md n)))
+
+                   :else
                    (let [{:keys [old] :as pair} (sides (nav-rel query-string)
                                                        (query-param query-string "compare"))]
                      (when (or (not= which "old") (some? old))

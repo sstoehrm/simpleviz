@@ -497,10 +497,12 @@
     (.flush ^java.io.Writer stdout)
     (System/exit 0)))
 
-(defn- bb-path []
+(defn bb-path
+  "The bb this process runs on, for a child of its own (analyze's too)."
+  []
   (or (.orElse (.command (.info (java.lang.ProcessHandle/current))) nil) "bb"))
 
-(defn- classpath
+(defn classpath
   "This process's classpath, its entries absolute — the child runs
   elsewhere."
   []

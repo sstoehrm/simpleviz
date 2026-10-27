@@ -337,6 +337,31 @@
                  " ok(r); }, 50); })")
             :extra {"g.edn" "{:nodes {:a {}}}"})))))
 
+(deftest an-analyzer-link-opens-its-graph-beside-the-md-page
+  ;; the block shows as a link; its graph — made from the code — opens to
+  ;; the right of the text, read-only, and follows the code as it changes
+  (with-real-browser
+    (is (= {:side "notes.md#analyzer-1" :open true :editable false
+            :first ["a/f" "a/g"] :later ["a/f" "a/g" "a/h"]}
+           (eval-on-served-page
+            path "notes.md"
+            "# Code\n\n```simpleviz-analyzer\n>> .\n\"*.clj\" #(->> % clj-module public-namespace-graph)\n```\n"
+            (str "(async () => {"
+                 " const sleep = ms => new Promise(res => setTimeout(res, ms));"
+                 " const app = await import('./js/simpleviz/app.mjs');"
+                 " const ids = () => Object.keys(app.state.val.graph?.nodes ?? {}).sort();"
+                 " let link = null;"
+                 " for (let i = 0; i < 60 && !link; i++) { link = document.querySelector('#md-view .md-analyzer a.md-link'); await sleep(100); }"
+                 " link.click();"
+                 " for (let i = 0; i < 100; i++) { if (ids().length > 0) break; await sleep(100); }"
+                 " const r = {side: new URLSearchParams(location.search).get('side'), first: ids(),"
+                 "            editable: app.state.val.graph?.editable};"
+                 " r.open = !!document.querySelector('#md-view .md-analyzer a.md-link.open');"
+                 " for (let i = 0; i < 100; i++) { if (ids().length > 2) break; await sleep(100); }"
+                 " r.later = ids(); return r; })()")
+            :extra {"a.clj" "(ns a) (defn f [] (g)) (defn g [] 1)"}
+            :later (rewrite-later! "a.clj" "(ns a) (defn f [] (g)) (defn g [] 1) (defn h [] (f))"))))))
+
 (deftest a-compare-link-opens-the-comparison-beside-the-md-page
   ;; [x](g.edn?compare=next): the graph beside the text is compared with
   ;; g-next.edn, an edit there goes to the fork, × drops the comparison

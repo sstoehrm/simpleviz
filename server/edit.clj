@@ -55,8 +55,8 @@
   (some-> loc z/right form-at))
 
 (defn zroot [text]
-  (let [zl (try (z/of-string text) (catch Exception _ (fail! "file does not parse as EDN")))]
-    (when-not (map? (z/sexpr zl)) (fail! "root must be a map"))
+  (let [zl (try (form-at (z/of-string text)) (catch Exception _ (fail! "file does not parse as EDN")))]
+    (when-not (and (some? zl) (map? (z/sexpr zl))) (fail! "root must be a map"))
     ;; the page shows such a file as an error (serve/parse-graph), so an
     ;; edit must not land in it; #_ discards after the root are fine
     (when (some? (right-form zl))
@@ -99,28 +99,32 @@
   (let [sect (or (sect-val root section) (unknown! section id))]
     (or (find-val sect (entry-pred section id)) (unknown! section id))))
 
+(defn- path-of
+  "Where zloc sits: per level from the top, how many forms are left of it
+  — whitespace and comments not counted, `#_` discards counted."
+  [loc]
+  (loop [c loc acc ()]
+    (if-let [u (z/up c)]
+      (recur u (conj acc (count (take-while some? (rest (iterate z/left c))))))
+      (vec acc))))
+
+(defn- at-path
+  "The zloc at `path` (path-of), from any zloc of the same file."
+  [loc path]
+  (reduce (fn [c i] (nth (iterate z/right (z/down c)) i))
+          (loop [c loc] (if-let [u (z/up c)] (recur u) c))
+          path))
+
 (defn remove-pair
   "Remove a key zloc and its value; returns the root zipper.
-  Removing the value first can land the zipper's position deep inside the
-  key's own subtree when the key is compound (e.g. an edge's [from to]
-  vector) — rewrite-clj's `remove` moves to the depth-first predecessor,
-  which dives into a compound left sibling. Walk back up by comparing
-  source text (not sexpr, which would choke on a map now missing one
-  value) until we're back at the key itself, then remove that. A `#_`
-  between key and value stays; the walk then comes up through it, and
-  the key is left of it."
+  The value goes first; rewrite-clj's `remove` then moves to the
+  depth-first predecessor — inside a compound key, or inside a `#_`
+  between key and value, which stays — so the key is found again by
+  where it sits, not by its text, which such a discard may hold too.
+  Removing the value changes nothing left of the key."
   [kloc]
-  (let [key-text (z/string kloc)
-        key? (fn [c] (= key-text (z/string c)))
-        after-val (z/remove (right-form kloc))
-        at-key (loop [c after-val]
-                 (cond
-                   (key? c) c
-                   (= :uneval (z/tag c))
-                   (let [l (loop [l (z/left c)] (if (and (some? l) (= :uneval (z/tag l))) (recur (z/left l)) l))]
-                     (if (and (some? l) (key? l)) l (recur (z/up c))))
-                   :else (recur (z/up c))))]
-    (z/remove at-key)))
+  (let [path (path-of kloc)]
+    (z/remove (at-path (z/remove (right-form kloc)) path))))
 
 (defn set-attr [text {:keys [section id attr value fallback]}]
   (let [v (edn-value value fallback)
@@ -333,7 +337,7 @@
   "The root map's zloc, from any zloc inside the file."
   [loc]
   (loop [c loc]
-    (if (nil? (z/up c)) (z/down c) (recur (z/up c)))))
+    (if (nil? (z/up c)) (down-form c) (recur (z/up c)))))
 
 (defn- drop-key
   "Root zloc `root` without the first entry of `section` whose key
@@ -514,7 +518,7 @@
   "The column (0-based) section's keys line up in, when its entries sit
   one per line; nil otherwise."
   [text section]
-  (when-let [sect (sect-val (z/of-string text {:track-position? true}) section)]
+  (when-let [sect (sect-val (form-at (z/of-string text {:track-position? true})) section)]
     (let [k1 (down-form sect)
           k2 (some-> k1 right-form right-form)]
       (when (and (some? k2) (not= (first (z/position k1)) (first (z/position k2))))
@@ -591,7 +595,7 @@
 (defn- clip-data
   "The clipboard text s as a graph map with nodes or boxes to paste."
   [s]
-  (let [v (try (z/sexpr (z/of-string (str s))) (catch Exception _ nil))
+  (let [v (try (z/sexpr (form-at (z/of-string (str s)))) (catch Exception _ nil))
         some-map? (fn [x] (and (map? x) (seq x)))]
     (if (and (map? v) (or (some-map? (:nodes v)) (some-map? (:boxes v))))
       v

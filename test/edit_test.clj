@@ -747,7 +747,31 @@
     (is (= {:nodes {:b nil}} (clojure.edn/read-string text))))
   (let [{:keys [text]} (edit/apply-ops "{#_:x :theme #_:y :nord :nodes {}}"
                                        [{:op "set-theme" :theme "dracula"}])]
-    (is (= :dracula (:theme (clojure.edn/read-string text))))))
+    (is (= :dracula (:theme (clojure.edn/read-string text)))))
+  ;; a discard holding the key's own text is no key
+  (doseq [[src op want] [["{:nodes {:a {:type #_:type \"t\"}}}"
+                          {:op "del-attr" :section "nodes" :id "a" :attr "type"} {:nodes {:a {}}}]
+                         ["{:nodes {:a {:type #_[:type] \"t\"}}}"
+                          {:op "del-attr" :section "nodes" :id "a" :attr "type"} {:nodes {:a {}}}]
+                         ["{:nodes {:a {:type #_[:type #_:x] \"t\"}}}"
+                          {:op "del-attr" :section "nodes" :id "a" :attr "type"} {:nodes {:a {}}}]
+                         ["{:nodes {:a nil} :edges {[:a :b] #_[:a :b] nil}}"
+                          {:op "delete" :section "edges" :id ["a" "b"]} {:nodes {:a nil} :edges {}}]
+                         ["{:nodes {:a #_:a nil :b nil}}"
+                          {:op "delete" :section "nodes" :id "a"} {:nodes {:b nil}}]
+                         ["{:theme #_:theme :nord :nodes {}}"
+                          {:op "set-theme" :theme ""} {:nodes {}}]
+                         ;; a discard before the root map
+                         ["#_:x {:nodes {:a nil}}"
+                          {:op "rename" :section "nodes" :id "a" :to "b"} {:nodes {:b nil}}]
+                         [";; c\n#_{:old 1}\n{:nodes {:a nil}}"
+                          {:op "set-attr" :section "nodes" :id "a" :attr "name" :value "\"A\"" :fallback false}
+                          {:nodes {:a {:name "A"}}}]
+                         ["#_:x\n{:nodes {:a nil}\n :edges {}}"
+                          {:op "add-node" :id "b"} {:nodes {:a nil :b nil} :edges {}}]]]
+    (let [{:keys [text error]} (edit/apply-ops src [op])]
+      (is (nil? error) src)
+      (is (= want (try (clojure.edn/read-string text) (catch Exception e (ex-message e)))) src))))
 
 (deftest apply-ops-rejects-attr-names-that-do-not-read-back
   (doseq [a ["api/" "/a" "a/1"]]

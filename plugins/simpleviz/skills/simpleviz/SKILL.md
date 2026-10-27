@@ -239,7 +239,8 @@ the platform team
 - A slide whose first line is `> [text](path)` shows that graph (`.edn`,
   or an exported `.png`/`.svg`), md file or picture (`> ![alt](pic.png)`)
   to the right of its text — the slide's other lines. Only a `>` line
-  that is just that one link counts; any other is a quote. `>>` works too.
+  that is just that one link, with no `>` line right after it, counts;
+  any other is a quote. `>>` works too.
 - Keys: → ↓ space Page Down forward, ← ↑ Page Up back, Home and End the
   first and last slide, Esc leaves. The URL keeps the slide (`?slide=3`),
   and `$URL/?slide=1` opens the deck presenting: give the user that link

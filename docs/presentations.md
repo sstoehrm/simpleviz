@@ -33,8 +33,9 @@ To start one:
   but not edited.
 - The URL keeps the slide, and the text follows the file on disk while
   you present.
-- Only a `>` line that is just that one link counts; any other `>` line
-  is a quote, as in markdown. `>>` works as before, a plain `>> path` too.
+- Only a `>` line that is just that one link counts, and only when the
+  next line doesn't go on with `>`; any other `>` line is a quote, as in
+  markdown. `>>` works as before, a plain `>> path` too.
 - A slide can ask a question: see [Quizzes](quizzes.md).
 - `simpleviz export talk.md talk.pdf` writes the deck as a PDF, a 16:9
   page per slide, with what each `>` shows beside it.

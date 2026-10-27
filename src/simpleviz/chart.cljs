@@ -138,6 +138,16 @@
         outer-down (last-of neg?)]
     (mapv (fn [[j v start]] [j v start (= j (if (pos? v) outer-up outer-down))]) segs)))
 
+(defn bar-sizes
+  "[thick g]: the width of each of `per` bars side by side in a band
+  `band` wide, and the gap between them. They fill 72% of the band; a
+  gap takes at most half a bar's share of that, so a crowded chart
+  narrows its gaps too and no bar gets thinner than nothing."
+  [band per]
+  (let [room (* band 0.72)
+        g (min gap (/ room per 2))]
+    [(min max-bar (/ (- room (* g (dec per))) per)) g]))
+
 (defn- bars [{:keys [xs series]} spec]
   (let [side? (:horizontal spec)
         stack? (:stack spec)
@@ -155,8 +165,8 @@
         [c0 c1] (if side? [(:t pad) (- H (:b pad))] [(:l pad) (- W (:r pad))])
         band (/ (- c1 c0) (max 1 n))
         per (if stack? 1 k)
-        thick (min max-bar (/ (- (* band 0.72) (* gap (dec per))) per))
-        group (+ (* thick per) (* gap (dec per)))
+        [thick g] (bar-sizes band per)
+        group (+ (* thick per) (* g (dec per)))
         ;; the gap between stacked segments, as a value
         cut (* gap (/ (- (last ts) (first ts)) (js/Math.abs (- a1 a0))))
         mark (fn [i j start from to rounded?]
@@ -180,7 +190,7 @@
                       [j s] (map-indexed vector series)
                       :let [v (nth (:values s) i)]
                       :when (number? v)]
-                  (mark i j (+ (start-of i) (* j (+ thick gap))) 0 v true)))]
+                  (mark i j (+ (start-of i) (* j (+ thick g))) 0 v true)))]
     [(value-axis ts pos side? pad)
      (cat-labels xs band (fn [i] (+ c0 (* band i) (/ band 2))) side? pad)
      (into [:g] marks)]))

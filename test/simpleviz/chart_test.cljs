@@ -1,7 +1,7 @@
 (ns simpleviz.chart-test
   (:require ["node:test" :refer [test]]
             ["node:assert/strict$default" :as assert]
-            [simpleviz.chart :refer [compact runs stacked ticks view]]))
+            [simpleviz.chart :refer [bar-sizes compact runs stacked ticks view]]))
 
 (test "ticks are round steps covering the values"
   (fn []
@@ -50,3 +50,14 @@
   (fn []
     (assert/deepEqual (stacked [3 -1 nil 2 0 -4])
                       [[0 3 0 false] [1 -1 0 false] [3 2 3 true] [5 -4 -1 true]])))
+
+(test "grouped bars keep a width when the categories crowd them"
+  (fn []
+    ;; 300 categories of two series: 580px a chart's width, 1.93px a band
+    (let [band (/ 580 300)
+          [thick g] (bar-sizes band 2)]
+      (assert/ok (pos? thick) (str "thick " thick))
+      (assert/ok (>= g 0))
+      (assert/ok (<= (+ (* 2 thick) g) band)))
+    (assert/deepEqual (bar-sizes 100 2) [24 2] "a roomy band: max-bar wide, gap 2")
+    (assert/deepEqual (bar-sizes 25 1) [18 2])))

@@ -29,6 +29,10 @@
 
 (def ^:private max-bytes (* 32 1024 1024))
 
+(def ^:private max-walked "Files a block's folder may hold, matched or not." 100000)
+
+(def ^:private max-cached "Blocks whose graph and stamp are kept." 64)
+
 (defn- fail [& msg] (throw (ex-info (apply str msg) {})))
 
 (defn- message [^Throwable ex] (or (ex-message ex) (.getSimpleName (class ex))))
@@ -100,6 +104,8 @@
                    (or (= f dir) (and (.isDirectory f) (keep? f) (not= "node_modules" (.getName f)))))]
     (->> (tree-seq descend? (fn [^java.io.File d] (seq (.listFiles d))) dir)
          (filter (fn [^java.io.File f] (and (.isFile f) (keep? f))))
+         ;; one past the cap is enough to refuse it
+         (take (inc max-walked))
          (map (fn [^java.io.File f] [(str/replace (str (.relativize dp (.toPath f))) java.io.File/separator "/") f]))
          (sort-by first))))
 
@@ -114,6 +120,7 @@
   of the group matches: [[{:path :file}]]."
   [root md dest globs]
   (let [files (walk (folder root md dest))
+        _ (when (> (count files) max-walked) (fail dest " holds over " max-walked " files — name a smaller folder"))
         out (mapv (fn [g] (let [m? (matcher g)]
                             (vec (for [[rel f] files :when (m? rel)] {:path rel :file f}))))
                   globs)]
@@ -133,8 +140,9 @@
 (defn- stamp-now [root md n]
   (try (let [[^java.io.File md-f _ groups] (block-files root md n)
              fs (cons md-f (distinct (map :file (mapcat identity groups))))]
-         (str (count fs) "-" (reduce max 0 (map #(.lastModified ^java.io.File %) fs))
-              "-" (reduce + 0 (map #(.length ^java.io.File %) fs))))
+         ;; each file's path, time and size: a rename or an older copy moves it
+         (str (count fs) "-"
+              (hash (mapv (fn [^java.io.File f] [(.getPath f) (.lastModified f) (.length f)]) fs))))
        ;; a broken block has a stamp too: its error shows until it changes
        (catch Exception ex (str "error-" (hash (message ex))))))
 
@@ -153,7 +161,7 @@
     (if (and hit (< (- now (:at hit)) *stamp-ms*))
       (:stamp hit)
       (let [s (stamp-now root md n)]
-        (swap! stamps assoc k {:at now :stamp s})
+        (swap! stamps (fn [m] (assoc (if (>= (count m) max-cached) {} m) k {:at now :stamp s})))
         s))))
 
 ;; ---------------------------------------------------------------- the child
@@ -161,25 +169,42 @@
 (defn- merge-graphs [graphs]
   (apply merge-with (fn [a b] (if (and (map? a) (map? b)) (merge a b) b)) graphs))
 
+(def ^:private denied
+  "What a block's code may not name: the ways to the host's own
+  namespaces — and from there to its files and shell."
+  '[require requiring-resolve resolve ns-resolve find-ns all-ns the-ns find-var intern
+    ns-publics ns-interns ns-map ns-refers ns-aliases load-string load-file eval])
+
+(def ^:private apply-pairs
+  ;; SCI code, so the fns are called — and their lazy results realized,
+  ;; by pr-str — inside the eval: a fn called from the host would run
+  ;; outside the sandbox and resolve against bb's own namespaces
+  "(fn [forms groups]
+     (when-not (= (count groups) (quot (count forms) 2))
+       (throw (ex-info \"the block's pairs and its file groups differ\" {})))
+     (pr-str
+      (merge-graphs
+       (mapv (fn [[pat f] files]
+               (when-not (fn? f)
+                 (throw (ex-info (str \"expected a fn after \" (pr-str pat) \", got \" (pr-str f)) {})))
+               (let [g (f files)]
+                 (when-not (map? g)
+                   (throw (ex-info (str \"the fn after \" (pr-str pat)
+                                        \" returns no graph — a map of :nodes, :edges and :boxes\") {})))
+                 g))
+             (partition 2 forms)
+             groups))))")
+
 (defn evaluate
   "The graph the pairs of `defs` make of their `groups` of files, as EDN
   text: each pattern's fn gets its group, [{:path :text}]."
   [defs groups]
   (let [ctx (sci/init {:namespaces {'user {'clj-module lang-clj/clj-module
-                                           'public-namespace-graph lang-clj/public-namespace-graph}}})
-        forms (:val (sci/eval-string+ ctx (str "[" defs "\n]") {:ns (sci/find-ns ctx 'user)}))]
-    (when-not (= (count groups) (quot (count forms) 2))
-      (fail "the block's pairs and its file groups differ"))
-    (pr-str
-     (merge-graphs
-      (map (fn [[pat f] files]
-             (when-not (fn? f) (fail "expected a fn after " (pr-str pat) ", got " (pr-str f)))
-             (let [g (f files)]
-               (when-not (map? g)
-                 (fail "the fn after " (pr-str pat) " returns no graph — a map of :nodes, :edges and :boxes"))
-               g))
-           (partition 2 forms)
-           groups)))))
+                                           'public-namespace-graph lang-clj/public-namespace-graph
+                                           'merge-graphs merge-graphs
+                                           '*groups* groups}}
+                       :deny denied})]
+    (:val (sci/eval-string+ ctx (str "(" apply-pairs " [" defs "\n] *groups*)") {:ns (sci/find-ns ctx 'user)}))))
 
 (defn child
   "The child's main: {defs, groups} as JSON on stdin, {edn} or {error}
@@ -224,14 +249,14 @@
         entry (if (= s (:stamp hit))
                 hit
                 (let [e (try (let [[_ b groups] (block-files root md n)
-                                   texts (mapv (fn [g]
-                                                 (let [total (reduce + 0 (map #(.length ^java.io.File (:file %)) g))]
-                                                   (when (> total max-bytes) (fail "the matched files are over 32 MiB"))
-                                                   (mapv (fn [{:keys [path file]}] {:path path :text (slurp file)}) g)))
+                                   total (reduce + 0 (map #(.length ^java.io.File (:file %)) (distinct (mapcat identity groups))))
+                                   _ (when (> total max-bytes) (fail "the matched files are over 32 MiB"))
+                                   texts (mapv (fn [g] (mapv (fn [{:keys [path file]}] {:path path :text (slurp file)}) g))
                                                groups)]
                                {:stamp s :edn (run-child (:defs b) texts)})
                              (catch Exception ex {:stamp s :error (message ex)}))]
-                  (swap! cache assoc k e)
+                  ;; a few blocks are shown at a time: past max-cached, start over
+                  (swap! cache (fn [c] (assoc (if (>= (count c) max-cached) {} c) k e)))
                   e))]
     (if-let [err (:error entry)]
       (fail err)

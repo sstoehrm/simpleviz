@@ -60,9 +60,31 @@
       (is (= ["app.core/prep" "app.util/shout" "clojure.string/trim"] (:calls (def-of core "run"))))
       (is (= ["app.core/later" "app.util/helper"] (:calls (def-of core "prep"))))
       (is (= ["app.util/quiet"] (:calls (def-of util "shout"))) "#? reads the :clj branch"))
-    (testing "a defmethod's calls belong to its multi"
-      (is (= ["app.util/shout"] (:calls (def-of util "kind"))))
+    (testing "a defmethod is a method of its multi, by its qualified name"
+      (is (= [{:multi "app.util/kind" :line 10 :calls ["app.util/shout"]}] (:methods util)))
       (is (= 1 (count (filter #(= "kind" (:name %)) (:defs util))))))))
+
+(deftest more-ways-to-name-things
+  (let [[m] (lang-clj/clj-module
+             [{:path "b.clj"
+               :text "(ns b (:use [x.y :only [g]]) (:require [app [util :as u] core]))
+(defn f {:private true} [] (g) (u/h) (app.core/run))"}])]
+    (is (true? (:private (first (:defs m)))) "an attr map's :private")
+    (is (= ["app.core/run" "app.util/h" "x.y/g"] (:calls (first (:defs m)))) ":use :only, a vector prefix list")))
+
+(deftest a-method-elsewhere-belongs-to-its-multi
+  (let [g (lang-clj/public-namespace-graph
+           (lang-clj/clj-module
+            [{:path "a.clj" :text "(ns a) (defmulti render :k) (defn draw [] 1)"}
+             {:path "b.clj" :text "(ns b (:require [a :as a])) (defn render [] 1) (defn helper [] 2)
+(defmethod a/render :x [_] (a/draw) (helper))"}]))]
+    (is (= {["a/draw" "a/render"] {:direction :<-} ["a/render" "b/helper"] {:direction :->}} (:edges g))
+        "not b/render's, though it has the name")))
+
+(deftest every-namespace-is-a-box
+  (let [g (lang-clj/public-namespace-graph
+           (lang-clj/clj-module [{:path "c.clj" :text "(ns c) (def x 1) (defn- y [] 2)"}]))]
+    (is (= {"c" {:components #{}}} (:boxes g)))))
 
 (deftest public-namespace-graph-boxes-namespaces
   (let [g (lang-clj/public-namespace-graph (lang-clj/clj-module files))]

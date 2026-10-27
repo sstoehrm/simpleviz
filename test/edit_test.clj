@@ -704,3 +704,23 @@
 (deftest paste-refuses-a-clip-naming-a-node-and-a-box-alike
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"clipboard holds \"a\" as a node and as a box"
         (edit/paste "{:nodes {:a {}}}" {:edn "{:nodes {:a {}} :boxes {:a {}}}"}))))
+
+(deftest ident-node-keeps-only-ids-that-read-back
+  ;; a keyword is written only when the EDN reader gives the same id back;
+  ;; anything else stays a string, so the file still parses
+  (doseq [id ["a" "a/b" "api-v2" "x.y" "a?" "1" "/" "a/b/c"]]
+    (is (keyword? (edit/ident-node id)) id))
+  (doseq [id ["api/" "/a" "a/1" "a b" ":a"]]
+    (is (= id (edit/ident-node id)) id)))
+
+(deftest rename-to-a-trailing-slash-id-writes-valid-edn
+  (let [{:keys [text]} (edit/apply-ops "{:nodes {:a nil}}"
+                                       [{:op "rename" :section "nodes" :id "a" :to "api/"}])]
+    (is (= {:nodes {"api/" nil}} (clojure.edn/read-string text)))))
+
+(deftest apply-ops-rejects-attr-names-that-do-not-read-back
+  (doseq [a ["api/" "/a" "a/1"]]
+    (is (= {:error (str "invalid attribute name " (pr-str a))}
+           (edit/apply-ops small-file [{:op "set-attr" :section "nodes" :id "a"
+                                         :attr a :value "1" :fallback false}]))
+        a)))

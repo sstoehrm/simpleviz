@@ -14,10 +14,17 @@
 
 (def ^:private ident-re #"[A-Za-z0-9*+!_'?<>=./-]+")
 
+(defn- keyword-text?
+  "Is :s a keyword the EDN reader gives back as s? The regex alone lets
+  through such as api/ or a/1, which the file would then fail to load."
+  [s]
+  (and (some? (re-matches ident-re s))
+       (= s (try (ident->str (edn/read-string (str ":" s))) (catch Exception _ nil)))))
+
 (defn ident-node
   "New ids as keywords when legal, else strings."
   [id]
-  (if (re-matches ident-re id) (keyword id) id))
+  (if (keyword-text? id) (keyword id) id))
 
 (defn- edn-value
   "Parse an op's EDN-text value. :fallback true: unparseable or bare
@@ -690,16 +697,16 @@
 
 (defn- norm-op
   "Browser payload -> internal op: keywordize section/attr, keep ids.
-  Attr names are validated against the same ident regex ident-node uses —
-  set-attr/del-attr both keywordize the raw browser string and write it
-  straight into the file, so an unvalidated name (e.g. one containing a
-  space) would corrupt the EDN on write."
+  Attr names are validated as ident-node validates ids — set-attr/del-attr
+  both keywordize the raw browser string and write it straight into the
+  file, so an unvalidated name (e.g. one containing a space, or api/)
+  would corrupt the EDN on write."
   [op]
   (cond-> op
     (some? (:section op)) (update :section keyword)
     (some? (:attr op)) (update :attr
                           (fn [a]
-                            (if (re-matches ident-re a)
+                            (if (keyword-text? a)
                               (keyword a)
                               (fail! (str "invalid attribute name " (pr-str a))))))))
 

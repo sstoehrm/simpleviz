@@ -37,23 +37,40 @@
       (and (symbol? v) fallback) s
       :else v)))
 
+(defn- form-at
+  "loc, or the first form right of it that is no `#_` discard; nil at
+  the end."
+  [loc]
+  (loop [c loc] (if (and (some? c) (= :uneval (z/tag c))) (recur (z/right c)) c)))
+
+(defn- down-form
+  "The first child of zloc that is no `#_` discard: the reader drops
+  those, so a walk over a map's keys and values must step past them."
+  [loc]
+  (some-> loc z/down form-at))
+
+(defn- right-form
+  "The next sibling of zloc that is no `#_` discard."
+  [loc]
+  (some-> loc z/right form-at))
+
 (defn zroot [text]
   (let [zl (try (z/of-string text) (catch Exception _ (fail! "file does not parse as EDN")))]
     (when-not (map? (z/sexpr zl)) (fail! "root must be a map"))
     ;; the page shows such a file as an error (serve/parse-graph), so an
     ;; edit must not land in it; #_ discards after the root are fine
-    (when (some? (loop [r (z/right zl)] (if (and (some? r) (= :uneval (z/tag r))) (recur (z/right r)) r)))
+    (when (some? (right-form zl))
       (fail! "content after the end of the graph: check for an extra }"))
     zl))
 
 (defn find-key
   "zloc of the KEY in the map at zmap whose sexpr satisfies pred, nil if none."
   [zmap pred]
-  (loop [k (z/down zmap)]
+  (loop [k (down-form zmap)]
     (when (some? k)
-      (if (pred (z/sexpr k)) k (recur (z/right (z/right k)))))))
+      (if (pred (z/sexpr k)) k (recur (some-> k right-form right-form))))))
 
-(defn find-val [zmap pred] (some-> (find-key zmap pred) z/right))
+(defn find-val [zmap pred] (some-> (find-key zmap pred) right-form))
 
 (defn- sect-val
   "zloc of the top-level section map (:nodes/:edges/:boxes). Fails on
@@ -89,12 +106,20 @@
   vector) — rewrite-clj's `remove` moves to the depth-first predecessor,
   which dives into a compound left sibling. Walk back up by comparing
   source text (not sexpr, which would choke on a map now missing one
-  value) until we're back at the key itself, then remove that."
+  value) until we're back at the key itself, then remove that. A `#_`
+  between key and value stays; the walk then comes up through it, and
+  the key is left of it."
   [kloc]
   (let [key-text (z/string kloc)
-        after-val (z/remove (z/right kloc))
+        key? (fn [c] (= key-text (z/string c)))
+        after-val (z/remove (right-form kloc))
         at-key (loop [c after-val]
-                 (if (= key-text (z/string c)) c (recur (z/up c))))]
+                 (cond
+                   (key? c) c
+                   (= :uneval (z/tag c))
+                   (let [l (loop [l (z/left c)] (if (and (some? l) (= :uneval (z/tag l))) (recur (z/left l)) l))]
+                     (if (and (some? l) (key? l)) l (recur (z/up c))))
+                   :else (recur (z/up c))))]
     (z/remove at-key)))
 
 (defn set-attr [text {:keys [section id attr value fallback]}]
@@ -279,13 +304,13 @@
   (sect-val does)."
   [root member-id]
   (when-let [sect (find-val root #(= % :boxes))]
-    (loop [k (z/down sect)]
+    (loop [k (down-form sect)]
       (when (some? k)
-        (let [v (z/right k)
+        (let [v (right-form k)
               comps (when (map? (z/sexpr v)) (find-val v #(= % :components)))
               hit (when (and (some? comps) (coll? (z/sexpr comps)))
                     (find-component comps member-id))]
-          (or hit (recur (z/right v))))))))
+          (or hit (recur (right-form v))))))))
 
 (defn- edit-first-component
   "Apply f (a zloc -> zloc edit) to the first occurrence of member-id in
@@ -358,12 +383,12 @@
   `new-node` there."
   [root old new-node]
   (if-let [sect (sect-val root :edges)]
-    (loop [k (z/down sect) last sect]
+    (loop [k (down-form sect) last sect]
       (if (nil? k)
         (root-loc last)
         (let [k' (if (vector? (z/sexpr k)) (rename-elems k old new-node) k)
-              v (z/right k')]
-          (recur (z/right v) v))))
+              v (right-form k')]
+          (recur (right-form v) v))))
     root))
 
 (defn- rename-in-box-components
@@ -371,15 +396,15 @@
   `new-node`."
   [root old new-node]
   (if-let [sect (sect-val root :boxes)]
-    (loop [k (z/down sect) last sect]
+    (loop [k (down-form sect) last sect]
       (if (nil? k)
         (root-loc last)
-        (let [v (z/right k)
+        (let [v (right-form k)
               comps (when (map? (z/sexpr v)) (find-val v #(= % :components)))
               v' (if (and (some? comps) (coll? (z/sexpr comps)))
                    (z/up (rename-elems comps old new-node))
                    v)]
-          (recur (z/right v') v'))))
+          (recur (right-form v') v'))))
     root))
 
 (defn- referenced-ids
@@ -455,13 +480,13 @@
   (let [root (zroot text)
         kloc (find-key root #(= % :theme))
         remove? (str/blank? theme)]
-    (when (and (some? kloc) (map? (z/sexpr (z/right kloc))))
+    (when (and (some? kloc) (map? (z/sexpr (right-form kloc))))
       (fail! "the file sets a custom theme (a :theme map); change it in the file"))
     (when-not (or remove? (contains? themes/THEMES (keyword theme)))
       (fail! (str "unknown theme " (pr-str theme))))
     (cond
       remove? (if (some? kloc) (z/root-string (remove-pair kloc)) text)
-      (some? kloc) (z/root-string (z/replace (z/right kloc) (keyword theme)))
+      (some? kloc) (z/root-string (z/replace (right-form kloc) (keyword theme)))
       ;; a new key goes on its own line after the others, where it's seen
       (some? (z/down root))
       (-> root
@@ -473,22 +498,16 @@
 
 ;; ---- copy and paste: a selection as a graph of its own ----
 
-(defn- form-at
-  "loc, or the first form right of it that is no `#_` discard; nil at
-  the end."
-  [loc]
-  (loop [c loc] (if (and (some? c) (= :uneval (z/tag c))) (recur (z/right c)) c)))
-
 (defn- section-entries
   "The [key value] zlocs of `section`'s entries in text, in file order,
   `#_` discards skipped; [] when the section is absent."
   [text section]
   (if-let [sect (sect-val (zroot text) section)]
-    (loop [k (form-at (z/down sect)) acc []]
+    (loop [k (down-form sect) acc []]
       (if (nil? k)
         acc
-        (let [v (form-at (z/right k))]
-          (recur (some-> v z/right form-at) (conj acc [k v])))))
+        (let [v (right-form k)]
+          (recur (right-form v) (conj acc [k v])))))
     []))
 
 (defn- key-column
@@ -496,8 +515,8 @@
   one per line; nil otherwise."
   [text section]
   (when-let [sect (sect-val (z/of-string text {:track-position? true}) section)]
-    (let [k1 (z/down sect)
-          k2 (some-> k1 z/right z/right)]
+    (let [k1 (down-form sect)
+          k2 (some-> k1 right-form right-form)]
       (when (and (some? k2) (not= (first (z/position k1)) (first (z/position k2))))
         (dec (second (z/position k1)))))))
 

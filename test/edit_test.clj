@@ -718,6 +718,37 @@
                                        [{:op "rename" :section "nodes" :id "a" :to "api/"}])]
     (is (= {:nodes {"api/" nil}} (clojure.edn/read-string text)))))
 
+(deftest edits-skip-discarded-forms-and-keep-their-text
+  ;; #_ forms load fine (the reader drops them), so an edit must walk
+  ;; past them too — and leave them in the file as written
+  (doseq [[src want] [["{#_:theme :nodes {:a nil}}" {:nodes {:b nil}}]
+                      ["{:nodes {#_:old :a nil}}" {:nodes {:b nil}}]
+                      ["{:nodes {:a #_:x nil :c {:name \"C\"}}}" {:nodes {:b nil :c {:name "C"}}}]
+                      ["{:nodes {:a nil #_#_ :z nil}\n :edges {#_[:q :r] [:a :a] nil}}"
+                       {:nodes {:b nil} :edges {[:b :b] nil}}]]]
+    (let [{:keys [text error]} (edit/apply-ops src [{:op "rename" :section "nodes" :id "a" :to "b"}])]
+      (is (nil? error) src)
+      (is (= want (clojure.edn/read-string text)) src)
+      (is (= (count (re-seq #"#_" src)) (count (re-seq #"#_" (str text)))) src)))
+  (let [src "{:nodes {:a #_:x {:name \"A\" #_:k :type \"t\"}}}"]
+    (is (= {:nodes {:a {:name "B" :type "t"}}}
+           (clojure.edn/read-string
+            (:text (edit/apply-ops src [{:op "set-attr" :section "nodes" :id "a" :attr "name"
+                                          :value "\"B\"" :fallback false}])))))
+    (is (= {:nodes {:a {:name "A"}}}
+           (clojure.edn/read-string
+            (:text (edit/apply-ops src [{:op "del-attr" :section "nodes" :id "a" :attr "type"}])))))
+    ;; a discard between key and value stays; the value goes
+    (is (= "{:nodes {:a {:name \"A\" #_:k}}}"
+           (:text (edit/apply-ops "{:nodes {:a {:name \"A\" :type #_:k \"t\"}}}"
+                                  [{:op "del-attr" :section "nodes" :id "a" :attr "type"}])))))
+  (let [{:keys [text]} (edit/apply-ops "{:nodes {#_:old :a nil :b #_:x nil}}"
+                                       [{:op "delete" :section "nodes" :id "a"}])]
+    (is (= {:nodes {:b nil}} (clojure.edn/read-string text))))
+  (let [{:keys [text]} (edit/apply-ops "{#_:x :theme #_:y :nord :nodes {}}"
+                                       [{:op "set-theme" :theme "dracula"}])]
+    (is (= :dracula (:theme (clojure.edn/read-string text))))))
+
 (deftest apply-ops-rejects-attr-names-that-do-not-read-back
   (doseq [a ["api/" "/a" "a/1"]]
     (is (= {:error (str "invalid attribute name " (pr-str a))}

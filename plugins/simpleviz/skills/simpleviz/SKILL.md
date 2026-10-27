@@ -248,8 +248,8 @@ the platform team
 - A graph beside a slide can be hovered, inspected, panned, zoomed and
   collapsed, but not edited; refs and pairs don't follow.
 - `simpleviz export talk.md talk.pdf` writes the deck as a PDF, a 16:9
-  page per slide with its `>` beside it (graphs as presented, first
-  step only; questions unanswered). Text that overflows a slide is cut
+  page per slide with its `>` beside it (graphs as presented, a page
+  per step of one with `:steps`; questions unanswered). Text that overflows a slide is cut
   off — keep slides short.
 
 ## Quizzes

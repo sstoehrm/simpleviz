@@ -5,12 +5,14 @@
   (:require [babashka.fs :as fs]
             [babashka.process :as p]
             [browser]
+            [clojure.edn :as edn]
             [clojure.string :as str]
             [clojure.test :refer [deftest is]]
             [deck]
             [embedded]
             [png]
             [proc-util]
+            [steps]
             [svg]))
 
 (def ^:private found (browser/find-browser))
@@ -30,6 +32,15 @@
            :else (println "export-test: no browser found, skipped"))))
 
 (defn- at [tmp f] (str (fs/path tmp f)))
+
+(defn- pdf-pages
+  "How many pages the PDF at path has: Chrome writes each page's
+  dictionary uncompressed."
+  [path]
+  (count (re-seq #"/Type\s*/Page\b(?!s)" (slurp path :encoding "ISO-8859-1"))))
+
+(defn- state-count [tmp f]
+  (count (:states (steps/states (edn/read-string (slurp (at tmp f)))))))
 
 (e2e png-and-svg-carry-the-source
   (let [r (export! tmp "demo.edn" "demo.png")]
@@ -70,11 +81,30 @@
     (is (str/starts-with? (:err r) "simpleviz: cannot write no/such/dir/x.png") (:err r))))
 
 (e2e a-deck-exports-as-a-pdf-page-per-slide
+  ;; deck.md has one slide with steps.edn beside it: a page per state
   (let [n (count (deck/slides (slurp (at tmp "deck.md"))))
+        pages (+ n (dec (state-count tmp "steps.edn")))
         r (export! tmp "deck.md" "deck.pdf")]
     (is (= 0 (:exit r)) (:err r))
-    (is (= (str "wrote deck.pdf (" n " slides)") (str/trim (:out r)))))
+    (is (= (str "wrote deck.pdf (" n " slides, " pages " pages)") (str/trim (:out r))))
+    (is (= pages (pdf-pages (at tmp "deck.pdf")))))
   (is (= "%PDF-" (subs (slurp (at tmp "deck.pdf")) 0 5))))
+
+(e2e a-graph-with-steps-prints-a-page-per-step
+  ;; each state of the graph, the slide's text on every one of them
+  (spit (at tmp "talk.md") (str "# Talk\n---\n>> [steps](steps.edn)\n# It grows\n---\n"
+                                ">> [demo](demo.edn)\n# Plain\n---\n>> [again](steps.edn)\n# Again\n"))
+  (let [k (state-count tmp "steps.edn")
+        pages (+ 2 k k)
+        r (export! tmp "talk.md" "talk.pdf")]
+    (is (= 6 k))
+    (is (= 0 (:exit r)) (:err r))
+    (is (= "" (:err r)))
+    (is (= (str "wrote talk.pdf (4 slides, " pages " pages)") (str/trim (:out r))))
+    (is (= pages (pdf-pages (at tmp "talk.pdf"))))
+    (is (= 4 (pdf-pages (do (spit (at tmp "flat.md") "# A\n---\n# B\n---\n>> [demo](demo.edn)\n# C\n---\n# D\n")
+                            (export! tmp "flat.md" "flat.pdf")
+                            (at tmp "flat.pdf")))))))
 
 (e2e a-deck-with-broken-sides-still-exports-and-says-so
   ;; the slide says what's wrong, as it does presenting, and so does stderr

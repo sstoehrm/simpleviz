@@ -346,7 +346,11 @@
       (binding [*out* *err*]
         (doseq [[n why] (:problems data)] (println (str "simpleviz: slide " n ": " why))))
       (println (str "wrote " out (when (= format "pdf")
-                                  (let [n (:slides data)] (str " (" n (if (= 1 n) " slide)" " slides)"))))))
+                                  (let [{n :slides m :pages} data]
+                                    (str " (" n (if (= 1 n) " slide" " slides")
+                                         ;; a graph's steps print a page each
+                                         (when (and (some? m) (not= m n)) (str ", " m " pages"))
+                                         ")")))))
       ;; http-kit's threads would keep the process alive
       (System/exit 0))))
 

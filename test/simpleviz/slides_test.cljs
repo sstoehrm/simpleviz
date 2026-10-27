@@ -38,8 +38,13 @@
                        {:text "" :side "pic.jpg"}
                        {:text "" :side "g.edn" :side-compare "next"}])
     (doseq [deck ["> \"Simplicity is prerequisite for reliability.\"\n> — Dijkstra"
-                  "> plain.edn" "> see [g](g.edn)" "> [docs](https://example.com)" "# T\n> [g](g.edn)"]]
+                  "> plain.edn" "> see [g](g.edn)" "> [docs](https://example.com)" "# T\n> [g](g.edn)"
+                  ;; a quote that goes on past the link is a quote
+                  "> [RFC 9110](rfc.md)\n> — on what a method means\n# T"]]
       (assert/deepEqual (slides deck) [{:text deck :side nil}]))
+    ;; a blank line ends the quote, so the link is its own
+    (assert/deepEqual (slides "> [g](g.edn)\n\n> a quote")
+                      [{:text "> a quote" :side "g.edn"}])
     (doseq [deck ["> [g](g.edn)\n?? q\n# Q\n- [ ] a\n- [x] b"
                   "?? q\n\n> [g](g.edn)\n# Q\n- [ ] a\n- [x] b"]]
       (let [[s] (slides deck)]

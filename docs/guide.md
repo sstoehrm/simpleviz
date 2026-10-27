@@ -578,7 +578,8 @@ line is `>` and a link shows the linked file to the right of its text:
   `.gif`, `.webp` without simpleviz EDN in it) — `> [text](path)`, or
   `> ![alt](pic.png)` for a picture. Being a link, it gets its » in Edit
   and `simpleviz check` reports it when broken. Only a line that is just
-  that one link counts; any other `>` line is a quote, as in markdown.
+  that one link counts, and only when the next line doesn't go on with
+  `>`; any other `>` line is a quote, as in markdown.
   `>>` works the same, and takes a plain `>> path` too.
   `> [the change](pay/flow.edn?compare=next)` shows the graph
   compared with its fork. The path is relative to the md file, never above the served

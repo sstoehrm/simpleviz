@@ -38,8 +38,13 @@
                        {:text "" :side "pic.jpg"}
                        {:text "" :side "g.edn" :side-compare "next"}])
     (doseq [deck ["> \"Simplicity is prerequisite for reliability.\"\n> — Dijkstra"
-                  "> plain.edn" "> see [g](g.edn)" "> [docs](https://example.com)" "# T\n> [g](g.edn)"]]
+                  "> plain.edn" "> see [g](g.edn)" "> [docs](https://example.com)" "# T\n> [g](g.edn)"
+                  ;; a quote that goes on past the link is a quote
+                  "> [RFC 9110](rfc.md)\n> — on what a method means\n# T"]]
       (assert/deepEqual (slides deck) [{:text deck :side nil}]))
+    ;; a blank line ends the quote, so the link is its own
+    (assert/deepEqual (slides "> [g](g.edn)\n\n> a quote")
+                      [{:text "> a quote" :side "g.edn"}])
     (doseq [deck ["> [g](g.edn)\n?? q\n# Q\n- [ ] a\n- [x] b"
                   "?? q\n\n> [g](g.edn)\n# Q\n- [ ] a\n- [x] b"]]
       (let [[s] (slides deck)]
@@ -156,6 +161,13 @@
                       [{:text "" :side "api.edn" :side-compare "next"}
                        {:text "" :side "api.edn" :side-compare "v2"}
                        {:text "" :side "api.edn"}])))
+
+(test "a >> link's ?step= rides along as :side-step"
+  (fn []
+    (assert/deepEqual (slides ">> [from 1 to 3](api.edn?step=1..3)\n---\n>> api.edn?step=cache\n---\n> [g](g.edn?step=2)")
+                      [{:text "" :side "api.edn" :side-step "1..3"}
+                       {:text "" :side "api.edn" :side-step "cache"}
+                       {:text "" :side "g.edn" :side-step "2"}])))
 
 (test "a question slide keeps its >> link's ?compare="
   (fn []

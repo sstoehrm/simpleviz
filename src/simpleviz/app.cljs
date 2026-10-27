@@ -61,7 +61,12 @@
    ;; :step-name the step's name while it is
    :states nil :steps [] :step 0 :step-edit nil :step-name nil
    ;; the step the one shown is compared with (old → shown), nil when not
-   :step-compare nil})
+   :step-compare nil
+   ;; {:step} a slide's >> asked for (its ?step=, nil for the file as
+   ;; written) while the graph loads: the load shows that step
+   :pending-step nil
+   ;; why the step a slide's >> asked for can't show, nil when it can
+   :step-error nil})
 
 (def state (atom (merge per-file
                  {:colors nil :collapsed false
@@ -334,6 +339,9 @@
           raw (js-await (json-of (js/fetch url) "not connected"))]
       (if (some? (:error raw)) raw (with-boxes-by-name raw)))))
 
+;; counts the views asked for: only the last one asked lands
+(def ^:private view-gen (atom 0))
+
 (defn- ^:async show-view!
   "Show state k of the graph (0: the file as written), compared with
   state c when c is not nil, animated from what is shown. A view shown
@@ -345,12 +353,14 @@
         k (max 0 (min k (dec n)))
         c (when (some? c) (max 0 (min c (dec n))))
         from (view-key (:step st) (:step-compare st))
-        to (view-key k c)]
+        to (view-key k c)
+        gen (swap! view-gen inc)]
     (when (and (> n 1) (not= from to))
       (let [g (js-await (step-graph (:states st) k c))]
         (cond
-          ;; another step showed meanwhile
-          (not= from (view-key (:step @state) (:step-compare @state))) nil
+          ;; another step showed, or was asked for, meanwhile
+          (or (not= gen @view-gen)
+              (not= from (view-key (:step @state) (:step-compare @state)))) nil
           (some? (:error g)) (swap! state assoc :edit-error (str "comparing steps: " (:error g)))
           :else
           (let [st @state
@@ -377,6 +387,19 @@
   "Compare the step shown with step c (old → shown); nil stops."
   [c]
   (show-view! (:step @state) c))
+
+(defn- ^:async apply-step!
+  "Show what a slide's ?step= `step` names of the graph shown
+  (editor/step-view; nil: the file as written), animated — or, while the
+  graph still loads, once it is there. One it can't show shows the file
+  as written and says why."
+  [step]
+  (let [st @state]
+    (if (nil? (:states st))
+      (swap! state assoc :pending-step {:step step})
+      (let [v (editor/step-view (mapv :name (:steps st)) step (:compare st))]
+        (swap! state assoc :step-error (when (some? (:error v)) (str (graph-file st) (:error v))))
+        (js-await (show-view! (or (:step v) 0) (:compare v)))))))
 
 ;; the box being collapsed/expanded and where its top-right corner (the
 ;; hide-button's anchor) was on screen: when the new layout lands, the
@@ -887,7 +910,7 @@
   connected\" can be dismissed: an edit, navigation or notice error
   clears; the graph error and the warnings hide until their text changes
   (editor/banner-visible?)."
-  [{:keys [error graph collapsed edit-error disconnected nav-error notice
+  [{:keys [error graph collapsed edit-error disconnected nav-error step-error notice
            dismissed-error dismissed-warnings]}]
   (let [warn-text (.join (or (:warnings graph) []) "\n")]
     (cond
@@ -899,6 +922,9 @@
 
       (some? nav-error)
       (banner "error" nav-error #(swap! state assoc :nav-error nil))
+
+      (some? step-error)
+      (banner "error" step-error #(swap! state assoc :step-error nil))
 
       (some? notice)
       (banner "error" notice #(swap! state assoc :notice nil))
@@ -1182,7 +1208,7 @@
       "Chords act on the selection, when no text field has focus (the toolbar buttons show them); the first key opens a pop-out of what comes next, which can be clicked too: d d delete · e 1/2/3/4 edge direction → ← ↔ — · c s / c t change an edge's source / target · a e add edge · a b add to box (node) or add a box as member (box) · a n add a node as member (box) — either moves it out of the box it was in · n n n new node (connected to the selected node, or inside the selected box) · n n b new box (inside the selected box) · n n s new node in the selection's box · n n c / n n i new node in the selection's box, connected from / to it · n n e split the selected edge with a new node · n b wrap the selection in a new box · r r rename the id · r n take a node out of the selected box · r b take the selected node out of its box · f r follow the selection's :ref · f p follow the selection's pair (f p 1–9 with several) · f m open the selection's :md-ref doc (Ctrl+S saves it) · s s select mode: click nodes and boxes to add or drop them · s a select all · s r select by dragging a rectangle · then y y copy / x x cut / d d delete them — a box with what it holds, and the edges among them all · p p paste what was copied or cut, here or in another graph (into the selected box; a taken id gets -1). Esc cancels a pending chord and ends select mode; ? toggles this help; Ctrl+Z undoes.")
      (help-section
       "Steps"
-      ":steps in the file lists states of the graph, each an editscript change of the one before ([path op value], op :+ :- :r). Steps (bottom left) shows them — click one, or ◂ ▸; the page animates the change. + adds a step after the one shown: while a step shows, your edits change that step, and the steps after it build on it. Its name, its edits as text (Save, Ctrl+Enter) and delete are under the list. compare with shows what changes from another step to the one shown, read-only, styled like a comparison with a fork; × stops. Presenting, a graph with steps has Next at the bottom right.")
+      ":steps in the file lists states of the graph, each an editscript change of the one before ([path op value], op :+ :- :r). Steps (bottom left) shows them — click one, or ◂ ▸; the page animates the change. + adds a step after the one shown: while a step shows, your edits change that step, and the steps after it build on it. Its name, its edits as text (Save, Ctrl+Enter) and delete are under the list. compare with shows what changes from another step to the one shown, read-only, styled like a comparison with a fork; × stops. Presenting, a graph with steps has Next at the bottom right; a slide link with ?step=2 (a number, start or a step's name) shows that step, ?step=1..3 compares step 1 with step 3.")
      (help-section
       "Compare"
       "Serving a file with a suffix (simpleviz graph.edn next) renders it against its fork graph-next.edn as one merged diagram: added elements get a green +, modified an amber ~ (select for an old → new list), removed ones stay as red dashed ghosts. Click a legend row to jump through the changes; the old|new toggle picks which file edits apply to.")
@@ -1749,9 +1775,10 @@
 (defn- print-view
   "The deck laid out for its PDF (pdf-export): a page per slide, the
   size browser.clj prints, each with what its >> shows beside it — a
-  graph as the SVG of its scene — and its number. A page whose graph
-  has its own :theme takes it, as presenting does. A question shows its
-  choices, unanswered."
+  graph as the SVG of its scene, a page per step of a graph with steps
+  (editor/print-pages) — and its number. A page whose graph has its own
+  :theme takes it, as presenting does. A question shows its choices,
+  unanswered."
   [st]
   (let [path (:path (:md st))
         ds (deck st)
@@ -1760,9 +1787,9 @@
     (into [:div {:id "print"}
            ;; only here: printing the page itself keeps the browser's pages
            [:style "@page { size: 1280px 720px; margin: 0; }"]]
-          (map-indexed
-           (fn [i s]
-             (let [side (nth (:print st) i nil)]
+          (map
+           (fn [{i :slide side :side step :step}]
+             (let [s (nth ds i)]
                [:section {:class (str "print-page" (when (some? side) " halves"))
                           :style (when-let [t (:theme side)] (theme-vars t))}
                 [:div {:class (str "print-slide" (when (title-slide? i s) " title"))}
@@ -1777,8 +1804,11 @@
                        [:img {:src (:svg side) :alt (:path side)
                               :style {:width (str (* k width) "px") :height (str (* k height) "px")}}])
                      (side-body side))])
+                ;; where the step stands, as presenting has it
+                (when (some? step)
+                  [:div {:class "print-steps"} [:span {:class "ps-count"} (:count step)] (:label step)])
                 [:div {:class "print-counter"} (str (inc i) " / " n)]]))
-           ds))))
+           (editor/print-pages (:print st))))))
 
 (def ^:private max-choices-shown 200)
 
@@ -1998,7 +2028,11 @@
       [:div {:id "present-steps" :on-click (fn [e] (.stopPropagation e))}
        [:button {:type "button" :class "ps-back" :disabled (zero? k) :title "Previous step"
                  :on-click (fn [_] (show-step! (dec k)))} "◂"]
-       [:span {:class "ps-label"} [:span {:class "ps-count"} (str (inc k) " / " n)] (step-label st k)]
+       [:span {:class "ps-label"} [:span {:class "ps-count"} (str (inc k) " / " n)]
+        ;; compared with a step: what changes from it to this one
+        (when (some? (:step-compare st))
+          [:span {:class "ps-from"} (str (step-label st (:step-compare st)) " →")])
+        [:span {:class "ps-name"} (step-label st k)]]
        [:button {:type "button" :class "ps-next" :disabled (>= k (dec n)) :title "Next step"
                  :on-click (fn [_] (show-step! (inc k)))} "Next ▸"]])))
 
@@ -2299,17 +2333,25 @@
             (swap! state assoc :error (str "Graph error: " (:error raw)) :dismissed-error nil))
         :else
         (let [view0 (view-key (:step @state) (:step-compare @state))
+              pending (:pending-step @state)
               states (graph-states raw)
-              step (min (:step @state) (dec (count states)))
-              sc (some-> (:step-compare @state) (min (dec (count states))))
+              asked (when (some? pending)
+                      (editor/step-view (mapv :name (or (:steps raw) [])) (:step pending) (:compare @state)))
+              step (cond (some? (:step asked)) (:step asked)
+                         (some? asked) 0
+                         :else (min (:step @state) (dec (count states))))
+              sc (if (some? asked)
+                   (:compare asked)
+                   (some-> (:step-compare @state) (min (dec (count states)))))
               cmp (when (and (some? sc) (> (count states) 1)) (js-await (step-graph states step sc)))
               ;; a comparison that fails shows the step itself
               sc (when (and (some? cmp) (nil? (:error cmp))) sc)
               g (if (some? sc) cmp (nth states step))
               first-load? (nil? (:graph @state))]
-          (if (not= view0 (view-key (:step @state) (:step-compare @state)))
-            ;; another step showed while the comparison loaded: load the
-            ;; file again, for that one
+          (if (or (not= view0 (view-key (:step @state) (:step-compare @state)))
+                  (not (identical? pending (:pending-step @state))))
+            ;; another step showed, or was asked for, while the comparison
+            ;; loaded: load the file again, for that one
             (do (reset! last-mtime nil)
                 (tick))
             (do
@@ -2320,6 +2362,10 @@
               (apply-theme! (effective-theme g (:theme-pref @state) (:theme @state)))
               (swap! state (fn [st]
                              (assoc st :error nil :graph g :states states :step step :step-compare sc
+                                    :pending-step nil
+                                    :step-error (if (some? asked)
+                                                  (when (some? (:error asked)) (str (graph-file st) (:error asked)))
+                                                  (:step-error st))
                                     :steps (mapv (fn [s] {:name (:name s) :edits (:edits s)}) (or (:steps raw) []))
                                     :edit-target (resolve-edit-target g (:edit-target st)))))
               ;; big graphs open as a collapsed overview: all top-level boxes
@@ -2522,15 +2568,18 @@
 (defn- ^:async open-side!
   "Show the graph at root-relative `path` beside the md page, compared
   under `compare` when given, creating it first when `create?` (as
-  following a link to it would)."
-  [path create? & [compare]]
+  following a link to it would), at the step a slide's ?step= `step`
+  names when given (apply-step!)."
+  [path create? & [compare step]]
   (let [st @state]
-    (when-not (and (= path (:side st)) (editor/same-compare? compare (:compare st)))
-      (when create?
-        (try (js-await (.text (js-await (post-json "api/create" (editor/create-body "new" path compare)))))
-             (catch :default _ nil)))
-      (show-side! path compare)
-      (js-await (tick)))))
+    (if (and (= path (:side st)) (editor/same-compare? compare (:compare st)))
+      (when (some? step) (js-await (apply-step! step)))
+      (do (when create?
+            (try (js-await (.text (js-await (post-json "api/create" (editor/create-body "new" path compare)))))
+                 (catch :default _ nil)))
+          (show-side! path compare)
+          (when (some? step) (swap! state assoc :pending-step {:step step}))
+          (js-await (tick))))))
 
 (defn- close-side!
   "Close the graph beside the md page; the page takes back its theme."
@@ -3023,12 +3072,19 @@
   [s]
   (editor/follow-compare (str (:side s)) (:side-compare s) nil))
 
+(defn- slide-step
+  "The step of its graph slide `s`'s >> names (its ?step=), nil for none."
+  [s]
+  (when (= "graph" (slides/side-kind (str (:side s)))) (:side-step s)))
+
 (defn- ^:async show-slide!
   "Present slide i of the md page, clamped to the deck: keep its number
   in the URL (no history entry) and show what its >> names beside it — a
   graph as the side graph, an md file or a picture in the canvas's
-  place. A slide with the same >> as the one before (path and compare)
-  keeps it as it is. Starting to present reads the deck's answers first."
+  place. A slide with the same >> as the one before (path, compare and
+  step) keeps it as it is; one on the same graph at another step moves
+  it there, animated. Starting to present reads the deck's answers
+  first."
   [i]
   (when (nil? (:present @state)) (js-await (load-answers!)))
   (let [st @state
@@ -3036,18 +3092,25 @@
         i (max 0 (min i (dec (count ds))))
         dest (:side (nth ds i nil))
         compare (slide-compare (nth ds i nil))
-        same? (and (some? (:present st)) (= dest (:dest (:present st)))
-                   (editor/same-compare? compare (:compare (:present st))))]
+        step (slide-step (nth ds i nil))
+        same-side? (and (some? (:present st)) (= dest (:dest (:present st)))
+                        (editor/same-compare? compare (:compare (:present st))))
+        same? (and same-side? (= step (:step (:present st))))]
     (replace-query! (editor/with-slide js/location.search (inc i)))
-    (swap! state assoc :present {:slide i :dest dest :compare compare
-                                 :side (when same? (:side (:present st)))})
+    (swap! state assoc :present {:slide i :dest dest :compare compare :step step
+                                 :side (when same-side? (:side (:present st)))})
     ;; the same >> stays — and so does a load of it still under way
-    (when-not same?
+    (cond
+      same? nil
+      ;; the graph beside the slide before, at the step this one names
+      (and same-side? (some? dest) (= (:side st) (:path (editor/link-target (:path (:md st)) dest))))
+      (js-await (apply-step! step))
+      :else
       (let [gen (swap! present-gen inc)
             side (when (some? dest) (js-await (side-of (:path (:md st)) dest compare)))]
         (when (= gen @present-gen)
           (if (= "graph" (:kind side))
-            (js-await (open-side! (:path side) false compare))
+            (js-await (open-side! (:path side) false compare step))
             (do (drop-side!)
                 (swap! state assoc-in [:present :side] side)
                 (case (:kind side)
@@ -3068,11 +3131,12 @@
 (add-watch state :present
   (fn [_ _ old new]
     (when (and (presenting? new) (not= (:text (:md old)) (:text (:md new))))
-      (let [{:keys [slide dest compare]} (:present new)
+      (let [{:keys [slide dest compare step]} (:present new)
             ds (deck new)
             s (nth ds slide nil)]
         (when (or (>= slide (count ds)) (not= dest (:side s))
-                  (not (editor/same-compare? compare (slide-compare s))))
+                  (not (editor/same-compare? compare (slide-compare s)))
+                  (not= step (slide-step s)))
           (show-slide! slide))))))
 
 (defn- present-key!
@@ -3602,19 +3666,36 @@
   (let [r (js-await (settled readiness))]
     (if (some? (:error r)) (throw (js/Error. (:error r))) true)))
 
+(defn- step-picture
+  "The step of the graph shown as a page of the PDF draws it: the SVG of
+  its scene (a blob URL), its size and the step's name."
+  []
+  (let [{:keys [scene] :as st} @state]
+    {:width (:width scene) :height (:height scene) :label (step-label st (:step st))
+     :svg (js/URL.createObjectURL (js/Blob. [(canvas/export-svg scene [])] {:type "image/svg+xml"}))}))
+
+(defn- ^:async step-pictures
+  "step-picture of each step of the graph shown from k on, onto `out`:
+  each shown in turn and laid out first."
+  [k out]
+  (if (>= k (count (or (:states @state) [])))
+    out
+    (do (when (pos? k)
+          (js-await (show-step! k))
+          (js-await (settled editor/side-readiness)))
+        (js-await (step-pictures (inc k) (conj out (step-picture)))))))
+
 (defn- ^:async graph-side
   "The graph beside the slide presented, once laid out, as the PDF shows
-  it: the SVG of its scene (a blob URL), its size, and its own :theme
-  when it has one — or its error."
+  it: step-picture of each of its steps — the file as written the
+  first — and its own :theme when it has one; or its error."
   []
-  (let [r (js-await (settled editor/side-readiness))
-        {:keys [graph scene]} @state]
+  (let [r (js-await (settled editor/side-readiness))]
     (if (some? (:error r))
       {:kind "error" :text (:error r)}
-      {:kind "graph" :path (:side @state)
-       :width (:width scene) :height (:height scene)
-       :theme (:theme graph)
-       :svg (js/URL.createObjectURL (js/Blob. [(canvas/export-svg scene [])] {:type "image/svg+xml"}))})))
+      ;; a slide's ?step= names the one view it shows: a page of it alone
+      {:kind "graph" :path (:side @state) :theme (:theme (:graph @state)) :problem (:step-error @state)
+       :states (if (some? (:step (:present @state))) [(step-picture)] (js-await (step-pictures 0 [])))})))
 
 (defn- ^:async print-sides
   "What the deck's slides from i on show beside them, onto `out`: each
@@ -3624,7 +3705,7 @@
   [i out taken]
   (let [ds (deck @state)
         s (nth ds i nil)
-        k (when (some? (:side s)) (str (:side s) " " (slide-compare s)))]
+        k (when (some? (:side s)) (str (:side s) " " (slide-compare s) " " (slide-step s)))]
     (cond (nil? s) out
           (nil? k) (js-await (print-sides (inc i) (conj out nil) taken))
           (contains? taken k) (js-await (print-sides (inc i) (conj out (get taken k)) taken))
@@ -3636,8 +3717,9 @@
   "window.simplevizExport for \"pdf\": wait for the md page, present each
   slide once to take what its >> shows, then lay the deck out a page
   per slide (print-view) and wait for what the pages still load —
-  formula results and charts, pictures, fonts. {:slides n :problems
-  [[slide-number why]]}, a problem each side that can't show:
+  formula results and charts, pictures, fonts. {:slides n :pages m
+  :problems [[slide-number why]]}, a page more for each step of a graph
+  beside a slide, a problem each side that can't show:
   browser.clj prints the PDF of the page. A deck without slides fails."
   [theme]
   (js-await (wait-for! editor/deck-readiness))
@@ -3653,7 +3735,9 @@
     (js-await (js/Promise.all (mapv (fn [img] (.catch (.decode img) (fn [_] nil)))
                                     (js/Array.from (js/document.querySelectorAll "#print img")))))
     {:slides (count sides)
-     :problems (vec (keep-indexed (fn [i side] (when (= "error" (:kind side)) [(inc i) (:text side)]))
+     :pages (count (editor/print-pages sides))
+     :problems (vec (keep-indexed (fn [i side] (cond (= "error" (:kind side)) [(inc i) (:text side)]
+                                                     (some? (:problem side)) [(inc i) (:problem side)]))
                                   sides))}))
 
 (defn- ^:async graph-export

@@ -279,6 +279,11 @@ body:has(#print) :is(#canvas-wrap, #app) { position: static; }
 #print .halves .print-slide { flex: 0 0 50%; padding: 8vh 4vw; border-right: 1px solid var(--panel-divider); }
 #print .print-side { flex: 0 0 50%; overflow: hidden; }
 .print-slide .ask-submit-row { display: none; }
+/* a page per step of a graph: which one, where presenting shows Next */
+.print-steps { position: absolute; right: 20px; bottom: 18px; display: flex; gap: 8px; align-items: baseline;
+               max-width: 560px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+               background: var(--panel); border: 1px solid var(--panel-border); border-radius: 999px;
+               padding: 5px 14px; font: 13px system-ui, sans-serif; color: var(--text); }
 /* the one control left: quiet until pointed at */
 #present-leave { pointer-events: auto; border: 1px solid var(--panel-border); background: var(--panel);
                  color: var(--text); border-radius: 6px; padding: 4px 10px; font-size: 12px;
@@ -738,7 +743,7 @@ body:has(#print) :is(#canvas-wrap, #app) { position: static; }
 #present-steps .ps-next:disabled { background: none; color: var(--text); border-color: var(--panel-border); }
 #present-steps .ps-label { display: flex; gap: 8px; align-items: baseline; max-width: 28vw;
                            overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#present-steps .ps-count { color: var(--text-muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+:is(#present-steps, .print-steps) .ps-count { color: var(--text-muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
 #steps-bar .sb-chip.base { border-color: var(--accent); border-style: dashed; }
 #steps-bar .sb-select { flex: 1; min-width: 0; font: inherit; color: var(--text);
                         background: var(--bg); border: 1px solid var(--panel-border);

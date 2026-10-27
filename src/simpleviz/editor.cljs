@@ -506,6 +506,41 @@
           []
           (filterv (fn [l] (mdlinks/followable? (:dest l))) links)))
 
+(defn- step-number
+  "The number of step `token` of a graph whose steps (from 1) are named
+  `names`: a number is the step's own, even when a step is named like
+  one; \"start\" is 0, the file as written; any other the first step of
+  that name. A string why when there is none."
+  [names token]
+  (let [n (count names)]
+    (cond (.test (js/RegExp. "^[0-9]+$") token)
+          (let [k (js/Number token)] (if (<= k n) k (str "no step " k ", the last is " n)))
+          (= token "start") 0
+          :else (let [i (.indexOf names token)]
+                  (if (neg? i) (str "no step named " (pr-str token)) (inc i))))))
+
+(defn step-view
+  "What a link's ?step= `step` shows of a graph whose steps are named
+  `names`: {:step k :compare c}, step k (0: the file as written)
+  compared with step c (old → k), c nil when not compared — \"2\", a
+  name, or \"start\" shows that step, \"1..3\" compares step 1 with 3.
+  No step shows the file as written. {:error why} when it can't, also
+  next to fork compare `compare`: a fork comparison has no steps."
+  [names step compare]
+  (if (nil? step)
+    {:step 0 :compare nil}
+    (let [why (fn [msg] {:error (str "?step=" step " — " msg)})
+          dots (.indexOf step "..")
+          tokens (if (neg? dots) [(.trim step)] [(.trim (subs step 0 dots)) (.trim (subs step (+ dots 2)))])
+          ks (mapv (fn [t] (step-number names t)) tokens)
+          bad (first (filter string? ks))]
+      (cond (some? compare) (why "not with ?compare=, a comparison with a fork has no steps")
+            (empty? names) (why "the graph has no steps")
+            (some? bad) (why bad)
+            (= 1 (count ks)) {:step (first ks) :compare nil}
+            (= (first ks) (second ks)) (why "compares a step with itself")
+            :else {:step (second ks) :compare (first ks)}))))
+
 (defn same-compare?
   "Are compares `a` and `b` the same — none (nil or undefined alike), or
   the same suffix?"
@@ -770,6 +805,24 @@
   (cond (and (some? (:scene st)) (not (:layouting st))) {:ready true}
         (and (nil? (:scene st)) (some? (:error st))) {:error (:error st)}
         :else nil))
+
+(defn print-pages
+  "The PDF's pages for `sides`, what each slide of a deck shows beside
+  it (nil for nothing): {:slide i :side side :step nil} a slide — a page
+  per state of a graph, whose :states each hold its :svg, :width,
+  :height and :label, the side drawn in that state. A graph with steps
+  has a page per step, its :step {:count \"k / n\" :label}, as
+  presenting shows where you are."
+  [sides]
+  (vec (mapcat (fn [i side]
+                 (if-let [states (:states side)]
+                   (let [n (count states)]
+                     (map-indexed (fn [k s]
+                                    {:slide i :side (merge (dissoc side :states) (dissoc s :label))
+                                     :step (when (> n 1) {:count (str (inc k) " / " n) :label (:label s)})})
+                                  states))
+                   [{:slide i :side side :step nil}]))
+               (range) sides)))
 
 (defn export-readiness
   "Whether page state st can be exported whole: {:ready true} for a laid

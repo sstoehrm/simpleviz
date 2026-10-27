@@ -174,7 +174,10 @@ Attributes simpleviz reads:
   op value]` with op `:+` add, `:-` remove (no value), `:r` replace,
   applied to the state before it; the file as written is the start. The
   page animates between the states, and a deck slide showing the graph
-  gets a Next button. Paths walk the graph like `get-in`: an edge by its
+  gets a Next button. A slide's link picks the step: `>
+  [x](flow.edn?step=2)` (a number, `start`, or a step's name) shows it,
+  `?step=1..3` compares step 1 with step 3; consecutive slides on one
+  graph animate between their steps. Not together with `?compare=`. Paths walk the graph like `get-in`: an edge by its
   key `[:edges [:api :cache]]`, a box member by its id `[:boxes :b
   :components :cache]` (sets). A step that does not apply warns and
   changes nothing. The page's "compare with" diffs two steps like a
@@ -239,7 +242,8 @@ the platform team
 - A slide whose first line is `> [text](path)` shows that graph (`.edn`,
   or an exported `.png`/`.svg`), md file or picture (`> ![alt](pic.png)`)
   to the right of its text — the slide's other lines. Only a `>` line
-  that is just that one link counts; any other is a quote. `>>` works too.
+  that is just that one link, with no `>` line right after it, counts;
+  any other is a quote. `>>` works too.
 - Keys: → ↓ space Page Down forward, ← ↑ Page Up back, Home and End the
   first and last slide, Esc leaves. The URL keeps the slide (`?slide=3`),
   and `$URL/?slide=1` opens the deck presenting: give the user that link
@@ -248,9 +252,9 @@ the platform team
 - A graph beside a slide can be hovered, inspected, panned, zoomed and
   collapsed, but not edited; refs and pairs don't follow.
 - `simpleviz export talk.md talk.pdf` writes the deck as a PDF, a 16:9
-  page per slide with its `>` beside it (graphs as presented, first
-  step only; questions unanswered). Text that overflows a slide is cut
-  off — keep slides short.
+  page per slide with its `>` beside it (graphs as presented, a page
+  per step of one with `:steps`; questions unanswered). Text that
+  overflows a slide is cut off — keep slides short.
 
 ## Quizzes
 

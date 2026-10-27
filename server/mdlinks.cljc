@@ -108,12 +108,11 @@
                     (count d) ["#" "?"])]
     (percent-decode (subs d 0 cut))))
 
-(defn dest-compare
-  "The fork suffix raw destination `raw` asks to compare with: the value
-  of its first `compare` query parameter, %XX decoded (\"\" when it is
-  empty), or nil when there is none. Escapes resolve and a #fragment
-  ends the query, as clean-dest has it."
-  [raw]
+(defn- dest-param
+  "The value of the first query parameter `k` of raw destination `raw`,
+  %XX decoded (\"\" when it is empty), or nil when there is none.
+  Escapes resolve and a #fragment ends the query, as clean-dest has it."
+  [raw k]
   (let [d (unescape raw)
         h (.indexOf d "#")
         d (if (>= h 0) (subs d 0 h) d)
@@ -124,14 +123,35 @@
           (let [amp (.indexOf d "&" from)
                 end (if (neg? amp) (count d) amp)
                 kv (subs d from end)]
-            (cond (= kv "compare") ""
-                  (str/starts-with? kv "compare=") (percent-decode (subs kv 8))
+            (cond (= kv k) ""
+                  (str/starts-with? kv (str k "=")) (percent-decode (subs kv (inc (count k))))
                   :else (recur (inc end)))))))))
 
-(defn- with-compare
-  "Link map l with :compare from raw destination `raw`, when it has one."
+(defn dest-compare
+  "The fork suffix raw destination `raw` asks to compare with: the value
+  of its first `compare` query parameter (\"\" when it is empty), or nil
+  when there is none."
+  [raw]
+  (dest-param raw "compare"))
+
+(defn dest-step
+  "The step of the graph raw destination `raw` asks to show: the value of
+  its first `step` query parameter — a step's number or name, or two of
+  them as old..new to compare — or nil when there is none or it is
+  empty."
+  [raw]
+  (let [v (dest-param raw "step")]
+    (when (and (some? v) (not= v "")) v)))
+
+(defn- with-params
+  "Link map l with :compare and :step from raw destination `raw`, when it
+  has them."
   [l raw]
-  (if-let [c (dest-compare raw)] (assoc l :compare c) l))
+  (let [c (dest-compare raw)
+        s (dest-step raw)]
+    (cond-> l
+      (some? c) (assoc :compare c)
+      (some? s) (assoc :step s))))
 
 (defn- normalize-label
   "A reference label as definitions match it: trimmed, whitespace runs
@@ -334,8 +354,8 @@
                 (if (contains? defs k)
                   (recur (inc li) nil (conj code li) defs order)
                   (recur (inc li) nil (conj code li)
-                         (assoc defs k (with-compare {:dest (clean-dest raw) :line (inc li)} raw))
-                         (conj order (with-compare {:line (inc li) :label label :dest (clean-dest raw) :kind "def"} raw)))))
+                         (assoc defs k (with-params {:dest (clean-dest raw) :line (inc li)} raw))
+                         (conj order (with-params {:line (inc li) :label label :dest (clean-dest raw) :kind "def"} raw)))))
               (recur (inc li) nil code defs order))))))))
 
 (defn- blank-lines
@@ -357,13 +377,14 @@
   "A reference use on `line` of definition d, taking its destination."
   [line label d]
   (cond-> {:line line :label label :dest (:dest d) :kind "ref"}
-    (contains? d :compare) (assoc :compare (:compare d))))
+    (contains? d :compare) (assoc :compare (:compare d))
+    (contains? d :step) (assoc :step (:step d))))
 
 (defn links
   "The links in markdown `text`, in text order: [{:line :label :dest
   :kind}], :kind one of \"inline\", \"image\", \"ref\", \"def\", plus
-  :compare when the destination asks for one (dest-compare; a reference
-  use takes its definition's). A link with an empty destination is left
+  :compare and :step when the destination asks for them (dest-compare,
+  dest-step; a reference use takes its definition's). A link with an empty destination is left
   out."
   [text]
   (let [t (normalize-breaks (str text))
@@ -403,7 +424,7 @@
                             (cond
                               (= nxt "(")
                               (if-let [[raw end] (inline-tail s (inc e))]
-                                (recur end bound (conj acc (with-compare {:line line :label label :dest (clean-dest raw)
+                                (recur end bound (conj acc (with-params {:line line :label label :dest (clean-dest raw)
                                                                     :kind (if img "image" "inline")}
                                                                    raw)))
                                 (recur (inc open) bound acc))
@@ -446,16 +467,17 @@
 
 (defn side-target
   "What the rest of a presentation's `>>` line names, {:dest} plus
-  :compare when it asks for one: the destination of its first link —
-  [text](path) or ![alt](path), as a link means it — else the rest as a
-  plain path (`path?compare=<suffix>` too); nil when there is nothing."
+  :compare and :step when it asks for them: the destination of its first
+  link — [text](path) or ![alt](path), as a link means it — else the
+  rest as a plain path (`path?compare=<suffix>&step=<step>` too); nil
+  when there is nothing."
   [rest]
   (let [t (str/trim rest)
         l (first (filter (fn [l] (or (= "inline" (:kind l)) (= "image" (:kind l)))) (links t)))
-        c (when (and (nil? l) (not= t "")) (dest-compare t))]
-    (cond (some? l) (cond-> {:dest (:dest l)} (some? (:compare l)) (assoc :compare (:compare l)))
+        plain (when (and (nil? l) (not= t "")) (with-params {} t))]
+    (cond (some? l) (select-keys l [:dest :compare :step])
           (= t "") nil
-          (some? c) {:dest (subs t 0 (.indexOf t "?")) :compare c}
+          (seq plain) (assoc plain :dest (subs t 0 (.indexOf t "?")))
           :else {:dest t})))
 
 (defn side-kind
@@ -485,4 +507,4 @@
         dest (when (= end (count t)) (clean-dest raw))]
     (when (and (some? dest) (some? (side-kind dest))
                (not (scheme? dest)) (not (str/starts-with? dest "/")))
-      (with-compare {:dest dest} raw))))
+      (with-params {:dest dest} raw))))

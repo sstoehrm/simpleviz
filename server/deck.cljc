@@ -2,7 +2,8 @@
   "A presentation from an md page's text: lines of just --- split it into
   slides (not inside a fenced code block), and a slide whose first line
   is `> [text](path)` — or `> ![alt](path)` — shows that file beside its
-  text when it is one a slide can show; any other `>` line is a quote.
+  text when it is one a slide can show and the quote ends with it; any
+  other `>` line is a quote.
   `>> [text](path)` and `>> path` work too. Empty slides are dropped, so a deck may open and
   close with ---.
 
@@ -115,7 +116,7 @@
 (defn- slide
   "One slide from its lines: [{:text :side} at], :side the `>` or `>>` target of
   its first lines (nil when there is none), plus :side-compare when that
-  asks to compare; with `?? name` there too, :ask the question and `at`
+  asks to compare and :side-step when it names a step; with `?? name` there too, :ask the question and `at`
   the index of its line (else nil)."
   [lines]
   (let [lines (vec lines)
@@ -127,7 +128,9 @@
           (recur (skip (inc i)) {:target (mdlinks/side-target (subs head 2))} q)
 
           (and (nil? side) (some? head) (str/starts-with? head ">")
-               (some? (mdlinks/quote-target (subs head 1))))
+               (some? (mdlinks/quote-target (subs head 1)))
+               ;; a quote going on past the link stays one
+               (not (str/starts-with? (str/triml (or (get lines (inc i)) "")) ">")))
           (recur (skip (inc i)) {:target (mdlinks/quote-target (subs head 1))} q)
 
           (and (nil? q) (some? head) (str/starts-with? head "??"))
@@ -139,7 +142,8 @@
           (let [ls (subvec lines i)
                 target (:target side)
                 base (cond-> {:text (trim-blank-lines ls) :side (if (some? target) (:dest target) nil)}
-                       (some? (:compare target)) (assoc :side-compare (:compare target)))]
+                       (some? (:compare target)) (assoc :side-compare (:compare target))
+                       (some? (:step target)) (assoc :side-step (:step target)))]
             (if (nil? q)
               [base nil]
               (let [[text a] (ask (:marker q) (:id q) ls)]

@@ -492,6 +492,45 @@
                     "notes.md" "# Notes\n\nhello\n"
                     "pic.svg" "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"10\"><rect width=\"10\" height=\"10\"/></svg>"})))))
 
+(deftest a-slide-link-names-the-step-to-show-or-compare
+  ;; >> [x](g.edn?step=1..2) opens the graph comparing step 1 with step 2;
+  ;; the next slide's ?step=cache on the same graph moves it to that step;
+  ;; a step the graph doesn't have shows the start and says why, until
+  ;; a slide shows one it has; a slide on it without ?step= shows the start
+  (with-real-browser
+    (is (= {:compared {:count "3 / 3" :label "shard" :from "cache →" :slide "2"}
+            :step {:count "2 / 3" :label "cache" :from nil}
+            :bad {:count "1 / 3" :banner "g.edn?step=nope — no step named \"nope\""}
+            :back {:count "2 / 3" :banner nil}
+            :plain {:count "1 / 3" :from nil}}
+           (eval-on-served-page
+            path "deck.md"
+            "# Title\n---\n>> [c](g.edn?step=1..2)\n# Compared\n---\n>> [s](g.edn?step=cache)\n# Step\n---\n>> [b](g.edn?step=nope)\n# Bad\n---\n>> [p](g.edn)\n# Plain\n"
+            (str "new Promise(ok => { let step = 0; const r = {};"
+                 " const $ = s => document.querySelector(s);"
+                 " const txt = s => $(s) ? $(s).textContent : null;"
+                 " const key = k => document.dispatchEvent(new KeyboardEvent('keydown', {key: k, bubbles: true}));"
+                 " const view = () => ({count: txt('#present-steps .ps-count'), label: txt('#present-steps .ps-name'),"
+                 "  from: txt('#present-steps .ps-from')});"
+                 " const t = setInterval(() => {"
+                 " if (step === 0) { const b = $('.md-present'); if (!b) return; b.click(); step = 1; return; }"
+                 " if (step === 1) { if (!$('#present-slide')) return; key('ArrowRight'); step = 2; return; }"
+                 " if (step === 2) { if (txt('#present-steps .ps-from') !== 'cache →') return;"
+                 "  r.compared = Object.assign(view(), {slide: new URLSearchParams(location.search).get('slide')});"
+                 "  key('ArrowRight'); step = 3; return; }"
+                 " if (step === 3) { if (txt('#present-steps .ps-count') !== '2 / 3') return;"
+                 "  r.step = view(); key('ArrowRight'); step = 4; return; }"
+                 " if (step === 4) { if (!$('#banner') || txt('#present-steps .ps-count') !== '1 / 3') return;"
+                 "  r.bad = {count: txt('#present-steps .ps-count'), banner: txt('#banner .banner-text')};"
+                 "  key('ArrowLeft'); step = 5; return; }"
+                 " if (step === 5) { if (txt('#present-steps .ps-count') !== '2 / 3') return;"
+                 "  r.back = {count: txt('#present-steps .ps-count'), banner: txt('#banner .banner-text')};"
+                 "  key('End'); step = 6; return; }"
+                 " if (txt('#present-steps .ps-count') !== '1 / 3') return; clearInterval(t);"
+                 " r.plain = {count: txt('#present-steps .ps-count'), from: txt('#present-steps .ps-from')}; ok(r); }, 50); })")
+            :extra {"g.edn" (str "{:nodes {:a {}} :steps [{:name \"cache\" :edits [[[:nodes :b] :+ {}]]}"
+                                 " {:name \"shard\" :edits [[[:nodes :c] :+ {}]]}]}")})))))
+
 (defn- present-then
   "JS for a served deck: press Present, wait 300 ms, press each key of
   `keys` with no pause between them, run `between` (JS statements) right

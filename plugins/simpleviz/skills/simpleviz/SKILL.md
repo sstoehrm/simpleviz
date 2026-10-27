@@ -249,8 +249,8 @@ the platform team
   collapsed, but not edited; refs and pairs don't follow.
 - `simpleviz export talk.md talk.pdf` writes the deck as a PDF, a 16:9
   page per slide with its `>` beside it (graphs as presented, a page
-  per step of one with `:steps`; questions unanswered). Text that overflows a slide is cut
-  off — keep slides short.
+  per step of one with `:steps`; questions unanswered). Text that
+  overflows a slide is cut off — keep slides short.
 
 ## Quizzes
 

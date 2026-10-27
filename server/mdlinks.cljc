@@ -437,3 +437,32 @@
           (= t "") nil
           (some? c) {:dest (subs t 0 (.indexOf t "?")) :compare c}
           :else {:dest t})))
+
+(defn side-kind
+  "What a presentation's side target shows as: \"graph\" (.edn), \"md\",
+  \"export\" (.png or .svg: a graph when it carries simpleviz EDN, else a
+  picture), \"image\" (.jpg .jpeg .gif .webp); nil for anything else."
+  [dest]
+  (let [low (str/lower-case dest)
+        dot (.lastIndexOf low ".")]
+    (if (>= dot 0)
+      (get {"edn" "graph" "md" "md" "png" "export" "svg" "export"
+            "jpg" "image" "jpeg" "image" "gif" "image" "webp" "image"}
+           (subs low (inc dot))
+           nil)
+      nil)))
+
+(defn quote-target
+  "What the rest of a presentation's `>` line names, as side-target has
+  it — only when that rest is one link or picture and nothing else, to
+  a file of the folder a slide can show (relative, side-kind); nil
+  otherwise, the line then being a quote."
+  [rest]
+  (let [t (str/trim rest)
+        open (if (str/starts-with? t "![") 1 0)
+        e (when (= (ch t open) "[") (get (bracket-pairs t) open))
+        [raw end] (when (and (some? e) (= (ch t (inc e)) "(")) (inline-tail t (inc e)))
+        dest (when (= end (count t)) (clean-dest raw))]
+    (when (and (some? dest) (some? (side-kind dest))
+               (not (scheme? dest)) (not (str/starts-with? dest "/")))
+      (with-compare {:dest dest} raw))))

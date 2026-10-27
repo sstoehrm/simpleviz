@@ -22,6 +22,10 @@
   (doseq [[raw want] cases/DEST_COMPARE]
     (testing raw (is (= want (mdlinks/dest-compare raw))))))
 
+(deftest quote-target-cases
+  (doseq [[rest want] cases/QUOTE_TARGET]
+    (testing rest (is (= want (mdlinks/quote-target rest))))))
+
 (deftest fences-are-read-as-the-page-reads-them
   (is (= [{:line 2 :info "simpleviz-chart extra" :closed true :body ["a" "~~~"]}
           {:line 7 :info "" :closed false :body ["x"]}]

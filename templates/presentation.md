@@ -16,7 +16,7 @@ Your name · the date
 
 ---
 
->> [{{name}}.edn]({{name}}.edn)
+> [{{name}}.edn]({{name}}.edn)
 
 # The system
 

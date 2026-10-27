@@ -554,7 +554,7 @@ holds one EDN map, after the data lines of a chart alone:
 
 Present (top right of the column) shows the md page as slides, one at a
 time. A line of just `---` starts the next slide; a slide whose first
-line is `>>` and a link shows the linked file to the right of its text:
+line is `>` and a link shows the linked file to the right of its text:
 
     ---
     # Payments
@@ -562,23 +562,25 @@ line is `>>` and a link shows the linked file to the right of its text:
     the platform team
 
     ---
-    >> [the flow](pay/flow.edn)
+    > [the flow](pay/flow.edn)
     # The flow
 
     - the API validates, the worker charges
     ---
-    >> [notes](./notes.md)
+    > [notes](./notes.md)
     # Open questions
 
-- The first slide is the title slide, centered — unless it has a `>>`.
+- The first slide is the title slide, centered — unless it has a `>` link.
   Empty slides are dropped, so a deck may start and end with `---`;
   `---` inside a fenced code block is code.
-- `>>` takes a graph (`.edn`, or an exported `.png` or `.svg`), an md
+- `>` takes a graph (`.edn`, or an exported `.png` or `.svg`), an md
   file (shown rendered) or a picture (`.png`, `.svg`, `.jpg`, `.jpeg`,
-  `.gif`, `.webp` without simpleviz EDN in it) — `>> [text](path)`, or
-  `>> ![alt](pic.png)` for a picture. Being a link, it gets its » in Edit
-  and `simpleviz check` reports it when broken. A plain `>> path` works
-  too. `>> [the change](pay/flow.edn?compare=next)` shows the graph
+  `.gif`, `.webp` without simpleviz EDN in it) — `> [text](path)`, or
+  `> ![alt](pic.png)` for a picture. Being a link, it gets its » in Edit
+  and `simpleviz check` reports it when broken. Only a line that is just
+  that one link counts; any other `>` line is a quote, as in markdown.
+  `>>` works the same, and takes a plain `>> path` too.
+  `> [the change](pay/flow.edn?compare=next)` shows the graph
   compared with its fork. The path is relative to the md file, never above the served
   folder.
 - → ↓ space and Page Down step forward, ← ↑ and Page Up back, Home and
@@ -593,12 +595,12 @@ line is `>>` and a link shows the linked file to the right of its text:
 - `simpleviz export talk.md talk.pdf [--theme <name>] [--force]` writes
   the deck as a PDF, one 1280×720 page per slide, in a headless Chrome
   or Chromium (see [From the terminal](#from-the-terminal)). Each page
-  shows what presenting shows: the slide, what its `>>` names beside it
+  shows what presenting shows: the slide, what its `>` names beside it
   (a graph as drawn when presented, boxes collapsed or not, in vector),
   and its number. A graph with `:steps` shows its first state; a
   question shows its choices, unanswered, without Submit. Text that
   overflows a slide is cut off, as it would scroll when presenting. A
-  `>>` that can't show prints why on its page and on stderr
+  `>` that can't show prints why on its page and on stderr
   (`simpleviz: slide 3: …`); a deck without slides is refused.
 - `simpleviz init talk.md -t presentation` writes a deck to start from,
   and `talk.edn` beside it for its graph slide. `simpleviz demo` brings
@@ -633,7 +635,7 @@ right one. Lines indented under a choice explain it.
 - A question without an `[x]` is a poll: answered, with no right
   choice to mark.
 - A question takes 2 to 4 choices; with fewer or more the slide says so
-  and shows its list as text, and `simpleviz check` reports it. `>>` and `??` go together in the first
+  and shows its list as text, and `simpleviz check` reports it. `>` and `??` go together in the first
   lines, in either order, blank lines between them allowed. The choices
   show under all of the slide's text, so text written after the list
   shows above them.

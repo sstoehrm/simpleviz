@@ -202,7 +202,7 @@ its language is highlighted: `clojure`/`edn`, `bash`/`sh`, `python`,
   `.svg` `.jpg` `.jpeg` `.gif` `.webp` of the served folder, or a web URL;
   an exported graph also opens beside the text on a click.
 - `?compare=<suffix>` on a link to a graph (`[the change](sub/api.edn?compare=next)`,
-  also after `>>`) shows it compared with its fork `sub/api-next.edn`, as
+  also after a slide's `>`) shows it compared with its fork `sub/api-next.edn`, as
   `simpleviz sub/api.edn next` would. Refs followed inside stay compared;
   the file's other links stay plain. Use it to show a proposed change in a
   doc or talk.
@@ -223,22 +223,23 @@ presentation` writes a starter deck and its graph.
 the platform team
 
 ---
->> [the flow](checkout.edn)
+> [the flow](checkout.edn)
 # The flow
 
 - the API validates, the worker charges
 ---
->> [the change](checkout.edn?compare=queue)
+> [the change](checkout.edn?compare=queue)
 # With a queue
 ```
 
 - A line of just `---` starts the next slide (not inside a code block);
   the text before the first `---` is the first slide. The first slide
-  is a centered title slide unless it has a `>>`. Empty slides are
+  is a centered title slide unless it has a `>` link. Empty slides are
   dropped.
-- A slide whose first line is `>> [text](path)` shows that graph (`.edn`,
-  or an exported `.png`/`.svg`), md file or picture (`>> ![alt](pic.png)`)
-  to the right of its text — the slide's other lines.
+- A slide whose first line is `> [text](path)` shows that graph (`.edn`,
+  or an exported `.png`/`.svg`), md file or picture (`> ![alt](pic.png)`)
+  to the right of its text — the slide's other lines. Only a `>` line
+  that is just that one link counts; any other is a quote. `>>` works too.
 - Keys: → ↓ space Page Down forward, ← ↑ Page Up back, Home and End the
   first and last slide, Esc leaves. The URL keeps the slide (`?slide=3`),
   and `$URL/?slide=1` opens the deck presenting: give the user that link
@@ -247,7 +248,7 @@ the platform team
 - A graph beside a slide can be hovered, inspected, panned, zoomed and
   collapsed, but not edited; refs and pairs don't follow.
 - `simpleviz export talk.md talk.pdf` writes the deck as a PDF, a 16:9
-  page per slide with its `>>` beside it (graphs as presented, first
+  page per slide with its `>` beside it (graphs as presented, first
   step only; questions unanswered). Text that overflows a slide is cut
   off — keep slides short.
 
@@ -258,7 +259,7 @@ asks a question; `simpleviz demo` brings `quiz.md` with every kind.
 
 ```markdown
 ---
->> [the architecture](arch.edn)
+> [the architecture](arch.edn)
 ??? storage
 # Where should session state live?
 
@@ -283,7 +284,7 @@ asks a question; `simpleviz demo` brings `quiz.md` with every kind.
   `??? name` waits for Submit before the deck goes on, then locks the
   answer, marks the right choice and shows the explanation of the
   picked one only — put what everyone should read in the slide text.
-- `>>` and `??` may share a slide's first lines, in either order.
+- `>` and `??` may share a slide's first lines, in either order.
 - Answers land in `talk.answers.edn` beside `talk.md` as
   `{"name" {:answer "choice text" :num 0-based-index}}`: one answer per
   question, the last one given — the presenter's click (say, the room's

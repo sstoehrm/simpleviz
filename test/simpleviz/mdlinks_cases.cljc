@@ -54,6 +54,26 @@
    ["a.edn?compare=a&compare=b" "a"] ["a.edn?compared=x" nil] ["a.edn#compare=x" nil]
    ["a.edn?compare=x#y" "x"] ["a.edn?compare" ""] ["a.edn\\?compare=x" "x"]])
 
+(def QUOTE_TARGET
+  "[rest-of-a-> line expected]: a lone link or picture to a file a slide
+  shows beside it, else nil — the line is a quote"
+  [[" [the flow](pay/flow.edn)" {:dest "pay/flow.edn"}]
+   [" ![a cup](pic.jpg \"Cup\")  " {:dest "pic.jpg"}]
+   ["[g](g.edn?compare=next)" {:dest "g.edn" :compare "next"}]
+   [" [b](<b c.md#intro>)" {:dest "b c.md"}]
+   [" [n](notes.MD)" {:dest "notes.MD"}]
+   [" \"Simplicity is prerequisite for reliability.\" — Dijkstra" nil]
+   [" pay/flow.edn" nil]
+   [" see [the flow](flow.edn)" nil]
+   [" [the flow](flow.edn) and more" nil]
+   [" [a](notes.txt)" nil]
+   [" [docs](https://example.com)" nil]
+   [" [the writeup](https://example.com/notes.md)" nil]
+   [" [x](/abs/g.edn)" nil]
+   [" [see](md)" nil]
+   [" [a](a.edn" nil]
+   ["" nil]])
+
 (def FOLLOWABLE
   "[dest expected]"
   [["a.md" true] ["A.MD" true] ["x/b.edn" true] ["c.PNG" true] ["../d.svg" true]

@@ -31,6 +31,21 @@
     (assert/deepEqual (slides "# T\n>> g.edn") [{:text "# T\n>> g.edn" :side nil}])
     (assert/deepEqual (slides ">>   \n# T") [{:text "# T" :side nil}])))
 
+(test "> and a lone link to what a slide can show also names it; any other > line is a quote"
+  (fn []
+    (assert/deepEqual (slides "> [the state](./state.edn)\n# Title\n---\n> ![a cup](pic.jpg)\n---\n> [g](g.edn?compare=next)")
+                      [{:text "# Title" :side "./state.edn"}
+                       {:text "" :side "pic.jpg"}
+                       {:text "" :side "g.edn" :side-compare "next"}])
+    (doseq [deck ["> \"Simplicity is prerequisite for reliability.\"\n> — Dijkstra"
+                  "> plain.edn" "> see [g](g.edn)" "> [docs](https://example.com)" "# T\n> [g](g.edn)"]]
+      (assert/deepEqual (slides deck) [{:text deck :side nil}]))
+    (doseq [deck ["> [g](g.edn)\n?? q\n# Q\n- [ ] a\n- [x] b"
+                  "?? q\n\n> [g](g.edn)\n# Q\n- [ ] a\n- [x] b"]]
+      (let [[s] (slides deck)]
+        (assert/equal (:side s) "g.edn")
+        (assert/equal (:id (:ask s)) "q")))))
+
 (test "--- inside a fenced code block is code"
   (fn []
     (assert/deepEqual (slides "```\n---\n```\n---\n~~~\n---\n~~~")
@@ -46,7 +61,8 @@
     (assert/equal (side-kind "x.jpeg") "image")
     (assert/equal (side-kind "x.gif") "image")
     (assert/equal (side-kind "x.webp") "image")
-    (assert/equal (side-kind "x.txt") nil)))
+    (assert/equal (side-kind "x.txt") nil)
+    (assert/equal (side-kind "edn") nil)))
 
 (test "?? names a question: its task list becomes the choices, [x] the right one"
   (fn []

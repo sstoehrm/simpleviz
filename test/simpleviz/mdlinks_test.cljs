@@ -12,6 +12,10 @@
   (test (str "followable?: " (pr-str d))
     (fn [] (assert/equal (mdlinks/followable? d) want))))
 
+(doseq [[rest want] cases/QUOTE_TARGET]
+  (test (str "quote-target: " (pr-str rest))
+    (fn [] (assert/deepEqual (or (mdlinks/quote-target rest) nil) want))))
+
 (doseq [[raw want] cases/DEST_COMPARE]
   (test (str "dest-compare: " (pr-str raw))
     (fn [] (assert/equal (or (mdlinks/dest-compare raw) nil) want))))

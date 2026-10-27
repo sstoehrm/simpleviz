@@ -162,6 +162,13 @@
                        {:text "" :side "api.edn" :side-compare "v2"}
                        {:text "" :side "api.edn"}])))
 
+(test "a >> link's ?step= rides along as :side-step"
+  (fn []
+    (assert/deepEqual (slides ">> [from 1 to 3](api.edn?step=1..3)\n---\n>> api.edn?step=cache\n---\n> [g](g.edn?step=2)")
+                      [{:text "" :side "api.edn" :side-step "1..3"}
+                       {:text "" :side "api.edn" :side-step "cache"}
+                       {:text "" :side "g.edn" :side-step "2"}])))
+
 (test "a question slide keeps its >> link's ?compare="
   (fn []
     (let [[s] (slides "?? q\n>> [g](g.edn?compare=next)\n# Q\n- [ ] a\n- [x] b")]

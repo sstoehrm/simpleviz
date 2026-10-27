@@ -54,12 +54,19 @@
    ["a.edn?compare=a&compare=b" "a"] ["a.edn?compared=x" nil] ["a.edn#compare=x" nil]
    ["a.edn?compare=x#y" "x"] ["a.edn?compare" ""] ["a.edn\\?compare=x" "x"]])
 
+(def DEST_STEP
+  "[raw-destination expected-step]: the step or step range asked for"
+  [["a.edn" nil] ["a.edn?step=2" "2"] ["a.edn?step=1..3" "1..3"]
+   ["a.edn?compare=x&step=cache%20on" "cache on"] ["a.edn?step=a&step=b" "a"]
+   ["a.edn?steps=2" nil] ["a.edn#step=2" nil] ["a.edn?step=" nil] ["a.edn?step" nil]])
+
 (def QUOTE_TARGET
   "[rest-of-a-> line expected]: a lone link or picture to a file a slide
   shows beside it, else nil — the line is a quote"
   [[" [the flow](pay/flow.edn)" {:dest "pay/flow.edn"}]
    [" ![a cup](pic.jpg \"Cup\")  " {:dest "pic.jpg"}]
    ["[g](g.edn?compare=next)" {:dest "g.edn" :compare "next"}]
+   ["[g](g.edn?step=1..2)" {:dest "g.edn" :step "1..2"}]
    [" [b](<b c.md#intro>)" {:dest "b c.md"}]
    [" [n](notes.MD)" {:dest "notes.MD"}]
    [" \"Simplicity is prerequisite for reliability.\" — Dijkstra" nil]

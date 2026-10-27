@@ -18,6 +18,9 @@ picture to the right of its text:
     ---
     > [the change](pay/flow.edn?compare=next)
     # What changes
+    ---
+    > [step 1 to 3](pay/flow.edn?step=1..3)
+    # Three steps on
 
 To start one:
 
@@ -36,6 +39,11 @@ To start one:
 - Only a `>` line that is just that one link counts, and only when the
   next line doesn't go on with `>`; any other `>` line is a quote, as in
   markdown. `>>` works as before, a plain `>> path` too.
+- `?step=` on the link of a graph with `:steps` shows that step:
+  `?step=2`, `?step=start` or `?step=add%20a%20cache` (a step's name,
+  spaces as %20), and `?step=1..3` compares step 1 with
+  step 3. Two slides on the same graph animate from one step to the
+  other. Not with `?compare=`: a fork comparison has no steps.
 - A slide can ask a question: see [Quizzes](quizzes.md).
 - `simpleviz export talk.md talk.pdf` writes the deck as a PDF, a 16:9
   page per slide, with what each `>` shows beside it — and a page per

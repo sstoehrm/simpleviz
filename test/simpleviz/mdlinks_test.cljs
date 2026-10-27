@@ -19,3 +19,7 @@
 (doseq [[raw want] cases/DEST_COMPARE]
   (test (str "dest-compare: " (pr-str raw))
     (fn [] (assert/equal (or (mdlinks/dest-compare raw) nil) want))))
+
+(doseq [[raw want] cases/DEST_STEP]
+  (test (str "dest-step: " (pr-str raw))
+    (fn [] (assert/equal (or (mdlinks/dest-step raw) nil) want))))

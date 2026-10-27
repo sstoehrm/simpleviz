@@ -24,6 +24,8 @@
    ["fences" "```\n[a](a.md)\n```\n~~~~\n[b](b.md)\n~~~\n[c](c.md)" []]
    ["longer fence closes" "~~~\n[a](a.md)\n~~~~\n[b](b.md)" [{:line 4 :label "b" :dest "b.md" :kind "inline"}]]
    ["fence closed" "```\n[a](a.md)\n```\n[b](b.md)" [{:line 4 :label "b" :dest "b.md" :kind "inline"}]]
+   ["a ``` with a ` in its info opens no fence" "``` bad`info\n[ok](existing.md)" [{:line 2 :label "ok" :dest "existing.md" :kind "inline"}]]
+   ["a shorter fence closes no longer one" "````\n```\n[a](a.md)\n````\n[b](b.md)" [{:line 5 :label "b" :dest "b.md" :kind "inline"}]]
    ["code spans" "`[a](a.md)` ``x ` [b](b.md)`` [c](c.md)" [{:line 1 :label "c" :dest "c.md" :kind "inline"}]]
    ["crlf cr" "a\r\n[b](b.md)\rc\r\n[d](d.md)" [{:line 2 :label "b" :dest "b.md" :kind "inline"} {:line 4 :label "d" :dest "d.md" :kind "inline"}]]
    ["not links" "<http://x.md> http://y.md [z] (w.md) [] (v.md)" []]

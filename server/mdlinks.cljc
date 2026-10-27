@@ -240,40 +240,46 @@
         (let [k (skip-blanks s k true)]
           (when (= (ch s k) ")") [raw (inc k)]))))))
 
-(defn- fence-of
-  "[char length] when line opens or closes a fence (``` or ~~~, up to
-  three spaces of indent), else nil."
+(defn fence-open
+  "[char length info] when line opens a fenced code block, as the page's
+  parser (mdparse.js fenceOpen) has it: up to three spaces, three or
+  more ` or ~, then the info string, trimmed — a ` fence's may hold no
+  `. nil otherwise. The link scanner, decks and calc all fence by it."
   [line]
-  (let [k (skip-blanks line 0 false)
+  (let [k (loop [k 0] (if (and (< k 4) (= (ch line k) " ")) (recur (inc k)) k))
         c (ch line k)]
     (when (and (<= k 3) (or (= c "`") (= c "~")))
-      (let [n (loop [n 0] (if (= (ch line (+ k n)) c) (recur (inc n)) n))]
-        (when (>= n 3) [c n])))))
+      (let [n (loop [n 0] (if (= (ch line (+ k n)) c) (recur (inc n)) n))
+            info (subs line (+ k n))]
+        (when (and (>= n 3) (not (and (= c "`") (str/includes? info "`"))))
+          [c n (str/trim info)])))))
+
+(defn fence-close?
+  "Does line close the fence fence-open gave as `open` (mdparse.js
+  fenceClose)? Under four blanks in, then only its character, at least
+  as many as opened it."
+  [line [c len]]
+  (let [t (str/trim line)]
+    (and (< (- (count line) (count (str/triml line))) 4)
+         (>= (count t) len)
+         (= t (apply str (repeat (count t) c))))))
 
 (defn fences
   "The fenced code blocks of md `text` outside quotes and lists, as the
   page reads them: [{:line (1-based, of the opening fence) :info (the
-  rest of that line, trimmed) :body [lines] :closed}]. A ``` fence whose
-  info holds a ` opens none."
+  rest of that line, trimmed) :body [lines] :closed}]."
   [text]
   (let [lines (vec (str/split (normalize-breaks (str text)) #"\n" -1))
-        n (count lines)
-        closes? (fn [line [c len]]
-                  (when-let [[c2 len2] (fence-of line)]
-                    (and (= c c2) (>= len2 len)
-                         (= "" (str/trim (subs line (+ (skip-blanks line 0 false) len2)))))))]
+        n (count lines)]
     (loop [i 0 out []]
       (if (>= i n)
         out
-        (let [line (nth lines i)
-              [c len :as f] (fence-of line)
-              info (when (some? f) (str/trim (subs line (+ (skip-blanks line 0 false) len))))]
-          (if (or (nil? f) (and (= c "`") (str/includes? info "`")))
-            (recur (inc i) out)
-            (let [end (loop [j (inc i)] (cond (>= j n) nil (closes? (nth lines j) f) j :else (recur (inc j))))]
-              (recur (if (some? end) (inc end) n)
-                     (conj out {:line (inc i) :info info :closed (some? end)
-                                :body (subvec lines (inc i) (or end n))})))))))))
+        (if-let [f (fence-open (nth lines i))]
+          (let [end (loop [j (inc i)] (cond (>= j n) nil (fence-close? (nth lines j) f) j :else (recur (inc j))))]
+            (recur (if (some? end) (inc end) n)
+                   (conj out {:line (inc i) :info (nth f 2) :closed (some? end)
+                              :body (subvec lines (inc i) (or end n))})))
+          (recur (inc i) out))))))
 
 (defn- parse-def
   "[label raw-dest] when line is a reference definition, else nil."
@@ -300,13 +306,10 @@
         (let [start (nth starts li)
               end (if (< (inc li) n) (dec (nth starts (inc li))) (count t))
               line (subs t start end)
-              f (fence-of line)]
+              f (when (nil? fence) (fence-open line))]
           (cond
             (some? fence)
-            (let [closes (and (some? f) (= (first f) (first fence)) (>= (second f) (second fence))
-                              (= (skip-blanks line (+ (skip-blanks line 0 false) (second f)) false)
-                                 (count line)))]
-              (recur (inc li) (if closes nil fence) (conj code li) defs order))
+            (recur (inc li) (if (fence-close? line fence) nil fence) (conj code li) defs order)
             (some? f) (recur (inc li) f (conj code li) defs order)
             :else
             (if-let [[label raw] (parse-def line)]

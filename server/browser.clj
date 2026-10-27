@@ -266,8 +266,9 @@
 (defn export-page!
   "Navigate to page-url and return window.simplevizExport's reply: its
   :data base64 for \"png\", SVG text for \"svg\"; for \"pdf\" the page
-  lays out its slides, a page each (:slides how many), and :data is the
-  PDF Chrome prints of it, base64."
+  lays out its slides, a page each and one per step of a graph beside
+  one (:slides and :pages how many), and :data is the PDF Chrome prints
+  of it, base64."
   [conn page-url {:keys [format theme timeout-ms]}]
   (let [page (open-page conn)]
     (try

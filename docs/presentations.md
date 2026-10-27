@@ -38,7 +38,8 @@ To start one:
   markdown. `>>` works as before, a plain `>> path` too.
 - A slide can ask a question: see [Quizzes](quizzes.md).
 - `simpleviz export talk.md talk.pdf` writes the deck as a PDF, a 16:9
-  page per slide, with what each `>` shows beside it.
+  page per slide, with what each `>` shows beside it — and a page per
+  step of a graph with `:steps`.
 
 ## More
 

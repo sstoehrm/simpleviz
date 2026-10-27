@@ -286,7 +286,8 @@ remove (no value) or `:r` replace. `simpleviz demo` brings `steps.edn`.
   union graph.
 - Presenting a deck, a graph with steps shows **◂ · Next ▸** at the
   bottom right: each step animates in and the view fits the graph. The
-  arrow keys still step through the slides.
+  arrow keys still step through the slides. The deck's PDF has a page
+  per step.
 - A step that does not apply — its path names something that isn't
   there, its `:edits` is no edit vector — warns and leaves the state as
   it was, and `simpleviz check` reports it. Editing a step rewrites only
@@ -598,7 +599,10 @@ line is `>` and a link shows the linked file to the right of its text:
   or Chromium (see [From the terminal](#from-the-terminal)). Each page
   shows what presenting shows: the slide, what its `>` names beside it
   (a graph as drawn when presented, boxes collapsed or not, in vector),
-  and its number. A graph with `:steps` shows its first state; a
+  and its number. A slide whose graph has `:steps` gets a page per
+  step, the slide's text on each, the graph in that state and the
+  step's number and name at the bottom right, as presenting shows them
+  (`wrote talk.pdf (8 slides, 13 pages)`); a
   question shows its choices, unanswered, without Submit. Text that
   overflows a slide is cut off, as it would scroll when presenting. A
   `>` that can't show prints why on its page and on stderr

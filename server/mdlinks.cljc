@@ -240,6 +240,23 @@
         (let [k (skip-blanks s k true)]
           (when (= (ch s k) ")") [raw (inc k)]))))))
 
+;; the blanks JS's trim takes off: Java's (str/trim) keeps a no-break
+;; space and a BOM, and drops \u001C-\u001F, which JS keeps
+#?(:clj (def ^:private lead-blanks #"^[\s   -     　﻿]+"))
+#?(:clj (def ^:private trail-blanks #"[\s   -     　﻿]+$"))
+
+(defn- js-triml
+  "s without its leading blanks, as JS's trimStart has them."
+  [s]
+  #?(:clj (str/replace s lead-blanks "")
+     :cljs (.trimStart s)))
+
+(defn- js-trim
+  "s without blanks at either end, as JS's trim has them."
+  [s]
+  #?(:clj (str/replace (js-triml s) trail-blanks "")
+     :cljs (.trim s)))
+
 (defn fence-open
   "[char length info] when line opens a fenced code block, as the page's
   parser (mdparse.js fenceOpen) has it: up to three spaces, three or
@@ -252,15 +269,15 @@
       (let [n (loop [n 0] (if (= (ch line (+ k n)) c) (recur (inc n)) n))
             info (subs line (+ k n))]
         (when (and (>= n 3) (not (and (= c "`") (str/includes? info "`"))))
-          [c n (str/trim info)])))))
+          [c n (js-trim info)])))))
 
 (defn fence-close?
   "Does line close the fence fence-open gave as `open` (mdparse.js
   fenceClose)? Under four blanks in, then only its character, at least
   as many as opened it."
   [line [c len]]
-  (let [t (str/trim line)]
-    (and (< (- (count line) (count (str/triml line))) 4)
+  (let [t (js-trim line)]
+    (and (< (- (count line) (count (js-triml line))) 4)
          (>= (count t) len)
          (= t (apply str (repeat (count t) c))))))
 

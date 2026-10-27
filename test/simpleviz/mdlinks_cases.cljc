@@ -26,6 +26,10 @@
    ["fence closed" "```\n[a](a.md)\n```\n[b](b.md)" [{:line 4 :label "b" :dest "b.md" :kind "inline"}]]
    ["a ``` with a ` in its info opens no fence" "``` bad`info\n[ok](existing.md)" [{:line 2 :label "ok" :dest "existing.md" :kind "inline"}]]
    ["a shorter fence closes no longer one" "````\n```\n[a](a.md)\n````\n[b](b.md)" [{:line 5 :label "b" :dest "b.md" :kind "inline"}]]
+   ;; blanks as JS's trim has them, on both platforms
+   ["a no-break space after a closing fence" "```\nx\n``` \n[a](a.md)" [{:line 4 :label "a" :dest "a.md" :kind "inline"}]]
+   ["a BOM before a closing fence" "```\nx\n﻿```\n[a](a.md)" [{:line 4 :label "a" :dest "a.md" :kind "inline"}]]
+   ["a unit separator is no blank" "```\nx\n```\u001F\n[a](a.md)" []]
    ["code spans" "`[a](a.md)` ``x ` [b](b.md)`` [c](c.md)" [{:line 1 :label "c" :dest "c.md" :kind "inline"}]]
    ["crlf cr" "a\r\n[b](b.md)\rc\r\n[d](d.md)" [{:line 2 :label "b" :dest "b.md" :kind "inline"} {:line 4 :label "d" :dest "d.md" :kind "inline"}]]
    ["not links" "<http://x.md> http://y.md [z] (w.md) [] (v.md)" []]

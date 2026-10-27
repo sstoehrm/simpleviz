@@ -2,6 +2,22 @@
   (:require [calc]
             [clojure.test :refer [deftest is testing]]))
 
+(deftest code-in-a-table-stays-in-the-sandbox
+  ;; a fn the def block makes, or a lazy value a formula returns, runs
+  ;; later than its eval: it must still see SCI's namespaces, not bb's
+  (let [marker (java.io.File. (str (System/getProperty "java.io.tmpdir") "/calc-escape-" (System/nanoTime)))
+        shell (str "((requiring-resolve 'babashka.process/shell) \"touch\" \"" marker "\")")
+        cases {"a def block's fn" [[["1"]] (str "[:a 1 1] (fn [v] " shell ")")]
+               "one of two args" [[["1"]] (str "[:a 1 1] (fn [v ctx] " shell ")")]
+               "a lazy formula result" [[[(str "=(map (fn [_] " shell ") [1])")]] nil]
+               "a lazy colour" [[["1"]] (str "[:a 1 1] (fn [v] {:color (map (fn [_] " shell ") [1])})")]
+               "a lazy range" [[["1"]] (str "[(map (fn [_] " shell ") [1])] str")]
+               "resolve" [[["1"]] (str "[:a 1 1] (fn [v] ((resolve 'clojure.java.shell/sh) \"touch\" \"" marker "\"))")]}]
+    (doseq [[what [cells defs]] cases]
+      (calc/evaluate {:cells cells :defs defs})
+      (is (not (.exists marker)) what)
+      (.delete marker))))
+
 (defn- results
   "The results grid of one table: body rows `cells`, def block `defs`."
   ([cells] (results cells nil))

@@ -128,6 +128,20 @@
         (instance? clojure.lang.BigInt v) (str v)
         :else (binding [*print-length* 100] (pr-str v))))
 
+(def ^:private denied
+  "What a table's code may not name: the ways to the host's own
+  namespaces — and from there to its files and shell."
+  '[require requiring-resolve resolve ns-resolve find-ns all-ns the-ns find-var intern
+    ns-publics ns-interns ns-map ns-refers ns-aliases load-string load-file eval])
+
+(defn- inside
+  "(f) called from inside an eval in `ctx`. A fn SCI made, or a lazy
+  value it returned, resolves against the context of the eval it runs
+  in — outside any, against bb's own namespaces, slurp and shell
+  included — so whatever calls or realizes a table's code goes in f."
+  [ctx f]
+  (sci/eval-form ctx (list f)))
+
 (defn- context
   "A SCI context whose range functions read the values in `vals`: table
   has every value, the others the numbers only; (rows) is every row as
@@ -148,7 +162,8 @@
         nums (fn [args] (cond (ranged? args) (filterv number? (apply table args))
                               (and (= 1 (count args)) (coll? (first args))) (filterv number? (first args))
                               :else args))]
-    (sci/init {:namespaces
+    (sci/init {:deny denied
+               :namespaces
                {'user {'table table
                        'rows (fn [] @records)
                        'sum (fn [& args] (reduce + 0 (nums args)))
@@ -227,7 +242,7 @@
       (let [ctx (context (if (some? data) (mapv vec data) (values cells)))
             [rules block-err] (if (str/blank? defs)
                                 [[] nil]
-                                (try [(run #(rules-of ctx defs rows cols)) nil]
+                                (try [(run #(inside ctx (fn [] (rules-of ctx defs rows cols)))) nil]
                                      (catch Throwable e [[] (str "def block: " (message e))])))
             err (some->> (remove nil? [data-error block-err]) seq (str/join "; "))
             cell (fn [r c s]
@@ -238,12 +253,15 @@
                        (and (not f?) (or (empty? fs) (nil? (value-of s)))) nil
                        :else
                        ;; a plain value the fns leave as it was keeps the cell as written
-                       (try (run #(let [v0 (if f? (eval-in (sci/fork ctx) (subs (str/trim s) 1)) (value-of s))
-                                        {:keys [v style]} (chain fs v0 {:row (inc r) :col (col-name c) :raw s})]
-                                    (not-empty (cond-> {}
-                                                 (or f? (not= v v0)) (assoc :value (show v))
-                                                 (and num? f? (number? v0)) (assoc :num (if (ratio? v0) (double v0) v0))
-                                                 (seq style) (assoc :style style)))))
+                       ;; out of `inside` come strings, numbers and their maps only
+                       (try (run #(inside ctx
+                                    (fn []
+                                      (let [v0 (if f? (eval-in (sci/fork ctx) (subs (str/trim s) 1)) (value-of s))
+                                            {:keys [v style]} (chain fs v0 {:row (inc r) :col (col-name c) :raw s})]
+                                        (not-empty (cond-> {}
+                                                     (or f? (not= v v0)) (assoc :value (show v))
+                                                     (and num? f? (number? v0)) (assoc :num (if (ratio? v0) (double v0) v0))
+                                                     (seq style) (assoc :style style)))))))
                             (catch Throwable e {:error (message e)})))))]
         (cond-> {:results (vec (map-indexed (fn [r row] (vec (map-indexed (fn [c s] (cell r c s)) row))) cells))}
           (some? err) (assoc :error err))))))

@@ -21,6 +21,14 @@
     [[3 "?? q takes 2 to 4 choices, - [ ] lines; it has 1"]
      [6 "?? r takes 2 to 4 choices, - [ ] lines; it has 0"]]]
    ["fenced" "```\n---\n?? x\n```" []]
+   ;; fences as the page reads them (mdlinks/fence-open, fence-close?)
+   ["a shorter fence closes no longer one" "````\n```\n---\n?? x\n````" []]
+   ["a ``` with a ` in its info opens no fence" "``` a`b\n---\n?? x"
+    [[3 "?? x takes 2 to 4 choices, - [ ] lines; it has 0"]]]
+   ["four spaces in, ``` is code, no fence" "    ```\n---\n?? x"
+    [[3 "?? x takes 2 to 4 choices, - [ ] lines; it has 0"]]]
+   ["choices in a longer fence are code" "?? q\n- [x] a\n````\n```\n- [ ] b\n- [ ] c\n````"
+    [[1 "?? q takes 2 to 4 choices, - [ ] lines; it has 1"]]]
    ["not on a first line" "# T\n?? x" []]
    ["a nested task item is a note" "?? q\n- [x] a\n  - [ ] b"
     [[1 "?? q takes 2 to 4 choices, - [ ] lines; it has 1"]]]

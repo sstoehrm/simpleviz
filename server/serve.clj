@@ -607,6 +607,18 @@
     :fork-of (fn [r] (when (some? suffix) (fork-base r suffix)))
     :index index}))
 
+(defn- graph-payload
+  "graph-json's payload as a map, {:error message} when s does not parse."
+  [s fname extra-map prepare]
+  (try
+    (cond-> (let [g (parse-graph s)]
+              (cond-> (prepare g)
+                (some? (:steps g)) (assoc :steps (mapv (fn [st] (update st :graph prepare)) (:steps g)))))
+      (some? fname) (assoc :file fname)
+      (some? extra-map) (merge extra-map))
+    (catch Exception e
+      {:error (ex-message e)})))
+
 (defn graph-json
   "Parse an EDN string, normalize it, return the graph as a JSON string.
   With fname, the payload carries it as :file (the export download
@@ -618,15 +630,25 @@
   ([s fname] (graph-json s fname nil))
   ([s fname extra-map] (graph-json s fname extra-map identity))
   ([s fname extra-map prepare]
-   (try
-     (json/generate-string
-      (cond-> (let [g (parse-graph s)]
-                (cond-> (prepare g)
-                  (some? (:steps g)) (assoc :steps (mapv (fn [st] (update st :graph prepare)) (:steps g)))))
-        (some? fname) (assoc :file fname)
+   (json/generate-string (graph-payload s fname extra-map prepare))))
+
+(defn- compare-payload
+  "compare-json's payload as a map, {:error \"<file>: msg\"} when a side
+  does not parse."
+  [old-s new-s old-name new-name file-name extra-map prepare]
+  (try
+    (let [parse (fn [s nm]
+                  (try (parse-graph s)
+                       (catch Exception e
+                         (throw (ex-info (str nm ": " (ex-message e)) {})))))
+          ;; a comparison shows two files, not the states of one
+          old-g (prepare (dissoc (parse old-s old-name) :steps) "old")
+          new-g (prepare (dissoc (parse new-s new-name) :steps) "new")]
+      (cond-> (assoc (diff/union old-g new-g old-name new-name)
+                     :file file-name)
         (some? extra-map) (merge extra-map)))
-     (catch Exception e
-       (json/generate-string {:error (ex-message e)})))))
+    (catch Exception e
+      {:error (ex-message e)})))
 
 (defn compare-json
   "Parse and normalize two EDN strings, diff them into one union-graph
@@ -642,20 +664,7 @@
   ([old-s new-s old-name new-name file-name extra-map]
    (compare-json old-s new-s old-name new-name file-name extra-map (fn [g _] g)))
   ([old-s new-s old-name new-name file-name extra-map prepare]
-   (try
-     (let [parse (fn [s nm]
-                   (try (parse-graph s)
-                        (catch Exception e
-                          (throw (ex-info (str nm ": " (ex-message e)) {})))))
-           ;; a comparison shows two files, not the states of one
-           old-g (prepare (dissoc (parse old-s old-name) :steps) "old")
-           new-g (prepare (dissoc (parse new-s new-name) :steps) "new")]
-       (json/generate-string
-        (cond-> (assoc (diff/union old-g new-g old-name new-name)
-                       :file file-name)
-          (some? extra-map) (merge extra-map))))
-     (catch Exception e
-       (json/generate-string {:error (ex-message e)})))))
+   (json/generate-string (compare-payload old-s new-s old-name new-name file-name extra-map prepare))))
 
 (defn- step-pair
   "The `steps` query parameter \"a,b\" as [a b], two step numbers."
@@ -665,11 +674,12 @@
       (throw (ex-info (str "steps must be two step numbers, like 0,2 — got " (pr-str v)) {})))
     [a b]))
 
-(defn steps-compare-json
+(defn- steps-compare-payload
   "States a (old) and b (new) of the graph in EDN text s — 0 the file as
-  written — diffed into one union graph JSON string, as compare-json
-  does for a file and its fork; read-only. prepare transforms each
-  state first (pairs/attach); extra-map is merged into the payload."
+  written — diffed into one union graph, as compare-json does for a file
+  and its fork; read-only. prepare transforms each state first
+  (pairs/attach); extra-map is merged into the payload. {:error msg}
+  on a failure."
   [s [a b] extra-map prepare]
   (try
     (let [g (parse-graph s)
@@ -680,12 +690,11 @@
           label (fn [k] (if (zero? k) "start" (str k " " (:name (nth steps (dec k))))))
           old-g (prepare (state a))
           new-g (prepare (state b))]
-      (json/generate-string
-       (merge (diff/union old-g new-g (label a) (label b))
-              extra-map
-              {:editable false :editable-old false})))
+      (merge (diff/union old-g new-g (label a) (label b))
+             extra-map
+             {:editable false :editable-old false}))
     (catch Exception e
-      (json/generate-string {:error (ex-message e)}))))
+      {:error (ex-message e)})))
 
 (def mime-types
   {"html" "text/html; charset=utf-8"
@@ -783,20 +792,20 @@
        :body f})
     (catch Exception e (text-response 404 (ex-message e)))))
 
-(defn- graph-response-body
-  "The /api/graph JSON for the query; a debug run logs its error under
-  `route`, the route that asked for it."
+(defn- graph-response
+  "The /api/graph payload for the query, a map; a debug run logs its
+  error under `route`, the route that asked for it."
   [query-string route]
-  (let [body (try
+  (let [out (try
                (let [{:keys [root]} @files
                      rel (nav-rel query-string)
                      compare (query-param query-string "compare")
                      suffix (request-suffix compare)]
                  (if (embedded-compare?)
                    (let [nm (.getName (io/file root))]
-                     (compare-json (embedded-old root) (read-source root)
-                                   (str nm " (old)") (str nm " (new)") nm
-                                   {:editable false :editable-old false}))
+                     (compare-payload (embedded-old root) (read-source root)
+                                      (str nm " (old)") (str nm " (new)") nm
+                                      {:editable false :editable-old false} (fn [g _] g)))
                    (let [{:keys [old new] :as pair} (sides rel compare)
                          path (or rel (root-rel))
                          new-p (.getPath new)
@@ -805,34 +814,31 @@
                          prepare (fn [g which] (pairs/attach g (pair-context @root-dir path suffix index which)))]
                      (cond
                        (some? old)
-                       (compare-json (side-source pair "old") (side-source pair "new")
-                                     path (fork-name path suffix) (.getName new)
-                                     {:editable (not (read-only-side? pair "new"))
-                                      :editable-old (not (read-only-side? pair "old"))
-                                      :path path}
-                                     prepare)
+                       (compare-payload (side-source pair "old") (side-source pair "new")
+                                        path (fork-name path suffix) (.getName new)
+                                        {:editable (not (read-only-side? pair "new"))
+                                         :editable-old (not (read-only-side? pair "old"))
+                                         :path path}
+                                        prepare)
 
                        ;; two states of the file's :steps, compared
                        (some? (query-param query-string "steps"))
-                       (steps-compare-json (read-source new-p)
-                                           (step-pair (query-param query-string "steps"))
-                                           {:path path :file (.getName new)}
-                                           #(prepare % "new"))
+                       (steps-compare-payload (read-source new-p)
+                                              (step-pair (query-param query-string "steps"))
+                                              {:path path :file (.getName new)}
+                                              #(prepare % "new"))
 
                        :else
-                       (graph-json (read-source new-p) (.getName new)
-                                   {:editable (not (embedded/export? new-p)) :path path}
-                                   #(prepare % "new"))))))
+                       (graph-payload (read-source new-p) (.getName new)
+                                      {:editable (not (embedded/export? new-p)) :path path}
+                                      #(prepare % "new"))))))
                (catch Exception e
                  ;; :image — a picture, not a graph: a slide shows it as one
-                 (json/generate-string (cond-> {:error (ex-message e)}
-                                         (:image (ex-data e)) (assoc :image true)))))]
-    ;; graph-json/compare-json fold parse failures into the payload; only
-    ;; a debug run pays for parsing it back to find out
-    (when (log/enabled?)
-      (when-let [err (get (json/parse-string body) "error")]
-        (log/event! "error" {:route route :error err})))
-    body))
+                 (cond-> {:error (ex-message e)}
+                   (:image (ex-data e)) (assoc :image true))))]
+    (when-let [err (:error out)]
+      (log/event! "error" {:route route :error err}))
+    out))
 
 (declare md-errors)
 
@@ -845,9 +851,9 @@
   (let [rel (try (or (nav-rel query-string) (root-rel)) (catch Exception _ nil))]
     (if (and (some? rel) (paths/md-path? rel))
       (json/generate-string (md-errors rel))
-      (let [out (json/parse-string (graph-response-body query-string "/api/errors"))]
-        (json/generate-string {:error (get out "error")
-                               :warnings (get out "warnings" [])})))))
+      (let [out (graph-response query-string "/api/errors")]
+        (json/generate-string {:error (:error out)
+                               :warnings (:warnings out [])})))))
 
 (defn- read-json-body
   "The request body's JSON, keys keywordized, or {:parse-error msg}."
@@ -1358,7 +1364,7 @@
 
 (defn- route [{:keys [uri query-string body] :as req}]
   (case uri
-    "/api/graph"   (json-response (graph-response-body query-string "/api/graph"))
+    "/api/graph"   (json-response (json/generate-string (graph-response query-string "/api/graph")))
     "/api/errors"  (json-response (errors-response-body query-string))
     "/api/edit"    (post-only req #(json-response (edit-response-body body)))
     "/api/create"  (post-only req #(json-response (create-response-body body)))

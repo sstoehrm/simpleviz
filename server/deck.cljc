@@ -18,13 +18,13 @@
   (:require [clojure.string :as str]
             [mdlinks :as mdlinks]))
 
-(defn- fence-mark
-  "The fence a line opens or closes (\"```\" or \"~~~\"), or nil."
-  [line]
-  (let [t (str/triml line)]
-    (cond (str/starts-with? t "```") "```"
-          (str/starts-with? t "~~~") "~~~"
-          :else nil)))
+(defn- fence-after
+  "The fence open after line, inside `fence` (nil: outside any), as the
+  page reads fences (mdlinks/fence-open, fence-close?)."
+  [fence line]
+  (if (some? fence)
+    (when-not (mdlinks/fence-close? line fence) fence)
+    (mdlinks/fence-open line)))
 
 (defn- chunks
   "The text's lines (nil reads as \"\"), split at the separators outside
@@ -38,12 +38,10 @@
     (if (empty? lines)
       (conj out cur)
       (let [line (first lines)
-            mark (fence-mark line)
             add (fn [c] (update c :lines conj line))]
-        (cond
-          (some? fence) (recur (rest lines) (inc n) (if (= mark fence) nil fence) (add cur) out)
-          (= (str/trim line) "---") (recur (rest lines) (inc n) nil {:start (inc n) :lines []} (conj out cur))
-          :else (recur (rest lines) (inc n) mark (add cur) out))))))
+        (if (and (nil? fence) (= (str/trim line) "---"))
+          (recur (rest lines) (inc n) nil {:start (inc n) :lines []} (conj out cur))
+          (recur (rest lines) (inc n) (fence-after fence line) (add cur) out))))))
 
 (defn- blank? [line] (= (str/trim line) ""))
 
@@ -91,15 +89,14 @@
       (if (empty? ls)
         [text (close)]
         (let [line (first ls)
-              mark (fence-mark line)
               m (when (nil? fence) (task-item line))]
           (cond
-            (some? fence) (recur (rest ls) (if (= mark fence) nil fence) (conj text line) choices cur)
+            (some? fence) (recur (rest ls) (fence-after fence line) (conj text line) choices cur)
             (and (some? cur) (or (blank? line) (>= (indent line) 2)))
             (recur (rest ls) nil text choices (update cur :note conj line))
             (some? m) (recur (rest ls) nil text (close)
                              {:choice {:text (:text m) :correct (:checked m)} :note []})
-            :else (recur (rest ls) mark (conj text line) (close) nil)))))))
+            :else (recur (rest ls) (fence-after nil line) (conj text line) (close) nil)))))))
 
 (defn- ask
   "The question `?? name` (`???` when `submit`) asks over body `lines`:

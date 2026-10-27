@@ -704,3 +704,78 @@
 (deftest paste-refuses-a-clip-naming-a-node-and-a-box-alike
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"clipboard holds \"a\" as a node and as a box"
         (edit/paste "{:nodes {:a {}}}" {:edn "{:nodes {:a {}} :boxes {:a {}}}"}))))
+
+(deftest ident-node-keeps-only-ids-that-read-back
+  ;; a keyword is written only when the EDN reader gives the same id back;
+  ;; anything else stays a string, so the file still parses
+  (doseq [id ["a" "a/b" "api-v2" "x.y" "a?" "1" "/" "a/b/c"]]
+    (is (keyword? (edit/ident-node id)) id))
+  (doseq [id ["api/" "/a" "a/1" "a b" ":a"]]
+    (is (= id (edit/ident-node id)) id)))
+
+(deftest rename-to-a-trailing-slash-id-writes-valid-edn
+  (let [{:keys [text]} (edit/apply-ops "{:nodes {:a nil}}"
+                                       [{:op "rename" :section "nodes" :id "a" :to "api/"}])]
+    (is (= {:nodes {"api/" nil}} (clojure.edn/read-string text)))))
+
+(deftest edits-skip-discarded-forms-and-keep-their-text
+  ;; #_ forms load fine (the reader drops them), so an edit must walk
+  ;; past them too — and leave them in the file as written
+  (doseq [[src want] [["{#_:theme :nodes {:a nil}}" {:nodes {:b nil}}]
+                      ["{:nodes {#_:old :a nil}}" {:nodes {:b nil}}]
+                      ["{:nodes {:a #_:x nil :c {:name \"C\"}}}" {:nodes {:b nil :c {:name "C"}}}]
+                      ["{:nodes {:a nil #_#_ :z nil}\n :edges {#_[:q :r] [:a :a] nil}}"
+                       {:nodes {:b nil} :edges {[:b :b] nil}}]]]
+    (let [{:keys [text error]} (edit/apply-ops src [{:op "rename" :section "nodes" :id "a" :to "b"}])]
+      (is (nil? error) src)
+      (is (= want (clojure.edn/read-string text)) src)
+      (is (= (count (re-seq #"#_" src)) (count (re-seq #"#_" (str text)))) src)))
+  (let [src "{:nodes {:a #_:x {:name \"A\" #_:k :type \"t\"}}}"]
+    (is (= {:nodes {:a {:name "B" :type "t"}}}
+           (clojure.edn/read-string
+            (:text (edit/apply-ops src [{:op "set-attr" :section "nodes" :id "a" :attr "name"
+                                          :value "\"B\"" :fallback false}])))))
+    (is (= {:nodes {:a {:name "A"}}}
+           (clojure.edn/read-string
+            (:text (edit/apply-ops src [{:op "del-attr" :section "nodes" :id "a" :attr "type"}])))))
+    ;; a discard between key and value stays; the value goes
+    (is (= "{:nodes {:a {:name \"A\" #_:k}}}"
+           (:text (edit/apply-ops "{:nodes {:a {:name \"A\" :type #_:k \"t\"}}}"
+                                  [{:op "del-attr" :section "nodes" :id "a" :attr "type"}])))))
+  (let [{:keys [text]} (edit/apply-ops "{:nodes {#_:old :a nil :b #_:x nil}}"
+                                       [{:op "delete" :section "nodes" :id "a"}])]
+    (is (= {:nodes {:b nil}} (clojure.edn/read-string text))))
+  (let [{:keys [text]} (edit/apply-ops "{#_:x :theme #_:y :nord :nodes {}}"
+                                       [{:op "set-theme" :theme "dracula"}])]
+    (is (= :dracula (:theme (clojure.edn/read-string text)))))
+  ;; a discard holding the key's own text is no key
+  (doseq [[src op want] [["{:nodes {:a {:type #_:type \"t\"}}}"
+                          {:op "del-attr" :section "nodes" :id "a" :attr "type"} {:nodes {:a {}}}]
+                         ["{:nodes {:a {:type #_[:type] \"t\"}}}"
+                          {:op "del-attr" :section "nodes" :id "a" :attr "type"} {:nodes {:a {}}}]
+                         ["{:nodes {:a {:type #_[:type #_:x] \"t\"}}}"
+                          {:op "del-attr" :section "nodes" :id "a" :attr "type"} {:nodes {:a {}}}]
+                         ["{:nodes {:a nil} :edges {[:a :b] #_[:a :b] nil}}"
+                          {:op "delete" :section "edges" :id ["a" "b"]} {:nodes {:a nil} :edges {}}]
+                         ["{:nodes {:a #_:a nil :b nil}}"
+                          {:op "delete" :section "nodes" :id "a"} {:nodes {:b nil}}]
+                         ["{:theme #_:theme :nord :nodes {}}"
+                          {:op "set-theme" :theme ""} {:nodes {}}]
+                         ;; a discard before the root map
+                         ["#_:x {:nodes {:a nil}}"
+                          {:op "rename" :section "nodes" :id "a" :to "b"} {:nodes {:b nil}}]
+                         [";; c\n#_{:old 1}\n{:nodes {:a nil}}"
+                          {:op "set-attr" :section "nodes" :id "a" :attr "name" :value "\"A\"" :fallback false}
+                          {:nodes {:a {:name "A"}}}]
+                         ["#_:x\n{:nodes {:a nil}\n :edges {}}"
+                          {:op "add-node" :id "b"} {:nodes {:a nil :b nil} :edges {}}]]]
+    (let [{:keys [text error]} (edit/apply-ops src [op])]
+      (is (nil? error) src)
+      (is (= want (try (clojure.edn/read-string text) (catch Exception e (ex-message e)))) src))))
+
+(deftest apply-ops-rejects-attr-names-that-do-not-read-back
+  (doseq [a ["api/" "/a" "a/1"]]
+    (is (= {:error (str "invalid attribute name " (pr-str a))}
+           (edit/apply-ops small-file [{:op "set-attr" :section "nodes" :id "a"
+                                         :attr a :value "1" :fallback false}]))
+        a)))

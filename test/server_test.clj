@@ -1373,6 +1373,27 @@
           (is (= 1 (count ws)))
           (is (clojure.string/starts-with? (first ws) "g-next.edn: ")))))))
 
+(deftest api-errors-serializes-only-its-reply
+  ;; the graph payload stays a map: /api/errors never writes it as JSON
+  ;; to read the error and warnings back out of it
+  (with-log-dir*
+    (fn [d]
+      (log/init! {:dir d :debug true :header "hdr"})
+      (with-temp-dir*
+        (fn [dir]
+          (serve! (write! dir "g.edn" (str "{:nodes {" (apply str (for [i (range 2000)] (str ":n" i " {:name \"node " i "\"} "))) "}"
+                                           " :edges {[:n0 :zz] {}}}")))
+          (let [parsed (atom 0)
+                written (atom [])
+                parse json/parse-string
+                gen json/generate-string]
+            (with-redefs [json/parse-string (fn [& args] (swap! parsed inc) (apply parse args))
+                          json/generate-string (fn [& args] (let [s (apply gen args)] (swap! written conj (count s)) s))]
+              (let [body (:body (serve/handler {:uri "/api/errors"}))]
+                (is (= 1 (count (get (parse body) "warnings"))))))
+            (is (= 0 @parsed))
+            (is (< (reduce + @written) 1000) (str "wrote " @written))))))))
+
 (deftest api-errors-parse-error-is-logged-under-its-own-route
   (with-log-dir*
     (fn [d]

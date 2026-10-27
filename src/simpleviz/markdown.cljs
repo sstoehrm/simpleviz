@@ -209,6 +209,20 @@
     (.push (:tables ctx) x)
     [:figure {:class "chart-solo"} (chart-part mine failed (or (:fields mine) []) rows)]))
 
+(defn- analyzer-node
+  "Analyzer node x [\"analyzer\" body n], the text's nth
+  ```simpleviz-analyzer block: a link, by the link-fn, to the graph the
+  server makes of it — link {:kind \"analyzer\" :dest (its >> folder)
+  :label :n}."
+  [x ctx]
+  (let [head (.trim (first (.split (aget x 1) "\n")))
+        folder (if (.startsWith head ">>") (.trim (subs head 2)) "")
+        l (first (filter #(= "inline" (:kind %)) (mdlinks/links folder)))
+        dest (if (some? l) (:dest l) folder)
+        label (if (some? l) (:label l) folder)]
+    [:p {:class "md-analyzer"}
+     ((:link-fn ctx) {:kind "analyzer" :dest dest :label label :n (aget x 2)} [(str label " as a graph")])]))
+
 (defn- node
   "Hiccup for parsed node x (mdparse.js names them)."
   [x ctx]
@@ -224,6 +238,7 @@
       "ol-start" (into-nodes [:ol {:start (aget x 1)}] x 2 ctx)
       "table" (table-node x ctx)
       "solo" (solo-chart x ctx)
+      "analyzer" (analyzer-node x ctx)
       (into-nodes [(aget x 0)] x 1 ctx))))
 
 (defn- with-backref

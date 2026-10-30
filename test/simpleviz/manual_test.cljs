@@ -68,14 +68,6 @@
         (assert/equal (+ (:x lbl) (/ (:width lbl) 2)) 175)
         (assert/equal (+ (:y lbl) (/ (:height lbl) 2)) 55)))))
 
-(test "higher apart than wide: out of the bottom, into the side"
-  (fn []
-    ;; a at 40,40 (to 80,70); t at 140,240 (to 180,340)
-    (let [p (place (pair-layout [(e "e" "n:a" "n:t")]) (pair-graph [0 0] [5 10]))
-          [s] (:sections (edge p "e"))]
-      (assert/deepEqual [(:startPoint s) (:bendPoints s) (:endPoint s)]
-                        [{:x 60 :y 70} [{:x 60 :y 290}] {:x 140 :y 290}]))))
-
 (test "a self-loop moves with its element; an edge inside a box is left alone"
   (fn []
     (let [p (place layout graph)]
@@ -205,6 +197,14 @@
           p (place l (pair-graph [0 0] [10 1]))
           [a b] (ends p "e")]
       (assert/ok (not= (:y a) (:y b)) "not level"))))
+
+(test "higher apart than wide: out of the bottom, into the side"
+  (fn []
+    ;; a at 40,40 (to 80,70); t at 140,240 (to 180,340)
+    (let [p (place (pair-layout [(e "e" "n:a" "n:t")]) (pair-graph [0 0] [5 10]))
+          [s] (:sections (edge p "e"))]
+      (assert/deepEqual [(:startPoint s) (:bendPoints s) (:endPoint s)]
+                        [{:x 60 :y 70} [{:x 60 :y 290}] {:x 140 :y 290}]))))
 
 (test "a bend that would cross another element turns the other way"
   (fn []

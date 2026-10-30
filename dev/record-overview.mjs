@@ -1,12 +1,14 @@
 // Record the README overview: docs/assets/overview.mp4 and .gif — a doc
 // that opens a graph beside it, the graph following its file, a table
-// that calculates, the doc presented as slides with a graph and a
-// question.
+// that calculates and a chart of it, the doc presented as slides with a
+// graph, its steps and a question, the deck exported as a PDF.
 //   bb build && node dev/record-overview.mjs [out-dir]
-// Needs Node >= 22, chromium (or $CHROMIUM), ffmpeg and bb on the PATH.
+// Needs Node >= 22, chromium (or $CHROMIUM), ffmpeg, pdftoppm (poppler)
+// and bb on the PATH.
 // Same approach as dev/record-features.mjs: serve a workspace, drive a
 // headless Chromium over CDP — real mouse and key events — inject a
 // caption and a cursor dot, encode the screencast.
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { recorder, ROOT, W, H, sleep } from "./recorder.mjs";
@@ -20,7 +22,7 @@ const { ws, start, serve, waitFor, send, js, launch, moveTo, click, elAt, key, c
 
 // the examples as simpleviz demo copies them: intro.md links the rest
 fs.cpSync(path.join(ROOT, "examples"), ws, { recursive: true });
-const demo = path.join(ws, "demo.edn");
+const demo = path.join(ws, "demo.edn"), tables = path.join(ws, "tables.md");
 const edit = (file, from, to) => {
   const s = fs.readFileSync(file, "utf8");
   if (!s.includes(from)) throw new Error(`${path.basename(file)}: no ${JSON.stringify(from)}`);
@@ -108,6 +110,33 @@ const mdPage = name => until(`(await import("./js/simpleviz/app.mjs")).state.val
 const slideReady = () => until(`(() => { const st = window.__app.state.val, p = st.present;
   return p && (p.dest == null || (st.side && st.scene && !st.layouting)); })()`, "a slide ready");
 async function next() { await key("ArrowRight"); await sleep(250); await slideReady(); }
+// the deck as `simpleviz export` writes it, each page a PNG as a data URI
+function exportDeck() {
+  const pdf = path.join(ws, "deck.pdf"), pages = path.join(ws, "pdf-pages");
+  execFileSync("bb", ["export", path.join(ws, "deck.md"), pdf], { cwd: ROOT, stdio: "ignore",
+    env: { ...process.env, SIMPLEVIZ_HOME: path.join(ws, "..", "home") } });
+  fs.mkdirSync(pages);
+  execFileSync("pdftoppm", ["-r", "48", "-png", pdf, path.join(pages, "p")]);
+  return fs.readdirSync(pages).sort().map(f =>
+    "data:image/png;base64," + fs.readFileSync(path.join(pages, f)).toString("base64"));
+}
+// the PDF's pages over the page, one after another
+const showPages = pages => js(`(() => {
+  const d = document.createElement("div");
+  d.style.cssText = "position:fixed;inset:0;z-index:2147483646;background:#1f2430;opacity:0;transition:opacity .4s;" +
+    "display:grid;grid-template-columns:repeat(5,236px);gap:14px;justify-content:center;align-content:center;padding-bottom:60px";
+  for (const [i, src] of ${JSON.stringify(pages)}.entries()) {
+    const img = Object.assign(document.createElement("img"), { src });
+    img.style.cssText = "width:236px;border-radius:3px;box-shadow:0 2px 8px rgba(0,0,0,.4);opacity:0;" +
+      "transform:translateY(8px);transition:opacity .35s,transform .35s;transition-delay:" + (300 + i * 140) + "ms";
+    d.append(img);
+  }
+  document.body.append(d);
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    d.style.opacity = 1;
+    for (const img of d.children) { img.style.opacity = 1; img.style.transform = "none"; }
+  }));
+})()`);
 
 // ---- run -------------------------------------------------------------------
 
@@ -121,6 +150,7 @@ try {
   await js(`(async () => { window.__app = await import("./js/simpleviz/app.mjs"); })()`);
   await mdPage("intro.md");
   await sleep(500);
+  const pdfPages = exportDeck();
 
   const shots = capture();
 
@@ -169,11 +199,32 @@ try {
   await reveal("h2", "Formulas in the table", 900);
   await moveTo(await elAt("#md-view td.calc", "1615.00"), 700);
   await sleep(2200);
-  await caption("…formatted by a bit of Clojure, or computed over a csv file");
-  await reveal("h2", "Formulas over a data file", 1400);
-  await sleep(2200);
 
-  // 6 — the doc as slides
+  // 6 — a chart of it
+  await caption("A <code>simpleviz-chart-table</code> block below a table shows it as a chart");
+  await sleep(400);
+  edit(tables, "| total     | =(sum :b) |       |\n", "| total     | =(sum :b) |       |\n\n" +
+    "```simpleviz-chart-table\n{:kind :bar :x :a :y [:b] :rows [1 4] :title \"Spending per month\"}\n```\n");
+  await until(`document.querySelector("#md-view svg.chart-svg .chart-mark")`, "the chart");
+  await reveal("figure.chart-table", "", 900);
+  await sleep(2400);
+  await caption("<b>Table</b> shows the numbers behind it");
+  await click(await elAt(".chart-toggle"), 600);
+  await until(`document.querySelector("figure.chart-table.show-table")`, "the chart's table");
+  await sleep(1600);
+  await click(await elAt(".chart-toggle"), 400);
+  await sleep(600);
+
+  // 7 — the plain text
+  await caption("<b>Edit</b> shows the markdown, colored, to change it in the page");
+  await click(await elAt(".md-mode"), 600);
+  await until(`document.getElementById("md-text")`, "the text");
+  await sleep(2800);
+  await click(await elAt(".md-mode"), 500);
+  await until(`document.querySelector("#md-view svg.chart-svg")`, "the page again");
+  await sleep(400);
+
+  // 8 — the doc as slides
   await caption("Any md doc is also a talk");
   await click(await elAt(".trail-crumb", "intro"), 600);
   await mdPage("intro.md");
@@ -189,13 +240,26 @@ try {
   await sleep(1600);
   await next();
   await sleep(1500);
-  await caption("<code>&gt;&gt; [the demo](demo.edn)</code> puts a live graph beside a slide");
+  await caption("<code>&gt; [the demo](demo.edn)</code> puts a live graph beside a slide");
   await next();
   await sleep(1400);
   await moveTo("n:api", 700);
   await sleep(1800);
 
-  // 7 — a question
+  // 9 — steps
+  await caption("A graph with <code>:steps</code>: <b>Next</b> animates it to its next state");
+  await next();
+  await next();
+  await until(`document.querySelector("#present-steps .ps-next")`, "the steps' Next");
+  await sleep(1000);
+  for (const _ of [1, 2, 3]) {
+    await click(await elAt("#present-steps .ps-next"), 500);
+    await sleep(300);
+    await until(`!window.__app.state.val.layouting`, "the next step laid out");
+    await sleep(1500);
+  }
+
+  // 10 — a question
   await caption("<code>???</code> turns a task list into a question; the answers land in a file");
   await key("End", { code: "End", windowsVirtualKeyCode: 35 });
   await sleep(300);
@@ -209,9 +273,14 @@ try {
   await sleep(1800);
   if (!fs.existsSync(path.join(ws, "deck.answers.edn"))) throw new Error("no deck.answers.edn after Submit");
 
-  // 8 — outro
-  await caption("Try it: <code>simpleviz demo</code> — github.com/sstoehrm/simpleviz");
+  // 11 — the deck as a PDF
+  await caption("<code>simpleviz export deck.md deck.pdf</code>: a page per slide, and per step");
   await js(`__rec.move(${W / 2}, ${H + 40}, 500)`);
+  await showPages(pdfPages);
+  await sleep(300 + pdfPages.length * 140 + 2600);
+
+  // 12 — outro
+  await caption("Try it: <code>simpleviz demo</code> — github.com/sstoehrm/simpleviz");
   await sleep(2200);
   await send("Page.stopScreencast");
   encode(shots, { out: OUT, name: "overview" });

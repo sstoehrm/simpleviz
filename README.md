@@ -33,7 +33,7 @@ without simpleviz — on GitHub, in any editor, to any agent.
 
 ---
 
-[![Overview: an md doc opens a graph beside it, the graph follows its file, a table calculates, the doc is presented as slides with a graph and a question](docs/assets/overview.gif)](docs/assets/overview.mp4)
+[![Overview: an md doc opens a graph beside it, the graph follows its file, a table calculates and shows as a chart, the doc is presented as slides with a graph, its steps and a question, then exported as a PDF](docs/assets/overview.gif)](docs/assets/overview.mp4)
 
 The diagrams in depth: a [60-second tour](docs/assets/demo.mp4)
 ([gif](docs/assets/demo.gif)) — live reload, editing in place, state marks,

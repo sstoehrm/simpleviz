@@ -53,24 +53,20 @@
       (assert/ok (>= (:y b) (+ (:y (cell->xy [10 5])) 80 GRID)))
       (assert/equal (mod (:y b) GRID) 0))))
 
-(test "an edge between top-level elements runs straight, border to border"
+(test "an edge between elements that share no rows or columns bends once, at a right angle"
   (fn []
     (let [p (place layout graph)
           e (edge p "e1")
           [s] (:sections e)]
+      ;; a at 40,40 (40×30), c at 250,170 (40×30): wider apart than
+      ;; high, so out of a's side, into c's top
       (assert/equal (count (:sections e)) 1)
-      (assert/ok (empty? (or (:bendPoints s) [])))
-      ;; a sits at 40,40 (40×30): the line leaves it on its border
-      (assert/ok (or (= 80 (:x (:startPoint s))) (= 70 (:y (:startPoint s)))))
-      ;; c is at 250,170 (40×30) absolute: the line ends on its border
-      (let [{:keys [x y]} (:endPoint s)]
-        (assert/ok (or (= x 250) (= y 170)) (str "ends on c's border, at " x "," y)))
-      ;; the label sits on the middle of the line
-      (let [lbl (first (:labels e))
-            mx (/ (+ (:x (:startPoint s)) (:x (:endPoint s))) 2)
-            my (/ (+ (:y (:startPoint s)) (:y (:endPoint s))) 2)]
-        (assert/equal (+ (:x lbl) (/ (:width lbl) 2)) mx)
-        (assert/equal (+ (:y lbl) (/ (:height lbl) 2)) my)))))
+      (assert/deepEqual [(:startPoint s) (:bendPoints s) (:endPoint s)]
+                        [{:x 80 :y 55} [{:x 270 :y 55}] {:x 270 :y 170}])
+      ;; the label sits on the middle of the longer leg
+      (let [lbl (first (:labels e))]
+        (assert/equal (+ (:x lbl) (/ (:width lbl) 2)) 175)
+        (assert/equal (+ (:y lbl) (/ (:height lbl) 2)) 55)))))
 
 (test "a self-loop moves with its element; an edge inside a box is left alone"
   (fn []
@@ -143,3 +139,115 @@
                             :boxes [{:name "x" :pos [1 1] :diff "removed"}]})
                   false)
     (assert/equal (manual? {:nodes {"a" {:id "a" :pos [0 0] :diff "modified"}} :boxes []}) true)))
+
+;; ---- edges through the shared range ----------------------------------------
+
+;; a 40×30 node a and a tall 40×100 node t, top-level; box x holding c
+(defn- pair-layout [edges & [a-h]]
+  {:id "root"
+   :children [{:id "n:a" :x 0 :y 0 :width 40 :height (or a-h 30)}
+              {:id "n:t" :x 100 :y 0 :width 40 :height 100}
+              {:id "b:x" :x 200 :y 0 :width 100 :height 80
+               :children [{:id "n:c" :x 10 :y 30 :width 40 :height 30}]}]
+   :edges edges :width 320 :height 120})
+
+(defn- pair-graph [a-pos t-pos]
+  {:nodes {"a" {:id "a" :pos a-pos} "t" {:id "t" :pos t-pos} "c" {:id "c"}}
+   :boxes [{:name "x" :pos [10 5]}]
+   :boxes-by-name {"x" {:name "x" :pos [10 5]}}
+   :parent-of {"n:c" "x"}})
+
+(defn- e [id s t] {:id id :container "root" :sources [s] :targets [t]
+                   :sections [{:startPoint {:x 0 :y 0} :endPoint {:x 1 :y 1}}]})
+
+(defn- ends [l id]
+  (let [[s] (:sections (edge l id))] [(:startPoint s) (:endPoint s)]))
+
+(test "elements sharing rows: the edge runs level through the middle of what they share"
+  (fn []
+    ;; a at 40,40 (to 80,70); t at 240,40 (to 280,140): rows 40–70 shared
+    (let [p (place (pair-layout [(e "e" "n:a" "n:t")]) (pair-graph [0 0] [10 0]))]
+      (assert/deepEqual (ends p "e") [{:x 80 :y 55} {:x 240 :y 55}]))
+    ;; t left of a: the edge still leaves a's facing side
+    (let [p (place (pair-layout [(e "e" "n:a" "n:t")]) (pair-graph [10 1] [0 0]))]
+      (assert/deepEqual (ends p "e") [{:x 240 :y 75} {:x 80 :y 75}]))))
+
+(test "elements sharing columns: the edge runs plumb"
+  (fn []
+    ;; a at 40,40 (to 80,70); t at 40,240: columns 40–80 shared
+    (let [p (place (pair-layout [(e "e" "n:a" "n:t")]) (pair-graph [0 0] [0 10]))]
+      (assert/deepEqual (ends p "e") [{:x 60 :y 70} {:x 60 :y 240}]))))
+
+(test "an edge into a box's node runs level when the rows are shared, whatever the box's size"
+  (fn []
+    ;; box x at 240,140, its c at 250,170 (to 290,200); a at 40,180 (to 80,210)
+    (let [p (place (pair-layout [(e "e" "n:a" "n:c")]) (pair-graph [0 7] [0 20]))]
+      (assert/deepEqual (ends p "e") [{:x 80 :y 190} {:x 250 :y 190}]))))
+
+(test "parallel edges share the range evenly, not one line"
+  (fn []
+    (let [p (place (pair-layout [(e "e1" "n:a" "n:t") (e "e2" "n:t" "n:a")]) (pair-graph [0 0] [10 0]))]
+      (assert/deepEqual (ends p "e1") [{:x 80 :y 50} {:x 240 :y 50}])
+      (assert/deepEqual (ends p "e2") [{:x 240 :y 60} {:x 80 :y 60}]))))
+
+(test "a sliver of shared rows is no reason to run level"
+  (fn []
+    ;; a 22 high at 40,40 (to 62); t at 240,60: 2 px shared
+    (let [l (pair-layout [(e "e" "n:a" "n:t")] 22)
+          p (place l (pair-graph [0 0] [10 1]))
+          [a b] (ends p "e")]
+      (assert/ok (not= (:y a) (:y b)) "not level"))))
+
+(test "higher apart than wide: out of the bottom, into the side"
+  (fn []
+    ;; a at 40,40 (to 80,70); t at 140,240 (to 180,340)
+    (let [p (place (pair-layout [(e "e" "n:a" "n:t")]) (pair-graph [0 0] [5 10]))
+          [s] (:sections (edge p "e"))]
+      (assert/deepEqual [(:startPoint s) (:bendPoints s) (:endPoint s)]
+                        [{:x 60 :y 70} [{:x 60 :y 290}] {:x 140 :y 290}]))))
+
+(test "a bend that would cross another element turns the other way"
+  (fn []
+    ;; a at 40,40 (to 80,70), t 40×100 at 440,240: wider apart than
+    ;; high, but a node w at 220,40 (to 260,70) sits where leaving a level
+    ;; would run — so out of a's bottom, into t's side
+    (let [l (update (pair-layout [(e "e" "n:a" "n:t")]) :children conj {:id "n:w" :x 0 :y 0 :width 40 :height 30})
+          g (assoc-in (pair-graph [0 0] [20 10]) [:nodes "w"] {:id "w" :pos [9 0]})
+          p (place l g)
+          [s] (:sections (edge p "e"))]
+      (assert/deepEqual [(:startPoint s) (:bendPoints s) (:endPoint s)]
+                        [{:x 60 :y 70} [{:x 60 :y 290}] {:x 440 :y 290}]))))
+
+(test "parallel edges that bend nest, without crossing"
+  (fn []
+    ;; a at 40,40 (to 80,70); t at 440,240: no rows or columns shared
+    (let [p (place (pair-layout [(e "e1" "n:a" "n:t") (e "e2" "n:a" "n:t")]) (pair-graph [0 0] [20 10]))
+          legs (fn [id] (let [[s] (:sections (edge p id))] [(:startPoint s) (:bendPoints s) (:endPoint s)]))]
+      ;; right then down: the higher leg turns down further out
+      (assert/deepEqual (legs "e1") [{:x 80 :y 50} [{:x 466.6666666666667 :y 50}] {:x 466.6666666666667 :y 240}])
+      (assert/deepEqual (legs "e2") [{:x 80 :y 60} [{:x 453.3333333333333 :y 60}] {:x 453.3333333333333 :y 240}]))))
+
+(test "level from 6 px of shared rows on"
+  (fn []
+    ;; a from 40,40; t at 240,60: a 26 high shares 6 px, 25 high 5
+    (let [level? (fn [h] (let [[a b] (ends (place (pair-layout [(e "e" "n:a" "n:t")] h) (pair-graph [0 0] [10 1])) "e")]
+                           (= (:y a) (:y b))))]
+      (assert/equal (level? 26) true)
+      (assert/equal (level? 25) false))))
+
+(test "overlapping elements: straight, border to border"
+  (fn []
+    ;; a at 40,40 (to 80,70) inside t's 60,40 (to 100,140) corner
+    (let [p (place (pair-layout [(e "e" "n:a" "n:t")]) (pair-graph [0 0] [1 0]))
+          [s] (:sections (edge p "e"))]
+      (assert/ok (empty? (or (:bendPoints s) []))))))
+
+(test "a level edge that would run through an element bends round it when it can"
+  (fn []
+    ;; a at 40,40 (to 80,70), t at 440,40 (to 480,140) share rows 40–70,
+    ;; but w at 240,40 sits on them: out of a's bottom, into t's side
+    (let [l (update (pair-layout [(e "e" "n:a" "n:t")]) :children conj {:id "n:w" :x 0 :y 0 :width 40 :height 30})
+          g (assoc-in (pair-graph [0 0] [20 0]) [:nodes "w"] {:id "w" :pos [10 0]})
+          [s] (:sections (edge (place l g) "e"))]
+      (assert/deepEqual [(:startPoint s) (:bendPoints s) (:endPoint s)]
+                        [{:x 60 :y 70} [{:x 60 :y 90}] {:x 440 :y 90}]))))

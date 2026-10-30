@@ -230,9 +230,17 @@ things yourself, press **✥** (top right):
   Esc, and dragging pans again.
 - The inside of each box is still laid out automatically, and so are
   nested nodes and boxes: only top-level elements take a `:pos`.
-- Edges between top-level elements run straight, border to border, with
-  their label in the middle; they can cross an element placed in their
-  way. Edges inside a box are routed as before.
+- Edges between top-level elements, and into the nodes inside their
+  boxes, run level or plumb, however big the boxes are: level when their
+  ends share rows — through the middle of the rows they share, several
+  edges between the same two spread across them — plumb when they share
+  columns. Ends that share neither get one right-angled bend, leaving
+  along the longer way first. When that line would run through an
+  element, the next of these that doesn't is taken — a level edge may so
+  bend round a node in its way — and only when all are blocked does an
+  edge cross an element. Edges can run along one another. The label sits
+  in the middle of the longest leg. Edges inside a box are routed as
+  before.
 - A new top-level element without `:pos` waits in a row under the rest
   until you drag it somewhere.
 - **auto** (shown while arranging) drops every `:pos`, after asking: the

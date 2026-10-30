@@ -86,6 +86,8 @@
 
 (defn- center [r] {:x (+ (:x r) (/ (:width r) 2)) :y (+ (:y r) (/ (:height r) 2))})
 
+(defn- legs "The legs of a line through points `pts`: [[p q]]." [pts] (map vector pts (rest pts)))
+
 (defn- line-edge
   "Edge e as one section through points `pts` — its ends, and between
   them where it bends — its label centered on the middle of the longest
@@ -93,7 +95,7 @@
   [e pts]
   (let [a (first pts) b (last pts) bends (vec (rest (butlast pts)))
         leg-len (fn [[p q]] (+ (js/Math.abs (- (:x q) (:x p))) (js/Math.abs (- (:y q) (:y p)))))
-        [p q] (apply max-key leg-len (map vector pts (rest pts)))
+        [p q] (apply max-key leg-len (legs pts))
         mid {:x (/ (+ (:x p) (:x q)) 2) :y (/ (+ (:y p) (:y q)) 2)}]
     (cond-> (-> e
                 (assoc :sections [(cond-> {:id (str (:id e) "_s0") :startPoint a :endPoint b}
@@ -108,35 +110,33 @@
 ;; level or plumb
 (def ^:private MIN-SHARED 6)
 
+(def ^:private LEN {"x" "width" "y" "height"})
+(def ^:private OTHER {"x" "y" "y" "x"})
+(defn- end "Where rect r ends on `axis`, \"x\" or \"y\"." [r axis] (+ (get r axis) (get r (LEN axis))))
+
 (defn- shared
   "The range [lo hi] rects s and t share on `axis` — \"y\" their rows,
   \"x\" their columns — while apart on the other one; nil when they share
   less than MIN-SHARED."
   [s t axis]
-  (let [[p len q qlen] (if (= axis "y") ["y" "height" "x" "width"] ["x" "width" "y" "height"])
-        lo (max (get s p) (get t p))
-        hi (min (+ (get s p) (get s len)) (+ (get t p) (get t len)))
-        apart (or (<= (+ (get s q) (get s qlen)) (get t q))
-                  (<= (+ (get t q) (get t qlen)) (get s q)))]
+  (let [o (OTHER axis)
+        lo (max (get s axis) (get t axis))
+        hi (min (end s axis) (end t axis))
+        apart (or (<= (end s o) (get t o)) (<= (end t o) (get s o)))]
     (when (and apart (>= (- hi lo) MIN-SHARED)) [lo hi])))
 
 (defn- facing-ends
   "From rect s's side facing rect t to t's side facing s, at `at` on
   `axis`: a level line for \"y\", a plumb one for \"x\"."
   [s t axis at]
-  (if (= axis "y")
-    (if (<= (+ (:x s) (:width s)) (:x t))
-      [{:x (+ (:x s) (:width s)) :y at} {:x (:x t) :y at}]
-      [{:x (:x s) :y at} {:x (+ (:x t) (:width t)) :y at}])
-    (if (<= (+ (:y s) (:height s)) (:y t))
-      [{:x at :y (+ (:y s) (:height s))} {:x at :y (:y t)}]
-      [{:x at :y (:y s)} {:x at :y (+ (:y t) (:height t))}])))
+  (let [q (OTHER axis)
+        [a b] (if (<= (end s q) (get t q)) [(end s q) (get t q)] [(get s q) (end t q)])]
+    [{q a axis at} {q b axis at}]))
 
 (defn- outside?
   "Is v beyond rect r on `axis`, \"x\" or \"y\"?"
   [v r axis]
-  (let [p (get r axis) len (get r (if (= axis "x") "width" "height"))]
-    (or (< v p) (> v (+ p len)))))
+  (or (< v (get r axis)) (> v (end r axis))))
 
 (defn- elbow
   "Ends and corner [a bend b] of a right-angled line from rect s to rect
@@ -148,25 +148,21 @@
   [s t plumb-first f]
   (let [g (if (= (< (:x (center s)) (:x (center t))) (< (:y (center s)) (:y (center t)))) (- 1 f) f)
         cs {:x (+ (:x s) (* f (:width s))) :y (+ (:y s) (* f (:height s)))}
-        ct {:x (+ (:x t) (* g (:width t))) :y (+ (:y t) (* g (:height t)))}]
-    (if plumb-first
-      (when (and (outside? (:x cs) t "x") (outside? (:y ct) s "y"))
-        [{:x (:x cs) :y (if (< (:y ct) (:y cs)) (:y s) (+ (:y s) (:height s)))}
-         {:x (:x cs) :y (:y ct)}
-         {:x (if (< (:x cs) (:x ct)) (:x t) (+ (:x t) (:width t))) :y (:y ct)}])
-      (when (and (outside? (:y cs) t "y") (outside? (:x ct) s "x"))
-        [{:x (if (< (:x cs) (:x ct)) (+ (:x s) (:width s)) (:x s)) :y (:y cs)}
-         {:x (:x ct) :y (:y cs)}
-         {:x (:x ct) :y (if (< (:y cs) (:y ct)) (:y t) (+ (:y t) (:height t)))}]))))
+        ct {:x (+ (:x t) (* g (:width t))) :y (+ (:y t) (* g (:height t)))}
+        ;; u: the axis the first leg runs along, w the other
+        [u w] (if plumb-first ["y" "x"] ["x" "y"])]
+    (when (and (outside? (get cs w) t w) (outside? (get ct u) s u))
+      [{u (if (< (get cs u) (get ct u)) (end s u) (get s u)) w (get cs w)}
+       {u (get ct u) w (get cs w)}
+       {u (get ct u) w (if (< (get cs w) (get ct w)) (get t w) (end t w))}])))
 
 (defn- crosses?
   "Does the level or plumb leg from p to q run through rect r's inside?"
   [[p q] r]
-  (let [in? (fn [v lo len] (< lo v (+ lo len)))
-        spans? (fn [a b lo len] (< (max (min a b) lo) (min (max a b) (+ lo len))))]
-    (if (= (:y p) (:y q))
-      (and (in? (:y p) (:y r) (:height r)) (spans? (:x p) (:x q) (:x r) (:width r)))
-      (and (in? (:x p) (:x r) (:width r)) (spans? (:y p) (:y q) (:y r) (:height r))))))
+  ;; a: the axis the leg stays put on, b the one it runs along
+  (let [[a b] (if (= (:y p) (:y q)) ["y" "x"] ["x" "y"])]
+    (and (< (get r a) (get p a) (end r a))
+         (< (max (min (get p b) (get q b)) (get r b)) (min (max (get p b) (get q b)) (end r b))))))
 
 (defn- holds?
   "Does rect r hold rect q?"
@@ -184,19 +180,19 @@
   between the same two share the range evenly, e the `i`th."
   [e s t i n obstacles]
   (let [f (/ (inc i) (inc n))
-        ys (shared s t "y")
-        xs (when (nil? ys) (shared s t "x"))
         wide (>= (js/Math.abs (- (:x (center t)) (:x (center s))))
                  (js/Math.abs (- (:y (center t)) (:y (center s)))))
-        routes (keep identity [(when-let [[lo hi] (or ys xs)]
-                                 (facing-ends s t (if ys "y" "x") (+ lo (* f (- hi lo)))))
+        routes (keep identity [(some (fn [axis] (when-let [[lo hi] (shared s t axis)]
+                                                  (facing-ends s t axis (+ lo (* f (- hi lo))))))
+                                     ["y" "x"])
                                (elbow s t (not wide) f)
                                (elbow s t wide f)])
-        in-way (fn [r] (and (not (identical? r s)) (not (identical? r t))
-                            (not (holds? r s)) (not (holds? r t))))
+        ;; s, t and the boxes holding them: every rect holds itself
+        in-way (fn [r] (not (or (holds? r s) (holds? r t))))
         clear? (fn [pts]
-                 (not (some (fn [r] (and (in-way r) (some #(crosses? % r) (map vector pts (rest pts)))))
-                            obstacles)))]
+                 (let [ls (vec (legs pts))]
+                   (not (some (fn [r] (and (in-way r) (some #(crosses? % r) ls)))
+                              obstacles))))]
     (line-edge e (or (first (filter clear? routes))
                      (first routes)
                      [(border-point s (center t)) (border-point t (center s))]))))
@@ -254,7 +250,9 @@
         inside (let [m (js/Map.)]
                  (doseq [[id r] (.entries rects)]
                    (let [k (top-id po id)]
-                     (when (not= k id) (.set m k (conj (or (.get m k) []) r)))))
+                     (when (not= k id)
+                       (when-not (.has m k) (.set m k #js []))
+                       (.push (.get m k) r))))
                  m)
         root? (fn [e] (or (nil? (:container e)) (= "root" (:container e))))
         ;; the edges between the same two elements, either way: how many,

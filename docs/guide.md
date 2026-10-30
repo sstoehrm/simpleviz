@@ -235,11 +235,12 @@ things yourself, press **✥** (top right):
   ends share rows — through the middle of the rows they share, several
   edges between the same two spread across them — plumb when they share
   columns. Ends that share neither get one right-angled bend, leaving
-  along the longer way, or the other way when that would run through an
-  element. The label sits in the middle of the longest leg. A level or
-  plumb edge runs through whatever lies between its ends, a bent one
-  crosses an element only when both ways are blocked, and edges can run
-  along one another. Edges inside a box are routed as before.
+  along the longer way first. When that line would run through an
+  element, the next of these that doesn't is taken — a level edge may so
+  bend round a node in its way — and only when all are blocked does an
+  edge cross an element. Edges can run along one another. The label sits
+  in the middle of the longest leg. Edges inside a box are routed as
+  before.
 - A new top-level element without `:pos` waits in a row under the rest
   until you drag it somewhere.
 - **auto** (shown while arranging) drops every `:pos`, after asking: the

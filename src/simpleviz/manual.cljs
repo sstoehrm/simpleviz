@@ -87,17 +87,17 @@
 (defn- center [r] {:x (+ (:x r) (/ (:width r) 2)) :y (+ (:y r) (/ (:height r) 2))})
 
 (defn- line-edge
-  "Edge e as one section from point a to point b, bent at `bends` if
-  any, its label centered on the middle of the longest leg."
-  [e a b & [bends]]
-  (let [pts (concat [a] bends [b])
-        legs (map vector pts (rest pts))
+  "Edge e as one section through points `pts` — its ends, and between
+  them where it bends — its label centered on the middle of the longest
+  leg."
+  [e pts]
+  (let [a (first pts) b (last pts) bends (vec (rest (butlast pts)))
         leg-len (fn [[p q]] (+ (js/Math.abs (- (:x q) (:x p))) (js/Math.abs (- (:y q) (:y p)))))
-        [p q] (reduce (fn [best l] (if (> (leg-len l) (leg-len best)) l best)) legs)
+        [p q] (apply max-key leg-len (map vector pts (rest pts)))
         mid {:x (/ (+ (:x p) (:x q)) 2) :y (/ (+ (:y p) (:y q)) 2)}]
     (cond-> (-> e
                 (assoc :sections [(cond-> {:id (str (:id e) "_s0") :startPoint a :endPoint b}
-                                    (seq bends) (assoc :bendPoints (vec bends)))])
+                                    (seq bends) (assoc :bendPoints bends))])
                 (dissoc :junctionPoints))
       (some? (:labels e))
       (assoc :labels (mapv (fn [l] (assoc l :x (- (:x mid) (/ (:width l) 2))
@@ -178,30 +178,28 @@
 (defn- route-edge
   "Edge e from rect s to rect t: level through the rows they share, else
   plumb through the columns they share, else bent once at a right angle
-  — leaving s along the longer way to t — else straight border to
-  border.
-  The `n` edges between the same two share the range evenly, e the
-  `i`th."
+  — leaving s along the longer way to t first — else straight border to
+  border. The first of these that runs through none of `obstacles` (but
+  s, t and the boxes holding them) wins, else the first. The `n` edges
+  between the same two share the range evenly, e the `i`th."
   [e s t i n obstacles]
-  (let [ys (shared s t "y")
-        xs (when (nil? ys) (shared s t "x"))]
-    (if-let [[lo hi] (or ys xs)]
-      (let [[a b] (facing-ends s t (if ys "y" "x") (+ lo (/ (* (inc i) (- hi lo)) (inc n))))]
-        (line-edge e a b))
-      (let [wide (>= (js/Math.abs (- (:x (center t)) (:x (center s))))
-                     (js/Math.abs (- (:y (center t)) (:y (center s)))))]
-        ;; the way it leaves along the longer way first, unless that runs
-        ;; through another element and the other way doesn't
-        (if-let [[a bend b] (let [f (/ (inc i) (inc n))
-                                  ways (keep identity [(elbow s t (not wide) f) (elbow s t wide f)])
-                                  in-way (fn [r] (and (not (identical? r s)) (not (identical? r t))
-                                                      (not (holds? r s)) (not (holds? r t))))
-                                  clear? (fn [[a bend b]]
-                                           (not (some (fn [r] (and (in-way r) (or (crosses? [a bend] r) (crosses? [bend b] r))))
-                                                      obstacles)))]
-                              (or (first (filter clear? ways)) (first ways)))]
-          (line-edge e a b [bend])
-          (line-edge e (border-point s (center t)) (border-point t (center s))))))))
+  (let [f (/ (inc i) (inc n))
+        ys (shared s t "y")
+        xs (when (nil? ys) (shared s t "x"))
+        wide (>= (js/Math.abs (- (:x (center t)) (:x (center s))))
+                 (js/Math.abs (- (:y (center t)) (:y (center s)))))
+        routes (keep identity [(when-let [[lo hi] (or ys xs)]
+                                 (facing-ends s t (if ys "y" "x") (+ lo (* f (- hi lo)))))
+                               (elbow s t (not wide) f)
+                               (elbow s t wide f)])
+        in-way (fn [r] (and (not (identical? r s)) (not (identical? r t))
+                            (not (holds? r s)) (not (holds? r t))))
+        clear? (fn [pts]
+                 (not (some (fn [r] (and (in-way r) (some #(crosses? % r) (map vector pts (rest pts)))))
+                            obstacles)))]
+    (line-edge e (or (first (filter clear? routes))
+                     (first routes)
+                     [(border-point s (center t)) (border-point t (center s))]))))
 
 (defn- abs-rects
   "{elk-id {:x :y :width :height}} of every node and box, in root
@@ -248,13 +246,21 @@
                             kids kids'))
         placed (assoc layout :children kids')
         rects (abs-rects placed)
-        obstacles (vec (.values rects))
         po (:parent-of g)
+        ;; what an edge may run through: the top-level elements — a box
+        ;; standing for all it holds — and the insides of the boxes
+        ;; holding its ends
+        tops (mapv #(.get rects (:id %)) kids')
+        inside (let [m (js/Map.)]
+                 (doseq [[id r] (.entries rects)]
+                   (let [k (top-id po id)]
+                     (when (not= k id) (.set m k (conj (or (.get m k) []) r)))))
+                 m)
         root? (fn [e] (or (nil? (:container e)) (= "root" (:container e))))
         ;; the edges between the same two elements, either way: how many,
         ;; and how many came before each
         pair (fn [e] (let [s (first (:sources e)) t (first (:targets e))]
-                       (if (< s t) (str s " " t) (str t " " s))))
+                       (js/JSON.stringify (if (< s t) [s t] [t s]))))
         totals (frequencies (map pair (filter root? (or (:edges layout) []))))
         seen (js/Map.)
         edges (mapv (fn [e]
@@ -268,7 +274,8 @@
                             (and (.has rects s) (.has rects t))
                             (let [k (pair e) i (or (.get seen k) 0)]
                               (.set seen k (inc i))
-                              (route-edge e (.get rects s) (.get rects t) i (get totals k) obstacles))
+                              (route-edge e (.get rects s) (.get rects t) i (get totals k)
+                                          (concat tops (.get inside st) (when (not= st tt) (.get inside tt)))))
                             :else e))
                         e))
                     (or (:edges layout) []))]

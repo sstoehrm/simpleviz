@@ -241,3 +241,13 @@
     (let [p (place (pair-layout [(e "e" "n:a" "n:t")]) (pair-graph [0 0] [1 0]))
           [s] (:sections (edge p "e"))]
       (assert/ok (empty? (or (:bendPoints s) []))))))
+
+(test "a level edge that would run through an element bends round it when it can"
+  (fn []
+    ;; a at 40,40 (to 80,70), t at 440,40 (to 480,140) share rows 40–70,
+    ;; but w at 240,40 sits on them: out of a's bottom, into t's side
+    (let [l (update (pair-layout [(e "e" "n:a" "n:t")]) :children conj {:id "n:w" :x 0 :y 0 :width 40 :height 30})
+          g (assoc-in (pair-graph [0 0] [20 0]) [:nodes "w"] {:id "w" :pos [10 0]})
+          [s] (:sections (edge (place l g) "e"))]
+      (assert/deepEqual [(:startPoint s) (:bendPoints s) (:endPoint s)]
+                        [{:x 60 :y 70} [{:x 60 :y 90}] {:x 440 :y 90}]))))

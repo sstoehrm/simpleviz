@@ -159,7 +159,7 @@ Attributes simpleviz reads:
 - `:pos [col row]` on a top-level node or box places it on a grid of 20 px
   cells (whole numbers from 0). Once any element has one, the file is laid
   out by hand: boxes still arrange their insides, edges between top-level
-  elements run straight. The page writes `:pos` when someone drags; don't
+  elements run level or plumb, or bend once at a right angle. The page writes `:pos` when someone drags; don't
   invent coordinates unless asked to keep a given arrangement. On a nested
   element it warns and is ignored.
 

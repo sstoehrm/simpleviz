@@ -2,7 +2,8 @@
   "Manual layout: top-level nodes and boxes where their :pos [col row]
   puts them, on a grid of GRID px. The layered layout still arranges what
   is inside each box; placing moves each top-level element, its contents
-  with it, and draws the edges between top-level elements straight.
+  with it, and routes the edges between top-level elements: level or
+  plumb through what their ends share, else bent once at a right angle.
   Pure."
   (:require [simpleviz.editor :refer [top-box-of]]))
 
@@ -85,20 +86,122 @@
 
 (defn- center [r] {:x (+ (:x r) (/ (:width r) 2)) :y (+ (:y r) (/ (:height r) 2))})
 
-(defn- straight-edge
-  "Edge e as one straight section from rect s's border to rect t's, its
-  label centered on the middle."
-  [e s t]
-  (let [a (border-point s (center t))
-        b (border-point t (center s))
-        mid {:x (/ (+ (:x a) (:x b)) 2) :y (/ (+ (:y a) (:y b)) 2)}]
+(defn- line-edge
+  "Edge e as one section from point a to point b, bent at `bends` if
+  any, its label centered on the middle of the longest leg."
+  [e a b & [bends]]
+  (let [pts (concat [a] bends [b])
+        legs (map vector pts (rest pts))
+        leg-len (fn [[p q]] (+ (js/Math.abs (- (:x q) (:x p))) (js/Math.abs (- (:y q) (:y p)))))
+        [p q] (reduce (fn [best l] (if (> (leg-len l) (leg-len best)) l best)) legs)
+        mid {:x (/ (+ (:x p) (:x q)) 2) :y (/ (+ (:y p) (:y q)) 2)}]
     (cond-> (-> e
-                (assoc :sections [{:id (str (:id e) "_s0") :startPoint a :endPoint b}])
+                (assoc :sections [(cond-> {:id (str (:id e) "_s0") :startPoint a :endPoint b}
+                                    (seq bends) (assoc :bendPoints (vec bends)))])
                 (dissoc :junctionPoints))
       (some? (:labels e))
       (assoc :labels (mapv (fn [l] (assoc l :x (- (:x mid) (/ (:width l) 2))
                                           :y (- (:y mid) (/ (:height l) 2))))
                            (:labels e))))))
+
+;; what two elements must share, in px, for an edge between them to run
+;; level or plumb
+(def ^:private MIN-SHARED 6)
+
+(defn- shared
+  "The range [lo hi] rects s and t share on `axis` — \"y\" their rows,
+  \"x\" their columns — while apart on the other one; nil when they share
+  less than MIN-SHARED."
+  [s t axis]
+  (let [[p len q qlen] (if (= axis "y") ["y" "height" "x" "width"] ["x" "width" "y" "height"])
+        lo (max (get s p) (get t p))
+        hi (min (+ (get s p) (get s len)) (+ (get t p) (get t len)))
+        apart (or (<= (+ (get s q) (get s qlen)) (get t q))
+                  (<= (+ (get t q) (get t qlen)) (get s q)))]
+    (when (and apart (>= (- hi lo) MIN-SHARED)) [lo hi])))
+
+(defn- facing-ends
+  "From rect s's side facing rect t to t's side facing s, at `at` on
+  `axis`: a level line for \"y\", a plumb one for \"x\"."
+  [s t axis at]
+  (if (= axis "y")
+    (if (<= (+ (:x s) (:width s)) (:x t))
+      [{:x (+ (:x s) (:width s)) :y at} {:x (:x t) :y at}]
+      [{:x (:x s) :y at} {:x (+ (:x t) (:width t)) :y at}])
+    (if (<= (+ (:y s) (:height s)) (:y t))
+      [{:x at :y (+ (:y s) (:height s))} {:x at :y (:y t)}]
+      [{:x at :y (:y s)} {:x at :y (+ (:y t) (:height t))}])))
+
+(defn- outside?
+  "Is v beyond rect r on `axis`, \"x\" or \"y\"?"
+  [v r axis]
+  (let [p (get r axis) len (get r (if (= axis "x") "width" "height"))]
+    (or (< v p) (> v (+ p len)))))
+
+(defn- elbow
+  "Ends and corner [a bend b] of a right-angled line from rect s to rect
+  t: leaving s level and entering t plumb, or with `plumb-first` the other
+  way round; nil when a leg would run through s or t. It leaves at
+  fraction f of s's side — a half: the middle — and enters t where the
+  edges of one pair nest: at f, or at 1 − f when it heads right and down
+  or left and up."
+  [s t plumb-first f]
+  (let [g (if (= (< (:x (center s)) (:x (center t))) (< (:y (center s)) (:y (center t)))) (- 1 f) f)
+        cs {:x (+ (:x s) (* f (:width s))) :y (+ (:y s) (* f (:height s)))}
+        ct {:x (+ (:x t) (* g (:width t))) :y (+ (:y t) (* g (:height t)))}]
+    (if plumb-first
+      (when (and (outside? (:x cs) t "x") (outside? (:y ct) s "y"))
+        [{:x (:x cs) :y (if (< (:y ct) (:y cs)) (:y s) (+ (:y s) (:height s)))}
+         {:x (:x cs) :y (:y ct)}
+         {:x (if (< (:x cs) (:x ct)) (:x t) (+ (:x t) (:width t))) :y (:y ct)}])
+      (when (and (outside? (:y cs) t "y") (outside? (:x ct) s "x"))
+        [{:x (if (< (:x cs) (:x ct)) (+ (:x s) (:width s)) (:x s)) :y (:y cs)}
+         {:x (:x ct) :y (:y cs)}
+         {:x (:x ct) :y (if (< (:y cs) (:y ct)) (:y t) (+ (:y t) (:height t)))}]))))
+
+(defn- crosses?
+  "Does the level or plumb leg from p to q run through rect r's inside?"
+  [[p q] r]
+  (let [in? (fn [v lo len] (< lo v (+ lo len)))
+        spans? (fn [a b lo len] (< (max (min a b) lo) (min (max a b) (+ lo len))))]
+    (if (= (:y p) (:y q))
+      (and (in? (:y p) (:y r) (:height r)) (spans? (:x p) (:x q) (:x r) (:width r)))
+      (and (in? (:x p) (:x r) (:width r)) (spans? (:y p) (:y q) (:y r) (:height r))))))
+
+(defn- holds?
+  "Does rect r hold rect q?"
+  [r q]
+  (and (<= (:x r) (:x q)) (<= (:y r) (:y q))
+       (>= (+ (:x r) (:width r)) (+ (:x q) (:width q)))
+       (>= (+ (:y r) (:height r)) (+ (:y q) (:height q)))))
+
+(defn- route-edge
+  "Edge e from rect s to rect t: level through the rows they share, else
+  plumb through the columns they share, else bent once at a right angle
+  — leaving s along the longer way to t — else straight border to
+  border.
+  The `n` edges between the same two share the range evenly, e the
+  `i`th."
+  [e s t i n obstacles]
+  (let [ys (shared s t "y")
+        xs (when (nil? ys) (shared s t "x"))]
+    (if-let [[lo hi] (or ys xs)]
+      (let [[a b] (facing-ends s t (if ys "y" "x") (+ lo (/ (* (inc i) (- hi lo)) (inc n))))]
+        (line-edge e a b))
+      (let [wide (>= (js/Math.abs (- (:x (center t)) (:x (center s))))
+                     (js/Math.abs (- (:y (center t)) (:y (center s)))))]
+        ;; the way it leaves along the longer way first, unless that runs
+        ;; through another element and the other way doesn't
+        (if-let [[a bend b] (let [f (/ (inc i) (inc n))
+                                  ways (keep identity [(elbow s t (not wide) f) (elbow s t wide f)])
+                                  in-way (fn [r] (and (not (identical? r s)) (not (identical? r t))
+                                                      (not (holds? r s)) (not (holds? r t))))
+                                  clear? (fn [[a bend b]]
+                                           (not (some (fn [r] (and (in-way r) (or (crosses? [a bend] r) (crosses? [bend b] r))))
+                                                      obstacles)))]
+                              (or (first (filter clear? ways)) (first ways)))]
+          (line-edge e a b [bend])
+          (line-edge e (border-point s (center t)) (border-point t (center s))))))))
 
 (defn- abs-rects
   "{elk-id {:x :y :width :height}} of every node and box, in root
@@ -126,7 +229,7 @@
   "Layered `layout` of graph g with each top-level element moved to its
   :pos cell, and those without one in a row under the rest. Edges inside
   a box move with it; a self-loop on a top-level element moves with that;
-  every other edge between top-level elements runs straight."
+  every other edge between top-level elements is routed by route-edge."
   [layout g]
   (let [kids (or (:children layout) [])
         cell (fn [c] (some-> (pos-of g (:id c)) cell->xy))
@@ -145,16 +248,27 @@
                             kids kids'))
         placed (assoc layout :children kids')
         rects (abs-rects placed)
+        obstacles (vec (.values rects))
         po (:parent-of g)
+        root? (fn [e] (or (nil? (:container e)) (= "root" (:container e))))
+        ;; the edges between the same two elements, either way: how many,
+        ;; and how many came before each
+        pair (fn [e] (let [s (first (:sources e)) t (first (:targets e))]
+                       (if (< s t) (str s " " t) (str t " " s))))
+        totals (frequencies (map pair (filter root? (or (:edges layout) []))))
+        seen (js/Map.)
         edges (mapv (fn [e]
-                      (if (or (nil? (:container e)) (= "root" (:container e)))
+                      (if (root? e)
                         (let [s (first (:sources e))
                               t (first (:targets e))
                               st (top-id po s)
                               tt (top-id po t)]
                           (cond
                             (= st tt) (shift-edge e (get delta st))
-                            (and (.has rects s) (.has rects t)) (straight-edge e (.get rects s) (.get rects t))
+                            (and (.has rects s) (.has rects t))
+                            (let [k (pair e) i (or (.get seen k) 0)]
+                              (.set seen k (inc i))
+                              (route-edge e (.get rects s) (.get rects t) i (get totals k) obstacles))
                             :else e))
                         e))
                     (or (:edges layout) []))]

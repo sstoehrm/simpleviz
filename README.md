@@ -56,6 +56,9 @@ own — [40-second video](docs/assets/whats-new-0.47.mp4)
   or EDN file.
 - [Charts](docs/charts.md) — a table shown as a bar, line or scatter
   chart, or a chart of a CSV, JSON or EDN file on its own.
+- [Analyzers](docs/analyzers.md) (experimental) — a block in an md file
+  that turns a folder of code into a graph: Clojure namespaces, their
+  public fns and the calls between them.
 - [Presentations](docs/presentations.md) — an md file as slides, a graph,
   doc or picture beside each; exported as a PDF.
 - [Quizzes](docs/quizzes.md) — questions and polls on a slide, the

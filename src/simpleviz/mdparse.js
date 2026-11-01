@@ -10,6 +10,7 @@
 //   ["li-task", ...kids]   ["ol-start", start, ...items]
 //   ["table", aligns, header, header-inline, body, body-inline, defs, chart]
 //   ["solo", defs, chart]                  a ```simpleviz-chart block
+//   ["analyzer", body, line]               a ```simpleviz-analyzer block, its fence at line (from 1)
 // Parsing depends on the text alone — links, calculations and highlighting
 // are the renderer's — so a parse can be kept and rendered again.
 
@@ -582,8 +583,10 @@ function soloChart(body) {
   return ["solo", body.slice(0, k).join("\n"), body.slice(k).join("\n")];
 }
 
-// The nodes of the block-level lines.
-export function blocks(lines, doc) {
+// The nodes of the block-level lines; `top` for the text's own, where
+// ```simpleviz-analyzer blocks are links — outside quotes, lists and
+// notes; the renderer numbers them as the server does.
+export function blocks(lines, doc, top = false) {
   const n = lines.length, out = [];
   let i = 0;
   while (i < n) {
@@ -592,6 +595,7 @@ export function blocks(lines, doc) {
     const fence = fenceOpen(l);
     const tableDef = fence !== null && fence.info === "simpleviz-table" ? defBlock(lines, i, fence) : null;
     const solo = fence !== null && fence.info === "simpleviz-chart" ? fenceBody(lines, i, fence) : null;
+    const analyzer = top && fence !== null && fence.info === "simpleviz-analyzer" ? fenceBody(lines, i, fence) : null;
     let heading;
     if (tableDef !== null) {
       const [node, end] = tableAndChart(lines, tableDef[1], tableDef[0], doc);
@@ -600,6 +604,9 @@ export function blocks(lines, doc) {
     } else if (solo !== null && solo[1] >= 0) {
       out.push(soloChart(solo[0]));
       i = solo[1] + 1;
+    } else if (analyzer !== null && analyzer[1] >= 0) {
+      out.push(["analyzer", analyzer[0].join("\n"), i + 1]);
+      i = analyzer[1] + 1;
     } else if (fence !== null) {
       const [body, close] = fenceBody(lines, i, fence);
       out.push(["fence", fence.lang, body.join("\n")]);
@@ -697,7 +704,7 @@ export function parse(text) {
   const lines = text.replaceAll("\r\n", "\n").split("\n").map(untab);
   const code = codeLines(lines);
   const doc = { defs: defsOf(lines, code), notes: notesOf(lines, code), noteBlocks: new Map(), blocks: null };
-  doc.blocks = blocks(lines, doc);
+  doc.blocks = blocks(lines, doc, true);
   return doc;
 }
 

@@ -245,7 +245,7 @@
 (declare relayout! json-of post-json post-edit! delete! current-edit-target-editable? follow-ref! navigate! run-chord-action!
          open-md! save-md! close-md! open-page! root-path! load-nav!
          save-if-dirty! save-before-leaving! follow-link! sync-gutter-scroll!
-         follow-to! close-side! start-side! focus-md-start! show-slide! leave-present! pick! submit!
+         follow-to! close-side! open-side! start-side! focus-md-start! show-slide! leave-present! pick! submit!
          enter-select! select-all! copy-selected! delete-selected! paste!)
 
 ;; layouts per collapsed-set, so expanding (or re-collapsing a seen
@@ -1468,13 +1468,21 @@
   as its » does (pressed while its graph shows beside the page), a URL
   opens in a new tab, anything else is text that says why it isn't a
   link. An image shows as the picture — one that also follows (an
-  exported graph) inside its link."
+  exported graph) inside its link. An analyzer block's link shows the
+  graph the server makes of it beside the page: <md>#analyzer-<n>."
   [md-path side side-compare]
   (fn [l kids]
     (let [dest (:dest l)
           pic (when (= "image" (:kind l)) (picture md-path l))
           kids (if (some? pic) [pic] kids)]
       (cond
+        (= "analyzer" (:kind l))
+        (let [path (str md-path "#analyzer-" (:n l))]
+          (into [:a {:href "#"
+                     :class (str "md-link" (when (= path side) " open"))
+                     :title (str "the graph of " dest ", made by analyzer block " (:n l))
+                     :on-click (fn [e] (.preventDefault e) (.stopPropagation e) (open-side! path false))}]
+                kids))
         (and (some? pic) (not (mdlinks/followable? dest))) pic
         (.test #"^(https?|mailto):" dest)
         (into [:a {:href dest :target "_blank" :rel "noopener noreferrer" :title dest}] kids)

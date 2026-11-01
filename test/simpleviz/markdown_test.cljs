@@ -430,3 +430,20 @@
     (assert/ok (may-calc? "```simpleviz-chart\n```"))
     (assert/ok (may-calc? "```simpleviz-table\n```"))
     (assert/ok (not (may-calc? "# plain\n\n| a |\n|--|\n| 1 |")))))
+
+(test "an analyzer block is a link to its graph, numbered as the server numbers them"
+  (fn []
+    (let [alink (fn [l kids] (into [:a {:kind (:kind l) :dest (:dest l) :n (:n l)}] kids))
+          out (render (str "```simpleviz-analyzer\n>> ./src/\n\"**.clj\" identity\n```\n\n"
+                           "> ```simpleviz-analyzer\n> >> q\n> ```\n\n"
+                           "```simpleviz-analyzer\n>> [code](lib)\n\"*\" identity\n```\n\n"
+                           "```simpleviz-analyzer\n>> open")
+                      alink)]
+      (assert/deepEqual (nth out 0) [:p {:class "md-analyzer"} [:a {:kind "analyzer" :dest "./src/" :n 1} "./src/ as a graph"]])
+      (assert/equal (first (nth out 1)) :blockquote "one in a quote is code")
+      (assert/deepEqual (nth out 2) [:p {:class "md-analyzer"} [:a {:kind "analyzer" :dest "lib" :n 2} "code as a graph"]])
+      (assert/equal (first (nth out 3)) :pre "an open block is code"))
+    (let [alink (fn [l kids] (into [:a {:n (:n l)}] kids))
+          n-of (fn [text] (get-in (last (render text alink)) [2 1 :n]))]
+      (assert/equal (n-of "- item\n\n  ```simpleviz-analyzer\n  >> ./a/\n  ```\n\n```simpleviz-analyzer\n>> ./b/\n```\n")
+                    2 "the server counts one in a list item, so the page does"))))

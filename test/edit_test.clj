@@ -207,8 +207,14 @@
   (let [out (edit/wrap "{:nodes {:a {:pos [3 4] :name \"A\"}}}" {:box "w" :member "a"})
         data (clojure.edn/read-string out)]
     (is (= [3 4] (get-in data [:boxes :w :pos])))
-    (is (nil? (get-in data [:nodes :a :pos])))
+    (is (= [0 0] (get-in data [:nodes :a :pos])) "on the new box's first cell")
     (is (= "A" (get-in data [:nodes :a :name])))))
+
+(deftest wrapping-an-arranged-box-keeps-its-contents-placed
+  (let [f "{:nodes {:a {:pos [1 2]}}\n :boxes {:x {:pos [5 5] :components #{:a}}}}"
+        g (graph/normalize (clojure.edn/read-string (edit/wrap f {:box "w" :member "x"})))]
+    (is (empty? (:warnings g)))
+    (is (= [1 2] (get-in g [:nodes "a" :pos])))))
 
 (deftest box-add-refuses-a-box-inside-its-own-content
   (let [t "{:nodes {:a {}} :boxes {:outer {:components #{:mid}} :mid {:components #{:inner}} :inner {:components #{:a}}}}"]

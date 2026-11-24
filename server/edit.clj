@@ -491,13 +491,17 @@
     (when (contains? (referenced-ids data) box)
       (fail! (str (pr-str box) " is already referenced by an edge or box")))
     (let [new-node (ident-node box)
-          ;; the new box takes the member's place, cell and all
+          ;; the new box takes the member's place, cell and all, and
+          ;; the member sits on the new box's first cell: so what a
+          ;; wrapped box holds keeps its cells
           pos (pos-of-member data member)]
       (cond-> (-> (or (edit-first-component text member #(z/replace % new-node)) text)
                   (until-done (fn [t] (remove-first-component t member)))
                   (add-box {:id box})
                   (box-add {:box box :member member}))
-        (some? pos) (set-attr {:section :boxes :id box :attr :pos :value (pr-str pos)})))))
+        (some? pos) (-> (set-attr {:section :boxes :id box :attr :pos :value (pr-str pos)})
+                        (set-attr {:section (if (exists? data :nodes member) :nodes :boxes)
+                                   :id member :attr :pos :value "[0 0]"}))))))
 
 (defn set-theme
   "Point the top-level :theme at built-in theme `theme` (a name), or

@@ -1,10 +1,11 @@
 (ns simpleviz.manual
-  "Manual layout: top-level nodes and boxes where their :pos [col row]
-  puts them, on a grid of GRID px. The layered layout still arranges what
-  is inside each box; placing moves each top-level element, its contents
-  with it, and routes the edges between top-level elements: level or
-  plumb through what their ends share, else bent once at a right angle.
-  Pure."
+  "Manual layout: nodes and boxes where their :pos [col row] puts them,
+  on a grid of GRID px — top-level ones on the canvas, nested ones inside
+  their box. A box none of whose contents has a :pos keeps its layered
+  inside; one with them grows or shrinks to what it holds. Placing moves
+  each element, its contents with it, and routes the edges between
+  elements that moved apart: level or plumb through what their ends
+  share, else bent once at a right angle. Pure."
   (:require [simpleviz.editor :refer [top-box-of]]))
 
 (def GRID 20)
@@ -13,16 +14,39 @@
 ;; a self-loop and its label above it
 (def ^:private MARGIN (* 2 GRID))
 
+(def ROOT-ORIGIN
+  "Where cell [0 0] of the canvas starts: room for what sticks out of an
+  element there — a self-loop and its label above it."
+  {:x MARGIN :y MARGIN})
+
 (defn cell->xy
-  "The top-left of cell [col row], in layout coordinates."
-  [[col row]]
-  {:x (+ MARGIN (* col GRID)) :y (+ MARGIN (* row GRID))})
+  "The top-left of cell [col row] counted from `origin` (the canvas's
+  by default)."
+  ([cell] (cell->xy cell ROOT-ORIGIN))
+  ([[col row] origin]
+   {:x (+ (:x origin) (* col GRID)) :y (+ (:y origin) (* row GRID))}))
 
 (defn xy->cell
-  "The cell whose top-left is nearest x y — never left of or above cell 0."
-  [x y]
-  [(max 0 (js/Math.round (/ (- x MARGIN) GRID)))
-   (max 0 (js/Math.round (/ (- y MARGIN) GRID)))])
+  "The cell, counted from `origin` (the canvas's by default), whose
+  top-left is nearest x y — never left of or above cell 0."
+  ([x y] (xy->cell x y ROOT-ORIGIN))
+  ([x y origin]
+   ;; Math.max, not max: rounding -0.3 gives -0, which max keeps
+   [(js/Math.max 0 (js/Math.round (/ (- x (:x origin)) GRID)))
+    (js/Math.max 0 (js/Math.round (/ (- y (:y origin)) GRID)))]))
+
+(defn- up-to-grid [v] (* GRID (js/Math.ceil (/ v GRID))))
+
+;; a box's padding when its layout doesn't carry one (transform/to-elk
+;; puts :pad on every box with contents)
+(def ^:private DEFAULT-PAD {:top 40 :left 14 :bottom 14 :right 14})
+
+(defn- inner-origin
+  "Where cell [0 0] inside box `b` starts, relative to the box: past its
+  padding, rounded up to the grid — on a box on a cell, the canvas's grid."
+  [b]
+  (let [pad (or (:pad b) DEFAULT-PAD)]
+    {:x (up-to-grid (:left pad)) :y (up-to-grid (:top pad))}))
 
 ;; the gap above the row of elements that have no :pos yet
 (def ^:private STRIP-GAP 40)
@@ -33,7 +57,7 @@
   (if-let [b (top-box-of parent-of id)] (str "b:" b) id))
 
 (defn- pos-of
-  "The [col row] of top-level elk id `id` in graph g, or nil."
+  "The [col row] of elk id `id` in graph g, or nil."
   [g id]
   (if (.startsWith id "n:")
     (:pos (get (:nodes g) (.slice id 2)))
@@ -41,19 +65,25 @@
 
 (defn manual?
   "Is graph g laid out by hand: has a top-level node or box a :pos? (The
-  server keeps :pos on top-level elements only.) In a comparison, a
-  removed element's :pos is the old file's and doesn't count."
+  server keeps a nested :pos only when its boxes, up to the top level,
+  have one too.) In a comparison, a removed element's :pos is the old
+  file's and doesn't count."
   [g]
   (let [placed? (fn [el] (and (some? (:pos el)) (not= "removed" (:diff el))))]
     (boolean (or (some placed? (js/Object.values (or (:nodes g) {})))
                  (some placed? (or (:boxes g) []))))))
 
 (defn with-pos
-  "Graph g with top-level elk id `id` at cell `pos` — a drag's preview."
+  "Graph g with elk id `id` at cell `pos` — a drag's preview."
   [g id pos]
   (if (.startsWith id "n:")
     (assoc-in g [:nodes (.slice id 2) :pos] pos)
     (assoc-in g [:boxes-by-name (.slice id 2) :pos] pos)))
+
+(defn with-cells
+  "Graph g with each elk id of `cells` ({id [col row]}) at its cell."
+  [g cells]
+  (reduce (fn [g [id cell]] (with-pos g id cell)) g cells))
 
 (defn snapshot
   "{elk-id [col row]}: the cell nearest each top-level element of a
@@ -219,33 +249,90 @@
                     (map (fn [l] {:x (+ (:x l) (:width l)) :y (+ (:y l) (:height l))}) (or (:labels e) []))))
           edges))
 
+(defn- hand-placed?
+  "Are the contents of layout element (or root) `c` placed by hand: has
+  one of them a :pos in g?"
+  [g c]
+  (boolean (some #(some? (pos-of g (:id %))) (or (:children c) []))))
+
+(defn- place-on-cells
+  "Elements `kids` of one container, each on its :pos cell counted from
+  `origin`, those without one in a row under the rest."
+  [g kids origin]
+  (let [cell (fn [c] (some-> (pos-of g (:id c)) (cell->xy origin)))
+        bottom (reduce max (:y origin) (keep (fn [c] (when-let [p (cell c)] (+ (:y p) (:height c)))) kids))
+        strip-y (up-to-grid (+ bottom STRIP-GAP))]
+    (loop [cs kids x (:x origin) out []]
+      (if (empty? cs)
+        out
+        (let [c (first cs)]
+          (if-let [p (cell c)]
+            (recur (rest cs) x (conj out (merge c p)))
+            (recur (rest cs)
+                   (up-to-grid (+ x (:width c) STRIP-GAP))
+                   (conj out (assoc c :x x :y strip-y)))))))))
+
+(defn- place-box
+  "Box `b` with its contents placed — innermost first, as their sizes
+  set its own: on their cells when it is placed by hand inside, and
+  then as big as they need, else as laid out. `manual` (a js/Set)
+  collects the boxes placed by hand inside."
+  [g b manual]
+  (if (empty? (or (:children b) []))
+    b
+    (let [kids (mapv #(place-box g % manual) (:children b))]
+      (if (hand-placed? g b)
+        (let [pad (or (:pad b) DEFAULT-PAD)
+              kids' (place-on-cells g kids (inner-origin b))]
+          (.add manual (:id b))
+          (assoc b :children kids'
+                 :width (max (or (:width (:min b)) 0)
+                             (+ (reduce max 0 (map #(+ (:x %) (:width %)) kids')) (:right pad)))
+                 :height (max (or (:height (:min b)) 0)
+                              (+ (reduce max 0 (map #(+ (:y %) (:height %)) kids')) (:bottom pad)))))
+        (assoc b :children kids)))))
+
+(defn- ancestors-of
+  "Elk id `id`'s boxes, innermost first, as elk ids."
+  [parent-of id]
+  (loop [b (get parent-of id) out []]
+    (if (nil? b) out (recur (get parent-of (str "b:" b)) (conj out (str "b:" b))))))
+
+(defn- child-of
+  "The element directly in container `k` (elk id, or \"root\") holding
+  elk id `id` — `id` itself when it is directly in `k`."
+  [parent-of k id]
+  (let [chain (into [id] (ancestors-of parent-of id))]
+    (if (= k "root")
+      (last chain)
+      (some (fn [[inner outer]] (when (= outer k) inner)) (map vector chain (rest chain))))))
+
 (defn place
-  "Layered `layout` of graph g with each top-level element moved to its
-  :pos cell, and those without one in a row under the rest. Edges inside
-  a box move with it; a self-loop on a top-level element moves with that;
-  every other edge between top-level elements is routed by route-edge."
+  "Layered `layout` of graph g with each element that has a :pos moved
+  to its cell — counted inside its box for a nested one — and those
+  without one, in a container placed by hand, in a row under the rest.
+  An edge whose ends kept their places relative to one another moves
+  along (a self-loop, an edge inside a box laid out as before); every
+  other edge in a container placed by hand is routed by route-edge."
   [layout g]
-  (let [kids (or (:children layout) [])
-        cell (fn [c] (some-> (pos-of g (:id c)) cell->xy))
-        bottom (reduce max 0 (keep (fn [c] (when-let [p (cell c)] (+ (:y p) (:height c)))) kids))
-        strip-y (* GRID (js/Math.ceil (/ (+ bottom STRIP-GAP) GRID)))
-        kids' (loop [cs kids x MARGIN out []]
-                (if (empty? cs)
-                  out
-                  (let [c (first cs)]
-                    (if-let [p (cell c)]
-                      (recur (rest cs) x (conj out (merge c p)))
-                      (recur (rest cs)
-                             (* GRID (js/Math.ceil (/ (+ x (:width c) STRIP-GAP) GRID)))
-                             (conj out (assoc c :x x :y strip-y)))))))
-        delta (into {} (map (fn [old new] [(:id old) {:x (- (:x new) (:x old)) :y (- (:y new) (:y old))}])
-                            kids kids'))
+  (let [manual (js/Set.)
+        kids (mapv #(place-box g % manual) (or (:children layout) []))
+        kids' (place-on-cells g kids ROOT-ORIGIN)
         placed (assoc layout :children kids')
+        _ (.add manual "root")
+        old-rects (abs-rects layout)
         rects (abs-rects placed)
         po (:parent-of g)
+        origin (fn [rs k] (if (= k "root") {:x 0 :y 0} (.get rs k)))
+        ;; how far elk id `id` moved inside container k
+        moved (fn [k id]
+                (let [o (origin old-rects k) n (origin rects k)
+                      a (.get old-rects id) b (.get rects id)]
+                  {:x (- (- (:x b) (:x n)) (- (:x a) (:x o)))
+                   :y (- (- (:y b) (:y n)) (- (:y a) (:y o)))}))
         ;; what an edge may run through: the top-level elements — a box
-        ;; standing for all it holds — and the insides of the boxes
-        ;; holding its ends
+        ;; standing for all it holds — and all inside the top-level
+        ;; elements holding its ends
         tops (mapv #(.get rects (:id %)) kids')
         inside (let [m (js/Map.)]
                  (doseq [[id r] (.entries rects)]
@@ -254,45 +341,102 @@
                        (when-not (.has m k) (.set m k #js []))
                        (.push (.get m k) r))))
                  m)
-        root? (fn [e] (or (nil? (:container e)) (= "root" (:container e))))
+        container (fn [e] (if (nil? (:container e)) "root" (:container e)))
         ;; the edges between the same two elements, either way: how many,
         ;; and how many came before each
         pair (fn [e] (let [s (first (:sources e)) t (first (:targets e))]
                        (js/JSON.stringify (if (< s t) [s t] [t s]))))
-        totals (frequencies (map pair (filter root? (or (:edges layout) []))))
+        routed? (fn [e] (.has manual (container e)))
+        totals (frequencies (map pair (filter routed? (or (:edges layout) []))))
         seen (js/Map.)
         edges (mapv (fn [e]
-                      (if (root? e)
-                        (let [s (first (:sources e))
-                              t (first (:targets e))
-                              st (top-id po s)
-                              tt (top-id po t)]
-                          (cond
-                            (= st tt) (shift-edge e (get delta st))
-                            (and (.has rects s) (.has rects t))
-                            (let [k (pair e) i (or (.get seen k) 0)]
-                              (.set seen k (inc i))
-                              (route-edge e (.get rects s) (.get rects t) i (get totals k)
-                                          (concat tops (.get inside st) (when (not= st tt) (.get inside tt)))))
-                            :else e))
-                        e))
-                    (or (:edges layout) []))]
+                      (let [k (container e)
+                            s (first (:sources e))
+                            t (first (:targets e))]
+                        (cond
+                          (not (routed? e)) e
+                          (not (and (.has rects s) (.has rects t))) e
+                          ;; moved as one: a self-loop, or both ends in an
+                          ;; element whose inside is as laid out
+                          (or (= s t)
+                              (let [ks (child-of po k s)]
+                                (and (= ks (child-of po k t)) (not (.has manual ks)))))
+                          (shift-edge e (moved k s))
+                          :else
+                          (let [kp (pair e) i (or (.get seen kp) 0)
+                                st (top-id po s) tt (top-id po t)]
+                            (.set seen kp (inc i))
+                            (assoc (route-edge e (.get rects s) (.get rects t) i (get totals kp)
+                                               (concat tops (.get inside st) (when (not= st tt) (.get inside tt))))
+                                   :container "root")))))
+                    (or (:edges layout) []))
+        root-edges (filter #(= "root" (container %)) edges)]
     (assoc placed
            :edges edges
            :width (+ GRID (reduce max 0 (concat (map (fn [c] (+ (:x c) (:width c))) kids')
-                                                (map :x (edge-extent edges)))))
+                                                (map :x (edge-extent root-edges)))))
            :height (+ GRID (reduce max 0 (concat (map (fn [c] (+ (:y c) (:height c))) kids')
-                                                 (map :y (edge-extent edges))))))))
+                                                 (map :y (edge-extent root-edges))))))))
 
-(defn top-at
-  "The elk id of the top-level element of a placed layout under point p
-  (root coordinates) — a node before a box, the last drawn first — or
-  nil."
+(defn- under
+  "The elements of placed `layout` under point p (root coordinates),
+  outermost first: [[elk-id parent-id]]."
   [layout p]
-  (let [kids (or (:children layout) [])
-        in? (fn [c] (and (<= (:x c) (:x p) (+ (:x c) (:width c)))
-                         (<= (:y c) (:y p) (+ (:y c) (:height c)))))
-        nodes (filter #(.startsWith (:id %) "n:") kids)
-        boxes (filter #(.startsWith (:id %) "b:") kids)]
-    (:id (or (some #(when (in? %) %) (reverse nodes))
-             (some #(when (in? %) %) (reverse boxes))))))
+  ((fn walk [parent ox oy]
+     (mapcat (fn [c]
+               (let [x (+ ox (:x c)) y (+ oy (:y c))]
+                 (when (and (<= x (:x p) (+ x (:width c))) (<= y (:y p) (+ y (:height c))))
+                   (cons [(:id c) (:id parent)] (walk c x y)))))
+             (or (:children parent) [])))
+   layout 0 0))
+
+(defn element-at
+  "The elk id of the element of a placed layout under point p (root
+  coordinates) — the innermost, a node before a box, the last drawn
+  first — or nil."
+  [layout p]
+  (let [hits (map first (under layout p))]
+    (or (last (filter #(.startsWith % "n:") hits))
+        (last hits))))
+
+(defn- locate
+  "[element parent abs-origin-of-parent] of elk id `id` in placed
+  `layout`, or nil."
+  [layout id]
+  ((fn walk [parent ox oy]
+     (some (fn [c]
+             (if (= id (:id c))
+               [c parent {:x ox :y oy}]
+               (walk c (+ ox (:x c)) (+ oy (:y c)))))
+           (or (:children parent) [])))
+   layout 0 0))
+
+(defn frame
+  "Where elk id `id` sits in placed `layout`, in root coordinates: :at
+  its top-left, :origin where the cells of its container start, and
+  :cell the cell nearest it there; nil when not in the layout."
+  [layout id]
+  (when-let [[c parent po] (locate layout id)]
+    (let [io (if (= "root" (:id parent)) ROOT-ORIGIN (inner-origin parent))
+          origin {:x (+ (:x po) (:x io)) :y (+ (:y po) (:y io))}
+          at {:x (+ (:x po) (:x c)) :y (+ (:y po) (:y c))}]
+      {:origin origin :at at :cell (xy->cell (:x at) (:y at) origin)})))
+
+(defn pins
+  "{elk-id [col row]}: the cells to write along with moving elk id
+  `id` of placed `layout` (of graph g), so that nothing else jumps: in
+  each container up to it not yet placed by hand, all it holds where it
+  is now; each box holding it that has no :pos yet, where it is now."
+  [layout g id]
+  (let [boxes (reverse (ancestors-of (:parent-of g) id))
+        chain (map vector (cons "root" boxes) (concat boxes [id]))
+        node-of (fn [k] (if (= k "root") layout (first (locate layout k))))]
+    (reduce (fn [out [k next-id]]
+              (let [c (node-of k)]
+                (cond
+                  (not (hand-placed? g c))
+                  (into out (map (fn [kid] [(:id kid) (:cell (frame layout (:id kid)))]) (:children c)))
+                  (and (not= next-id id) (nil? (pos-of g next-id)))
+                  (assoc out next-id (:cell (frame layout next-id)))
+                  :else out)))
+            {} chain)))

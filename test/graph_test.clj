@@ -450,18 +450,30 @@
     (is (= [0 10] (:pos (first (:boxes g)))))
     (is (nil? (get-in g [:nodes "c" :pos])))))
 
-(deftest pos-warns-when-nested-or-malformed
-  (let [g (graph/normalize {:nodes {:a {:pos [1 1]} :b {:pos [-1 0]} :c {:pos "x"} :d {:pos [1.5 2]}}
+(deftest pos-places-nested-elements-inside-placed-boxes
+  ;; a nested :pos counts when every box around it has one too
+  (let [g (graph/normalize {:nodes {:a {:pos [1 1]} :b {:pos [2 0]} :c {}}
+                            :boxes {:x {:pos [0 0] :components #{:a :y}}
+                                    :y {:pos [3 4] :components #{:b :c}}}})]
+    (is (empty? (:warnings g)))
+    (is (= [1 1] (get-in g [:nodes "a" :pos])))
+    (is (= [2 0] (get-in g [:nodes "b" :pos])))
+    (is (= [3 4] (:pos (first (filter #(= "y" (:name %)) (:boxes g))))))))
+
+(deftest pos-warns-when-its-box-has-none-or-malformed
+  (let [g (graph/normalize {:nodes {:a {:pos [1 1]} :b {:pos [-1 0]} :c {:pos "x"} :d {:pos [1.5 2]} :e {:pos [0 0]}}
                             :boxes {:x {:components #{:a :y}}
-                                    :y {:pos [2 2] :components #{}}}})]
+                                    :y {:pos [2 2] :components #{:e}}}})]
     (is (nil? (get-in g [:nodes "a" :pos])))
     (is (nil? (get-in g [:nodes "b" :pos])))
     (is (nil? (:pos (first (filter #(= "y" (:name %)) (:boxes g))))))
-    (is (= #{"node \"a\": :pos only places top-level nodes, ignored"
+    (is (nil? (get-in g [:nodes "e" :pos])) "y's :pos is ignored, so is what's in it")
+    (is (= #{"node \"a\": :pos inside box \"x\" needs \"x\" placed by a :pos too, ignored"
              "node \"b\": :pos must be [col row], whole numbers from 0 to 10000, ignored"
              "node \"c\": :pos must be [col row], whole numbers from 0 to 10000, ignored"
              "node \"d\": :pos must be [col row], whole numbers from 0 to 10000, ignored"
-             "box \"y\": :pos only places top-level boxes, ignored"}
+             "box \"y\": :pos inside box \"x\" needs \"x\" placed by a :pos too, ignored"
+             "node \"e\": :pos inside box \"y\" needs \"y\" placed by a :pos too, ignored"}
            (set (:warnings g))))))
 
 (deftest highlight-takes-true-or-false

@@ -63,19 +63,26 @@
                     ;; :text shows under the header: more room on top, and
                     ;; at least as wide as its lines
                     (let [lines (scene/text-lines (:text (:attrs b)) measure)
-                          pad (update BOX-PADDING :top + (scene/text-height lines))]
-                    {:id (str "b:" (:name b))
-                     :layoutOptions (cond-> {"elk.padding" (padding-str pad)}
-                                      (seq lines)
-                                      (assoc "elk.nodeSize.constraints" "[MINIMUM_SIZE]"
-                                             "elk.nodeSize.minimum"
-                                             (str "(" (+ (js/Math.ceil (scene/text-width lines measure)) 24)
-                                                  ", " (+ (:top pad) (:bottom pad)) ")")))
-                     :children (mapv (fn [c]
-                                       (if (.startsWith c "n:")
-                                         (node-elk (get nodes (.slice c 2)))
-                                         (box-elk (get boxes-by-name (.slice c 2)))))
-                                     (:components b))})))
+                          pad (update BOX-PADDING :top + (scene/text-height lines))
+                          min-size (when (seq lines)
+                                     {:width (+ (js/Math.ceil (scene/text-width lines measure)) 24)
+                                      :height (+ (:top pad) (:bottom pad))})]
+                      (cond-> {:id (str "b:" (:name b))
+                               ;; ELK ignores :pad and :min and hands them
+                               ;; back: what manual/place needs of a box it
+                               ;; sizes itself
+                               :pad pad
+                               :layoutOptions (cond-> {"elk.padding" (padding-str pad)}
+                                                (some? min-size)
+                                                (assoc "elk.nodeSize.constraints" "[MINIMUM_SIZE]"
+                                                       "elk.nodeSize.minimum"
+                                                       (str "(" (:width min-size) ", " (:height min-size) ")")))
+                               :children (mapv (fn [c]
+                                                 (if (.startsWith c "n:")
+                                                   (node-elk (get nodes (.slice c 2)))
+                                                   (box-elk (get boxes-by-name (.slice c 2)))))
+                                               (:components b))}
+                        (some? min-size) (assoc :min min-size)))))
         root-nodes (vec (filter some?
                          (mapv (fn [n] (when (nil? (get parent-of (str "n:" (:id n))))
                                          (node-elk n)))

@@ -238,6 +238,27 @@
             (recur (into (vec (rest todo)) (remove seen kids)) (conj seen b))))
       false)))
 
+(defn- pos-of-member
+  "Member `id`'s :pos in parsed `data` — a node's, else a box's — or nil."
+  [data id]
+  (some (fn [section]
+          (when (map? (get data section))
+            (some (fn [[k v]] (when (and (= id (ident->str k)) (map? v)) (:pos v)))
+                  (get data section))))
+        [:nodes :boxes]))
+
+(defn- drop-pos
+  "Text with member `id`'s :pos gone — a node's, a box's — when it has
+  one: a cell counts from the box an element is in, so it means
+  somewhere else in another."
+  [text id]
+  (reduce (fn [t section]
+            (let [sect (sect-val (zroot t) section)
+                  v (some-> sect (find-val (entry-pred section id)))
+                  k (when (and (some? v) (map? (z/sexpr v))) (find-key v #(= % :pos)))]
+              (if (some? k) (z/root-string (remove-pair k)) t)))
+          text [:nodes :boxes]))
+
 (declare remove-first-component until-done)
 
 (defn box-add
@@ -253,7 +274,8 @@
       (fail! (str "\"" member "\" is already in box \"" box "\"")))
     (when (and (exists? data :boxes member) (inside? data member box))
       (fail! "a box can't go inside its own content"))
-    (let [text (until-done text (fn [t] (remove-first-component t member)))
+    (let [text (-> (until-done text (fn [t] (remove-first-component t member)))
+                   (drop-pos member))
           entry (entry-val (zroot text) :boxes box)
           entry (if (nil? (z/sexpr entry)) (z/replace entry {:components []}) entry)]
       (if-let [comps (find-val entry #(= % :components))]
@@ -296,7 +318,7 @@
       (fail! (str "\"" member "\" is not in box \"" box "\"")))
     (let [comps (find-val (entry-val (zroot text) :boxes box) #(= % :components))
           hit (find-component comps member)
-          text' (z/root-string (z/remove hit))]
+          text' (drop-pos (z/root-string (z/remove hit)) member)]
       (if-let [parent (parent-box data box)]
         (box-add text' {:box parent :member member})
         text'))))
@@ -468,11 +490,14 @@
       (fail! (str (pr-str box) " already exists")))
     (when (contains? (referenced-ids data) box)
       (fail! (str (pr-str box) " is already referenced by an edge or box")))
-    (let [new-node (ident-node box)]
-      (-> (or (edit-first-component text member #(z/replace % new-node)) text)
-          (until-done (fn [t] (remove-first-component t member)))
-          (add-box {:id box})
-          (box-add {:box box :member member})))))
+    (let [new-node (ident-node box)
+          ;; the new box takes the member's place, cell and all
+          pos (pos-of-member data member)]
+      (cond-> (-> (or (edit-first-component text member #(z/replace % new-node)) text)
+                  (until-done (fn [t] (remove-first-component t member)))
+                  (add-box {:id box})
+                  (box-add {:box box :member member}))
+        (some? pos) (set-attr {:section :boxes :id box :attr :pos :value (pr-str pos)})))))
 
 (defn set-theme
   "Point the top-level :theme at built-in theme `theme` (a name), or

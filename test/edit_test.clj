@@ -191,6 +191,25 @@
     (is (= #{"b:inner"} (get boxes "other")))
     (is (= [] warnings))))
 
+(deftest moving-into-or-out-of-a-box-drops-the-cell
+  ;; a :pos counts from the box an element is in: moved to another, its
+  ;; cell would mean somewhere else
+  (let [f "{:nodes {:a {:pos [3 4]} :b {:pos [1 1]}}\n :boxes {:x {:pos [0 0] :components #{:b}}\n         :y {:pos [9 0] :components #{}}}}"
+        into-y (edit/box-add f {:box "y" :member "a"})
+        out-of-x (edit/box-remove f {:box "x" :member "b"})
+        x-to-y (edit/box-add f {:box "y" :member "b"})]
+    (is (nil? (get-in (clojure.edn/read-string into-y) [:nodes :a :pos])))
+    (is (nil? (get-in (clojure.edn/read-string out-of-x) [:nodes :b :pos])))
+    (is (nil? (get-in (clojure.edn/read-string x-to-y) [:nodes :b :pos])))
+    (is (= [9 0] (get-in (clojure.edn/read-string into-y) [:boxes :y :pos])) "the box keeps its own")))
+
+(deftest wrap-hands-the-cell-to-the-new-box
+  (let [out (edit/wrap "{:nodes {:a {:pos [3 4] :name \"A\"}}}" {:box "w" :member "a"})
+        data (clojure.edn/read-string out)]
+    (is (= [3 4] (get-in data [:boxes :w :pos])))
+    (is (nil? (get-in data [:nodes :a :pos])))
+    (is (= "A" (get-in data [:nodes :a :name])))))
+
 (deftest box-add-refuses-a-box-inside-its-own-content
   (let [t "{:nodes {:a {}} :boxes {:outer {:components #{:mid}} :mid {:components #{:inner}} :inner {:components #{:a}}}}"]
     (is (thrown-with-msg? Exception #"a box can't go inside its own content"

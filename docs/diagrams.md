@@ -13,7 +13,7 @@ file in place and keeps its comments.
 ## Data format
 
     ;; optional, top level: :theme — a built-in (:nord, :dracula, …) or {:base :nord :accent "#b58900"}
-    ;; optional, on a top-level node or box: :pos [col row] — placed by hand on a 20 px grid (✥ in the page writes it)
+    ;; optional: :pos [col row] — placed by hand on a 20 px grid, a nested one inside its box (✥ in the page writes it)
     {:nodes {:api {:name "API"           ; display name (defaults to the key)
                    :type "service"       ; free-form; colors the name, shown as (type)
                    :text "Order intake"  ; shown inside the node (boxes too, edges under the label); "\n" or a vector for more lines
@@ -48,7 +48,7 @@ warning banner instead of breaking the render. The guide has
 - [Themes](guide.md#themes) — a built-in theme or your own colors, per file.
 - [Editing](guide.md#editing) — the inspector and the toolbar, in the page.
 - [Manual layout](guide.md#manual-layout) — ✥ places nodes and boxes by
-  hand on a 20 px grid.
+  hand on a 20 px grid, inside boxes too.
 - [Steps](guide.md#steps) — `:steps` lists states of the graph; the page
   animates between them, in a deck too (Next).
 - [Comparing two versions](guide.md#comparing-two-versions) — `simpleviz

@@ -156,12 +156,15 @@ Attributes simpleviz reads:
   "#b58900" :edge "#81a1c1"}` (`#hex`, `rgb()`, `hsl()`; the keys are in
   the [guide's Themes section](https://github.com/sstoehrm/simpleviz/blob/main/docs/guide.md#themes)). It wins over the viewer's choice. An unknown
   name, key or value warns and is skipped.
-- `:pos [col row]` on a top-level node or box places it on a grid of 20 px
-  cells (whole numbers from 0). Once any element has one, the file is laid
-  out by hand: boxes still arrange their insides, edges between top-level
-  elements run level or plumb, or bend once at a right angle. The page writes `:pos` when someone drags; don't
-  invent coordinates unless asked to keep a given arrangement. On a nested
-  element it warns and is ignored.
+- `:pos [col row]` on a node or box places it on a grid of 20 px cells
+  (whole numbers from 0); on a nested one the cells count from its box's
+  inside. Once a top-level element has one, the file is laid out by hand.
+  A box with no `:pos` among its contents still arranges its inside; one
+  with them fits what it holds. Edges between elements placed by hand run
+  level or plumb, or bend once at a right angle. The page writes `:pos`
+  when someone drags; don't invent coordinates unless asked to keep a
+  given arrangement. A nested `:pos` whose box has none warns and is
+  ignored.
 
 - `:highlight true` on a node, box or edge draws a thin ring in the theme's
   accent color, to point at it (false or absent: none; other values

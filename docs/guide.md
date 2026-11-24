@@ -32,9 +32,9 @@ The [Diagrams](diagrams.md#data-format) example shows every attribute simpleviz 
   [Editing docs](#editing-docs)).
 - `:pair` links a node or box to the same thing in another graph file
   (see [Pairs](#pairs)). A paired element gets a ⇄ mark.
-- `:pos [col row]` places a top-level node or box by hand, on a grid of
-  20 px cells (see [Manual layout](#manual-layout)). The page writes it
-  when you drag.
+- `:pos [col row]` places a node or box by hand, on a grid of 20 px
+  cells — a nested one counted inside its box (see
+  [Manual layout](#manual-layout)). The page writes it when you drag.
 - `:theme` at the top level sets the graph's colors (see [Themes](#themes)).
 - `:steps` at the top level lists states of the graph, each a change of
   the one before (see [Steps](#steps)).
@@ -224,13 +224,19 @@ things yourself, press **✥** (top right):
 - The first time, every top-level node and box gets a `:pos [col row]` —
   the grid cell nearest where the layout had it — in one edit (Ctrl+Z
   takes it back). From then on the file is laid out by hand.
-- While ✥ is on, the canvas shows the grid's dots and dragging a top-level
-  node or box moves it, cell by cell; letting go writes its new `:pos`.
-  Drag a box by any part of it — what is inside moves along. ✥ again, or
-  Esc, and dragging pans again.
-- The inside of each box is still laid out automatically, and so are
-  nested nodes and boxes: only top-level elements take a `:pos`.
-- Edges between top-level elements, and into the nodes inside their
+- While ✥ is on, the canvas shows the grid's dots and dragging a node or
+  box moves it, cell by cell, inside what holds it; letting go writes its
+  new `:pos`. A press picks the innermost thing under the pointer, a node
+  before a box: drag a box by its header or an empty part of it — what is
+  inside moves along. ✥ again, or Esc, and dragging pans again.
+- Inside a box, `:pos` counts cells from the box's inside, so a box keeps
+  its contents' cells wherever it goes. Until you drag something inside a
+  box, the box lays its inside out automatically. The first drag inside
+  gives everything in it the cell nearest where it was, in the same edit,
+  and from then on the box fits what it holds: it grows or shrinks as you
+  drag. Nested boxes work the same way, a box in a box being placed in
+  its parent's cells.
+- Edges between elements placed by hand, and into the nodes inside their
   boxes, run level or plumb, however big the boxes are: level when their
   ends share rows — through the middle of the rows they share, several
   edges between the same two spread across them — plumb when they share
@@ -239,16 +245,19 @@ things yourself, press **✥** (top right):
   element, the next of these that doesn't is taken — a level edge may so
   bend round a node in its way — and only when all are blocked does an
   edge cross an element. Edges can run along one another. The label sits
-  in the middle of the longest leg. Edges inside a box are routed as
-  before.
-- A new top-level element without `:pos` waits in a row under the rest
-  until you drag it somewhere.
+  in the middle of the longest leg. Edges inside a box laid out
+  automatically are routed as before.
+- A new element without `:pos` waits in a row under the rest of what
+  holds it until you drag it somewhere. Moving an element into or out of
+  a box drops its `:pos` (it counted from the box it was in); wrapping
+  one in a new box gives the box its cell.
 - **auto** (shown while arranging) drops every `:pos`, after asking: the
   graph is laid out automatically again.
-- Cells count from 0, up to 10000. A `:pos` on a nested element, or one
-  that isn't two whole numbers, warns and is ignored. Moving an element
-  is an edit like any other, so a comparison marks it modified. Arranging
-  needs an editable file and isn't offered while comparing.
+- Cells count from 0, up to 10000. A `:pos` that isn't two whole numbers,
+  or one inside a box that has no `:pos` of its own, warns and is
+  ignored. Moving an element is an edit like any other, so a comparison
+  marks it modified. Arranging needs an editable file and isn't offered
+  while comparing.
 
 ## Steps
 

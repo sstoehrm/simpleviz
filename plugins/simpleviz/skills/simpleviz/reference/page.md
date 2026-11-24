@@ -75,7 +75,7 @@ next, clickable. A toggle at the toolbar's right end switches between every
 tool in a row and one button per first key with pop-outs (saved per
 browser).
 
-✥ places top-level nodes and boxes by hand and writes `:pos`.
+✥ places nodes and boxes by hand, inside boxes too, and writes `:pos`.
 
 Ctrl+Z or ↶ undoes the last edit. The server keeps one undo stack per file,
 shared by all viewers, capped at 100.

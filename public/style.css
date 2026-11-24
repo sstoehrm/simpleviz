@@ -229,7 +229,7 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
 :is(#present-slide, .print-slide) { flex: 1 1 auto; min-height: 0; overflow: auto; display: flex; flex-direction: column;
                  justify-content: safe center; align-items: center; padding: 8vh 7vw;
                  background: var(--panel); color: var(--text);
-                 font: clamp(16px, calc(1.1vw + 9px), 40px)/1.5 system-ui, sans-serif; }
+                 font: clamp(18px, calc(1.25vw + 10px), 46px)/1.5 system-ui, sans-serif; }
 #root.halves #present-slide { padding: 8vh 4vw; }
 :is(#present-slide, .print-slide) > .md-doc { width: 100%; max-width: 46em; }
 :is(#present-slide, .print-slide) :is(h1, h2) { border-bottom: none; }
@@ -265,7 +265,7 @@ textarea.attr-edit { resize: none; overflow-y: hidden; line-height: 1.4;
                                   background: var(--bg); }
 :is(#present-side, .print-side) img { max-width: 92%; max-height: 92%; object-fit: contain; }
 :is(#present-side, .print-side).md { align-items: safe center; padding: 8vh 4vw; background: var(--panel);
-                   font: clamp(14px, calc(.9vw + 8px), 32px)/1.6 system-ui, sans-serif; color: var(--text); }
+                   font: clamp(16px, calc(1vw + 9px), 36px)/1.6 system-ui, sans-serif; color: var(--text); }
 :is(#present-side, .print-side).md > .md-doc { width: 100%; max-width: 46em; }
 :is(#present-side, .print-side) .present-side-error { color: var(--text-muted); font-size: 14px; padding: 24px; }
 /* the deck laid out for its PDF (simpleviz export talk.md talk.pdf): a

@@ -59,15 +59,15 @@ A quiz question takes 2 to 4 choices.
 > [the change](demo.edn?compare=next)
 ?? change
 
-# Should the next version drop the Mailer?
+# Should we drop the Mailer?
 
-The graph beside this text compares demo.edn with demo-next.edn: the Mailer, red and dashed, is gone; Metrics, green, is new.
+Beside, demo.edn against demo-next.edn: the Mailer is gone, Metrics is new.
 
-- [ ] Yes, mail can go through another service
-- [ ] No, the Worker still has mail to send
+- [ ] Yes, mail can go elsewhere
+- [ ] No, the Worker sends mail
 - [ ] Ask the team first
 
-`??` asks without Submit: a click answers, another click changes it, and with no `[x]` it is a poll. Text after the list shows above the choices, like this line.
+`??` asks without Submit, and with no `[x]` it is a poll.
 
 ---
 

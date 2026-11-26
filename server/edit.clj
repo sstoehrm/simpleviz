@@ -503,6 +503,69 @@
                         (set-attr {:section (if (exists? data :nodes member) :nodes :boxes)
                                    :id member :attr :pos :value "[0 0]"}))))))
 
+;; ---- promote a node to a box, demote a box to a node
+
+(defn- move-entry
+  "Text with the entry of `id` moved from section `from` to the end of
+  section `to`, key and value as written (comments and all): a node
+  becomes a box or back with its edges and memberships untouched, as
+  those name it by id alone."
+  [text from to id]
+  (let [k (or (find-key (or (sect-val (zroot text) from) (unknown! from id)) (entry-pred from id))
+              (unknown! from id))
+        key-node (z/node k)
+        val-node (z/node (right-form k))
+        target (ensure-sect (zroot (z/root-string (remove-pair k))) to)]
+    (-> target (z/append-child key-node) (z/append-child val-node) z/root-string)))
+
+(defn- refuse-ambiguous! [data id]
+  (when (and (exists? data :nodes id) (exists? data :boxes id))
+    (fail! (str (pr-str id) " is both a node and a box; rename one in the file"))))
+
+(defn promote
+  "Turn node `id` into a box of the same id, holding nothing yet: its
+  attributes, cell, edges and box membership stay."
+  [text {:keys [id]}]
+  (let [data (parsed text)]
+    (when-not (exists? data :nodes id) (unknown! :nodes id))
+    (refuse-ambiguous! data id)
+    (let [v (some (fn [[k v]] (when (= id (ident->str k)) v)) (:nodes data))]
+      (when-not (or (nil? v) (map? v)) (fail! (str "node " (pr-str id) ": attributes must be a map"))))
+    (set-attr (move-entry text :nodes :boxes id)
+              {:section :boxes :id id :attr :components :value "[]" :fallback false})))
+
+(defn- take-out
+  "Text with `member` out of box `box` and into `parent` (nil: the top
+  level), its cell dropped: a cell counts from the box an element is in."
+  [text box member parent]
+  (let [comps (find-val (entry-val (zroot text) :boxes box) #(= % :components))
+        t (drop-pos (z/root-string (z/remove (find-component comps member))) member)]
+    (if (and (some? parent) (not (contains? (box-components (parsed t) parent) member)))
+      (box-add t {:box parent :member member})
+      t)))
+
+(defn demote
+  "Turn box `id` into a node of the same id: what it held moves beside
+  it, into the box it was in (or to the top level), each member joined to
+  it by an edge unless one is already there. Its attributes, cell, edges
+  and membership stay; components naming nothing are dropped."
+  [text {:keys [id]}]
+  (let [data (parsed text)]
+    (when-not (exists? data :boxes id) (unknown! :boxes id))
+    (refuse-ambiguous! data id)
+    (let [raw (some (fn [[k v]] (when (= id (ident->str k)) (:components v))) (:boxes data))
+          members (->> (when (coll? raw) raw) (map ident->str) distinct
+                       (filter #(and (not= % id) (element-exists? data %))))
+          parent (parent-box data id)
+          paired (edge-pairs data)
+          t (-> (reduce (fn [t m] (take-out t id m parent)) text members)
+                (move-entry :boxes :nodes id))
+          t (if (some? (some-> (entry-val (zroot t) :nodes id) z/sexpr :components))
+              (del-attr t {:section :nodes :id id :attr :components})
+              t)]
+      (reduce (fn [t m] (if (contains? paired #{id m}) t (add-edge t {:from id :to m})))
+              t members))))
+
 (defn set-theme
   "Point the top-level :theme at built-in theme `theme` (a name), or
   remove it when theme is nil or blank. A custom (map) theme is refused
@@ -781,6 +844,8 @@
       "delete-selection" (delete-selection text o)
       "rename" (rename text o)
       "wrap" (wrap text o)
+      "promote" (promote text o)
+      "demote" (demote text o)
       "set-theme" (set-theme text o)
       "paste" (paste text o)
       (fail! (str "unknown op " (pr-str op-name))))))

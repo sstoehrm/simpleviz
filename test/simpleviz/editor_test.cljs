@@ -650,9 +650,14 @@
     (assert/equal (chord-action "node" ["r" "b"] []) "remove-from-box")
     (assert/equal (chord-action "edge" ["f" "r"] []) "follow-ref")
     (assert/equal (chord-action "node" ["f" "m"] []) "open-md")
-    ;; n n is a group now, c n is gone, and kinds still matter
+    ;; c b / c n change a node into a box and back (#246)
+    (assert/equal (chord-action "node" ["c" "b"] []) "to-box")
+    (assert/equal (chord-action "box" ["c" "n"] []) "to-node")
+    ;; n n is a group now, and kinds still matter
     (assert/ok (nil? (chord-action "box" ["n" "n"] [])))
-    (assert/ok (nil? (chord-action "box" ["c" "n"] [])))
+    (assert/ok (nil? (chord-action "node" ["c" "n"] [])))
+    (assert/ok (nil? (chord-action "box" ["c" "b"] [])))
+    (assert/ok (nil? (chord-action "edge" ["c" "b"] [])))
     (assert/ok (nil? (chord-action "node" ["n" "n" "b"] [])))
     (assert/ok (nil? (chord-action "edge" ["a" "e"] [])))
     (assert/ok (nil? (chord-action nil ["d" "d"] [])))
@@ -691,6 +696,8 @@
     (assert/equal (chord-for nil "new-free-box") "n n b")
     (assert/equal (chord-for "box" "new-node-in-box") "n n n")
     (assert/equal (chord-for "node" "new-box") "n b")
+    (assert/equal (chord-for "node" "to-box") "c b")
+    (assert/equal (chord-for "box" "to-node") "c n")
     (assert/ok (nil? (chord-for "edge" "add-to-box")))))
 
 (test "chord-menu lists what comes next, collapsing chains and single chords"

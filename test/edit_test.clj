@@ -804,3 +804,69 @@
            (edit/apply-ops small-file [{:op "set-attr" :section "nodes" :id "a"
                                          :attr a :value "1" :fallback false}]))
         a)))
+
+;; ---- promote a node to a box, demote a box to a node (#246)
+
+(defn- read-edn [t] (clojure.edn/read-string t))
+
+(deftest promote-turns-a-node-into-an-empty-box-keeping-edges-and-membership
+  (let [f "{:nodes {:api {:name \"API\" ;; keep me\n :type \"service\" :pos [2 3]} :db nil}\n :edges {[:api :db] {:direction :->}}\n :boxes {:back {:pos [0 0] :components #{:api :db}}}}"
+        out (edit/promote f {:id "api"})
+        d (read-edn out)]
+    (is (= {:db nil} (:nodes d)))
+    (is (= {:name "API" :type "service" :pos [2 3] :components []} (get-in d [:boxes :api])))
+    (is (= {[:api :db] {:direction :->}} (:edges d)) "the edge now ends at the box")
+    (is (= #{:api :db} (get-in d [:boxes :back :components])) "still in its box")
+    (is (clojure.string/includes? out ";; keep me") "the node's formatting comes along")
+    (is (empty? (:warnings (graph/normalize d))))))
+
+(deftest promote-a-node-without-attributes-or-boxes
+  (is (= {:nodes {} :boxes {:a {:components []}}}
+         (read-edn (edit/promote "{:nodes {:a nil}}" {:id "a"})))))
+
+(deftest promote-refuses-unknown-and-ambiguous-ids
+  (is (thrown-with-msg? Exception #"unknown node \"x\""
+        (edit/promote "{:nodes {:a nil}}" {:id "x"})))
+  (is (thrown-with-msg? Exception #"\"a\" is both a node and a box"
+        (edit/promote "{:nodes {:a nil} :boxes {:a {:components []}}}" {:id "a"}))))
+
+(deftest demote-turns-a-box-into-a-node-beside-its-members-connected-to-each
+  (let [f (str "{:nodes {:api {:pos [1 1]} :db nil :ext nil}\n"
+               " :edges {[:ext :back] {:direction :->} [:db :back] {:name \"x\"}}\n"
+               " :boxes {:zone {:components #{:back :ext}}\n"
+               "         :back {:name \"Backend\" :pos [4 0] :components #{:api :db :inner :gone}}\n"
+               "         :inner {:components [:ghost]}}}")
+        d (read-edn (edit/demote f {:id "back"}))]
+    (is (= {:name "Backend" :pos [4 0]} (get-in d [:nodes :back])) "attributes stay, :components goes")
+    (is (nil? (get-in d [:boxes :back])))
+    (is (= #{:back :ext :api :db :inner} (set (get-in d [:boxes :zone :components])))
+        "the members join the box the demoted one was in")
+    (is (nil? (get-in d [:nodes :api :pos])) "a member's cell counted from the old box")
+    (is (= {[:ext :back] {:direction :->} [:db :back] {:name "x"}
+            [:back :api] nil [:back :inner] nil}
+           (:edges d))
+        "connected to each member it had no edge with yet; unknown members are dropped")
+    (is (= [:ghost] (get-in d [:boxes :inner :components])) "a member box keeps its content")))
+
+(deftest demote-a-top-level-box-puts-its-members-at-the-top
+  (let [d (read-edn (edit/demote "{:nodes {:a nil :b nil}\n :boxes {:g {:components [:a :b]}}}" {:id "g"}))]
+    (is (= {:a nil :b nil :g {}} (:nodes d)))
+    (is (= {} (:boxes d)))
+    (is (= {[:g :a] nil [:g :b] nil} (:edges d)))))
+
+(deftest demote-refuses-unknown-and-ambiguous-ids
+  (is (thrown-with-msg? Exception #"unknown box \"x\""
+        (edit/demote "{:nodes {:a nil}}" {:id "x"})))
+  (is (thrown-with-msg? Exception #"\"a\" is both a node and a box"
+        (edit/demote "{:nodes {:a nil} :boxes {:a {:components []}}}" {:id "a"}))))
+
+(deftest promote-then-demote-gives-the-graph-back
+  (let [f "{:nodes {:api {:name \"API\" :type \"service\"} :db nil}\n :edges {[:api :db] {:direction :->}}\n :boxes {:back {:components [:api :db]}}}"
+        back (-> f (edit/promote {:id "api"}) (edit/demote {:id "api"}))]
+    (is (= (read-edn f) (read-edn back)))))
+
+(deftest promote-and-demote-are-ops
+  (is (= {:boxes {:a {:components []}} :nodes {}}
+         (read-edn (:text (edit/apply-ops "{:nodes {:a nil}}" [{:op "promote" :id "a"}])))))
+  (is (= {:nodes {:a {}} :boxes {}}
+         (read-edn (:text (edit/apply-ops "{:boxes {:a {:components []}}}" [{:op "demote" :id "a"}]))))))

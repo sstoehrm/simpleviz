@@ -439,6 +439,10 @@ the file behind an extra `}`) is a parse error too.
                                      # window (suffix for a compare export, --theme <name>,
                                      # --force to overwrite)
     simpleviz export talk.md talk.pdf   # a deck's slides as a PDF, a page each (--theme, --force)
+    simpleviz tar talk.md            # talk.tar.gz: the file and every file it uses
+                                     # (refs, pairs, links, pictures, slide sides, table
+                                     # and chart data), below talk/; out name as 2nd arg
+                                     # (.tar.gz, .tgz or .tar), --force to overwrite
     simpleviz extract diagram.png    # print the embedded EDN (a compare export embeds both:
                                      # --old for the old one; out.edn arg writes a file)
     simpleviz update                 # install the latest release if newer

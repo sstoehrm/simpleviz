@@ -795,6 +795,28 @@ For an md file, each warning names the line and the link: `line 3: pay.edn not f
 
 `/api/errors` takes `compare=<suffix>` as well, for the comparison a link opens: `/api/errors?file=api.edn&compare=next`.
 
+## Packing a file to share
+
+`simpleviz tar` packs a graph or md file, and every file it uses, into one
+archive. Unpacked anywhere, the file opens as it does here:
+
+    simpleviz tar talk.md                    # talk.tar.gz here, its files below talk/
+    simpleviz tar graph.edn graph.tar        # an uncompressed tar
+    simpleviz tar talk.md --force            # replace an existing archive
+
+- A graph uses the files its `:ref`s and `:pair`s name, and an md file
+  the files its links and pictures name, its slides show beside them,
+  and its table and chart blocks read their data from. The search
+  follows each of those files in turn.
+- A link with `?compare=<suffix>` also packs the fork of the graph and
+  of each file it refs.
+- Only files below the folder of the packed file go in. A link that
+  leaves the folder, or names no file, is skipped with a warning.
+  Web links are left out.
+- The archive is `.tar.gz` (or `.tgz`) unless its name ends in `.tar`.
+  An existing archive is kept unless you pass `--force`.
+- A deck's answers file (`talk.answers.edn`) is not packed.
+
 ## Write locks
 
 Agents and scripts that write a served file directly can coordinate through

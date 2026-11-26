@@ -106,6 +106,7 @@ Without an installer, unpack a tarball from the
     simpleviz promote my-arch.edn next         # make the forks the new originals
     simpleviz export my-arch.edn my-arch.png   # the ⇩ export from the terminal (needs Chrome or Chromium)
     simpleviz export talk.md talk.pdf          # a deck as a PDF, a page per slide
+    simpleviz tar talk.md                      # talk.tar.gz: the deck and every file it uses
 
 `--no-open` prints the URL without opening a browser. The URL carries a
 secret token, new on each start, which keeps other users of the machine

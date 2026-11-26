@@ -1217,7 +1217,7 @@
       "⇩ opens the export menu: PNG downloads the diagram as an image, SVG as a vector drawing, both with the source EDN embedded. Either can be served again, compared, or turned back into EDN with \"simpleviz extract\".")
      (help-section
       "Manual layout"
-      "✥ (top right) places nodes and boxes by hand: the first time, every top-level node and box gets a :pos [col row] on a grid of 20 px cells, where the layout had it (Ctrl+Z takes that back). While ✥ is on, drag a top-level node or box — a box by any part of it, its contents along — and it snaps cell by cell; letting go writes its :pos. ✥ or Esc ends arranging. Boxes still lay out their insides; edges between top-level elements, and into the nodes inside their boxes, run level where their ends share rows, plumb where they share columns, else bend once at a right angle — round an element in the way when they can. auto drops every :pos, after asking.")
+      "✥ (top right) places nodes and boxes by hand: the first time, every top-level node and box gets a :pos [col row] on a grid of 20 px cells, where the layout had it (Ctrl+Z takes that back). While ✥ is on, drag a node or box — a box by its header or an empty part, its contents along — and it snaps cell by cell inside what holds it; letting go writes its :pos, counted inside its box for a nested one. The first drag inside a box places all it holds where it is, in the same edit, and the box then fits what it holds. ✥ or Esc ends arranging. Boxes nobody arranged inside still lay out their insides; edges between elements placed by hand run level where their ends share rows, plumb where they share columns, else bend once at a right angle — round an element in the way when they can. auto drops every :pos, after asking.")
      (help-section
       "Theme"
       "The theme menu at the top picks your theme, one of the twelve built-ins, for every graph without :theme; it's kept in ~/.simpleviz, and default follows your system's light or dark. A graph file can set its own theme instead — :theme :nord, or overrides on one such as {:base :nord :accent \"#b58900\"} — which wins: the menu then shows it, marked (file), and you change it in the file.")]))
@@ -1277,32 +1277,36 @@
 
 (defn- arrange-drag
   "The canvas's drag hook: while arranging a hand-placed graph, a press
-  on a top-level node or box drags it — the view shows it on the cell
-  under the pointer, and letting go writes that cell as its :pos."
+  on a node or box — the innermost under the pointer, a node before a
+  box — drags it inside its container: the view shows it on the cell
+  under the pointer, and letting go writes that cell as its :pos. The
+  first drag inside a box laid out automatically writes, in the same
+  edit, the cells of what else it holds (manual/pins), so nothing jumps."
   [gx gy]
   (let [st @state
         placed (:placed st)
         entry (.get layout-cache (cache-key (:collapsed-boxes st)))]
     (when (and (arranging? st) (some? placed) (some? entry))
-      (when-let [id (manual/top-at placed {:x gx :y gy})]
-        (let [c (first (filter (fn [c] (= id (:id c))) (:children placed)))
-              g (collapse-boxes (:graph st) (:collapsed-boxes st))
-              start (manual/xy->cell (:x c) (:y c))
-              cell (atom start)]
+      (when-let [id (manual/element-at placed {:x gx :y gy})]
+        (let [g (collapse-boxes (:graph st) (:collapsed-boxes st))
+              {:keys [origin at cell]} (manual/frame placed id)
+              pinned (manual/pins placed g id)
+              start cell
+              cur (atom start)]
           {:move (fn [dx dy]
-                   (let [p (manual/xy->cell (+ (:x c) dx) (+ (:y c) dy))]
-                     (when (not= p @cell)
-                       (reset! cell p)
-                       (let [g' (manual/with-pos g id p)
+                   (let [p (manual/xy->cell (+ (:x at) dx) (+ (:y at) dy) origin)]
+                     (when (not= p @cur)
+                       (reset! cur p)
+                       (let [g' (manual/with-cells g (assoc pinned id p))
                              placed' (manual/place (:layout entry) g')]
                          (swap! state assoc :placed placed'
                                 :scene (scene/build-scene {:layout placed' :graph g' :colors (:colors entry)
                                                            :measure canvas/measure}))))))
            ;; Esc mid-drag ended arranging: nothing is written
            :end (fn []
-                  (cond (= @cell start) nil
+                  (cond (= @cur start) nil
                         (not (arranging? @state)) (show-saved-layout!)
-                        :else (-> (post-edit! [(pos-op id @cell)])
+                        :else (-> (post-edit! (mapv (fn [[i c]] (pos-op i c)) (assoc pinned id @cur)))
                                   (.then (fn [_] (when (some? (:edit-error @state)) (show-saved-layout!)))))))
            :cancel show-saved-layout!})))))
 

@@ -1,7 +1,7 @@
 (ns simpleviz.manual-test
   (:require ["node:test" :refer [test]]
             ["node:assert/strict$default" :as assert]
-            [simpleviz.manual :refer [GRID manual? place snapshot top-at with-pos cell->xy xy->cell]]))
+            [simpleviz.manual :refer [GRID manual? place snapshot element-at frame pins with-pos with-cells cell->xy xy->cell]]))
 
 ;; a layered result: a and b at the top level, box x holding c; e0 a
 ;; self-loop on a, e1 from a into the box, e2 inside the box
@@ -94,14 +94,15 @@
       (assert/deepEqual (:pos (get (:boxes-by-name g) "x")) [2 3])
       (assert/deepEqual (:pos (get (:nodes (with-pos graph "n:b" [1 1])) "b")) [1 1]))))
 
-(test "top-at: the top-level element under a point, a node before a box"
+(test "element-at: the element under a point, the innermost first, a node before a box"
   (fn []
     (let [p (place layout graph)]
-      (assert/equal (top-at p {:x 45 :y 45}) "n:a")
-      ;; inside box x, on its node c: the box is what moves
-      (assert/equal (top-at p {:x 255 :y 175}) "b:x")
-      (assert/equal (top-at p {:x 330 :y 210}) "b:x")
-      (assert/ok (nil? (top-at p {:x 150 :y 150}))))))
+      (assert/equal (element-at p {:x 45 :y 45}) "n:a")
+      ;; inside box x, on its node c: the node is what moves
+      (assert/equal (element-at p {:x 255 :y 175}) "n:c")
+      ;; on the box, off its node: the box
+      (assert/equal (element-at p {:x 330 :y 210}) "b:x")
+      (assert/ok (nil? (element-at p {:x 150 :y 150}))))))
 
 (defn- extent
   "[min-x min-y] over a layout's elements, edge points and labels."
@@ -251,3 +252,130 @@
           [s] (:sections (edge (place l g) "e"))]
       (assert/deepEqual [(:startPoint s) (:bendPoints s) (:endPoint s)]
                         [{:x 60 :y 70} [{:x 60 :y 90}] {:x 440 :y 90}]))))
+
+;; ---- inside boxes ----------------------------------------------------------
+
+;; box x (padding 14, 40 on top) holding c, d and the box y, which holds f;
+;; e3 from c to d, e4 a self-loop on c, both inside x; e5 from a to f
+(def nested-layout
+  {:id "root"
+   :children [{:id "n:a" :x 20 :y 20 :width 40 :height 30}
+              {:id "b:x" :x 200 :y 20 :width 300 :height 200
+               :pad {:top 40 :left 14 :bottom 14 :right 14}
+               :children [{:id "n:c" :x 14 :y 40 :width 40 :height 30}
+                          {:id "n:d" :x 100 :y 40 :width 40 :height 30}
+                          {:id "b:y" :x 14 :y 100 :width 68 :height 84
+                           :pad {:top 40 :left 14 :bottom 14 :right 14}
+                           :children [{:id "n:f" :x 14 :y 40 :width 40 :height 30}]}]}]
+   :edges [{:id "e3" :container "b:x" :sources ["n:c"] :targets ["n:d"]
+            :sections [{:startPoint {:x 54 :y 55} :endPoint {:x 100 :y 55}}]}
+           {:id "e4" :container "b:x" :sources ["n:c"] :targets ["n:c"]
+            :sections [{:startPoint {:x 20 :y 40} :bendPoints [{:x 20 :y 30} {:x 40 :y 30}] :endPoint {:x 40 :y 40}}]}
+           {:id "e5" :container "root" :sources ["n:a"] :targets ["n:f"]
+            :sections [{:startPoint {:x 60 :y 35} :endPoint {:x 228 :y 175}}]}]
+   :width 520 :height 240})
+
+(defn- nested-graph [cells]
+  (let [pos (fn [id] (get cells id))
+        el (fn [m id] (cond-> m (some? (pos id)) (assoc :pos (pos id))))]
+    {:nodes {"a" (el {:id "a"} "n:a") "c" (el {:id "c"} "n:c") "d" (el {:id "d"} "n:d") "f" (el {:id "f"} "n:f")}
+     :boxes [(el {:name "x"} "b:x") (el {:name "y"} "b:y")]
+     :boxes-by-name {"x" (el {:name "x"} "b:x") "y" (el {:name "y"} "b:y")}
+     :parent-of {"n:c" "x" "n:d" "x" "b:y" "x" "n:f" "y"}}))
+
+(defn- kid [l & ids] (reduce child l ids))
+
+(test "a box whose contents have no :pos keeps its layered inside"
+  (fn []
+    (let [p (place nested-layout (nested-graph {"n:a" [0 0] "b:x" [10 0]}))]
+      (assert/deepEqual (kid p "b:x" "n:d") (kid nested-layout "b:x" "n:d"))
+      (assert/deepEqual (select-keys (kid p "b:x") [:width :height]) {:width 300 :height 200})
+      (assert/deepEqual (edge p "e3") (edge nested-layout "e3") "its inside edges as laid out"))))
+
+(test "inside a box, :pos is a cell counted from the box's grid-aligned inside"
+  (fn []
+    ;; x's inside starts 20 in (14 rounded up to the grid), 40 down
+    (let [p (place nested-layout (nested-graph {"n:a" [0 0] "b:x" [10 0] "n:c" [0 0] "n:d" [5 2] "b:y" [0 4]}))]
+      (assert/deepEqual (select-keys (kid p "b:x" "n:c") [:x :y]) {:x 20 :y 40})
+      (assert/deepEqual (select-keys (kid p "b:x" "n:d") [:x :y]) {:x 120 :y 80})
+      (assert/deepEqual (select-keys (kid p "b:x" "b:y") [:x :y]) {:x 20 :y 120})
+      (assert/deepEqual (select-keys (kid p "b:x" "b:y" "n:f") [:x :y]) {:x 14 :y 40}
+                        "y's own inside is still layered")
+      ;; on the canvas's grid: x sits on a cell, so its contents do
+      (let [abs-x (+ (:x (kid p "b:x")) (:x (kid p "b:x" "n:d")))]
+        (assert/equal (mod abs-x GRID) 0)))))
+
+(test "a box placed inside grows or shrinks to what it holds"
+  (fn []
+    (let [p (place nested-layout (nested-graph {"n:a" [0 0] "b:x" [10 0] "n:c" [0 0] "n:d" [5 2] "b:y" [0 4]}))
+          x (kid p "b:x")]
+      ;; d ends at 160, y at 204: plus the padding, 14 right and bottom
+      (assert/deepEqual (select-keys x [:width :height]) {:width 174 :height 218}))))
+
+(test "a box never shrinks under the size its text needs"
+  (fn []
+    (let [l (update-in nested-layout [:children 1] assoc :min {:width 400 :height 300})
+          p (place l (nested-graph {"n:a" [0 0] "b:x" [10 0] "n:c" [0 0] "n:d" [1 0] "b:y" [0 4]}))]
+      (assert/deepEqual (select-keys (kid p "b:x") [:width :height]) {:width 400 :height 300}))))
+
+(test "inside a placed box, its contents without :pos wait in a row under the rest"
+  (fn []
+    (let [p (place nested-layout (nested-graph {"n:a" [0 0] "b:x" [10 0] "n:c" [0 0]}))
+          d (kid p "b:x" "n:d")]
+      (assert/ok (>= (:y d) (+ 40 30 GRID)))
+      (assert/equal (mod (:y d) GRID) 0))))
+
+(test "edges inside a placed box are routed like those between top-level elements"
+  (fn []
+    ;; x at 240,40: c at 260,80 (to 300,110), d at 360,120 (to 400,150)
+    (let [p (place nested-layout (nested-graph {"n:a" [0 0] "b:x" [10 0] "n:c" [0 0] "n:d" [5 2] "b:y" [0 4]}))
+          e3 (edge p "e3")
+          [s] (:sections e3)]
+      (assert/equal (:container e3) "root" "routed in the root's coordinates")
+      (assert/deepEqual [(:startPoint s) (:bendPoints s) (:endPoint s)]
+                        [{:x 300 :y 95} [{:x 380 :y 95}] {:x 380 :y 120}]))))
+
+(test "a self-loop inside a placed box moves with its node"
+  (fn []
+    (let [p (place nested-layout (nested-graph {"n:a" [0 0] "b:x" [10 0] "n:c" [1 1] "n:d" [5 2] "b:y" [0 4]}))
+          e4 (edge p "e4")]
+      ;; c went from 14,40 to 40,60 inside x
+      (assert/equal (:container e4) "b:x")
+      (assert/deepEqual (:sections e4)
+                        [{:startPoint {:x 46 :y 60} :bendPoints [{:x 46 :y 50} {:x 66 :y 50}] :endPoint {:x 66 :y 60}}]))))
+
+(test "an edge into a nested box's node is routed to where it is now, round what's in the way"
+  (fn []
+    ;; y at 260,160 inside x; its f at 274,200 (to 314,230); a at 40,40.
+    ;; Into f's top would cross c (260,80 to 300,110): into its side
+    (let [p (place nested-layout (nested-graph {"n:a" [0 0] "b:x" [10 0] "n:c" [0 0] "n:d" [5 2] "b:y" [0 4]}))
+          [s] (:sections (edge p "e5"))]
+      (assert/deepEqual [(:startPoint s) (:bendPoints s) (:endPoint s)]
+                        [{:x 60 :y 70} [{:x 60 :y 215}] {:x 274 :y 215}]))))
+
+(test "frame: an element's cell and the origin its cells count from"
+  (fn []
+    (let [p (place nested-layout (nested-graph {"n:a" [0 0] "b:x" [10 0] "n:c" [0 0] "n:d" [5 2] "b:y" [0 4]}))]
+      (assert/deepEqual (frame p "n:a") {:origin {:x 40 :y 40} :at {:x 40 :y 40} :cell [0 0]})
+      (assert/deepEqual (frame p "n:d") {:origin {:x 260 :y 80} :at {:x 360 :y 120} :cell [5 2]}))))
+
+(test "pins: the cells a drag inside a box writes with it, so nothing else jumps"
+  (fn []
+    (let [g (nested-graph {"n:a" [0 0] "b:x" [10 0]})
+          p (place nested-layout g)]
+      ;; x's inside is layered: all it holds gets its cell there
+      (assert/deepEqual (pins p g "n:d") {"n:c" [0 0] "n:d" [4 0] "b:y" [0 3]})
+      ;; deeper: y's inside too
+      (assert/deepEqual (pins p g "n:f") {"n:c" [0 0] "n:d" [4 0] "b:y" [0 3] "n:f" [0 0]})
+      ;; top level: nothing more
+      (assert/deepEqual (pins p g "n:a") {})
+      ;; a box in the row of the unplaced gets its cell first
+      (let [g2 (nested-graph {"n:a" [0 0]})
+            p2 (place nested-layout g2)]
+        (assert/deepEqual (get (pins p2 g2 "n:c") "b:x") (:cell (frame p2 "b:x")))))))
+
+(test "with-cells gives several elements their cells"
+  (fn []
+    (let [g (with-cells (nested-graph {}) {"n:c" [1 2] "b:y" [3 4]})]
+      (assert/deepEqual (get-in g [:nodes "c" :pos]) [1 2])
+      (assert/deepEqual (get-in g [:boxes-by-name "y" :pos]) [3 4]))))

@@ -936,6 +936,36 @@
                   "})()"))]
       (is (= {:placed true :moved [5 3] :b true} r)))))
 
+(deftest manual-layout-drags-inside-a-box
+  ;; with ✥ on, a press on a node inside a box drags that node: letting
+  ;; go writes its cell inside the box, and the cell of what else the box
+  ;; holds, in one edit; the box stays where it was
+  (with-real-browser
+    (let [r (eval-on-served-page
+             path "g.edn" "{:nodes {:a {} :b {} :c {}} :edges {[:a :b] {:direction :->} [:b :c] {:direction :->}} :boxes {:x {:components [:b :c]}}}"
+             (str "(async () => {"
+                  " const sleep = ms => new Promise(res => setTimeout(res, ms));"
+                  " const until = async f => { for (let i = 0; i < 100; i++) { const v = await f(); if (v) return v; await sleep(100); } return null; };"
+                  " const app = await import('./js/simpleviz/app.mjs'), cv = await import('./js/simpleviz/canvas.mjs'), manual = await import('./js/simpleviz/manual.mjs');"
+                  " const st = () => app.state.val;"
+                  " const pos = (src, id) => { const m = src.match(new RegExp(':' + id + ' \\\\{(?:[^}]*\\\\s)?:pos \\\\[(\\\\d+) (\\\\d+)\\\\]')); return m && [+m[1], +m[2]]; };"
+                  " const source = async () => (await fetch('api/source')).text();"
+                  " await until(() => st().scene && document.getElementById('arrange-btn'));"
+                  " document.getElementById('arrange-btn').click();"
+                  " const s1 = await until(async () => { const s = await source(); return pos(s, 'a') && pos(s, 'x') && s; });"
+                  " await until(() => st().placed && st().graph.nodes.a.pos);"
+                  " const start = manual.frame(st().placed, 'n:b').cell;"
+                  " const b = st().scene.items.find(i => i.id === 'n:b');"
+                  " const wrap = document.getElementById('canvas-wrap'), rect = wrap.getBoundingClientRect();"
+                  " const p = cv.to_screen(b.x + b.w / 2, b.y + b.h / 2), k = cv.view.k;"
+                  " const ev = (type, x, y) => wrap.dispatchEvent(new PointerEvent(type, {clientX: rect.left + x, clientY: rect.top + y, bubbles: true, pointerId: 7}));"
+                  " ev('pointerdown', p.x, p.y); ev('pointermove', p.x + 100 * k, p.y + 60 * k); ev('pointerup', p.x + 100 * k, p.y + 60 * k);"
+                  " const s2 = await until(async () => { const s = await source(); return pos(s, 'b') && pos(s, 'c') && s; });"
+                  " return {moved: s2 ? [pos(s2, 'b')[0] - start[0], pos(s2, 'b')[1] - start[1]] : null,"
+                  "         c: !!(s2 && pos(s2, 'c')), x: s2 && pos(s2, 'x').join(' ') === pos(s1, 'x').join(' ')};"
+                  "})()"))]
+      (is (= {:moved [5 3] :c true :x true} r)))))
+
 (deftest select-mode-copies-cuts-and-pastes
   ;; s s and a click select, y y copies, p p pastes with a -1; s r spans a
   ;; rectangle; s a then x x cuts everything, and p p brings it back.

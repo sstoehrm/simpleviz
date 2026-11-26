@@ -386,25 +386,36 @@
   10000)
 
 (defn- resolve-positions
-  "[nodes boxes] with each top-level node's and box's :pos [col row] —
-  its cell in a manual layout — kept as :pos. On a nested element or
-  malformed, it warns and is ignored."
+  "[nodes boxes] with each node's and box's :pos [col row] — its cell in
+  a manual layout, counted inside its box for a nested one — kept as
+  :pos. Malformed, or nested in a box that isn't placed by a :pos
+  itself, it warns and is ignored."
   [nodes boxes parent-of warn!]
-  (let [check (fn [kind kinds pid nm v]
-                (cond
-                  (nil? v) nil
-                  (some? (get parent-of pid))
-                  (do (warn! (str kind " \"" nm "\": :pos only places top-level " kinds ", ignored")) nil)
-                  (not (and (vector? v) (= 2 (count v)) (every? #(and (integer? %) (<= 0 % pos-max)) v)))
-                  (do (warn! (str kind " \"" nm "\": :pos must be [col row], whole numbers from 0 to "
-                                  pos-max ", ignored"))
-                      nil)
-                  :else v))]
-    [(update-vals nodes (fn [n] (if-let [v (check "node" "nodes" (str "n:" (:id n)) (:id n) (get-in n [:attrs :pos]))]
-                                  (assoc n :pos v) n)))
-     (mapv (fn [b] (if-let [v (check "box" "boxes" (:id b) (:name b) (get-in b [:attrs :pos]))]
-                     (assoc b :pos v) b))
-           boxes)]))
+  (let [raw (into {} (concat (map (fn [n] [(str "n:" (:id n)) ["node" (:id n) (get-in n [:attrs :pos])]]) (vals nodes))
+                             (map (fn [b] [(:id b) ["box" (:name b) (get-in b [:attrs :pos])]]) boxes)))
+        well-formed? (fn [v] (and (vector? v) (= 2 (count v)) (every? #(and (integer? %) (<= 0 % pos-max)) v)))
+        ;; does element `pid` keep its :pos: well formed, and its box, if
+        ;; any, keeps one too
+        kept (memoize (fn kept [pid]
+                        (let [[_ _ v] (get raw pid)
+                              box (get parent-of pid)]
+                          (and (well-formed? v) (or (nil? box) (kept (str "b:" box)))))))
+        pos-of (fn [pid]
+                 (let [[kind nm v] (get raw pid)
+                       box (get parent-of pid)]
+                   (cond
+                     (nil? v) nil
+                     (not (well-formed? v))
+                     (do (warn! (str kind " \"" nm "\": :pos must be [col row], whole numbers from 0 to "
+                                     pos-max ", ignored"))
+                         nil)
+                     (not (kept pid))
+                     (do (warn! (str kind " \"" nm "\": :pos inside box \"" box "\" needs \"" box
+                                     "\" placed by a :pos too, ignored"))
+                         nil)
+                     :else v)))]
+    [(update-vals nodes (fn [n] (if-let [v (pos-of (str "n:" (:id n)))] (assoc n :pos v) n)))
+     (mapv (fn [b] (if-let [v (pos-of (:id b))] (assoc b :pos v) b)) boxes)]))
 
 (defn- warn-bad-highlights!
   "A :highlight that is neither true nor false warns; the page draws

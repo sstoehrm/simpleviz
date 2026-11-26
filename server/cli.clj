@@ -18,6 +18,7 @@
             [paths]
             [serve]
             [session]
+            [tarball]
             [themes]))
 
 (def latest-jar-url
@@ -47,6 +48,11 @@
     "       simpleviz fork <graph.edn> <suffix>     copy the graph and every file it refs to"
     "                                               <name>-<suffix>.edn siblings"
     "       simpleviz promote <graph.edn> <suffix>  move each fork over its original file"
+    "       simpleviz tar <graph.edn|doc.md> [<out.tar.gz|out.tgz|out.tar>] [--force]"
+    "                                         pack the file and every file it uses (refs, pairs,"
+    "                                         links, pictures, slide sides, table and chart data,"
+    "                                         compared forks) below a folder named after it;"
+    "                                         default out: <name>.tar.gz here"
     "       simpleviz init <graph.edn|doc.md> [-t|--template <name>]"
     "                                         write a starter file (won't overwrite) from"
     "                                         <name>.edn or <name>.md (default: default) in"
@@ -96,6 +102,30 @@
     (when (paths/md-path? file) (die cmd " works on graph files (.edn, .png or .svg)"))
     (when-not (.isFile (io/file file)) (die "file not found: " file))
     (fork/-main cmd file suffix)))
+
+(defn- tar-cmd [args]
+  (let [force (some #{"--force"} args)
+        args (remove #{"--force"} args)
+        _ (when-not (<= 1 (count args) 2) (usage-error))
+        [file out] args]
+    (reject-flag! file)
+    (reject-flag! out)
+    (when-not (re-find #"(?i)\.(md|edn|png|svg)$" file)
+      (die "tar works on graph files (.edn, .png or .svg) and md files"))
+    (when-not (.isFile (io/file file)) (die "file not found: " file))
+    (let [f (.getCanonicalFile (io/file file))
+          stem (str/replace (.getName f) #"\.[^.]*$" "")
+          out (or out (str stem ".tar.gz"))]
+      (when-not (re-find #"(?i)\.(tar\.gz|tgz|tar)$" out)
+        (die "the archive's name ends in .tar.gz, .tgz or .tar: " out))
+      (when (and (serve/there? out) (not force))
+        (die out " already exists (--force overwrites)"))
+      (let [warn! (fn [m] (binding [*out* *err*] (println (str "simpleviz: warning: " m))))
+            rels (tarball/files (.getParentFile f) (.getName f) warn!)]
+        (try (tarball/write! out (.getParentFile f) rels stem)
+             (catch Exception e (die "cannot write " out ": " (ex-message e))))
+        (doseq [rel rels] (println (str "  " stem "/" rel)))
+        (println (str "wrote " out " (" (count rels) (if (= 1 (count rels)) " file" " files") ")"))))))
 
 (defn- init-args
   "{:file :template} from init's args, the -t/--template flag anywhere;
@@ -387,6 +417,7 @@
       "clean-all" (die "clean-all needs the install.sh launcher (Linux)")
       ("fork" "promote") (fork-cmd cmd more)
       "init" (init-cmd more)
+      "tar" (tar-cmd more)
       "extract" (apply embedded/-main more)
       "export" (export-cmd more)
       "check" (do (when-not (= 1 (count more)) (usage-error))

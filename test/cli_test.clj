@@ -272,6 +272,51 @@
     (is (= 1 (:exit res)))
     (is (str/includes? (:err res) "file not found: nope.edn"))))
 
+(deftest tar-packs-a-deck-and-what-it-uses
+  (with-tmp
+    (fn [tmp]
+      (fs/create-dirs (fs/path tmp "talks"))
+      (spit (str (fs/path tmp "talks/quiz.md")) "> [the demo](demo.edn)\n\n# Q\n\n[gone](gone.edn)\n")
+      (spit (str (fs/path tmp "talks/demo.edn")) "{:nodes {:a {:ref \"sub/api.edn\"}}}")
+      (fs/create-dirs (fs/path tmp "talks/sub"))
+      (spit (str (fs/path tmp "talks/sub/api.edn")) "{:nodes {:b {}}}")
+      (let [res (run-cli ["tar" "talks/quiz.md"] :dir tmp)
+            out (fs/create-temp-dir {:prefix "cli-test-untar"})]
+        (is (= 0 (:exit res)) (:err res))
+        (is (= ["  quiz/quiz.md" "  quiz/demo.edn" "  quiz/sub/api.edn" "wrote quiz.tar.gz (3 files)"]
+               (str/split-lines (:out res))))
+        (is (= "simpleviz: warning: quiz.md: link \"gone.edn\": not found, skipped" (str/trim (:err res))))
+        (p/shell "tar" "-xzf" (str (fs/path tmp "quiz.tar.gz")) "-C" (str out))
+        (is (= "{:nodes {:b {}}}" (slurp (str (fs/path out "quiz/sub/api.edn")))))
+        (fs/delete-tree out))
+      (let [res (run-cli ["tar" "talks/quiz.md"] :dir tmp)]
+        (is (= 1 (:exit res)))
+        (is (= "simpleviz: quiz.tar.gz already exists (--force overwrites)" (str/trim (:err res)))))
+      (is (= 0 (:exit (run-cli ["tar" "talks/quiz.md" "--force"] :dir tmp))))
+      (let [res (run-cli ["tar" "talks/demo.edn" "out/g.tar"] :dir tmp)]
+        (is (= 1 (:exit res)) "the folder of the archive must be there")
+        (is (str/starts-with? (str/trim (:err res)) "simpleviz: cannot write out/g.tar")))
+      (let [res (run-cli ["tar" "talks/demo.edn" "g.tar"] :dir tmp)]
+        (is (= 0 (:exit res)) (:err res))
+        (is (str/ends-with? (str/trim (:out res)) "wrote g.tar (2 files)"))))))
+
+(deftest tar-rejects-bad-arguments
+  (with-tmp
+    (fn [tmp]
+      (spit (str (fs/path tmp "g.edn")) "{:nodes {:a {}}}")
+      (spit (str (fs/path tmp "notes.txt")) "x")
+      (doseq [[args msg] [[["tar"] "usage:"]
+                          [["tar" "g.edn" "a.tar" "b.tar"] "usage:"]
+                          [["tar" "nope.edn"] "file not found: nope.edn"]
+                          [["tar" "notes.txt"] "tar works on graph files (.edn, .png or .svg) and md files"]
+                          [["tar" "g.edn" "g.zip"] "the archive's name ends in .tar.gz, .tgz or .tar: g.zip"]
+                          [["tar" "g.edn" "--gzip"] "unknown option: --gzip"]]]
+        (let [res (run-cli args :dir tmp)]
+          (is (= 1 (:exit res)) (str args))
+          (is (str/includes? (:err res) msg) (str args " " (:err res)))))
+      (is (= #{"g.edn" "notes.txt"} (set (map (comp str fs/file-name) (fs/list-dir tmp))))
+          "nothing was written"))))
+
 (deftest extract-prints-the-embedded-edn
   (let [res (run-cli ["extract" (str proc-util/repo-root "/test/fixtures/embedded.png")])]
     (is (= 0 (:exit res)) (:err res))

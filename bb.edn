@@ -47,6 +47,9 @@
   promote  {:doc "Move each fork over its base file: bb promote graph.edn <suffix>"
             :requires ([fork])
             :task (apply fork/-main "promote" *command-line-args*)}
+  tar      {:doc "Pack a graph or md file and every file it uses: bb tar graph.edn|doc.md [out.tar.gz|.tgz|.tar] [--force]"
+            :requires ([cli])
+            :task (apply cli/-main "tar" *command-line-args*)}
   release  {:doc "Cut a release from a clean, pushed main: bb release vX.Y.Z (sets the plugin versions, commits, tags, pushes both)"
             :requires ([release])
             :task (apply release/-main *command-line-args*)}
@@ -54,8 +57,8 @@
                  :requires ([release])
                  :task (release/check (first *command-line-args*))}
   test:clj {:doc "Run Clojure server tests"
-            :requires ([clojure.test :as t] [server-test] [graph-test] [diff-test] [docs-test] [png-test] [svg-test] [browser-test] [export-test] [edit-test] [log-test] [fork-test] [launcher-test] [install-test] [check-test] [cli-test] [release-test] [notices-test] [paths-test] [pairs-test] [mdlinks-test] [deck-test] [calc-test] [steps-test] [stage-jars-test] [vuln-gate-test] [minify-test] [session-test])
-            :task (let [{:keys [fail error]} (t/run-tests 'graph-test 'server-test 'diff-test 'docs-test 'png-test 'svg-test 'browser-test 'export-test 'edit-test 'log-test 'fork-test 'launcher-test 'install-test 'check-test 'cli-test 'release-test 'notices-test 'paths-test 'pairs-test 'mdlinks-test 'deck-test 'calc-test 'steps-test 'stage-jars-test 'vuln-gate-test 'minify-test 'session-test)]
+            :requires ([clojure.test :as t] [server-test] [graph-test] [diff-test] [docs-test] [png-test] [svg-test] [browser-test] [export-test] [edit-test] [log-test] [fork-test] [launcher-test] [install-test] [check-test] [cli-test] [release-test] [notices-test] [paths-test] [pairs-test] [mdlinks-test] [deck-test] [calc-test] [steps-test] [stage-jars-test] [vuln-gate-test] [minify-test] [session-test] [tarball-test])
+            :task (let [{:keys [fail error]} (t/run-tests 'graph-test 'server-test 'diff-test 'docs-test 'png-test 'svg-test 'browser-test 'export-test 'edit-test 'log-test 'fork-test 'launcher-test 'install-test 'check-test 'cli-test 'release-test 'notices-test 'paths-test 'pairs-test 'mdlinks-test 'deck-test 'calc-test 'steps-test 'stage-jars-test 'vuln-gate-test 'minify-test 'session-test 'tarball-test)]
                     (when (pos? (+ fail error)) (System/exit 1)))}
   test:js  {:doc "Run JS unit tests (compiled squint output)"
             :requires ([babashka.fs :as fs])

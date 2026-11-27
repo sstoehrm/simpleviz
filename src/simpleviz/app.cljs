@@ -242,7 +242,7 @@
 (defn- cancel-id-entry! []
   (swap! state assoc :id-entry nil))
 
-(declare relayout! json-of post-json post-edit! delete! current-edit-target-editable? follow-ref! navigate! run-chord-action!
+(declare relayout! json-of post-json post-edit! convert-kind! delete! current-edit-target-editable? follow-ref! navigate! run-chord-action!
          open-md! save-md! close-md! open-page! root-path! load-nav!
          save-if-dirty! save-before-leaving! follow-link! sync-gutter-scroll!
          follow-to! close-side! start-side! focus-md-start! show-slide! leave-present! pick! submit!
@@ -659,6 +659,8 @@
           {:run (case action "copy" #(copy-selected! false) "cut" #(copy-selected! true) delete-selected!)})
         "paste" {:run #(paste! sel)}
         "rename" {:run #(start-editing! ID-FIELD id)}
+        "to-box" {:run #(convert-kind! (str "b:" id) {:op "promote" :id id})}
+        "to-node" {:run #(convert-kind! (str "n:" id) {:op "demote" :id id})}
         "add-edge" {:label "add edge" :pick {:mode "connect" :from id}
                     :hint "click the target node or box"}
         "add-to-box" {:label "add to box" :pick {:mode "into-box" :member id}
@@ -1205,7 +1207,7 @@
       "Present shows the page as slides: a line of just --- starts the next one, and a slide whose first line is > [text](path) — > and just a link, any other > line stays a quote; >> works too — shows that graph, md file or picture beside its text (a graph link with ?compare=next shows it compared with its fork). → or space steps forward, ← back, Home and End jump; Esc leaves. The graph can be hovered, inspected, panned and collapsed, not edited. A slide whose first line is ?? name asks a question: its - [ ] lines are the choices, [x] the right one; ??? asks for Submit before → goes on, then shows the right choice and the explanation indented under the one picked. The answers are kept in talk.answers.edn beside talk.md.")
      (help-section
       "Keys"
-      "Chords act on the selection, when no text field has focus (the toolbar buttons show them); the first key opens a pop-out of what comes next, which can be clicked too: d d delete · e 1/2/3/4 edge direction → ← ↔ — · c s / c t change an edge's source / target · a e add edge · a b add to box (node) or add a box as member (box) · a n add a node as member (box) — either moves it out of the box it was in · n n n new node (connected to the selected node, or inside the selected box) · n n b new box (inside the selected box) · n n s new node in the selection's box · n n c / n n i new node in the selection's box, connected from / to it · n n e split the selected edge with a new node · n b wrap the selection in a new box · r r rename the id · r n take a node out of the selected box · r b take the selected node out of its box · f r follow the selection's :ref · f p follow the selection's pair (f p 1–9 with several) · f m open the selection's :md-ref doc (Ctrl+S saves it) · s s select mode: click nodes and boxes to add or drop them · s a select all · s r select by dragging a rectangle · then y y copy / x x cut / d d delete them — a box with what it holds, and the edges among them all · p p paste what was copied or cut, here or in another graph (into the selected box; a taken id gets -1). Esc cancels a pending chord and ends select mode; ? toggles this help; Ctrl+Z undoes.")
+      "Chords act on the selection, when no text field has focus (the toolbar buttons show them); the first key opens a pop-out of what comes next, which can be clicked too: d d delete · e 1/2/3/4 edge direction → ← ↔ — · c s / c t change an edge's source / target · c b turn the selected node into a box (it keeps its edges) · c n turn the selected box into a node, what it held beside it and connected to it · a e add edge · a b add to box (node) or add a box as member (box) · a n add a node as member (box) — either moves it out of the box it was in · n n n new node (connected to the selected node, or inside the selected box) · n n b new box (inside the selected box) · n n s new node in the selection's box · n n c / n n i new node in the selection's box, connected from / to it · n n e split the selected edge with a new node · n b wrap the selection in a new box · r r rename the id · r n take a node out of the selected box · r b take the selected node out of its box · f r follow the selection's :ref · f p follow the selection's pair (f p 1–9 with several) · f m open the selection's :md-ref doc (Ctrl+S saves it) · s s select mode: click nodes and boxes to add or drop them · s a select all · s r select by dragging a rectangle · then y y copy / x x cut / d d delete them — a box with what it holds, and the edges among them all · p p paste what was copied or cut, here or in another graph (into the selected box; a taken id gets -1). Esc cancels a pending chord and ends select mode; ? toggles this help; Ctrl+Z undoes.")
      (help-section
       "Steps"
       ":steps in the file lists states of the graph, each an editscript change of the one before ([path op value], op :+ :- :r). Steps (bottom left) shows them — click one, or ◂ ▸; the page animates the change. + adds a step after the one shown: while a step shows, your edits change that step, and the steps after it build on it. Its name, its edits as text (Save, Ctrl+Enter) and delete are under the list. compare with shows what changes from another step to the one shown, read-only, styled like a comparison with a fork; × stops. Presenting, a graph with steps has Next at the bottom right; a slide link with ?step=2 (a number, start or a step's name) shows that step, ?step=1..3 compares step 1 with step 3.")
@@ -3368,6 +3370,14 @@
       (swap! state assoc :edit-error (:error out) :pending-focus nil)
       (do (swap! state assoc :edit-error nil :editing nil)
           (js-await (tick))))))
+
+(defn- ^:async convert-kind!
+  "Post `op`, which turns the selected node into a box or back, and
+  select it under its new scene id `new-elk` once the reload lands — in
+  place, as the layout keeps it where it was."
+  [new-elk op]
+  (swap! state assoc :pending-focus new-elk :focus-center false)
+  (js-await (post-edit! [op])))
 
 (defn- rename-cache-key
   "Cache key k with collapsed box `old` called `new`, unchanged otherwise."

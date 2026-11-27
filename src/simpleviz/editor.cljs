@@ -686,6 +686,8 @@
      [["e" "4"] {"edge" [["direction" "-"] "—"]}]
      [["c" "s"] {"edge" [["retarget" "source"] "change source"]}]
      [["c" "t"] {"edge" [["retarget" "target"] "change target"]}]
+     [["c" "b"] {"node" ["to-box" "turn into box"]}]
+     [["c" "n"] {"box" ["to-node" "turn into node"]}]
      [["a" "e"] (for-kinds elements ["add-edge" "add edge"])]
      [["a" "b"] {"node" ["add-to-box" "add to box"] "box" ["add-box-member" "add box"]}]
      [["a" "n"] {"box" ["add-node-member" "add node"]}]

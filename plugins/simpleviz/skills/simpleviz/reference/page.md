@@ -50,9 +50,12 @@ Toolbar (bottom center):
 - Nodes: "add edge" (pick the endpoint, then name the edge; empty leaves it
   unnamed), "add to box", "new connected node" (`n n n`), "new sibling
   node" (`n n s`), "new connected node, same box" (`n n c`), "new incoming
-  node" (`n n i`), "wrap in box" (`n b`).
-- Boxes: the node tools plus "add node"/"add box" (pick a member), "new
-  node inside" (`n n n`), "new box inside" (`n n b`).
+  node" (`n n i`), "wrap in box" (`n b`), "turn into box" (`c b`: same id,
+  empty; attributes, edges and box membership stay).
+- Boxes: the node tools (but `c b`) plus "add node"/"add box" (pick a
+  member), "new node inside" (`n n n`), "new box inside" (`n n b`), "turn
+  into node" (`c n`: same id; its members move beside it, into its own
+  box or the top level, each joined to it by a new undirected edge).
 - Any element with a string `:ref`: "follow ref" (`f r`), in an EDN-served
   graph, with a clickable trail back; a PNG or SVG target can be reached
   but not followed from.

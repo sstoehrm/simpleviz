@@ -164,6 +164,8 @@ options pop out the same way.
 | `d d` | any | delete; a node or box also loses its edges and its box membership |
 | `e 1` `e 2` `e 3` `e 4` | edge | direction → ← ↔ — |
 | `c s` / `c t` | edge | change source / target (click the new endpoint) |
+| `c b` | node | turn it into a box of the same id, empty; its attributes, edges and box stay |
+| `c n` | box | turn it into a node of the same id; what it held moves beside it, into the box it was in, each connected to it by a new edge (unless one is there) |
 | `a e` | node, box | add edge (click the other endpoint, then name it or leave it empty) |
 | `a b` | node / box | add to a box / add a box as member (click it); it leaves the box it was in |
 | `a n` | box | add a node as member (click it); it leaves the box it was in |

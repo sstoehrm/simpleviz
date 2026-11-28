@@ -207,14 +207,22 @@
                 (let [page (browser/open-page conn)]
                   (try
                     (browser/navigate! page uri)
+                    ;; the refresh to the server comes after the file's load
+                    ;; event and ends a script still running in the file
                     (is (= {:href (str url "/") :root "g.edn"}
-                           (browser/evaluate page (str "(async () => {"
-                                                       " const sleep = ms => new Promise(r => setTimeout(r, ms));"
-                                                       " for (let i = 0; i < 100 && !location.href.startsWith('http'); i++) await sleep(100);"
-                                                       " const root = await (await fetch('api/root')).json();"
-                                                       " return {href: location.href, root: root.path};"
-                                                       "})()")
-                                             15000)))
+                           (loop [tries 50]
+                             (let [r (try (browser/evaluate
+                                           page (str "(async () => {"
+                                                     " if (!location.href.startsWith('http')) return null;"
+                                                     " const root = await (await fetch('api/root')).json();"
+                                                     " return {href: location.href, root: root.path};"
+                                                     "})()")
+                                           15000)
+                                          (catch clojure.lang.ExceptionInfo e
+                                            (if (re-find #"navigated" (ex-message e)) nil (throw e))))]
+                               (if (and (nil? r) (pos? tries))
+                                 (do (Thread/sleep 200) (recur (dec tries)))
+                                 r)))))
                     (finally (browser/close-page page))))))
             (finally (delete!))))
         (finally (proc-util/stop srv) (fs/delete-tree dir) (fs/delete-tree home))))))
